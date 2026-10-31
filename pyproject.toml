@@ -19,6 +19,7 @@ copytrade-pm-handoff = "copytrade_pm.pm_handoff:main"
 copytrade-pm-scope = "copytrade_pm.pm_propr_scope:main"
 copytrade-pm-market-audit = "copytrade_pm.pm_market_audit:main"
 copytrade-pm-research = "copytrade_pm.pm_research:main"
+copytrade-pm-shadow = "copytrade_pm.pm03_cli:main"
 
 [build-system]
 requires = ["hatchling"]

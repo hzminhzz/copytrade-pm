@@ -40,9 +40,8 @@ def test_netting_namespace_and_attribution():
     assert a.external_targets(proposed) == {BTC: D("1"), HIP: D("1")}
     r = a.evaluate(proposed, {BTC: D("100"), HIP: D("100")}, trusted=True, market_known=True)
     assert r["allowed"]
-    a.simulate_fill(
-        BTC, D("1"), D("100"), D("0.2"), accepted=True, allocated={"a": D("2"), "b": D("-1")}
-    )
+    a.internal_cross(BTC, "a", "b", D("1"), D("100"))
+    a.simulate_fill(BTC, D("1"), D("100"), D("0.2"), accepted=True, allocated={"a": D("1")})
     a.mark({BTC: D("101")}, "2026-10-31T04:01:00+00:00")
     a.verify()
     assert a.equity == D("10000.8")
@@ -58,7 +57,7 @@ def test_intraday_floor_persists_and_reset_rejected():
     assert a.halt_reason == "CONTRACTUAL_EQUITY_FLOOR"
     with pytest.raises(ValueError, match="PERSISTS"):
         a.manual_reset(authorization="operator-signed-01", as_of=T)
-    with pytest.raises(ValueError, match="HALT_NO_INCREASE"):
+    with pytest.raises(ValueError, match="CONTRACTUAL_BREACH_PERMANENT"):
         a.simulate_fill(BTC, D("1"), D("40"), D("0"), accepted=True, allocated={"a": D("1")})
 
 
