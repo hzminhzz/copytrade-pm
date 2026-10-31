@@ -1,6 +1,6 @@
 # Architecture: evidence, manager governance, shadow account
 
-**Scope:** the code on `copytrade-pm/main` at `712ce7b` (2026-10-31). This repository was history-filtered from `hyperliquid-expert-ensemble` (see [PROVENANCE](PROVENANCE.md)). It is **not** the production wallet tracker or Telegram consensus engine. Its research code must never import a live broker/order gateway. Read [INDEX](INDEX.md) first.
+**Scope:** the code on `copytrade-pm/main` at `1434f55` (2026-10-31). This repository was history-filtered from `hyperliquid-expert-ensemble` (see [PROVENANCE](PROVENANCE.md)). It is **not** the production wallet tracker or Telegram consensus engine. Its research code must never import a live broker/order gateway. Read [INDEX](INDEX.md) first.
 
 ## Responsibility boundaries
 
