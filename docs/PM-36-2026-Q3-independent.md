@@ -198,11 +198,11 @@ distinct experiment and should not be used as the 92-day wallet ranking.
 Immutable owner-private content-addressed report files on the VPS:
 
 - Source after-fee fill audit: SHA-256
-  `aee7892e484da0cda86db6afb9807967c16db0e28749b1659ef38cb946885b34`,
-  `pm36-2026q3-fills-aee7892e484da0cda86d.json`.
+  `57f4eb4e6b5abdb755a4ee599ba224d5e451e240dd2c78cf202cd764f17a93e9`,
+  `pm36-2026q3-fills-57f4eb4e6b5abdb755a4.json`.
 - Flat-to-flat delayed episode audit: SHA-256
-  `133b7537c26cb75cec13dfea1c63e143ead4a15705022cad0c7943b4f3ecf521`,
-  `pm36-2026q3-episodes-133b7537c26cb75cec13.json`.
+  `0f10be09d577bfef9e749f258e34fe00acc2f13667c2e9180671dda8da66732b`,
+  `pm36-2026q3-episodes-0f10be09d577bfef9e74.json`.
 
 Private directory:
 `/home/quant/.local/share/copytrade/reports/pm36-q3-independent/`.

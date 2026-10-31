@@ -426,12 +426,12 @@ def study(root: Path, generations: tuple[Path, ...] = ()) -> dict:
 
 def save_private_artifact(out: Path, result: dict, kind: str) -> tuple[Path, str]:
     """O_EXCL owner-only SHA-addressed Q3 evidence; never overwrite source."""
-    if kind not in {"fills", "episodes"}:
+    if kind not in {"fills", "episodes", "threepod"}:
         raise ValueError("INVALID_RESEARCH_ARTIFACT_KIND")
     out.mkdir(parents=True, exist_ok=True, mode=0o700)
     if out.stat().st_mode & 0o077:
         raise ValueError("INSECURE_RESEARCH_ARTIFACT_DIRECTORY")
-    payload = (json.dumps(result, sort_keys=True, indent=2, allow_nan=False) + "\\n").encode()
+    payload = (json.dumps(result, sort_keys=True, indent=2, allow_nan=False) + "\n").encode()
     digest = sha256(payload).hexdigest()
     path = out / f"pm36-2026q3-{kind}-{digest[:20]}.json"
     if path.exists():
