@@ -146,6 +146,28 @@ The checked-in fixture is fabricated, and the CLI works entirely offline. `pm03_
 
 [PM-04 contract](PM-04-shadow-hardening.md) and [18-case/fault acceptance matrix](PM-04-acceptance.md) extend the existing `copytrade-pm-shadow` CLI with action `compare_pm04` and the `pm04_compare_input_v1` JSON schema. Verified offline example: `uv run --group dev copytrade-pm-shadow --input examples/pm04_synthetic_comparison.json --output-dir /tmp/copytrade-pm04-shadow-demo-issue12`. The fixture is invented, not actual wallet signals. The reproducible schema builder is in `tests/test_pm04_compare.py`; use only named synthetic fixtures. It runs identical signed-target research input under `IMMEDIATE`, `BATCHED`, `ASYMMETRIC` execution policies using the sole PM-03 replay engine. `PM04_BROKER` receipts are read-only; they cannot become real fills by setting a flag. All real provider observations and signed snapshots remain **unverified**, so `broker_required=True` blocks new-risk simulation without independently supplied reconciled evidence. Never supply broker credentials. Incomplete immutable output should be preserved; replay into a new private output directory instead of overwriting it. For the independent PR #13 reviewer corrections, run `uv run --extra market --group dev python -m pytest -q tests/test_pm04_review_regressions.py`: `pending_reductions` records only *broker-net* exit-to-flat, while `pending_pod_reductions` records virtual pod exposure still requiring exit even when broker net is flat. `pending_reversals` holds any opposite-net new-risk residual until a separate authorization contract; never submit that residual as a reduction or clear it on a clock tick. For broker source-clock safety, run `uv run --extra market --group dev python -m pytest -q tests/test_pm04_broker_timestamps.py`. `PM04_BROKER` evidence must keep independent source `event_at` and receipt `first_known_at`: a late receipt of an old position/balance/fee snapshot cannot establish current broker readiness, discharge a canceled-order reservation, or resolve a reconnect gap. After the broker source-state age exceeds `broker_max_age_seconds`, mark NOT READY, restore conservative order reservations, and preserve account HALT until separately authorized reset.
 
+## 5b. Portfolio C E1/E2/E3 historical-to-PM04 research (isolated branch)
+
+**Current experimental branch only; not merged/mainline, no broker adapter.** The [2026Q3 Portfolio C report](PORTFOLIO-C-2026Q3-E123.md) records the dated 12-run study, its 16 exact native research instruments, blocked HIP-3 market minutes and SHA source lineage.
+
+Use `uv run --frozen --group dev --extra market python -m copytrade_pm.pm_portfolio_c_driver --help` for the exact `--prepare` and single-run flags. The `--prepare` command requires the *verified original Q3 fill and episode report paths*, four audited private overlay generations, the frozen post-period display snapshot and native ml4t-data store. It writes a uniquely SHA-addressed private input; do **not** substitute unverified vendor books or loosen global `pm_propr_scope`. Use a fresh owner-only `--out` directory per method/policy/cost combination. For the 2026-10-31 frozen run:
+
+```bash
+INPUT=/home/quant/.local/share/copytrade/reports/portfolio-c-e123-20261031/portfolio-c-input-202b6b46a7116ae8751e.json
+MARKET=/home/quant/dev/quant/ml4t-data/.data/store
+uv run --frozen --group dev --extra market python -m copytrade_pm.pm_portfolio_c_driver \
+  --input "$INPUT" --market-root "$MARKET" --method E2 \
+  --execution IMMEDIATE --cost-multiplier 1 \
+  --out /home/quant/.local/share/copytrade/reports/portfolio-c-e123-20261031/new-sealed-e2-example
+
+# Re-apply the actual sealed PM-03/PM-04 event ledger for read-only stress:
+uv run --frozen --group dev --extra market python -m copytrade_pm.pm_portfolio_c_stress \
+  --input "$INPUT" --result /path/to/exact-sha-addressed-result.json \
+  --out /home/quant/.local/share/copytrade/reports/portfolio-c-e123-20261031/new-stress-example
+```
+
+**Interpretation:** output `BLOCKED_DATA_OR_ENGINE` with `MISSING_EXACT_1M_BAR` is an incomplete PnL path, not a zero return or a completed profit challenge. Quiet HIP-3 session gaps are censored only if *no action or exit is due*; account floors in unmarked intervals remain unverified. Source event time is an ex-post oracle, **not** first-known follower latency. All observed Propr HIP-3 symbols are research-tentative only. The frozen 36-wallet historical replay and synthetic PM03/PM04 rulebook gates are unchanged. No live orders or authorization.
+
 ## 6. Complete entry-point map
 
 | Invocation | Safe network class | Purpose |
@@ -167,6 +189,8 @@ The checked-in fixture is fabricated, and the CLI works entirely offline. `pm03_
 | `python -m copytrade_pm.pm_hyperx_forward` | **Network when invoked** | Bounded WS first-local receipt capture |
 | `python -m copytrade_pm.pm_hyperx_account_triage` | **Network when invoked** | Vendor funding/margin/account state triangulation |
 | `python -m copytrade_pm.pm_chd_target_1m` / `pm_chd_hip3_1m` | **Network + external market writes** | Strict gated native minute-day acquisition in ml4t-data |
+| `python -m copytrade_pm.pm_portfolio_c_driver` | Offline | Isolated Q3 Portfolio C historical-oracle shared-account PM-04 research; all 12 interrupted by market gaps |
+| `python -m copytrade_pm.pm_portfolio_c_stress` | Offline | Read-only stress of immutable PM-03/PM-04 historical signed positions |
 
 Source-entry names for the first eight are pinned in `pyproject.toml`. The final modules are valid Python `-m` entrypoints, **not** separate project scripts. Network tools require pre-existing external client/API dependencies and separate authorization; do not assert they are fully provisioned by the core `uv.lock`.
 

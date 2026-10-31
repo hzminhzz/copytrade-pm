@@ -53,6 +53,10 @@ Wallet research and frozen HyperX roster (PRIVATE, upstream of this repo)
 - Scientific successor [PM-01 Issue #4](https://github.com/hzminhzz/copytrade-pm/issues/4) and [PM-02 Issue #5](https://github.com/hzminhzz/copytrade-pm/issues/5) remain open. PM-03 [Issue #2](https://github.com/hzminhzz/copytrade-pm/issues/2) closed **engineering-only**, not authorized for live trading.
 - Latest verified on `main` for this snapshot: **219 passing market-extra tests**, `uv build` and Ruff, GitHub CI green. These are *dated engineering results*, not a live quote for future commits.
 
+## Experimental branch-only Portfolio C account study
+
+On branch `research/portfolio-c-e123-2026q3`, [Portfolio C Q3 E1/E2/E3 research](PORTFOLIO-C-2026Q3-E123.md) records **12 blocked historical-oracle shared-account scenarios** (CO-001/W015/VS066, $10k synthetic), its exact native HIP-3 source SHAs and three stress diagnostics. This is a research extension above PM-04, not mainline, forward copy signals, or broker authorization. See the branch-only [runbook](RUNBOOK.md#5b-portfolio-c-e1e2e3-historical-to-pm04-research-isolated-branch) for CLI use and failure meanings.
+
 ## Historical documents — use as dated evidence, not an execution playbook
 
 | Document | Safe interpretation |

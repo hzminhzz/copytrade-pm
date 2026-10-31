@@ -8,7 +8,7 @@ Only residual external deltas incur modeled execution costs and capacity caps.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal as D
+from decimal import Decimal as D, ROUND_DOWN
 
 from .pm03_account import Account, Instrument, RiskState, ZERO, clock, number
 
@@ -89,23 +89,46 @@ class CostModel:
 
 
 def _allocate(qty: D, leftovers: dict[str, D]) -> dict[str, D]:
-    """Deterministic sign-consistent pro rata, with exact final remainder."""
+    """Pro rata partial fill; round down and redistribute only unused capacity.
+
+    Decimal pro-rata rounding upward can assign more than a pod has requested.
+    Allocate exact full fills, otherwise floor partials and use spare capacity
+    to settle the exact final residue. Never over-allocate a pod.
+    """
     if not leftovers or not qty:
         return {}
     total = sum((abs(x) for x in leftovers.values()), ZERO)
-    if qty * next(iter(leftovers.values())) < ZERO:
-        raise ValueError("INCOMPATIBLE_ALLOCATION_SIDE")
-    consumed = ZERO
-    result: dict[str, D] = {}
-    keys = sorted(leftovers)
-    for pm in keys[:-1]:
-        part = (qty * abs(leftovers[pm]) / total).quantize(D("0.000000000001"))
-        result[pm] = part
-        consumed += part
-    result[keys[-1]] = qty - consumed
-    if any(abs(x) > abs(leftovers[pm]) for pm, x in result.items()):
+    if total <= ZERO or abs(qty) > total:
         raise ValueError("OVERSIZED_PARTIAL_ALLOCATION")
-    return result
+    if any(q * qty < ZERO for q in leftovers.values() if q):
+        raise ValueError("INCOMPATIBLE_ALLOCATION_SIDE")
+    if abs(qty) == total:
+        return dict(sorted(leftovers.items()))
+    sign = D("1") if qty > ZERO else D("-1")
+    keys = sorted(leftovers)
+    shares: dict[str, D] = {}
+    consumed = ZERO
+    for pm in keys[:-1]:
+        part = min(
+            abs(leftovers[pm]),
+            (abs(qty) * abs(leftovers[pm]) / total).quantize(
+                D("0.000000000001"), rounding=ROUND_DOWN
+            ),
+        )
+        shares[pm] = part
+        consumed += part
+    last = keys[-1]
+    shares[last] = min(abs(leftovers[last]), abs(qty) - consumed)
+    remainder = abs(qty) - sum(shares.values(), ZERO)
+    for pm in keys[:-1]:
+        if remainder <= ZERO:
+            break
+        extra = min(remainder, abs(leftovers[pm]) - shares[pm])
+        shares[pm] += extra
+        remainder -= extra
+    if remainder or any(shares[pm] > abs(leftovers[pm]) for pm in keys):
+        raise ValueError("OVERSIZED_PARTIAL_ALLOCATION")
+    return {pm: sign * shares[pm] for pm in keys if shares[pm]}
 
 
 def execute_targets(

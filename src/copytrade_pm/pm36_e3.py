@@ -13,9 +13,7 @@ ZERO = D("0")
 ONE = D("1")
 
 
-def _returns(
-    history: Sequence[tuple[datetime, D]], decision_time: datetime
-) -> dict[datetime, D]:
+def _returns(history: Sequence[tuple[datetime, D]], decision_time: datetime) -> dict[datetime, D]:
     if decision_time.tzinfo is None or decision_time.utcoffset() is None:
         raise ValueError("DECISION_TIME_MUST_BE_TIMEZONE_AWARE")
     decision_time = decision_time.astimezone(UTC)
@@ -53,10 +51,7 @@ def _multiplier(history: Sequence[tuple[datetime, D]], decision_time: datetime) 
     anchor = decision_utc.replace(minute=0, second=0, microsecond=0)
     if anchor == decision_utc:
         anchor -= HOUR
-    recent = [
-        hourly_returns.get(anchor - HOUR * offset)
-        for offset in range(RECENT_HOURS)
-    ]
+    recent = [hourly_returns.get(anchor - HOUR * offset) for offset in range(RECENT_HOURS)]
     reference = [
         hourly_returns.get(anchor - HOUR * offset)
         for offset in range(RECENT_HOURS, RECENT_HOURS + REFERENCE_HOURS)
@@ -70,6 +65,33 @@ def _multiplier(history: Sequence[tuple[datetime, D]], decision_time: datetime) 
     if recent_vol is None or reference_vol is None or reference_vol <= ZERO:
         return None
     return min(ONE, reference_vol / recent_vol) if recent_vol > ZERO else ONE
+
+
+def session_multiplier(history: Sequence[tuple[datetime, D]], decision_time: datetime) -> D | None:
+    """PIT 7d/previous-28d volatility ratio; gaps are unknown, never zero.
+
+    Require >=48 actual adjacent hourly returns in 7d and >=192 in the
+    preceding 28d. This allows closed HIP-3 sessions without manufacturing
+    across-session returns or using any price at/after the decision.
+    The multiplier cannot exceed one, and a flat/stale window blocks entry.
+    """
+    hourly = _returns(history, decision_time)
+    anchor = decision_time.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
+    if anchor == decision_time.astimezone(UTC):
+        anchor -= HOUR
+    recent = [hourly[t] for i in range(RECENT_HOURS) if (t := anchor - HOUR * i) in hourly]
+    prior = [
+        hourly[t]
+        for i in range(RECENT_HOURS, RECENT_HOURS + REFERENCE_HOURS)
+        if (t := anchor - HOUR * i) in hourly
+    ]
+    if len(recent) < 48 or len(prior) < 192:
+        return None
+    recent_vol = _volatility(recent)
+    prior_vol = _volatility(prior)
+    if recent_vol is None or prior_vol is None or recent_vol <= ZERO or prior_vol <= ZERO:
+        return None
+    return min(ONE, prior_vol / recent_vol)
 
 
 def _reduce_only(current: D, target: D) -> D:
@@ -105,8 +127,6 @@ def size(
             raise ValueError("TARGETS_MUST_BE_FINITE")
         multiplier = _multiplier(histories.get(instrument, ()), decision_time)
         result[instrument] = (
-            _reduce_only(current[instrument], target)
-            if multiplier is None
-            else target * multiplier
+            _reduce_only(current[instrument], target) if multiplier is None else target * multiplier
         )
     return result

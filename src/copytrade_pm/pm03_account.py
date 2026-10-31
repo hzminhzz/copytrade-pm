@@ -264,7 +264,7 @@ class Account:
         if self.last_mark_at is not None and t < clock(self.last_mark_at):
             raise ValueError("BACKDATED_MARK")
         day = t.astimezone(ZoneInfo(self.rulebook.timezone)).date().isoformat()
-        tracked = set(self.quantities) | {
+        tracked = {k for k, q in self.quantities.items() if q} | {
             k for book in self.pm_quantities.values() for k, q in book.items() if q
         }
         if tracked - set(prices):

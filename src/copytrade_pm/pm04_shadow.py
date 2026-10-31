@@ -138,7 +138,12 @@ def _store_intended(state: dict, intended: IntendedVirtualBooks) -> None:
 
 
 def _books(rows: dict[str, dict[str, str]]) -> dict[str, dict[Instrument, D]]:
-    return {p: {Instrument.parse(k): number(q) for k, q in b.items()} for p, b in rows.items()}
+    # Recorded zero intents are not positions. Retaining their keys would
+    # require fresh prices for instruments that were already flattened.
+    return {
+        p: {Instrument.parse(k): number(q) for k, q in b.items() if number(q)}
+        for p, b in rows.items()
+    }
 
 
 def _net(rows: dict[str, dict[str, str]]) -> dict[Instrument, D]:
@@ -192,7 +197,7 @@ def _stats(account: Account, shocks: tuple[dict[Instrument, D], ...] = ()) -> No
         dd_remaining = _positive(limits, "max_drawdown") - drawdown
         data["remaining_daily"] = str(max(ZERO, daily_remaining))
         data["remaining_drawdown"] = str(max(ZERO, dd_remaining))
-        book = account.pm_quantities.get(pod, {})
+        book = {k: q for k, q in account.pm_quantities.get(pod, {}).items() if q}
         stress = ZERO
         if book:
             if not shocks:
@@ -881,7 +886,7 @@ def apply_pm04(account: Account, event: Event, policy: RiskPolicy, mode: str) ->
         raise ValueError("MARKET_OBSERVATION_NOT_YET_KNOWN")
     for quote in observations.values():
         quote.validate(event.decision_at)
-    tracked = set(account.quantities) | {
+    tracked = {k for k, q in account.quantities.items() if q} | {
         k for b in account.pm_quantities.values() for k, q in b.items() if q
     }
     stale = [

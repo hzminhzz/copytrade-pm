@@ -34,11 +34,14 @@ def test_later_source_quantity_transitions_keep_episode_scale_and_sign():
 
 
 def test_flat_episode_quantity_produces_zero_target():
-    assert call(
-        {"BTC": D("0")},
-        {"BTC": D("2")},
-        {"BTC": D("100")},
-    ) == {}
+    assert (
+        call(
+            {"BTC": D("0")},
+            {"BTC": D("2")},
+            {"BTC": D("100")},
+        )
+        == {}
+    )
 
 
 def test_missing_episode_anchor_blocks_all_targets():

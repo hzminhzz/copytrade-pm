@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import fcntl
+from hashlib import sha256
 import json
 import os
 from pathlib import Path
@@ -117,6 +118,12 @@ class Ledger:
             os.chmod(self.path, 0o700)
         self.events_path = self.path / "events.jsonl"
         self.lock_path = self.path / ".writer.lock"
+        # Reuse previously verified JSON rows only when the *entire current*
+        # ledger has the exact same SHA-256 bytes. Unexpected external edits
+        # always trigger a complete chain revalidation, regardless of mtime.
+        self._verified_raw_sha: bytes | None = None
+        self._verified_hash = None
+        self._verified_rows: list[dict] = []
 
     def _secure_file(self, path: Path) -> None:
         if path.is_symlink():
@@ -127,10 +134,17 @@ class Ledger:
     def read(self) -> list[dict]:
         self._secure_file(self.events_path)
         if not self.events_path.exists():
+            self._verified_hash = sha256(b"")
+            self._verified_raw_sha = self._verified_hash.digest()
+            self._verified_rows = []
             return []
         raw = self.events_path.read_bytes()
         if raw and not raw.endswith(b"\n"):
             raise ValueError("TRUNCATED_EVENT_TAIL")
+        hash_state = sha256(raw)
+        raw_sha = hash_state.digest()
+        if raw_sha == self._verified_raw_sha:
+            return self._verified_rows
         try:
             rows = [json.loads(line) for line in raw.splitlines()]
         except (ValueError, UnicodeError) as exc:
@@ -153,6 +167,9 @@ class Ledger:
             ids.add(event.event_id)
             previous = item["sha"]
             last_time = clock(event.decision_at)
+        self._verified_raw_sha = raw_sha
+        self._verified_hash = hash_state
+        self._verified_rows = rows
         return rows
 
     def append(self, event: Event, *, expected_head: str | None = None) -> str:
@@ -190,6 +207,12 @@ class Ledger:
                 os.fsync(directory)
             finally:
                 os.close(directory)
+            # This append held the exclusive writer lock after verifying the
+            # preceding file; extend the incremental content hash and cache.
+            # The next read still SHA-checks *all file bytes* before reuse.
+            self._verified_hash.update(blob)
+            self._verified_raw_sha = self._verified_hash.digest()
+            self._verified_rows.append(item)
             return item["sha"]
         finally:
             fcntl.flock(lockfd, fcntl.LOCK_UN)

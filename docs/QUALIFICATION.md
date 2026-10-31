@@ -59,6 +59,10 @@ The [dated PM-01 Propr coverage study](PM-01-propr-90pct-scope.md) targeted **90
 
 Current scientific trackers: [PM-01 #4](https://github.com/hzminhzz/copytrade-pm/issues/4) and [PM-02 #5](https://github.com/hzminhzz/copytrade-pm/issues/5). No live order/deployment authority.
 
+## Portfolio C historical shared-account diagnostic (2026-10-31)
+
+The branch `research/portfolio-c-e123-2026q3` implements an **offline** historical Q3 source-to-PM04-to-PM03 account replay for CO-001, W015 and conditional VS066 on a synthetic $10k challenge. The [twelve-scenario evidence record](PORTFOLIO-C-2026Q3-E123.md) documents a real native HIP-3 source audit and SHA-sealed risk/account ledger, **but all 12 scenarios stopped before quarter-end on missing exact 1m market evidence**. Intermediate net PnL and stress scenarios cannot establish a 92-day follower return, passing odds, source-wallet independence, qualified manager or broker availability. Some non-action session marks were censored, leaving unverified floor intervals. The 2026-10-30 Propr public display universe is not a historical broker market ID, and reconstructed flat-to-flat source episodes omit carry-in/out and hedge paths. Qualification and live authorization are both **NO**. Keep each raw market gap, aborted scenario and pending exit in immutable evidence; do not tune away these exclusions on the same Q3 window.
+
 ## Decision protocol for new research
 
 1. **Define a narrow falsifiable thesis** and the causal event/decision/fill clock, target universe, horizon and held-out period before seeing outcome returns.
