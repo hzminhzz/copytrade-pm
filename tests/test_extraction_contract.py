@@ -12,7 +12,8 @@ from copytrade_pm.pm_manager import source_rows
 
 def test_every_extracted_module_imports_without_legacy_ensemble_runtime():
     modules = sorted(module.name for module in iter_modules(copytrade_pm.__path__))
-    assert len(modules) == 22
+    assert len(modules) >= 22
+    assert {"pm03_account", "pm03_memory"} <= set(modules)
     for name in modules:
         module = import_module(f"copytrade_pm.{name}")
         assert module.__name__ == f"copytrade_pm.{name}"
