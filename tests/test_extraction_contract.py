@@ -14,6 +14,8 @@ def test_every_extracted_module_imports_without_legacy_ensemble_runtime():
     modules = sorted(module.name for module in iter_modules(copytrade_pm.__path__))
     assert len(modules) >= 22
     assert {"pm03_account", "pm03_memory"} <= set(modules)
+    assert len(modules) >= 23  # Further independent PM-03 modules can coexist.
+    assert "pm_synchronized_challenge" in modules
     for name in modules:
         module = import_module(f"copytrade_pm.{name}")
         assert module.__name__ == f"copytrade_pm.{name}"
