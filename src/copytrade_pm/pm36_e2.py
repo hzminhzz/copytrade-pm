@@ -72,4 +72,8 @@ def size(
     """Scale signed source positions together to fit the single aggregate cap."""
     charge = risk_charge(source, marks, shock=shock, cost_rate=cost_rate)
     multiplier = min(_ONE, STRESS_CAP_USD / charge) if charge else _ONE
-    return {instrument: quantity * multiplier for instrument, quantity in source.items()}
+    targets = {instrument: quantity * multiplier for instrument, quantity in source.items()}
+    while risk_charge(targets, marks, shock=shock, cost_rate=cost_rate) > STRESS_CAP_USD:
+        multiplier = multiplier.next_minus()
+        targets = {instrument: quantity * multiplier for instrument, quantity in source.items()}
+    return targets

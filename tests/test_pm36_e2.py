@@ -22,6 +22,14 @@ def test_common_multiplier_caps_aggregate_stress_and_cost_once():
     assert risk_utilization(targets, marks, shock=shock, cost_rate=cost_rate) <= D("1")
 
 
+def test_rounding_cannot_push_aggregate_risk_over_budget():
+    source = {"A": D("435"), "B": D("61"), "C": D("847")}
+    marks = {"A": D("580"), "B": D("127"), "C": D("971")}
+    shock = dict.fromkeys(source, D("0.1"))
+    result = size(source, marks, shock=shock, cost_rate=D("0.001"))
+    assert risk_charge(result, marks, shock=shock, cost_rate=D("0.001")) <= STRESS_CAP_USD
+
+
 def test_under_cap_positions_are_unchanged_and_utilization_is_exposed():
     source = {"A": D("1")}
     marks = {"A": D("10")}

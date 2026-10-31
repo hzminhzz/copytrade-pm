@@ -27,5 +27,7 @@ No twelve-run outputs, equity curves, funding and execution reconciliation, dete
 - `uv run --frozen --group dev ruff check src tests`: passed.
 - `copytrade-pm-shadow --input examples/pm03_synthetic.json` executed the existing synthetic account example; output SHA-256 `a051987810fbbf3bb6eb0522d9058f341dd0a1d4633577e8b6715ecb82cc6eb0`. This is not an E1/E2/E3 historical run.
 - A synthetic sizing smoke exercised all three pure sizing functions, including an insufficient-volatility-history case. It was not an account-level research run.
+- A deterministic synthetic sample of 10,000 three-leg E2 books confirmed that decimal rounding did not push the calculated stress charge above $60. This is not a historical simulation.
+- Three existing PM-04 synthetic tests covering partial fills and attribution, account-floor overrides, and unfilled hedge exits passed. They are not the requested three-method stress comparison.
 
 Engineering verification applies only to the isolated functions and existing synthetic example. Scientific qualification and live authorization remain absent. The most important prerequisite for credible forward shadow trading is independently observed first-known signals with reconciled source books and independently verified follower outcomes.
