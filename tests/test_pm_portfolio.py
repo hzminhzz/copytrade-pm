@@ -1,7 +1,7 @@
 import pytest
 from datetime import datetime, timezone, timedelta
 
-from ensemble.pm_portfolio import (
+from copytrade_pm.pm_portfolio import (
     Coverage,
     WalletSource,
     KnownPosition,

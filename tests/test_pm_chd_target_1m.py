@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from ensemble.pm_chd_target_1m import fetch_days, _day_grid_quality, _propr_allowlist
-from ensemble.pm_propr_scope import SCOPE_STRICT, SCOPE_TENTATIVE
+from copytrade_pm.pm_chd_target_1m import fetch_days, _day_grid_quality, _propr_allowlist
+from copytrade_pm.pm_propr_scope import SCOPE_STRICT, SCOPE_TENTATIVE
 
 
 def test_day_sha_is_not_completeness_or_executable_capacity():

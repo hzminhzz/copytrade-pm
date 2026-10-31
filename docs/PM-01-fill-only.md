@@ -1,3 +1,5 @@
+> **Package migration:** Commands below now use `copytrade_pm`. Research results and historical evidence classifications are unchanged.
+
 # PM-01 — Fill-only historical replay (36 Hyperliquid wallets)
 
 **Current Propr-specific scope:** [2026-10-31 Propr 90% native market-data target and scoped acquisition](PM-01-propr-90pct-scope.md). It supersedes broad-universe acquisition milestones below: 1,036/1,289 strict Propr crypto days or 1,522/1,990 with tentative HIP-3 after 17 scoped native-day backfills. Four nonhedged, source-gap-free research candidates (W048/W026/W047/VS033) now independently exceed 90% of their own strict Propr crypto day requirements. [Prior direct execution and liquidity audit](PM-01-2026-10-31-direct-execution.md) remains a historical snapshot. Scientific PM qualification is still **BLOCKED_EVIDENCE**.
@@ -26,12 +28,12 @@ ROOT=/home/quant/.local/share/copytrade/reports/five-pod-20261029-research
 MARKET=/home/quant/dev/quant/ml4t-data/.data/store
 OUT=/home/quant/.local/share/copytrade/reports/pm01-36-shadow
 
-$PY -m ensemble.pm_fill_diagnostics --research-root "$ROOT" --summary
-$PY -m ensemble.pm_market_audit --research-root "$ROOT" \
+$PY -m copytrade_pm.pm_fill_diagnostics --research-root "$ROOT" --summary
+$PY -m copytrade_pm.pm_market_audit --research-root "$ROOT" \
     --market-root "$MARKET" --out "$OUT"
-$PY -m ensemble.pm_fill_replay --research-root "$ROOT" \
+$PY -m copytrade_pm.pm_fill_replay --research-root "$ROOT" \
     --market-root "$MARKET" --out "$OUT" --risk-budget 0.10
-$PY -m ensemble.pm_fill_replay --research-root "$ROOT" \
+$PY -m copytrade_pm.pm_fill_replay --research-root "$ROOT" \
     --market-root "$MARKET" --out "$OUT" --risk-budget 0.01
 
 uv run --group dev python -m pytest -q tests
@@ -105,12 +107,12 @@ ROOT=/home/quant/.local/share/copytrade/reports/five-pod-20261029-research
 BASE=/home/quant/.local/share/copytrade/reports/pm01-hyperx-gaps
 OUT=/home/quant/.local/share/copytrade/reports/pm01-36-shadow
 
-$PY -m ensemble.pm_hyperx_overlay_audit --research-root "$ROOT" \
+$PY -m copytrade_pm.pm_hyperx_overlay_audit --research-root "$ROOT" \
     --generations "$BASE/g20261030t1710a" "$BASE/g20261030t1745b" \
       "$BASE/g20261030t1755c" "$BASE/g20261030t1815d" \
     --out "$OUT"
 
-$PY -m ensemble.pm_fill_replay --research-root "$ROOT" \
+$PY -m copytrade_pm.pm_fill_replay --research-root "$ROOT" \
     --market-root /home/quant/dev/quant/ml4t-data/.data/store \
     --out "$OUT" --risk-budget 0.01 \
     --hyperx-generations "$BASE/g20261030t1710a" \
@@ -151,7 +153,7 @@ preserving all user-owned pre-existing dirty/untracked `ml4t-data` code.
   `list_symbols` omits namespaced coins. A direct `io:ANTH` query for
   2026-10-15 returned **139,070 trades**; `para:VST` for the same day
   returned **10,796 trades**. The new bounded
-  `ensemble.pm_chd_hip3_1m` tool reuses
+  `copytrade_pm.pm_chd_hip3_1m` tool reuses
   `ml4t-data/scripts/build_hyperliquid_rwa_1m_from_chd.build`, checks
   the source row namespace and identity, and writes exclusive
   `HYPERLIQUID_IO_PERP/symbol=ANTH` or
@@ -178,7 +180,7 @@ preserving all user-owned pre-existing dirty/untracked `ml4t-data` code.
   alone never proves a specific execution minute has nonzero trades
   or actual order-book liquidity.
 - All 36 wallets now have deterministic evidence cards in
-  `ensemble.pm_fill_cards`. Examples `CA-005`, `W042`, `VS066`
+  `copytrade_pm.pm_fill_cards`. Examples `CA-005`, `W042`, `VS066`
   include frozen source classification, 5/15/60m modeled outcomes,
   missing first-known evidence, missing whole-account equity/collateral
   and explicit **NO QUALIFIED PROSPECTIVE FOLLOWER**. These are
@@ -229,12 +231,12 @@ actual PM-02 CLI against the real all-36 PM-01 fill-only replay.
 
 ### Read-only PM-01 -> PM-02 -> PM-03 contract
 
-1. `ensemble.pm_fill_replay` produces a v2-envelope replay with 36
+1. `copytrade_pm.pm_fill_replay` produces a v2-envelope replay with 36
    wallet identities, 5/15/60-minute modeled P&L, actual per-instrument
    virtual P&L attribution, cash+MTM reconciliation and recorded cost
    assumptions. Any blocked economic scenario has `pnl: null`, never
    fake zero P&L. The v2 schema is required for PM-02 interoperability.
-2. `ensemble.pm_fill_tape` exports
+2. `copytrade_pm.pm_fill_tape` exports
    `pm01_observed_book_tape_v1`, a compact, separate *historical-only*
    source-event tape across all 36 HyperX wallets. It contains directly
    observed signed initial positions and position transitions (including
@@ -243,7 +245,7 @@ actual PM-02 CLI against the real all-36 PM-01 fill-only replay.
    `received_at`/`first_known_at`/`decision_at` are **null** for
    the historical cached source. This tape is **not** an actionable
    intraday follower stream.
-3. `ensemble.pm_handoff` validates both private content-addressed PM-01
+3. `copytrade_pm.pm_handoff` validates both private content-addressed PM-01
    artifacts and the **actual** PM-02 risk governance output, checking
    SHA/content filename lineage, cohort and alias identity, source manifest
    equality, frozen cutoff and decision clock monotonicity. It refuses
@@ -266,20 +268,20 @@ PY=/home/quant/dev/quant/ml4t-data/.venv/bin/python
 ROOT=/home/quant/.local/share/copytrade/reports/five-pod-20261029-research
 OUT=/home/quant/.local/share/copytrade/reports/pm01-36-shadow
 BASE=/home/quant/.local/share/copytrade/reports/pm01-hyperx-gaps
-$PY -m ensemble.pm_fill_tape --research-root "$ROOT" --out "$OUT" \
+$PY -m copytrade_pm.pm_fill_tape --research-root "$ROOT" --out "$OUT" \
     --hyperx-generations "$BASE/g20261030t1710a" \
       "$BASE/g20261030t1745b" "$BASE/g20261030t1755c" \
       "$BASE/g20261030t1815d"
 # PM-02 is independently developed on its own feature branch.
 # Run its CLI against the generated v2 PM-01 replay and then check:
-$PY -m ensemble.pm_handoff --pm01 PATH_TO_SEALED_PM01_V2.json \
+$PY -m copytrade_pm.pm_handoff --pm01 PATH_TO_SEALED_PM01_V2.json \
     --tape PATH_TO_SEALED_PM01_TAPE.json \
     --pm02 PATH_TO_SEALED_PM02.json --out "$OUT"
 ```
 
 ### True forward receipt experiment (HyperX Data API only)
 
-A new, bounded `ensemble.pm_hyperx_forward` module can open a read-only
+A new, bounded `copytrade_pm.pm_hyperx_forward` module can open a read-only
 HyperX `/fills/ws` stream with the user's **existing Data API key** from
 the pinned private source adapter. It never loads a trading token or
 connects to an official Hyperliquid fills API. It writes owner-only,
@@ -307,7 +309,7 @@ earliest local receipt; source contradictions fail closed.
 Bounded one-shot probe (never run without Data API authorization):
 
 ```bash
-$PY -m ensemble.pm_hyperx_forward \
+$PY -m copytrade_pm.pm_hyperx_forward \
     --research-root "$ROOT" \
     --out /home/quant/.local/share/copytrade/reports/pm01-hyperx-prospective/receipts \
     --aliases CA-005 --duration 20 --max-messages 3
@@ -347,7 +349,7 @@ feasibility against qualified PMs yet.
 The owner-authorized read-only HyperX **Data API** exposes separate
 `POST /wallet_analysis/{address}`, `GET /market/trader-funding/{address}`
 and `GET /market/trader-margin-timeline/{address}` endpoints. A new
-`ensemble.pm_hyperx_account_triage` uses the pinned HyperX Data API
+`copytrade_pm.pm_hyperx_account_triage` uses the pinned HyperX Data API
 credential, allows **at most two aliases and three bounded endpoints per
 invocation** (weight upper bound 14), validates exact source address and
 source schema, and stores separate immutable private bytes and SHA-256
@@ -380,7 +382,7 @@ research-only authentication:
 
 ```bash
 PYTHONPATH=src /home/quant/dev/quant/ml4t-data/.venv/bin/python \
-  -m ensemble.pm_hyperx_account_triage \
+  -m copytrade_pm.pm_hyperx_account_triage \
   --research-root /home/quant/.local/share/copytrade/reports/five-pod-20261029-research \
   --generation /home/quant/.local/share/copytrade/reports/pm01-hyperx-account/gNEW_UNIQUE_GENERATION \
   --out /home/quant/.local/share/copytrade/reports/pm01-36-shadow \

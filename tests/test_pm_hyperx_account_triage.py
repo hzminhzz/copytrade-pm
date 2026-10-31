@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from ensemble.pm_hyperx_account_triage import (
+from copytrade_pm.pm_hyperx_account_triage import (
     ENDPOINTS,
     MAX_WALLETS,
     _verify_response,

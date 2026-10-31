@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from ensemble.pm_source_audit import audit_market_defects, audit_pages
-from ensemble.pm_sources import CohortEntry
+from copytrade_pm.pm_source_audit import audit_market_defects, audit_pages
+from copytrade_pm.pm_sources import CohortEntry
 
 
 CUTOFF_MS = 1793294536142

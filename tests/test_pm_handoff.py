@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from ensemble.pm_handoff import validate_handoff
+from copytrade_pm.pm_handoff import validate_handoff
 
 
 def _cohort_fixture():

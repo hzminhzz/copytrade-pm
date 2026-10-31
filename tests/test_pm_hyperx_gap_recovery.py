@@ -11,10 +11,10 @@ from pathlib import Path
 
 import pytest
 
-from ensemble.pm_fill_replay import _source_fills, _same_position
-from ensemble.pm_hyperx_gap_recovery import _post_audit
-from ensemble.pm_hyperx_overlay_audit import _read_pages, _legacy, _source_tuple
-from ensemble.pm_sources import CohortEntry
+from copytrade_pm.pm_fill_replay import _source_fills, _same_position
+from copytrade_pm.pm_hyperx_gap_recovery import _post_audit
+from copytrade_pm.pm_hyperx_overlay_audit import _read_pages, _legacy, _source_tuple
+from copytrade_pm.pm_sources import CohortEntry
 
 BASE = datetime(2026, 10, 20, 12, 0, tzinfo=UTC)
 ADDRESS = "0x" + "1" * 40

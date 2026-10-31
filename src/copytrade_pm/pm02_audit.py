@@ -30,7 +30,7 @@ def verify_report(report: dict) -> str:
         raise ValueError("DECISION_REPORT_HASH_MISMATCH")
     if len(report.get("cards", [])) != 36:
         raise ValueError("DECISION_REPORT_COHORT_INCOMPLETE")
-    if not report.get("live_trading_authorized") is False:
+    if report.get("live_trading_authorized") is not False:
         raise ValueError("DECISION_REPORT_MUST_BE_RESEARCH_ONLY")
     return actual
 

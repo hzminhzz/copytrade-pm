@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from ensemble.pm_portfolio import (
+from copytrade_pm.pm_portfolio import (
     AccountEvent,
     Coverage,
     WalletSource,
@@ -19,15 +19,15 @@ from ensemble.pm_portfolio import (
     classify_transition,
     PortfolioDecision,
 )
-from ensemble.pm_shadow import (
+from copytrade_pm.pm_shadow import (
     MarketDataBlocked,
     MinuteBar,
     Scenario,
     VerifiedHyperliquidMinuteSource,
     replay_shadow,
 )
-from ensemble.pm_research import _write_private_evidence
-from ensemble.pm_sources import ORIGINAL_SIX, WAVE_ONE
+from copytrade_pm.pm_research import _write_private_evidence
+from copytrade_pm.pm_sources import ORIGINAL_SIX, WAVE_ONE
 
 
 BASE = datetime(2026, 10, 20, 12, 0, tzinfo=UTC)

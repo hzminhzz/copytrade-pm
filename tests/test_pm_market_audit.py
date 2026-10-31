@@ -6,8 +6,8 @@ from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 import json
 
-from ensemble.pm_market_audit import _audit_partition, _audit_clocks, LATENCY_MINUTES
-from ensemble.pm_shadow import VerifiedHyperliquidMinuteSource
+from copytrade_pm.pm_market_audit import _audit_partition, _audit_clocks, LATENCY_MINUTES
+from copytrade_pm.pm_shadow import VerifiedHyperliquidMinuteSource
 
 BTC = "hyperliquid:mainnet:perp:default:BTC"
 NVDA = "hyperliquid:mainnet:perp:xyz:NVDA"

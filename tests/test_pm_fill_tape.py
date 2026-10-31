@@ -8,8 +8,8 @@ from hashlib import sha256
 
 import pytest
 
-from ensemble.pm_fill_tape import build_wallet_tape
-from ensemble.pm_sources import CohortEntry
+from copytrade_pm.pm_fill_tape import build_wallet_tape
+from copytrade_pm.pm_sources import CohortEntry
 
 START = datetime(2026, 10, 20, tzinfo=UTC)
 
@@ -107,7 +107,7 @@ def test_fatal_source_error_has_no_executable_or_synthetic_snapshot():
 
 
 def test_cannot_import_new_future_fills_into_frozen_tape():
-    from ensemble.pm_fill_replay import CUT
+    from copytrade_pm.pm_fill_replay import CUT
 
     future = (
         CUT + timedelta(minutes=1),

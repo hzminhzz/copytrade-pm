@@ -6,8 +6,8 @@ from hashlib import sha256
 
 import pytest
 
-from ensemble.pm_fill_cards import build_fill_evidence_cards, REQUIRED_EXAMPLES
-from ensemble.pm_sources import CohortEntry
+from copytrade_pm.pm_fill_cards import build_fill_evidence_cards, REQUIRED_EXAMPLES
+from copytrade_pm.pm_sources import CohortEntry
 
 
 def _cohort():

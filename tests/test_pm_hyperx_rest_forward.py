@@ -8,14 +8,14 @@ import json
 
 import pytest
 
-from ensemble.pm_hyperx_rest_forward import (
+from copytrade_pm.pm_hyperx_rest_forward import (
     _recent_observation,
     ingest_batch,
     parse_pairs,
     MAX_REQUESTS,
 )
-from ensemble.pm_sources import CohortEntry
-import ensemble.pm_hyperx_rest_forward as rest
+from copytrade_pm.pm_sources import CohortEntry
+import copytrade_pm.pm_hyperx_rest_forward as rest
 
 
 ADDRESS = "0x" + "a" * 40
@@ -159,7 +159,7 @@ def test_bounded_authenticated_page_is_private_and_never_economic(monkeypatch, t
     ):
         # We alter the original returned page to force collision with a fixed
         # generation. Without collision the immutable first-observation wins.
-        from ensemble.pm_hyperx_gap_recovery import _atomic
+        from copytrade_pm.pm_hyperx_gap_recovery import _atomic
 
         _atomic(raw[0], b"wrong")
 

@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from ensemble.pm_shadow import MarketDataBlocked, VerifiedHyperliquidMinuteSource
+from copytrade_pm.pm_shadow import MarketDataBlocked, VerifiedHyperliquidMinuteSource
 
 pl = pytest.importorskip("polars")
 

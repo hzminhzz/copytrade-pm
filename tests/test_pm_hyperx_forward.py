@@ -7,7 +7,7 @@ import json
 
 import pytest
 
-from ensemble.pm_hyperx_forward import (
+from copytrade_pm.pm_hyperx_forward import (
     extract_observations,
     store_first_local_receipt,
     MAX_MESSAGES,

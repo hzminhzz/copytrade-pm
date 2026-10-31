@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from ensemble.pm_manager import digest, rank
+from copytrade_pm.pm_manager import digest, rank
 
 ASOF = datetime(2026, 10, 31, tzinfo=UTC)
 ALIASES = ("A", "B")

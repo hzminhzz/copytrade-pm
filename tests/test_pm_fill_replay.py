@@ -14,7 +14,7 @@ import json
 
 import pytest
 
-from ensemble.pm_fill_replay import (
+from copytrade_pm.pm_fill_replay import (
     _read_pair,
     _source_fills,
     _asof_full_book_anchor,
@@ -22,8 +22,8 @@ from ensemble.pm_fill_replay import (
     replay_wallet,
     CUT,
 )
-from ensemble.pm_shadow import MarketDataBlocked, MinuteBar
-from ensemble.pm_sources import CohortEntry
+from copytrade_pm.pm_shadow import MarketDataBlocked, MinuteBar
+from copytrade_pm.pm_sources import CohortEntry
 
 
 ORIGIN = datetime(2026, 10, 20, tzinfo=UTC)

@@ -1,9 +1,11 @@
+> **Package migration:** Commands below now use `copytrade_pm`. Research results and historical evidence classifications are unchanged.
+
 # PM-01 — Legacy Rust observation replay boundary (separate research)
 
 **Priority correction (2026-10-30):** The active PM-01 36-wallet implementation is **fill-only**, from HyperX immutable fills and native Hyperliquid 1-minute OHLCV. Read [PM-01-fill-only.md](PM-01-fill-only.md). This page documents the older optional Rust-observation audit, which is a separate tool: missing Rust observations are NOT a source-history blocker or requirement for PM-01.
 
 Issue: [#3](https://github.com/hzminhzz/hyperliquid-expert-ensemble/issues/3).
-Implementation: `ensemble.pm_sources`, `pm_portfolio`, `pm_shadow`,
+Implementation: `copytrade_pm.pm_sources`, `pm_portfolio`, `pm_shadow`,
 `pm_source_audit`, and `pm_research`. Research-only CLI modules; **not**
 imported by the persistent Telegram runtime. No broker, exchange signer,
 live-order or production-policy side effect.
@@ -92,10 +94,10 @@ ROOT=/home/quant/.local/share/copytrade/reports/five-pod-20261029-research
 MARKET=/home/quant/dev/quant/ml4t-data/.data/store
 OUT=/home/quant/.local/share/copytrade/reports/pm01-36-shadow
 
-$PY -m ensemble.pm_source_audit \
+$PY -m copytrade_pm.pm_source_audit \
   --research-root "$ROOT" --market-root "$MARKET" --out "$OUT"
 
-$PY -m ensemble.pm_research \
+$PY -m copytrade_pm.pm_research \
   --research-root "$ROOT" \
   --ledger /home/quant/.local/share/copytrade/observation.db \
   --market-root "$MARKET" --out "$OUT" \

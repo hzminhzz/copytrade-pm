@@ -1,3 +1,5 @@
+> **Package migration:** Commands below now use `copytrade_pm`. Research results and historical evidence classifications are unchanged.
+
 # PM-01 — Propr-scoped 90% data readiness (2026-10-31)
 
 ## Decision and source authority
@@ -78,7 +80,7 @@ Propr scope: 342 outside current display names and 87 under other
 unverified DEX namespaces. Data collection for those categories stops
 unless there is later direct market-ID evidence showing a Propr mapping.
 
-The new `ensemble.pm_propr_scope` tool is read-only. It checks all
+The new `copytrade_pm.pm_propr_scope` tool is read-only. It checks all
 36 aliases and original input checksums, emits a complete denominator
 rather than relying on a missing-only queue, and returns **both**
 strict and candidate 90%-readiness numbers plus an exact, priority-
@@ -87,7 +89,7 @@ from historical PIT information. The market-audit schema was
 extended additively with `instrument_day_inventory` to make the
 denominators independently auditable.
 
-`ensemble.pm_chd_target_1m` accepts optional
+`copytrade_pm.pm_chd_target_1m` accepts optional
 `--propr-scope PRIVATE_SEALED_REPORT` and
 `--propr-policy strict|candidate` to fail closed before a provider
 request for any day outside the selected scope, any stale market audit
@@ -159,18 +161,18 @@ RESEARCH=/home/quant/.local/share/copytrade/reports/five-pod-20261029-research
 MARKET=/home/quant/dev/quant/ml4t-data/.data/store
 OUT=/home/quant/.local/share/copytrade/reports/pm01-36-shadow
 
-$PY -m ensemble.pm_market_audit \
+$PY -m copytrade_pm.pm_market_audit \
   --research-root "$RESEARCH" --market-root "$MARKET" --out "$OUT"
 
 # Pass the exact output market-audit artifact from the previous command:
-$PY -m ensemble.pm_propr_scope \
+$PY -m copytrade_pm.pm_propr_scope \
   --research-root "$RESEARCH" \
   --market-audit "$OUT/pm01-36-wallets-fcb98de61ca43cdeeed0.json" \
   --out "$OUT"
 
 # Every subsequent bounded fetch must use the *matching* sealed scope
 # and market-audit SHA. Regenerate both after a successful batch.
-$PY -m ensemble.pm_chd_target_1m \
+$PY -m copytrade_pm.pm_chd_target_1m \
   --ml4t-root /home/quant/dev/quant/ml4t-data \
   --audit "$OUT/pm01-36-wallets-fcb98de61ca43cdeeed0.json" \
   --propr-scope "$OUT/pm01-36-wallets-643139a4dff46e26ae9c.json" \

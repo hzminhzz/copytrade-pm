@@ -1,10 +1,12 @@
+> **Package migration:** Original historical output remains unchanged; current module commands use `copytrade_pm`.
+
 # PM-02 — Research-only portfolio-manager governance (partial engineering)
 
 **Status:** NOT ACCEPTED / NOT SCIENTIFICALLY QUALIFIED. Engineering is in progress on stacked draft PR #7. The hourly autonomous direct-implementation goal is documented in `docs/PM-02-goal.md`.
 
 ## Source seam
 
-`python -m ensemble.pm_manager --pm01 <sealed pm01_fill_only_replay_v2 JSON> --asof <ISO UTC timestamp> --out <private directory>`
+`python -m copytrade_pm.pm_manager --pm01 <sealed pm01_fill_only_replay_v2 JSON> --asof <ISO UTC timestamp> --out <private directory>`
 
 The CLI consumes a 36-wallet PM-01 historical fill-only replay. `--previous <immutable pm02-<sha>.json>` chains a later decision to the previous content-addressed report with monotonic as-of and immutable cohort/state checks. Input PM-01 filenames must match the raw artifact SHA. Outputs are O_EXCL, owner-only, content-addressed and fsynced. A content-addressed local file does **not** independently prove genuine forward receipt time.
 

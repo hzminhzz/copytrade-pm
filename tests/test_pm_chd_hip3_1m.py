@@ -8,14 +8,14 @@ import json
 
 import pytest
 
-from ensemble.pm_chd_hip3_1m import (
+from copytrade_pm.pm_chd_hip3_1m import (
     _market_path,
     _parse_target,
     _materialize_trade_day,
     _publish_missing_only,
     _validate_requested,
 )
-from ensemble.pm_shadow import VerifiedHyperliquidMinuteSource
+from copytrade_pm.pm_shadow import VerifiedHyperliquidMinuteSource
 
 
 def test_hip3_namespace_cannot_collide_with_xyz_or_default(tmp_path):

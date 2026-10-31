@@ -1,3 +1,5 @@
+> **Package migration:** Original historical output remains unchanged; current module commands use `copytrade_pm`.
+
 # PM-01 — Direct executor forensic pass (2026-10-31)
 
 Status: **ENGINEERING VERIFIED / SCIENTIFICALLY BLOCKED**.
@@ -45,7 +47,7 @@ left intact.
    a considerably smaller order; the latter is close but remains
    unqualified, not rounded up into an allowed fill.
 4. **Read-only REST prospective receipts, independent of WS tier.**
-   `ensemble.pm_hyperx_rest_forward` is a bounded, explicit
+   `copytrade_pm.pm_hyperx_rest_forward` is a bounded, explicit
    **at most five vendor coin/page-1 requests**, each separated by at
    least 12 seconds; it uses the existing pinned HyperX Data API source
    adapter, never a trading token. It verifies a frozen wallet/coin

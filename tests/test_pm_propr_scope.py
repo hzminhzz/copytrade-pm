@@ -6,7 +6,7 @@ from hashlib import sha256
 
 import pytest
 
-from ensemble.pm_propr_scope import (
+from copytrade_pm.pm_propr_scope import (
     SCOPE_STRICT,
     SCOPE_TENTATIVE,
     SCOPE_OTHER_DEX,
@@ -19,7 +19,7 @@ from ensemble.pm_propr_scope import (
     add_fill_scope_summary,
     _wallet_propr_day_coverage,
 )
-from ensemble.pm_sources import CohortEntry
+from copytrade_pm.pm_sources import CohortEntry
 
 
 def _case():
@@ -255,7 +255,7 @@ def test_per_wallet_missing_global_day_refuses_false_green():
 def test_excluded_nonzero_hedge_never_treated_as_flat(monkeypatch, tmp_path):
     from datetime import datetime, UTC
     from decimal import Decimal
-    import ensemble.pm_propr_scope as scope
+    import copytrade_pm.pm_propr_scope as scope
 
     p, c, m, aliases = _case()
     fake = []

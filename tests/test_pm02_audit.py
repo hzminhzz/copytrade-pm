@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from ensemble.pm02_audit import (
+from copytrade_pm.pm02_audit import (
     digest,
     immutable_report_write,
     read_previous,

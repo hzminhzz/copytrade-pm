@@ -1,7 +1,7 @@
 """PM-01 bounded private 36-wallet research run (no network, no broker).
 
 Usage:
- PYTHONPATH=src /path/to/python -m ensemble.pm_research \
+ PYTHONPATH=src /path/to/python -m copytrade_pm.pm_research \
      --research-root /private/five-pod-20261029-research \
      --ledger /private/observation.db \
      --market-root /private/ml4t-data/.data/store \

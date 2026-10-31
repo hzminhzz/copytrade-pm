@@ -3,7 +3,7 @@
 from datetime import UTC, datetime, timedelta
 from math import sin
 
-from ensemble.pm02_risk import allocate, daily_path, dependence_pair, portfolio_path
+from copytrade_pm.pm02_risk import allocate, daily_path, dependence_pair, portfolio_path
 
 START = datetime(2026, 5, 1, tzinfo=UTC)
 BTC = "hyperliquid:mainnet:perp:default:BTC"

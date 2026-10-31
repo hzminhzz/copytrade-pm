@@ -1,23 +1,48 @@
 # copytrade-pm
 
-Black-box external-wallet portfolio-manager research and **shadow-only** prop-firm challenge simulation.
+**Black-box wallet portfolio-manager research and prop-firm challenge preparation.** PM-01 and PM-02 are extracted from `hyperliquid-expert-ensemble` as a separate, auditable Python package. PM-03 is tracked but not implemented here.
 
-## Migration state
-- **STAGING ONLY:** Source integration is verified, but PM-01/PM-02 have NOT yet been extracted and PM-03 is NOT implemented here.
-- Source: [hyperliquid-expert-ensemble](https://github.com/hzminhzz/hyperliquid-expert-ensemble).
-- Integrated source staging: [PR #8](https://github.com/hzminhzz/hyperliquid-expert-ensemble/pull/8) at `00382c6e5846b7df540f679b970a09e507750521`.
-- Original research: PM-01 [Issue #3](https://github.com/hzminhzz/hyperliquid-expert-ensemble/issues/3), PM-02 [Issue #4](https://github.com/hzminhzz/hyperliquid-expert-ensemble/issues/4), PM-03 [Issue #5](https://github.com/hzminhzz/hyperliquid-expert-ensemble/issues/5).
+This repository is **shadow-only**: no trading credentials, no broker integration, no live orders or live risk promotion.
 
-## Intended modules
-1. **PM-01:** immutable source/account observation, fail-closed whole-book reconstruction and hypothetical follower replay.
-2. **PM-02:** evidence-driven manager ranking, independent risk budgets and lifecycle decisions.
-3. **PM-03:** one account-level, deterministic, research-only Propr challenge simulator and risk supervisor.
+## System roles
 
-## Non-negotiable boundaries
-- Preserve PM-specific commit provenance and all SHA-referenced evidence lineage. Do not publish raw private HyperX sources, keys, wallet address maps, or private market data.
-- Source fills are retrospective, not a prospective first-known feed. Keep source events, first-known receipt, decision, and hypothetical execution clocks distinct.
-- PM-01 `pm01_fill_only_replay_v2` is the pinned compatibility seam currently consumed by PM-02.
-- Zero wallets scientifically qualified; zero actionable allocation. A 90% *market-data readiness* gate is not source economics or executable follower PnL.
-- No live orders, broker credentials, broker adapters, autonomous account risk increases or modifications to the legacy Telegram/ensemble runtime.
-- PM-03 simulation must test daily/static/trailing drawdown, cross-PM netting, internal attribution, stale/unknown market state, rejection/partial fills, and blocked-live compliance verdict.
-- Legacy `hyperliquid-expert-ensemble` should remain deployed from its own pinned release, independent of this repo.
+- **PM-01:** reconstruct observable whole-wallet portfolios from sealed historical fills and independent first-known observations; replay hypothetical followers with exact Hyperliquid instrument identity, latency, funding, fees, market-only comparators, missing-data guards and explicit coverage status.
+- **PM-02:** immutable manager evidence cards, independence diagnostics, conservative hypothetical risk-budget proposals, historical/prospective separation and lifecycle research decisions.
+- **PM-03 (planned):** one deterministic Propr account simulator and account-level risk authority. Original specification: [PM-03](https://github.com/hzminhzz/hyperliquid-expert-ensemble/issues/5); successor [issue #2](https://github.com/hzminhzz/copytrade-pm/issues/2).
+
+## Quickstart
+
+Requires Python 3.14 and [uv](https://docs.astral.sh/uv/).
+
+```bash
+uv sync --group dev
+uv run --group dev python -m pytest -q tests
+uv run --group dev ruff check src tests
+uv run --group dev python -m copytrade_pm.pm_fill_replay --help
+uv run --group dev python -m copytrade_pm.pm_manager --help
+uv run --group dev python -m copytrade_pm.pm_handoff --help
+```
+
+Native Hyperliquid 1-minute Parquet and vendor-data research uses the optional Polars/Pandas extra:
+
+```bash
+uv run --extra market --group dev python -m pytest -q tests
+```
+
+CLI entry points: `copytrade-pm-replay`, `copytrade-pm-rank`, `copytrade-pm-scope`, `copytrade-pm-market-audit`, `copytrade-pm-handoff`, and `copytrade-pm-research`.
+
+The source research artifacts and private data remain under their existing VPS owner-private paths. Supply paths explicitly to the CLI, never commit data or credentials. Imported historical documentation under `docs/PM-*.md` records source-era results; current commands use `copytrade_pm` rather than `ensemble`.
+
+## Scientific status
+
+- 36 historical source wallets (6 original + 10 Wave 1 + 20 Wave 2).
+- Four shortlisted wallets passed a **90% Propr-native 1m market-day data gate**, not a profitable follower or full-book execution gate.
+- **Zero scientifically qualified manager seats**. PM-02's real-data research recommendation remains five EMPTY seats and zero actionable R.
+- Historical HyperX fill times are not first-known follower signals. Source account completeness, execution capacity, Propr market identity and contractual compliance remain unresolved.
+- Synthetic PM-03 scenarios, when built, must never be advertised as real challenge pass probabilities.
+
+## Evidence and Git history
+
+The imported code retains a **12-commit filtered PM-only Git ancestry**, merged with the destination's initialization history. See [migration provenance](docs/PROVENANCE.md) and [original PM integration PR #8](https://github.com/hzminhzz/hyperliquid-expert-ensemble/pull/8). Git was filtered by *paths*; original commit IDs changed, and the mapping is documented. No original runtime, Telegram, deployment files, untracked research or secret data was imported.
+
+The legacy ensemble advisory service remains owned and deployed independently by `hyperliquid-expert-ensemble`.
