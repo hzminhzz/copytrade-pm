@@ -131,7 +131,11 @@ def stress_scenario(
     if (
         report.get("schema") != RESULT_SCHEMA
         or report.get("input_sha256") != input_sha
-        or report.get("source_classification") != "HISTORICAL_ORACLE_NOT_FIRST_KNOWN"
+        or report.get("source_classification")
+        not in (
+            "HISTORICAL_ORACLE_NOT_FIRST_KNOWN",
+            "E4_FULL_BOOK_CONTRACT_NOT_EXTERNAL_ECONOMIC_PROOF",
+        )
         or report.get("ledger_replay_verified") is not True
     ):
         raise ValueError("UNVERIFIED_REPLAY_PROVENANCE")
@@ -142,7 +146,9 @@ def stress_scenario(
         rulebook=_rulebook(manifest["instruments"]),
         started_at=START.isoformat(),
         mode="RESEARCH_SYNTHETIC",
-        pm01_sha=SOURCE_FILLS_SHA,
+        pm01_sha=(
+            manifest["source_contract_sha256"] if report["method"] == "E4" else SOURCE_FILLS_SHA
+        ),
         pm02_sha=digest({"pm02": "not supplied", "oracle": input_sha}),
         market_manifest_sha=digest(manifest["market_day_shas"]),
     )
@@ -202,7 +208,11 @@ def stress_scenario(
         "S2_worst_sample": peaks["S2"][1] if "S2" in peaks else None,
         "S3_worst_sample": peaks["S3"][1] if "S3" in peaks else None,
         "economic_outcome_of_shocks": "HYPOTHETICAL_NOT_BOOKED",
-        "qualification": "HISTORICAL_ORACLE_INCOMPLETE_BOOK_NOT_PROPR_EXECUTABLE",
+        "qualification": (
+            "E4_FULL_BOOK_EVIDENCE_CONTRACT_NOT_INDEPENDENTLY_VERIFIED"
+            if report["method"] == "E4"
+            else "HISTORICAL_ORACLE_INCOMPLETE_BOOK_NOT_PROPR_EXECUTABLE"
+        ),
     }
 
 

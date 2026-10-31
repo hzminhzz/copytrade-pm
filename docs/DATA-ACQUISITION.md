@@ -105,6 +105,12 @@ uv run --frozen --group dev --extra market copytrade-pm-scope \
 
 Optional, **network-affecting** one-day market fetch is implemented by `pm_chd_target_1m` (`--mode candles|trades`) and `pm_chd_hip3_1m`; it delegates canonical partition writing to *ml4t-data* and the external CryptoHFTData SDK, not to `copytrade-pm` storage. Do not run it unless a **matching source audit SHA + Propr scope**, vendor authorization, SDK dependencies and budget have been verified. Never rewrite an existing SHA-conflicting partition or downsample a different venue to disguise a missing native day. `pm_market_audit` must be rerun after each accepted batch before making a new request.
 
+## 6a. E4 whole-wallet account-census prerequisites
+
+The [Portfolio C E4 audit](PORTFOLIO-C-E4-FAITHFUL.md) is a **read-only** consumer of frozen HyperX full economic fill pages, independently verified overlay generations and locally cached retrospective Hyperliquid account-value timelines. The audit `uv run --frozen --group dev --extra market python -m copytrade_pm.pm36_e4_readiness --help` verifies the same frozen 36-wallet cohort and source SHAs without touching private raw pages. Its Q3 result is **0** admissible full-wallet, PIT-equity snapshots. A vendor 90-day account-value history retrieved October 29 is not a July source-receipt stream or a complete all-DEX position/collateral reconciliation.
+
+To admit E4, independently acquire complete exchange-account positions across every DEX, signed leverage/equity/collateral, funding/withdrawal/liquidation streams, a complete position-event census, and actual first-local-known receipt clocks **going forward**. Never use the frozen trade-episode shortlist as E4 source, silently set omitted hedges to zero, or write fresh data into an existing immutable generation. A synthetic attestation flag or raw file SHA confirms only a payload contract, not independent account truth or Propr executable permission.
+
 ## 7. Forward receipts — network, not economic qualification
 
 **WebSocket** probes live data when explicitly requested (max 60 seconds / 5 messages; provider tier restrictions may reject the subscription):

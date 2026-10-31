@@ -1,0 +1,121 @@
+{
+  "schema": "pm_c_e4_full_wallet_books_v1",
+  "synthetic_example_untrusted": true,
+  "proof_level": "FABRICATED_FIXTURE_NOT_REAL_WALLET_SNAPSHOTS",
+  "source_scope": "ALL_HYPERLIQUID_MAINNET_PERP_DEX_AND_COLLATERAL",
+  "research_only": true,
+  "broker_authorized": false,
+  "start": "2026-07-01T00:00:00+00:00",
+  "end_exclusive": "2026-10-01T00:00:00+00:00",
+  "pods": [
+    "CO-001",
+    "W015",
+    "VS066"
+  ],
+  "wallets": [
+    {
+      "pod": "CO-001",
+      "wallet_identity_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "snapshots": [
+        {
+          "source_event_at": "2026-06-30T23:59:40+00:00",
+          "first_known_at": "2026-06-30T23:59:41+00:00",
+          "account_event_sequence": 1,
+          "source_evidence_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "all_dex_instrument_census_confirmed": true,
+          "account_equity_reconciled": true,
+          "collateral_and_funding_reconciled": true,
+          "continuous_position_event_feed_confirmed": true,
+          "wallet_equity_usd": "10000",
+          "positions": {
+            "hyperliquid/mainnet:perp:xyz/CL": "10",
+            "hyperliquid/mainnet:perp:xyz/XYZ100": "-1"
+          }
+        },
+        {
+          "source_event_at": "2026-07-01T00:09:12+00:00",
+          "first_known_at": "2026-07-01T00:09:15+00:00",
+          "account_event_sequence": 2,
+          "source_evidence_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "all_dex_instrument_census_confirmed": true,
+          "account_equity_reconciled": true,
+          "collateral_and_funding_reconciled": true,
+          "continuous_position_event_feed_confirmed": true,
+          "wallet_equity_usd": "10100",
+          "positions": {
+            "hyperliquid/mainnet:perp:xyz/CL": "0",
+            "hyperliquid/mainnet:perp:xyz/XYZ100": "0"
+          }
+        }
+      ]
+    },
+    {
+      "pod": "W015",
+      "wallet_identity_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "snapshots": [
+        {
+          "source_event_at": "2026-06-30T23:59:40+00:00",
+          "first_known_at": "2026-06-30T23:59:41+00:00",
+          "account_event_sequence": 1,
+          "source_evidence_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "all_dex_instrument_census_confirmed": true,
+          "account_equity_reconciled": true,
+          "collateral_and_funding_reconciled": true,
+          "continuous_position_event_feed_confirmed": true,
+          "wallet_equity_usd": "10000",
+          "positions": {
+            "hyperliquid/mainnet:perp:xyz/XYZ100": "5"
+          }
+        },
+        {
+          "source_event_at": "2026-07-01T00:09:12+00:00",
+          "first_known_at": "2026-07-01T00:09:15+00:00",
+          "account_event_sequence": 2,
+          "source_evidence_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "all_dex_instrument_census_confirmed": true,
+          "account_equity_reconciled": true,
+          "collateral_and_funding_reconciled": true,
+          "continuous_position_event_feed_confirmed": true,
+          "wallet_equity_usd": "10100",
+          "positions": {
+            "hyperliquid/mainnet:perp:xyz/XYZ100": "0"
+          }
+        }
+      ]
+    },
+    {
+      "pod": "VS066",
+      "wallet_identity_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "snapshots": [
+        {
+          "source_event_at": "2026-06-30T23:59:40+00:00",
+          "first_known_at": "2026-06-30T23:59:41+00:00",
+          "account_event_sequence": 1,
+          "source_evidence_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "all_dex_instrument_census_confirmed": true,
+          "account_equity_reconciled": true,
+          "collateral_and_funding_reconciled": true,
+          "continuous_position_event_feed_confirmed": true,
+          "wallet_equity_usd": "10000",
+          "positions": {
+            "hyperliquid/mainnet:perp:default/BTC": "0.05"
+          }
+        },
+        {
+          "source_event_at": "2026-07-01T00:09:12+00:00",
+          "first_known_at": "2026-07-01T00:09:15+00:00",
+          "account_event_sequence": 2,
+          "source_evidence_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "all_dex_instrument_census_confirmed": true,
+          "account_equity_reconciled": true,
+          "collateral_and_funding_reconciled": true,
+          "continuous_position_event_feed_confirmed": true,
+          "wallet_equity_usd": "10100",
+          "positions": {
+            "hyperliquid/mainnet:perp:default/BTC": "0"
+          }
+        }
+      ]
+    }
+  ]
+}

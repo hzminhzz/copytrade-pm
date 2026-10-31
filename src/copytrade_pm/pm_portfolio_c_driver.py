@@ -371,9 +371,13 @@ def _rulebook(instruments: list[str]) -> Rulebook:
     )
 
 
-def _clocks(at: datetime, source_at: str | None = None) -> tuple[str, str, str, str]:
+def _clocks(
+    at: datetime,
+    source_at: str | None = None,
+    first_known_at: str | None = None,
+) -> tuple[str, str, str, str]:
     t = at.isoformat()
-    return source_at or t, t, t, (at + timedelta(seconds=2)).isoformat()
+    return source_at or t, first_known_at or t, t, (at + timedelta(seconds=2)).isoformat()
 
 
 def _mk_event(
@@ -384,8 +388,9 @@ def _mk_event(
     payload: dict,
     source_sha: str,
     source_at: str | None = None,
+    first_known_at: str | None = None,
 ) -> Event:
-    source, known, decision, filled = _clocks(at, source_at)
+    source, known, decision, filled = _clocks(at, source_at, first_known_at)
     return Event(
         event_id=f"pc-{index:07d}",
         source_event_at=source,
@@ -485,7 +490,35 @@ def _pod_targets(
     factors: dict[tuple[str, str], D | None],
     marks: dict[str, D],
     cost_multiplier: int,
+    *,
+    wallet_equity: D | None = None,
 ) -> dict[str, D]:
+    if method == "E4":
+        from .pm36_e4 import compare_wallet_ratios, e4_size
+
+        if wallet_equity is None:
+            raise ValueError("E4_MISSING_ASOF_WALLET_EQUITY")
+        book = {
+            instrument: rel
+            for (owner, instrument), rel in source.items()
+            if owner == pod and rel != ZERO
+        }
+        pod_marks = {instrument: marks[instrument] for instrument in book}
+        changes = {}
+        for instrument in book:
+            native = pm_to_native(instrument).split(":")
+            coin = native[-1] if native[3] == "default" else native[3] + ":" + native[4]
+            changes[instrument] = shock(coin)
+        costs = (D("5") + D("1.5") + D("5")) * D(cost_multiplier) / D("10000")
+        result, _, _ = e4_size(
+            book,
+            pod_marks,
+            source_equity=wallet_equity,
+            shock=changes,
+            cost_rate=costs,
+        )
+        compare_wallet_ratios(book, result)
+        return result
     quantities = {
         instrument: rel * (D("200") if method == "E1" else EPISODE_BASE_USD)
         for (owner, instrument), rel in source.items()
@@ -563,10 +596,26 @@ def run_one(
     cost_multiplier: int,
     smoke_events: int | None = None,
 ) -> dict:
-    if method not in ("E1", "E2", "E3") or execution not in ("IMMEDIATE", "ASYMMETRIC_5M"):
+    from .pm36_e4 import E4_SCHEMA
+
+    if method not in ("E1", "E2", "E3", "E4") or execution not in ("IMMEDIATE", "ASYMMETRIC_5M"):
         raise ValueError("UNSUPPORTED_EXPERIMENT")
     if cost_multiplier not in (1, 2):
         raise ValueError("UNSUPPORTED_COST_SCENARIO")
+    if (method == "E4") != (manifest.get("schema") == E4_SCHEMA):
+        raise ValueError("E4_REQUIRES_ATOMIC_WHOLE_WALLET_BOOKS_NOT_EPISODES")
+    if method == "E4":
+        from .pm36_e4 import to_pm04_manifest
+
+        original = manifest.get("original_payload")
+        if not isinstance(original, dict) or to_pm04_manifest(original) != manifest:
+            raise ValueError("E4_COMPLETE_SOURCE_CONTRACT_SHA_OR_EVENT_DRIFT")
+    if method == "E4" and (
+        not manifest.get("synthetic_research_only")
+        or not manifest.get("source_requires_all_markets")
+        or not manifest.get("source_contract_sha256")
+    ):
+        raise ValueError("E4_SOURCE_CENSUS_UNVERIFIED")
     start = START.isoformat()
     run_id = f"pc-{input_sha[:12]}-{method.lower()}-{execution.lower()}-{cost_multiplier}x" + (
         f"-smoke{smoke_events}" if smoke_events else ""
@@ -576,13 +625,14 @@ def run_one(
     if out.stat().st_mode & 0o077:
         raise ValueError("PRIVATE_OUTPUT_DIR_PERMISSIONS")
     book = _rulebook(manifest["instruments"])
+    source_binding = manifest["source_contract_sha256"] if method == "E4" else SOURCE_FILLS_SHA
     run = ShadowRun(
         out,
         run_id=run_id,
         rulebook=book,
         started_at=start,
         mode="RESEARCH_SYNTHETIC",
-        pm01_sha=SOURCE_FILLS_SHA,
+        pm01_sha=source_binding,
         pm02_sha=digest({"pm02": "not supplied", "oracle": input_sha}),
         market_manifest_sha=digest(manifest["market_day_shas"]),
     )
@@ -599,6 +649,13 @@ def run_one(
     checkpoints, timed_events = _checkpoints(manifest, max_events=smoke_events)
     source: dict[tuple[str, str], D] = {}
     factors: dict[tuple[str, str], D | None] = {}
+    source_equity: dict[str, D] = {}
+    source_receipts: dict[str, dict] = {}
+    e4_intents_checked = 0
+    e4_scale_changes: list[dict[str, str]] = []
+    e4_tracking_samples = 0
+    e4_max_tracking_error = ZERO
+    e4_tracking_on_source_events: list[dict] = []
     previous_targets: dict[tuple[str, str], D] = {}
     revisions = defaultdict(int)
     last_time = START
@@ -619,10 +676,28 @@ def run_one(
     for at in checkpoints:
         rows = timed_events.get(at, [])
         if rows:
-            for row in rows:
-                key = (row["pod"], row["instrument"])
-                source[key] = D(row["relative_units_per_dollar"])
-                factors[key] = D(row["vol_factor"]) if row["vol_factor"] is not None else None
+            if method == "E4":
+                if len({r["pod"] for r in rows}) != len(rows):
+                    raise ValueError("E4_MULTIPLE_ATOMIC_BOOKS_SAME_DECISION_MINUTE")
+                for row in rows:
+                    pod = row["pod"]
+                    for key in [k for k in source if k[0] == pod]:
+                        del source[key]
+                    for instrument, quantity in row["positions"].items():
+                        amount = D(quantity)
+                        if amount:
+                            source[(pod, instrument)] = amount
+                    source_equity[pod] = D(row["wallet_equity_usd"])
+                    source_receipts[pod] = {
+                        "source_event_at": row["source_at"],
+                        "first_known_at": row["first_known_at"],
+                        "source_evidence_sha256": row["source_evidence_sha256"],
+                    }
+            else:
+                for row in rows:
+                    key = (row["pod"], row["instrument"])
+                    source[key] = D(row["relative_units_per_dollar"])
+                    factors[key] = D(row["vol_factor"]) if row["vol_factor"] is not None else None
         active_pods = {
             p
             for p in PODS
@@ -712,7 +787,11 @@ def run_one(
                 )
         funding_amount = sum(allocations.values(), ZERO)
         desired = {}
+        e4_updated = {r["pod"] for r in rows} if method == "E4" else set()
         for pod in PODS:
+            if method == "E4" and pod not in e4_updated:
+                desired.update({k: v for k, v in previous_targets.items() if k[0] == pod})
+                continue
             if pod not in active_pods:
                 # PM-04 has already latched the risk veto and forced routed
                 # reductions. Do not require nonexistent quotes for stale,
@@ -723,7 +802,13 @@ def run_one(
                 {
                     (pod, key): value
                     for key, value in _pod_targets(
-                        method, pod, source, factors, marks, cost_multiplier
+                        method,
+                        pod,
+                        source,
+                        factors,
+                        marks,
+                        cost_multiplier,
+                        wallet_equity=source_equity.get(pod),
                     ).items()
                 }
             )
@@ -739,6 +824,23 @@ def run_one(
             "evidence": _evidence(cost_multiplier),
             "costs": _costs(cost_multiplier),
         }
+        if method == "E4":
+            from .pm36_e4 import compare_wallet_ratios
+
+            for pod in e4_updated:
+                e4_source_book = {k: q for (owner, k), q in source.items() if owner == pod and q}
+                wanted = {k: q for (owner, k), q in desired.items() if owner == pod and q}
+                if pod in active_pods:
+                    detail = compare_wallet_ratios(e4_source_book, wanted)
+                    e4_intents_checked += 1
+                    e4_scale_changes.append(
+                        {
+                            "at": at.isoformat(),
+                            "pod": pod,
+                            "scale": detail["scale"],
+                            "status": detail["status"],
+                        }
+                    )
         if changed:
             targets = []
             earliest = min((row["source_at"] for row in rows), default=at.isoformat())
@@ -750,9 +852,19 @@ def run_one(
                         "instrument": inst,
                         "quantity": str(value),
                         "revision": revisions[(pod, inst)],
-                        "source_event_at": earliest,
-                        "first_known_at": at.isoformat(),
-                        "source_sha": input_sha,
+                        "source_event_at": (
+                            source_receipts[pod]["source_event_at"] if method == "E4" else earliest
+                        ),
+                        "first_known_at": (
+                            source_receipts[pod]["first_known_at"]
+                            if method == "E4"
+                            else at.isoformat()
+                        ),
+                        "source_sha": (
+                            source_receipts[pod]["source_evidence_sha256"]
+                            if method == "E4"
+                            else input_sha
+                        ),
                         "budget_ref": f"pc-q3-{pod}",
                     }
                 )
@@ -803,6 +915,39 @@ def run_one(
                 rejections["FUNDING_ERROR"] += 1
                 break
             index += 1
+        if method == "E4" and (rows or at.minute == 0):
+            for pod in PODS:
+                if pod not in source_receipts:
+                    continue
+                target_book = {k: v for (owner, k), v in desired.items() if owner == pod and v}
+                executed = {
+                    k.key: v for k, v in run.account.pm_quantities.get(pod, {}).items() if v
+                }
+                keys = set(target_book) | set(executed)
+                if not keys.issubset(marks):
+                    raise ValueError("E4_UNMARKED_EXECUTED_WALLET_HEDGE")
+                mismatch = sum(
+                    (
+                        abs(target_book.get(k, ZERO) - executed.get(k, ZERO)) * marks[k]
+                        for k in keys
+                    ),
+                    ZERO,
+                )
+                baseline = sum((abs(v) * marks[k] for k, v in target_book.items()), ZERO)
+                error = mismatch / max(ONE, baseline)
+                e4_tracking_samples += 1
+                e4_max_tracking_error = max(e4_max_tracking_error, error)
+                if rows and pod in e4_updated:
+                    e4_tracking_on_source_events.append(
+                        {
+                            "at": at.isoformat(),
+                            "pod": pod,
+                            "target_notional_usd": str(baseline),
+                            "mismatch_notional_usd": str(mismatch),
+                            "normalized_tracking_error": str(error),
+                            "note": "PM04_SHADOW_AFTER_DECISION_NOT_BROKER_FILL",
+                        }
+                    )
         peak = max(peak, run.account.equity)
         max_dd = max(max_dd, peak - run.account.equity)
         day_floor = run.account.floor()[1]["daily"]
@@ -846,9 +991,21 @@ def run_one(
             if run.account.breached
             else "PARTIAL_REPLICATION_WITH_UNMARKED_SESSION_GAPS"
             if censored_mark_gaps
+            else "E4_SYNTHETIC_BOOK_CONTRACT_REPLAY_ONLY"
+            if method == "E4"
             else "HISTORICAL_HYPOTHETICAL_PARTIAL_REPLICATION"
         ),
-        "source_classification": SOURCE_LABEL,
+        "source_provenance_binding_sha256": source_binding,
+        "source_classification": (
+            "E4_FULL_BOOK_CONTRACT_NOT_EXTERNAL_ECONOMIC_PROOF" if method == "E4" else SOURCE_LABEL
+        ),
+        "e4_proportional_intent_verified_count": e4_intents_checked,
+        "e4_scale_change_evidence": e4_scale_changes,
+        "e4_original_account_book_independently_verified": False,
+        "e4_execution_fidelity_broker_verified": False,
+        "e4_tracking_samples": e4_tracking_samples,
+        "e4_max_shadow_tracking_error": str(e4_max_tracking_error),
+        "e4_tracking_at_source_events": e4_tracking_on_source_events,
         "method": method,
         "execution": execution,
         "cost_multiplier": cost_multiplier,
@@ -887,7 +1044,9 @@ def run_one(
         "counts": dict(rejections),
         "data_blocker": data_blocker,
         "censored_mark_gaps": censored_mark_gaps,
-        "full_interval_equity_and_floor_verification": not bool(censored_mark_gaps),
+        "full_interval_equity_and_floor_verification": (
+            not bool(censored_mark_gaps) and method != "E4"
+        ),
         "risk_floor_checks": "HOUR_AND_DECISION_MINUTE_SAMPLED_NOT_TICK",
         "liquidity": "PREVIOUS_COMPLETED_MINUTE_VOLUME_PROXY_NOT_L2",
         "vendor_source_strategy_complete": False,
@@ -905,7 +1064,7 @@ def run_one(
         rulebook=book,
         started_at=start,
         mode="RESEARCH_SYNTHETIC",
-        pm01_sha=SOURCE_FILLS_SHA,
+        pm01_sha=source_binding,
         pm02_sha=digest({"pm02": "not supplied", "oracle": input_sha}),
         market_manifest_sha=digest(manifest["market_day_shas"]),
     )
@@ -931,8 +1090,10 @@ def run_one(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--prepare", action="store_true")
+    parser.add_argument("--prepare-e4", action="store_true")
+    parser.add_argument("--e4-books", type=Path)
     parser.add_argument("--input", type=Path)
-    parser.add_argument("--method", choices=("E1", "E2", "E3"))
+    parser.add_argument("--method", choices=("E1", "E2", "E3", "E4"))
     parser.add_argument("--smoke-events", type=int)
     parser.add_argument("--execution", choices=("IMMEDIATE", "ASYMMETRIC_5M"))
     parser.add_argument("--cost-multiplier", type=int, choices=(1, 2))
@@ -944,6 +1105,29 @@ def main() -> None:
     parser.add_argument("--hyperx-generations", nargs="*", type=Path, default=[])
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
+    if args.prepare_e4:
+        from .pm36_e4 import to_pm04_manifest
+
+        if not args.e4_books:
+            parser.error("--prepare-e4 requires --e4-books")
+        books = json.loads(args.e4_books.read_bytes())
+        prepared = to_pm04_manifest(books)
+        path, sha = _private_json(args.out, "portfolio-c-input", prepared)
+        print(
+            json.dumps(
+                {
+                    "input": str(path),
+                    "sha256": sha,
+                    "snapshots": len(prepared["events"]),
+                    "native_instruments": len(prepared["instruments"]),
+                    "e4_verified_external_account": False,
+                    "live_authorized": False,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return
     if args.prepare:
         if not all(
             [
@@ -985,7 +1169,9 @@ def main() -> None:
     if args.input.name != f"portfolio-c-input-{sha[:20]}.json":
         raise ValueError("INPUT_PATH_CONTENT_SHA_MISMATCH")
     source = json.loads(raw)
-    if source.get("schema") != SCHEMA or source.get("pods") != list(PODS):
+    from .pm36_e4 import E4_SCHEMA
+
+    if source.get("schema") not in (SCHEMA, E4_SCHEMA) or source.get("pods") != list(PODS):
         raise ValueError("INVALID_FROZEN_PORTFOLIO_C_MANIFEST")
     if args.smoke_events is not None and args.smoke_events <= 0:
         parser.error("--smoke-events must be positive")

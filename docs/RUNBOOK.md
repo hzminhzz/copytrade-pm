@@ -168,6 +168,10 @@ uv run --frozen --group dev --extra market python -m copytrade_pm.pm_portfolio_c
 
 **Interpretation:** output `BLOCKED_DATA_OR_ENGINE` with `MISSING_EXACT_1M_BAR` is an incomplete PnL path, not a zero return or a completed profit challenge. Quiet HIP-3 session gaps are censored only if *no action or exit is due*; account floors in unmarked intervals remain unverified. Source event time is an ex-post oracle, **not** first-known follower latency. All observed Propr HIP-3 symbols are research-tentative only. The frozen 36-wallet historical replay and synthetic PM03/PM04 rulebook gates are unchanged. No live orders or authorization.
 
+## 5c. Portfolio C E4 faithful-relative wallet sizing — separate source gate
+
+The [E4 report and operator CLI examples](PORTFOLIO-C-E4-FAITHFUL.md) cover `python -m copytrade_pm.pm36_e4_readiness` for a SHA-pinned read-only 3-wallet census, `python -m copytrade_pm.pm_portfolio_c_driver --prepare-e4 --e4-books <independently-verified-source> --out <private-out>`, and single-scenario `--method E4` research through the **existing** PM-04/PM-03 account ledger. Input schema `pm_c_e4_full_wallet_books_v1` rejects E1–E3 episode artifacts. Require source account equity, collateral/funding reconciliation, every signed DEX hedge, complete source event feed, original source and first-known clocks, stable wallet identity SHA, and source evidence SHA. Snapshot flags/hash alone do not independently authenticate exchange history. The actual Q3 frozen wallet audit identified **0 admissible snapshots across CO-001, W015 and VS066**; **do not run or report a fabricated E4 July–September profit curve**. All input/reports stay owner-private; the module has no order adapter or broker credentials.
+
 ## 6. Complete entry-point map
 
 | Invocation | Safe network class | Purpose |
@@ -191,6 +195,8 @@ uv run --frozen --group dev --extra market python -m copytrade_pm.pm_portfolio_c
 | `python -m copytrade_pm.pm_chd_target_1m` / `pm_chd_hip3_1m` | **Network + external market writes** | Strict gated native minute-day acquisition in ml4t-data |
 | `python -m copytrade_pm.pm_portfolio_c_driver` | Offline | Isolated Q3 Portfolio C historical-oracle shared-account PM-04 research; all 12 interrupted by market gaps |
 | `python -m copytrade_pm.pm_portfolio_c_stress` | Offline | Read-only stress of immutable PM-03/PM-04 historical signed positions |
+| `python -m copytrade_pm.pm36_e4_readiness` | Offline | SHA-checked Portfolio C original-source whole-account/equity readiness; blocks all three historical wallets |
+| `python -m copytrade_pm.pm_portfolio_c_driver --prepare-e4` | Offline | Source-contract-gated atomic full-wallet snapshots; research-only E4 proportional sizing and PM-04 integration |
 
 Source-entry names for the first eight are pinned in `pyproject.toml`. The final modules are valid Python `-m` entrypoints, **not** separate project scripts. Network tools require pre-existing external client/API dependencies and separate authorization; do not assert they are fully provisioned by the core `uv.lock`.
 

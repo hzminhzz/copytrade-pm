@@ -57,6 +57,10 @@ Wallet research and frozen HyperX roster (PRIVATE, upstream of this repo)
 
 On branch `research/portfolio-c-e123-2026q3`, [Portfolio C Q3 E1/E2/E3 research](PORTFOLIO-C-2026Q3-E123.md) records **12 blocked historical-oracle shared-account scenarios** (CO-001/W015/VS066, $10k synthetic), its exact native HIP-3 source SHAs and three stress diagnostics. This is a research extension above PM-04, not mainline, forward copy signals, or broker authorization. See the branch-only [runbook](RUNBOOK.md#5b-portfolio-c-e1e2e3-historical-to-pm04-research-isolated-branch) for CLI use and failure meanings.
 
+## Portfolio C E4 proportional whole-wallet sizing (branch-only)
+
+[The E4 wallet-fidelity implementation and Q3 evidence audit](PORTFOLIO-C-E4-FAITHFUL.md) lives on `research/portfolio-c-e4-wallet-fidelity`, following the Portfolio C E1–E3 implementation. E4 uses **one scalar per complete signed wallet book**, preserving longs, shorts and cross-instrument hedges rather than independently normalizing episodes. The 2026-10-31 SHA-verified Q3 source preflight found **zero admissible complete-book/PIT-equity snapshots** for CO-001, W015 or VS066. Mathematical sizing and synthetic PM-04 integration are **not** verified real-wallet historical returns; do not promote, deploy or claim scientific qualification.
+
 ## Historical documents — use as dated evidence, not an execution playbook
 
 | Document | Safe interpretation |
