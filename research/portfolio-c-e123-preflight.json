@@ -1,0 +1,46 @@
+{
+  "schema": "portfolio_c_e123_preflight_v1",
+  "status": "BLOCKED_ACCOUNT_REPLAY_NOT_INTEGRATED",
+  "classification": "HISTORICAL_ORACLE_PARTIAL_REPLICATION_PROXY_NOT_PROPR_EXECUTABILITY_VERIFIED",
+  "repository_base_commit": "66858025fad3410ba090826c1686af3879b7cd55",
+  "study_start_inclusive": "2026-07-01T00:00:00Z",
+  "study_end_exclusive": "2026-10-01T00:00:00Z",
+  "account": {
+    "initial_balance_usd": "10000",
+    "profit_target_usd": "1000",
+    "daily_loss_allowance_usd": "300",
+    "static_loss_allowance_usd": "600",
+    "per_pod_daily_usd": "60",
+    "per_pod_stress_usd": "60",
+    "per_pod_drawdown_usd": "120",
+    "central_reserve_usd": "50"
+  },
+  "pods": [
+    {"alias": "CO-001", "instrument": "xyz:CL", "historical_vendor_fills": 2902, "eligible_retrospective_episodes_all_instruments": 44},
+    {"alias": "W015", "instrument": "xyz:XYZ100", "historical_vendor_fills": 628, "eligible_retrospective_episodes_all_instruments": 26},
+    {"alias": "VS066", "instrument": "HIP-3_and_HYPE_mixed_unverified", "historical_vendor_fills": 1221, "eligible_retrospective_episodes_all_instruments": 35, "candidate_status": "CONDITIONAL"}
+  ],
+  "source_artifacts_private": {
+    "fill_report_sha256": "57f4eb4e6b5abdb755a4ee599ba224d5e451e240dd2c78cf202cd764f17a93e9",
+    "episode_report_sha256": "0f10be09d577bfef9e749f258e34fe00acc2f13667c2e9180671dda8da66732b"
+  },
+  "source_report_consumed_market_day_count": {
+    "xyz:CL": 41,
+    "xyz:XYZ100": 41,
+    "note": "Counts from pre-existing episode report keys; not a full-minute or liquidity audit"
+  },
+  "comparison": {
+    "sizing": ["E1_FIXED_200_USD_EPISODE", "E2_60_USD_POD_STRESS", "E3_E2_TRAILING_VOL_REDUCTION_ONLY"],
+    "execution": ["IMMEDIATE", "ASYMMETRIC_5M"],
+    "cost_multipliers": [1, 2],
+    "required_runs": 12,
+    "completed_runs": 0
+  },
+  "blockers": [
+    "E1/E2/E3 sizing functions are not integrated into PM-04 shared-account replay",
+    "Source episodes were selected retrospectively and are not complete wallet books",
+    "Full HIP-3 minute coverage, liquidity, source hedges and historical Propr instrument IDs are unverified",
+    "No evidence of prospective first-known follower execution"
+  ],
+  "live_authorized": false
+}
