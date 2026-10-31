@@ -38,6 +38,10 @@ The [dated PM-01 Propr coverage study](PM-01-propr-90pct-scope.md) targeted **90
 - `pm02_risk` checks synchronized exposure and tail dependence; no asynchronous missing-return zeros. Candidate seats max five; EMPTY is allowed; PM-03 owns simulated account-level risk. A wallet may rank high historically yet be ineligible for any R.
 - The signed ledger enforces SHA chain, Ed25519 independent attestation, conservative local first-known and matured outcome. **A valid cryptographic signature proves a key signed a declaration, not that the market data or actual follower trades were measured honestly.** Independent audit material must be retained off Git.
 
+## PM-04 incremental engineering — NOT qualification
+
+[PM-04 contract](PM-04-shadow-hardening.md) adds three-pod synthetic target batching, pretrade gross/inflight guards, pod loss budgets, separate intended vs executed attribution and a read-only external execution-evidence seam to the **same** PM-03 account authority. Synthetic reconciliation fixtures, passing accounting identities and report SHA demonstrate only an *engineering* contract. They do **not** show actual Propr order acknowledgments, signed verified broker fills, a profitable independent follower, an authorized account or a live deployment. The currently selected `W028 + W042 + W030` research set remains post-hoc and **not scientifically qualified**.
+
 ## PM-03 risk: account equity vs wallet source PnL
 
 - PM-03 `cash`, realized balance, unrealized PnL, equity, floor and fee/funding models are **synthetic ledger quantities** unless independently grounded in actual account records. The risk supervisor is GREEN/YELLOW/ORANGE/RED/HALT and persists HALT; it does not connect an order gateway.

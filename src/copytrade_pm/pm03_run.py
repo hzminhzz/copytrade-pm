@@ -137,7 +137,11 @@ class ShadowRun:
         input_row = event.payload["input"]
         kind = event.kind
         result = {}
-        if kind == "MARK":
+        if kind.startswith("PM04_"):
+            from .pm04_shadow import apply_pm04
+
+            result = apply_pm04(account, event, self.policy, self.manifest["mode"])
+        elif kind == "MARK":
             if not input_row.get("state_known", False):
                 account.risk = RiskState.HALT
                 account.halt_reason = "UNKNOWN_ACCOUNT_OBSERVATION"

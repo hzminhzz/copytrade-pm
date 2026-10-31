@@ -142,6 +142,10 @@ uv run --frozen --group dev copytrade-pm-shadow \
 
 The checked-in fixture is fabricated, and the CLI works entirely offline. `pm03_cli_input_v1` supports `compare` (only `RESEARCH_SYNTHETIC`) or `replay` with versioned input events and SHA manifest. Inspect report fields, financial residuals, contractual floor breaches, GREEN/YELLOW/ORANGE/RED/HALT, partial/unfilled orders, unchanged input SHA and three policies. Do not label a synthetic pass a challenge pass probability. The Propr public rule factory is **`confirmed=False`**, intentionally blocking real-input fills. Detailed formulas: [PM-03 model](PM-03-shadow-account.md).
 
+## 5a. PM-04 synthetic three-pod research only
+
+[PM-04 contract](PM-04-shadow-hardening.md) extends the existing `copytrade-pm-shadow` CLI with action `compare_pm04` and the `pm04_compare_input_v1` JSON schema. Verified offline example: `uv run --group dev copytrade-pm-shadow --input examples/pm04_synthetic_comparison.json --output-dir /tmp/copytrade-pm04-shadow-demo-issue12`. The fixture is invented, not actual wallet signals. The reproducible schema builder is in `tests/test_pm04_compare.py`; use only named synthetic fixtures. It runs identical signed-target research input under `IMMEDIATE`, `BATCHED`, `ASYMMETRIC` execution policies using the sole PM-03 replay engine. `PM04_BROKER` receipts are read-only; they cannot become real fills by setting a flag. All real provider observations and signed snapshots remain **unverified**, so `broker_required=True` blocks new-risk simulation without independently supplied reconciled evidence. Never supply broker credentials. Incomplete immutable output should be preserved; replay into a new private output directory instead of overwriting it.
+
 ## 6. Complete entry-point map
 
 | Invocation | Safe network class | Purpose |

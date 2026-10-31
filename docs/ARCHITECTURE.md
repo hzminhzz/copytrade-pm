@@ -46,6 +46,10 @@ A separate `pm_fill_tape` materializes a **historical-only** `pm01_observed_book
 
 `pm03_account` manages Decimal balance/equity/virtual manager inventory; `pm03_execution` netting and partial simulated fills; `pm03_attribution` financial reconciliation; `pm03_risk` GREEN/YELLOW/ORANGE/RED/HALT; `pm03_memory` locked, durable replay-first event store; `pm03_stress` compares three identical-path **synthetic** allocation policies. `copytrade-pm-shadow` accepts local JSON; it does **not** connect an exchange or order API. See [PM-03 design](PM-03-shadow-account.md).
 
+## PM-04 optional three-pod extension (Issue #12)
+
+The same PM-03 `ShadowRun` owns the account's quantities, cash, risk state and immutable ledger. Optional `pm04_shadow` coordinates versioned independent pod targets, nonresetting 300-second increase windows, immediate reductions, per-pod loss budgets, conservative gross/inflight exposure and event-replayed states. `pm04_broker` independently ingests **read-only** external observations (never broker orders); unresolved order or account evidence blocks new risk. `pm04_compare` replays three execution policies on identical synthetic input. Legacy PM-03 snapshots remain unchanged without PM-04. Read [PM-04 contract](PM-04-shadow-hardening.md). PM-36 PR #7 is still separate, unmerged research and cannot authorize live sizing.
+
 ## Source and package topology
 
 ```text

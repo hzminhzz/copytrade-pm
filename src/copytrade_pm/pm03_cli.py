@@ -24,8 +24,12 @@ def _write_report(root: Path, report: dict) -> Path:
 
 
 def execute(spec: dict, output_dir: Path) -> dict:
-    if spec.get("schema") != "pm03_cli_input_v1":
+    if spec.get("schema") not in ("pm03_cli_input_v1", "pm04_compare_input_v1"):
         raise ValueError("UNSUPPORTED_PM03_CLI_INPUT")
+    if spec["schema"] == "pm04_compare_input_v1" and spec.get("action") != "compare_pm04":
+        raise ValueError("PM04_INPUT_ACTION_MISMATCH")
+    if spec["schema"] == "pm03_cli_input_v1" and spec.get("action") == "compare_pm04":
+        raise ValueError("PM04_INPUT_ACTION_MISMATCH")
     book = Rulebook.from_dict(spec["rulebook"])
     if spec.get("action") == "compare":
         if spec.get("mode") != "RESEARCH_SYNTHETIC":
@@ -50,6 +54,10 @@ def execute(spec: dict, output_dir: Path) -> dict:
             cost_model=_cost_model(spec["costs"]),
             historical_scores={k: number(v) for k, v in spec["historical_scores"].items()},
         )
+    elif spec.get("action") == "compare_pm04":
+        from .pm04_compare import compare_pm04_policies
+
+        result = compare_pm04_policies(spec, output_dir)
     elif spec.get("action") == "replay":
         run = ShadowRun(
             output_dir / "runs",
