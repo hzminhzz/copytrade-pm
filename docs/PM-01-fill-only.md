@@ -1,6 +1,8 @@
 > **Package migration:** Commands below now use `copytrade_pm`. Research results and historical evidence classifications are unchanged.
 
-# PM-01 — Fill-only historical replay (36 Hyperliquid wallets)
+# PM-01 — Fill-only historical replay (36 Hyperliquid wallets; dated research log)
+
+> This log includes multiple October 30–31 successive results and superseded coverage counts. For **current** data paths, source acquisition and offline replay commands use [DATA-ACQUISITION](DATA-ACQUISITION.md) and [RUNBOOK](RUNBOOK.md); preserve the original research results as historical provenance rather than combining different dates/denominators.
 
 **Current Propr-specific scope:** [2026-10-31 Propr 90% native market-data target and scoped acquisition](PM-01-propr-90pct-scope.md). It supersedes broad-universe acquisition milestones below: 1,036/1,289 strict Propr crypto days or 1,522/1,990 with tentative HIP-3 after 17 scoped native-day backfills. Four nonhedged, source-gap-free research candidates (W048/W026/W047/VS033) now independently exceed 90% of their own strict Propr crypto day requirements. [Prior direct execution and liquidity audit](PM-01-2026-10-31-direct-execution.md) remains a historical snapshot. Scientific PM qualification is still **BLOCKED_EVIDENCE**.
 

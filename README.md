@@ -4,6 +4,8 @@
 
 This repository is **shadow-only**: no trading credentials, no broker integration, no live orders or live risk promotion.
 
+**Start here: [copytrade-pm handbook](docs/INDEX.md).** It is the canonical map from [wallet fill acquisition](docs/DATA-ACQUISITION.md) through [source/PM architecture](docs/ARCHITECTURE.md), [step-by-step research commands](docs/RUNBOOK.md) and [scientific qualification gates](docs/QUALIFICATION.md). The older PM-01/PM-02 reports are dated research records, not current operating instructions.
+
 ## System roles
 
 - **PM-01:** reconstruct observable whole-wallet portfolios from sealed historical fills and independent first-known observations; replay hypothetical followers with exact Hyperliquid instrument identity, latency, funding, fees, market-only comparators, missing-data guards and explicit coverage status.
@@ -25,7 +27,7 @@ uv run --group dev python -m copytrade_pm.pm03_cli --help
 uv run --group dev python -m copytrade_pm.pm_prospective_cli --help
 ```
 
-The committed **GitHub Actions CI** workflow runs these tests, Ruff lint/format and the wheel build on both core and market-extra dependency sets for every PR into `main`. The latest pre-CI verified `main` baseline at merge commit `50f6fac` is **198 passed with the market extra** (2026-10-31). Historical figures in imported planning documents are not current suite counts.
+The committed **GitHub Actions CI** workflow runs these tests, Ruff lint/format and wheel build with core and market-extra dependencies on every PR into `main`. Consult [live GitHub checks](https://github.com/hzminhzz/copytrade-pm/actions) and the dated verification record in the [handbook](docs/INDEX.md); do not treat old test counts in imported plans as current suite results.
 
 Native Hyperliquid 1-minute Parquet and vendor-data research uses the optional Polars/Pandas extra:
 
@@ -43,7 +45,7 @@ uv run --group dev copytrade-pm-shadow --input examples/pm03_synthetic.json --ou
 
 No credentials or API connectivity are used by the PM-03 CLI.
 
-The source research artifacts and private data remain under their existing VPS owner-private paths. Supply paths explicitly to the CLI, never commit data or credentials. Imported historical documentation under `docs/PM-*.md` records source-era results; current commands use `copytrade_pm` rather than `ensemble`.
+The source research artifacts and private data remain under their existing VPS owner-private paths. Supply paths explicitly to the CLI, never commit data or credentials. For exact verified paths, which tools call a vendor and which remain offline, see the [data-acquisition guide](docs/DATA-ACQUISITION.md). Imported historical documentation under `docs/PM-*.md` records source-era results; current commands use `copytrade_pm` rather than `ensemble`.
 
 ## Scientific status
 
