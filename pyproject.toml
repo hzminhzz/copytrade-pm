@@ -22,6 +22,7 @@ copytrade-pm-research = "copytrade_pm.pm_research:main"
 copytrade-pm-shadow = "copytrade_pm.pm03_cli:main"
 copytrade-pm-receipts = "copytrade_pm.pm_prospective_cli:main"
 copytrade-pm-wave-c = "copytrade_pm.pm_wave_c:main"
+copytrade-pm-intent = "copytrade_pm.pm_wallet_intent:main"
 
 [build-system]
 requires = ["hatchling"]

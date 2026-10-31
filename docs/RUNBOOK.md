@@ -158,6 +158,34 @@ uv run --frozen --group dev copytrade-pm-shadow \
 
 The checked-in fixture is fabricated, and the CLI works entirely offline. `pm03_cli_input_v1` supports `compare` (only `RESEARCH_SYNTHETIC`) or `replay` with versioned input events and SHA manifest. Inspect report fields, financial residuals, contractual floor breaches, GREEN/YELLOW/ORANGE/RED/HALT, partial/unfilled orders, unchanged input SHA and three policies. Do not label a synthetic pass a challenge pass probability. The Propr public rule factory is **`confirmed=False`**, intentionally blocking real-input fills. Detailed formulas: [PM-03 model](PM-03-shadow-account.md).
 
+## 5b. Wallet intent → follower account (offline, hypothetical)
+
+Expresses one wallet's sizing intent and replays it on a hypothetical follower
+account. Input is an intent file built from hourly `get_account_summary_history`
+(equity, margin used) and `get_account_positions_history` (per-position notional,
+size, mark). Nothing here places an order or reconstructs source equity from
+fills.
+
+```bash
+uv run --frozen --group dev copytrade-pm-intent \
+  --intent /tmp/w022_intent.json --capital 10000 --mode equity --k 0.1
+```
+
+Sizing modes: `equity` (position notional / source account equity), `margin`
+(position notional / source total margin used), `weight` (position share of the
+source book with `--target-leverage`). `--k` scales the whole book. The follower
+runs on the PM-03 account model: daily/static/trailing floors with the trailing
+floor capped at the initial balance, equality included, and the run stops at the
+first breach or profit target. A non-hourly intent gap or a missing mark returns
+`BLOCKED_INTENT_GAP` / `BLOCKED_MISSING_MARK` instead of being skipped; a position
+the source no longer reports is closed at its last observed mark and counted in
+`stale_closes`. The report carries `status`, follower return, observed drawdown,
+max day loss, fees, floors, breach kinds and timestamp. It is a mark-to-market
+replay at hourly marks: it ignores intra-hour moves and funding, and it never
+claims the source wallet's fills are reproducible. The archive entitlement is the
+most recent 30 days, so an earlier window is refused rather than silently
+shortened.
+
 ## 6. Complete entry-point map
 
 | Invocation | Safe network class | Purpose |
@@ -170,6 +198,7 @@ The checked-in fixture is fabricated, and the CLI works entirely offline. `pm03_
 | `copytrade-pm-handoff` | Offline | Strict three-artifact dependency verdict |
 | `copytrade-pm-receipts` | Offline | Immutable receipt ingestion and external signed audits |
 | `copytrade-pm-shadow` | Offline | PM-03 synthetic account replay/comparison |
+| `copytrade-pm-intent` | Offline | One wallet's intent replayed on a hypothetical follower account |
 | `copytrade-pm-research` | Offline, requires separate Rust ledger | Legacy independent observation-path study |
 | `python -m copytrade_pm.pm_source_audit` | Offline | Raw vendor cache SHA/source consistency |
 | `python -m copytrade_pm.pm_fill_diagnostics` | Offline | Existing fill-cache status diagnostics |

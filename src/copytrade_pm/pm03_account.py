@@ -300,11 +300,13 @@ class Account:
             self.realized_pnl += close_qty * (price - entry) * (1 if old > ZERO else -1)
         if not new:
             self.entries.pop(instrument, None)
-        elif not old or old * new < ZERO:
-            self.entries[instrument] = price
-        elif old * delta > ZERO:
-            self.entries[instrument] = (abs(old) * entry + abs(delta) * price) / abs(new)
-        self.quantities[instrument] = new
+            self.quantities.pop(instrument, None)
+        else:
+            if not old or old * new < ZERO:
+                self.entries[instrument] = price
+            elif old * delta > ZERO:
+                self.entries[instrument] = (abs(old) * entry + abs(delta) * price) / abs(new)
+            self.quantities[instrument] = new
 
     def _pm_trade(
         self, pm: str, instrument: Instrument, delta: Decimal, price: Decimal, fee: Decimal = ZERO

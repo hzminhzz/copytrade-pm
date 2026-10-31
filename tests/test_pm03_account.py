@@ -100,3 +100,14 @@ def test_rejected_fill_does_not_create_position():
     a.simulate_fill(BTC, D("3"), D("100"), D("1"), accepted=False, allocated={"x": D("3")})
     a.verify()
     assert a.cash == D("10000") and not a.quantities
+
+
+def test_full_close_removes_zero_quantity_and_reconciles():
+    a = Account.start(rules(), T)
+    a.simulate_fill(BTC, D("1"), D("100"), D("0.1"), accepted=True, allocated={"a": D("1")})
+    a.simulate_fill(BTC, D("-1"), D("101"), D("0.1"), accepted=True, allocated={"a": D("-1")})
+    a.verify()
+    assert BTC not in a.quantities
+    assert BTC not in a.entries
+    assert a.realized_pnl == D("1")
+    assert a.equity == D("10000.8")
