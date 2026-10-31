@@ -21,7 +21,7 @@ PM-01 observations (no event-time-as-receipt promotion)
 
 ## Contracts
 
-- `PM04_CONFIG` carries `pm04_research_policy_v1`: `version`, `approval_reference`, `pods` keyed by stable IDs, per-pod `budget_ref`, `daily_loss`, `max_drawdown`, `stress_loss`; `max_gross_notional`, `max_instrument_fraction_equity`, `max_stress_loss`, `reserve`, `reconcile_tolerance`, `max_signal_age_seconds`, `broker_max_age_seconds`, `batch_seconds=300`, `broker_required` and `execution_policy`. These are **explicitly synthetic research thresholds**, not authorized Propr limits. An initial config is event-sealed and cannot be silently revised.
+- `PM04_CONFIG` carries `pm04_research_policy_v1`: `version`, `approval_reference`, `pods` keyed by stable IDs, per-pod `budget_ref`, `daily_loss`, `max_drawdown`, `stress_loss`; `max_gross_notional`, `max_instrument_fraction_equity`, `max_stress_loss`, `reserve`, `reconcile_tolerance`, `max_signal_age_seconds`, `broker_max_age_seconds`, `batch_seconds=300`, `broker_required` and `execution_policy`. These are **explicitly synthetic research thresholds**, not authorized Propr limits. At configuration, PM-04 checks distinct pod budget references and explicitly reserves the **sum** of per-pod daily, drawdown and stress allowances against the PM-03 synthetic daily allowance, static/trailing loss budget and declared account reserve. Unfunded or unobservable contractual budgets are rejected; the frozen account-funding receipt is included in the PM-03 snapshot/ledger. An initial config is event-sealed and cannot be silently revised.
 - `PM04_SIGNAL`: full PM-03 `Event` causal clocks and `source_sha` plus `input.targets[]`; each target has `pod`, exact `venue/market/symbol`, signed `quantity`, monotone `revision`, source/first-known times, SHA source provenance and matching `budget_ref`. Also provide `observations`, `shocks`, `evidence`, `costs` using PM-03's versioned decision-input shape. A missing/unknown market or stale/future target raises and cannot be backdated.
 - `PM04_TICK`: same market/exposure/stress/cost input with no new target. A nonresetting instrument timer releases increases no earlier than first pending signal +300 seconds. Reductions and close-before-reverse are prioritized under `ASYMMETRIC` mode. Other comparison modes are `IMMEDIATE` and `BATCHED`.
 - `PM04_RESTORE`: an explicit pod restoration authorization reference and eligible unused budget. Account RED/HALT prevents restoration. **No budget-reset-by-restoration**.
@@ -61,6 +61,12 @@ print(result["sha"])
 ```
 
 **Private evidence:** keep raw provider receipts, signed original statements, market data, account balances, keys and wallet aliases outside Git. Never reinterpret archived source timestamp as follower first-known.
+
+## Engineering acceptance and recovery
+
+The [PM-04 acceptance matrix](PM-04-acceptance.md) defines the 18 named Issue #12 scenarios, fault/reconnect and after-commit crash recovery tests, immutable replay verification, failure handling and the exact offline run command. Stale market input is a durable HALT without repricing, delayed-but-expired queued targets are recorded without retrospective execution, and gross-limit gaps automatically request reductions while preserving actual unfilled holdings. A pod-specific risk veto is latched independently and must not impose a blanket account HALT on otherwise authorized pods. PM-03 funding events refresh PM-04 attribution and queue loss-triggered exits without claiming fills. A PM-03 challenge-stage rulebook change invalidates the frozen PM-04 budget funding receipt, latching HALT until separately approved reauthorization rather than silently inheriting new terms.
+
+The three-policy comparison now explicitly reports daily balance-derived floor headroom and contractual headroom, conservative queued/inflight reservations, marked gross peak, unresolved reduction inventory, and exact Decimal reconciliation residuals. None of these are broker fills or challenge-pass probabilities.
 
 ## Known limits / blocking acceptance
 

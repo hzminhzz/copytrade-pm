@@ -27,9 +27,9 @@ def policy(**overrides):
         "pods": {
             p: {
                 "budget_ref": f"approved-research-{p}",
-                "daily_loss": "100",
-                "max_drawdown": "200",
-                "stress_loss": "500",
+                "daily_loss": "80",
+                "max_drawdown": "180",
+                "stress_loss": "200",
             }
             for p in PODS
         },

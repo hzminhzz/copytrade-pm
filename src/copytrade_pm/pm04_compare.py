@@ -43,6 +43,26 @@ def compare_pm04_policies(spec: dict, output_dir: Path) -> dict:
             {k: v for k, v in result.items() if k != "report_sha"}
         ):
             raise ValueError("CORRUPTED_PM04_IMMUTABLE_COMPARISON")
+        # A valid cached report must not hide deleted/truncated ledgers or a
+        # crash that left an incomplete scenario after report publication.
+        for name, scenario in result["comparison"].items():
+            root = output_dir / "runs" / f"pm04-compare-{name}"
+            if not (root / "events.jsonl").is_file():
+                raise ValueError("MISSING_COMPARISON_LEDGER")
+            replay = ShadowRun(
+                output_dir / "runs",
+                run_id=f"pm04-compare-{name}",
+                rulebook=Rulebook.from_dict(spec["rulebook"]),
+                started_at=spec["started_at"],
+                mode="RESEARCH_SYNTHETIC",
+                pm01_sha=spec["pm01_sha"],
+                pm02_sha=spec["pm02_sha"],
+                market_manifest_sha=spec["market_manifest_sha"],
+            )
+            rows = replay.ledger.read()
+            if not rows or rows[-1]["sha"] != scenario["ledger_head"]:
+                raise ValueError("COMPARISON_LEDGER_HEAD_MISMATCH")
+            replay.verify_checkpoint(scenario["checkpoint_sha"])
         return result
     rulebook = Rulebook.from_dict(spec["rulebook"])
     if not rulebook.confirmed or rulebook.program != "SYNTHETIC":
@@ -108,9 +128,24 @@ def compare_pm04_policies(spec: dict, output_dir: Path) -> dict:
             )
             run.record(e)
             snap = run.account.snapshot()
+            active_floor, floor_components = run.account.floor()
+            daily_floor = floor_components.get("daily")
             timeline.append(
                 {
                     "at": e.decision_at,
+                    "daily_floor_headroom": (
+                        str(number(snap["equity"]) - daily_floor)
+                        if daily_floor is not None
+                        else None
+                    ),
+                    "contractual_floor_headroom": (
+                        str(number(snap["equity"]) - active_floor)
+                        if active_floor is not None
+                        else None
+                    ),
+                    "conservative_reserved_gross": snap.get("pm04", {})
+                    .get("exposure", {})
+                    .get("total_conservative_gross", "0"),
                     "equity": snap["equity"],
                     "balance": snap["balance"],
                     "daily_start_balance": snap["daily_start_balance"],
@@ -136,7 +171,24 @@ def compare_pm04_policies(spec: dict, output_dir: Path) -> dict:
             "equity_curve": timeline,
             "sampled_max_drawdown": _decline(start, equities),
             "sampled_worst_daily_equity_loss": str(worst_daily),
+            "worst_daily_floor_headroom": (
+                str(min(number(row["daily_floor_headroom"]) for row in timeline))
+                if all(row["daily_floor_headroom"] is not None for row in timeline)
+                else None
+            ),
+            "worst_contractual_floor_headroom": (
+                str(min(number(row["contractual_floor_headroom"]) for row in timeline))
+                if all(row["contractual_floor_headroom"] is not None for row in timeline)
+                else None
+            ),
+            "gross_limit": str(number(policy["max_gross_notional"])),
             "marked_gross_peak": str(max((number(row["gross"]) for row in timeline), default=ZERO)),
+            "peak_conservative_reserved_gross": str(
+                max(
+                    (number(row["conservative_reserved_gross"]) for row in timeline),
+                    default=ZERO,
+                )
+            ),
             "pod_executed_pnl": {p: x["pnl"] for p, x in pm04["pod_stats"].items()},
             "pod_state": {p: x["state"] for p, x in pm04["pod_stats"].items()},
             "limit_violations": pm04["risk_breaches"],

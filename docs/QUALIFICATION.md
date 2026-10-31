@@ -40,7 +40,7 @@ The [dated PM-01 Propr coverage study](PM-01-propr-90pct-scope.md) targeted **90
 
 ## PM-04 incremental engineering — NOT qualification
 
-[PM-04 contract](PM-04-shadow-hardening.md) adds three-pod synthetic target batching, pretrade gross/inflight guards, pod loss budgets, separate intended vs executed attribution and a read-only external execution-evidence seam to the **same** PM-03 account authority. Synthetic reconciliation fixtures, passing accounting identities and report SHA demonstrate only an *engineering* contract. They do **not** show actual Propr order acknowledgments, signed verified broker fills, a profitable independent follower, an authorized account or a live deployment. The currently selected `W028 + W042 + W030` research set remains post-hoc and **not scientifically qualified**.
+[PM-04 contract](PM-04-shadow-hardening.md) and [PM-04 engineering acceptance](PM-04-acceptance.md) add three-pod synthetic target batching, pretrade gross/inflight guards, pod loss budgets, separate intended vs executed attribution and a read-only external execution-evidence seam to the **same** PM-03 account authority. Synthetic reconciliation fixtures, passing accounting identities and report SHA demonstrate only an *engineering* contract. They do **not** show actual Propr order acknowledgments, signed verified broker fills, a profitable independent follower, an authorized account or a live deployment. The currently selected `W028 + W042 + W030` research set remains post-hoc and **not scientifically qualified**.
 
 ## PM-03 risk: account equity vs wallet source PnL
 

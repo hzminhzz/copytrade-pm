@@ -32,21 +32,21 @@
     "pods": {
       "W028": {
         "budget_ref": "research-only-W028",
-        "daily_loss": "100",
-        "max_drawdown": "200",
-        "stress_loss": "500"
+        "daily_loss": "80",
+        "max_drawdown": "180",
+        "stress_loss": "200"
       },
       "W042": {
         "budget_ref": "research-only-W042",
-        "daily_loss": "100",
-        "max_drawdown": "200",
-        "stress_loss": "500"
+        "daily_loss": "80",
+        "max_drawdown": "180",
+        "stress_loss": "200"
       },
       "W030": {
         "budget_ref": "research-only-W030",
-        "daily_loss": "100",
-        "max_drawdown": "200",
-        "stress_loss": "500"
+        "daily_loss": "80",
+        "max_drawdown": "180",
+        "stress_loss": "200"
       }
     },
     "max_gross_notional": "3000",

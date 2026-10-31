@@ -38,6 +38,9 @@ def validate_policy(policy: dict) -> None:
         raise ValueError("UNAPPROVED_OR_UNVERSIONED_PM04_RESEARCH_POLICY")
     if not isinstance(policy.get("pods"), dict) or not policy["pods"]:
         raise ValueError("PM04_PODS_REQUIRED")
+    budget_ids = [x.get("budget_ref") for x in policy["pods"].values()]
+    if len(set(budget_ids)) != len(budget_ids):
+        raise ValueError("DUPLICATE_POD_BUDGET_REF")
     for pod, limits in policy["pods"].items():
         if not pod or not limits.get("budget_ref"):
             raise ValueError("MISSING_POD_BUDGET_REF")
@@ -63,6 +66,51 @@ def validate_policy(policy: dict) -> None:
         raise ValueError("FIVE_MINUTE_BATCH_CONTRACT_REQUIRED")
     if type(policy.get("broker_required")) is not bool:
         raise ValueError("BROKER_EVIDENCE_REQUIREMENT_MUST_BE_EXPLICIT")
+
+
+def _fund_independent_pod_budgets(account: Account, policy: dict) -> dict:
+    """Allocate explicit synthetic loss envelopes inside PM-03 contract headroom.
+
+    Do not assume that individually sized pods are collectively funded.
+    Day and lifetime drawdown envelopes refer to different time horizons.
+    """
+    reserve = number(policy["reserve"])
+    daily = account.rulebook.daily_allowance(account.daily_start_balance)
+    if daily is None:
+        raise ValueError("UNKNOWN_DAILY_CONTRACTUAL_BUDGET")
+    long_term_limits = [
+        number(value)
+        for value in (account.rulebook.static_loss, account.rulebook.trailing_loss)
+        if value is not None
+    ]
+    if not long_term_limits:
+        raise ValueError("UNKNOWN_LONG_TERM_CONTRACTUAL_BUDGET")
+    daily_available = daily - reserve
+    drawdown_available = min(long_term_limits) - reserve
+    stress_available = number(policy["max_stress_loss"]) - reserve
+    reserved = {
+        kind: sum((number(p[kind]) for p in policy["pods"].values()), ZERO)
+        for kind in ("daily_loss", "max_drawdown", "stress_loss")
+    }
+    if reserved["daily_loss"] > daily_available:
+        raise ValueError("UNFUNDED_POD_DAILY_LOSS_ALLOWANCES")
+    if reserved["max_drawdown"] > drawdown_available:
+        raise ValueError("UNFUNDED_POD_DRAWDOWN_ALLOWANCES")
+    if reserved["stress_loss"] > stress_available:
+        raise ValueError("UNFUNDED_POD_STRESS_ALLOWANCES")
+    return {
+        "source": "PM03_RULEBOOK_SYNTHETIC",
+        "rulebook_sha": account.rulebook.sha,
+        "policy_sha": digest(policy),
+        "reserve": str(reserve),
+        "daily_reserved": str(reserved["daily_loss"]),
+        "daily_available": str(daily_available),
+        "drawdown_reserved": str(reserved["max_drawdown"]),
+        "drawdown_available": str(drawdown_available),
+        "stress_reserved": str(reserved["stress_loss"]),
+        "stress_available": str(stress_available),
+        "not_contractually_approved": True,
+    }
 
 
 def _make_intended(state: dict) -> IntendedVirtualBooks:
@@ -161,7 +209,9 @@ def _stats(account: Account, shocks: tuple[dict[Instrument, D], ...] = ()) -> No
             if data["state"] != "SUSPENDED":
                 data["state"] = "REDUCED"
                 data["reason"] = "POD_STRESS_LIMIT"
-        elif data["state"] == "REDUCED":
+        # REDUCED/SUSPENDED are latched pod vetoes. A favorable next mark
+        # must never silently restore risk authority or replenish budgets.
+        elif data["state"] == "RESTORED":
             data["state"] = "ACTIVE"
             data["reason"] = None
     _seal_economics(account)
@@ -185,24 +235,44 @@ def _exposure(account: Account, at: str) -> dict:
     inflight = pending_quantities(account)
     actual = account.gross()
     pending_notional = sum((qty * account.marks.get(k, ZERO) for k, qty in inflight.items()), ZERO)
-    current = actual + pending_notional
+    # Reserve every queued new pod increase, not only submitted broker intent.
+    # Opposing/new virtual targets cannot cancel each other for risk reserve.
+    queued: dict[Instrument, D] = {}
+    for pod, wanted in state["pod_targets"].items():
+        if state["pod_stats"][pod]["state"] in ("SUSPENDED", "REDUCED"):
+            continue
+        routed = state["routed_targets"][pod]
+        for key, raw_qty in wanted.items():
+            if key not in state["batch_open"]:
+                continue
+            proposed = number(raw_qty)
+            old = number(routed.get(key, "0"))
+            addition = (
+                max(ZERO, abs(proposed) - abs(old)) if proposed * old >= ZERO else abs(proposed)
+            )
+            inst = Instrument.parse(key)
+            queued[inst] = queued.get(inst, ZERO) + addition
+    queued_notional = sum((qty * account.marks.get(k, ZERO) for k, qty in queued.items()), ZERO)
+    current = actual + pending_notional + queued_notional
     cap = _positive(policy, "max_gross_notional")
     reasons = []
     if current > cap:
         reasons.append("MARKED_GROSS_LIMIT_BREACH")
     concentration_cap = account.equity * number(policy["max_instrument_fraction_equity"])
     if any(
-        (abs(account.quantities.get(k, ZERO)) + inflight.get(k, ZERO)) * account.marks[k]
+        (abs(account.quantities.get(k, ZERO)) + inflight.get(k, ZERO) + queued.get(k, ZERO))
+        * account.marks[k]
         > concentration_cap
-        for k in set(account.quantities) | set(inflight)
+        for k in set(account.quantities) | set(inflight) | set(queued)
         if k in account.marks
     ):
         reasons.append("MARKED_CONCENTRATION_BREACH")
-    if any(k not in account.marks for k in inflight):
+    if any(k not in account.marks for k in set(inflight) | set(queued)):
         reasons.append("UNKNOWN_PENDING_INFLIGHT_MARK")
     state["exposure"] = {
         "actual_gross": str(actual),
         "pending_inflight_gross": str(pending_notional),
+        "queued_new_risk_gross": str(queued_notional),
         "total_conservative_gross": str(current),
         "gross_limit": str(cap),
         "concentration_cap": str(concentration_cap),
@@ -233,22 +303,51 @@ def refresh(account: Account, at: str) -> None:
     if not account.pm04_state:
         return
     state = account.pm04_state
-    if state["policy"]["broker_required"]:
+    if state["policy"]["broker_required"] or state["broker"]["observations"]:
         reconcile(account, state["policy"], at)
     _stats(account)
     _exposure(account, at)
+
+
+def on_account_event(account: Account, kind: str, raw: dict, at: str) -> None:
+    """Reprice PM intended books and repair the report after legacy PM-03 events.
+
+    Funding is booked exclusively through Account.post_funding, with no
+    PM-04 duplicate cash ledger. Legacy PM-03 runs are untouched.
+    """
+    if not account.pm04_state:
+        return
+    if kind == "MARK" and raw.get("state_known", False):
+        _desired_refresh(
+            account.pm04_state,
+            {Instrument.parse(k): number(v) for k, v in raw["prices"].items()},
+        )
+    refresh(account, at)
+    if kind == "FUNDING" and _force_pod_reductions(account):
+        # A funding-driven suspension requests an exit even when the funding
+        # event has no executable quote. The actual holdings remain unchanged.
+        _outstanding(account)
+    if kind == "STAGE" and (
+        account.rulebook.sha != account.pm04_state["budget_funding"]["rulebook_sha"]
+    ):
+        account.risk = RiskState.HALT
+        reason = "PM04_POLICY_RULEBOOK_CHANGED_REAUTH_REQUIRED"
+        account.halt_reason = reason
+        account.risk_reasons = tuple(sorted(set(account.risk_reasons) | {reason}))
 
 
 def bootstrap(account: Account, policy: dict, at: str) -> dict:
     if account.pm04_state:
         raise ValueError("PM04_POLICY_ALREADY_FROZEN")
     validate_policy(policy)
+    funding_receipt = _fund_independent_pod_budgets(account, policy)
     if any(account.quantities.values()) or any(account.pm_quantities.values()):
         raise ValueError("PM04_CANNOT_BOOTSTRAP_UNRECONCILED_ACCOUNT")
     account.pm04_state = {
         "schema": STATE_SCHEMA,
         "policy": policy,
         "policy_sha": digest(policy),
+        "budget_funding": funding_receipt,
         "created_at": at,
         "pod_targets": {p: {} for p in sorted(policy["pods"])},
         "routed_targets": {p: {} for p in sorted(policy["pods"])},
@@ -278,6 +377,9 @@ def bootstrap(account: Account, policy: dict, at: str) -> dict:
         "intended": {"qty": {}, "cash": {}, "marks": {}, "quality": "RESEARCH_SYNTHETIC_MID_PROXY"},
         "execution_drag": "0",
         "internal_crosses": [],
+        "pod_rejections": [],
+        "expired_targets": [],
+        "blocked_observations": [],
         "economics": {},
         "exposure": {},
     }
@@ -377,23 +479,34 @@ def _batch_due(account: Account, event: Event) -> bool:
             if state["pod_stats"][pod]["state"] in ("SUSPENDED", "REDUCED"):
                 desired = ZERO
             old = number(state["routed_targets"][pod].get(k, "0"))
-            actual = account.quantities.get(instrument, ZERO)
-            if actual and actual * desired < ZERO and abs(desired) > ZERO:
-                # Reversal first requests an exit. A later verified flat position
-                # is necessary before opening the opposite side.
-                state["routed_targets"][pod][k] = "0"
-                still_pending = True
+            provenance = state["provenance"][pod].get(k)
+            expired = (
+                desired != old
+                and provenance is not None
+                and (clock(event.decision_at) - clock(provenance["first_known_at"])).total_seconds()
+                > policy["max_signal_age_seconds"]
+            )
+            if expired:
+                # A scheduler delay is a rejected new proposal, not a crash,
+                # implicit timestamp backfill, or permission to fill stale risk.
+                state["expired_targets"].append(
+                    {
+                        "pod": pod,
+                        "instrument": k,
+                        "decision_at": event.decision_at,
+                        "first_known_at": provenance["first_known_at"],
+                        "revision": provenance["revision"],
+                    }
+                )
+                state["routed_targets"][pod][k] = str(old)
             else:
-                provenance = state["provenance"][pod].get(k)
-                if (
-                    provenance is not None
-                    and (
-                        clock(event.decision_at) - clock(provenance["first_known_at"])
-                    ).total_seconds()
-                    > policy["max_signal_age_seconds"]
-                ):
-                    raise ValueError("STALE_BATCHED_TARGET")
-                state["routed_targets"][pod][k] = str(desired)
+                actual = account.quantities.get(instrument, ZERO)
+                if actual and actual * desired < ZERO and abs(desired) > ZERO:
+                    # Exit before reversal. A rejected close never becomes flat.
+                    state["routed_targets"][pod][k] = "0"
+                    still_pending = True
+                else:
+                    state["routed_targets"][pod][k] = str(desired)
             changed = changed or old != number(state["routed_targets"][pod][k])
         if not still_pending:
             state["batch_open"].pop(k)
@@ -409,6 +522,86 @@ def _force_pod_reductions(account: Account) -> bool:
                 if number(value):
                     state["routed_targets"][pod][inst] = "0"
                     changed = True
+    return changed
+
+
+def _vet_pod_new_risk(account: Account, shocks: tuple[dict[Instrument, D], ...], at: str) -> bool:
+    """Veto unsafe virtual pod increases independently of central account HALT.
+
+    Even two offsetting virtual pods can carry material hedge-break exposure.
+    Failure here reduces only the offending pod, never unrelated PM targets.
+    """
+    state = account.pm04_state
+    changed = False
+    for pod in sorted(state["policy"]["pods"]):
+        old_book = account.pm_quantities.get(pod, {})
+        desired = _books({pod: state["routed_targets"][pod]})[pod]
+        has_new_risk = any(
+            abs(q) > abs(old_book.get(k, ZERO)) or (old_book.get(k, ZERO) * q < ZERO)
+            for k, q in desired.items()
+        )
+        if not has_new_risk:
+            continue
+        reasons = []
+        stats = state["pod_stats"][pod]
+        if stats["state"] in ("SUSPENDED", "REDUCED"):
+            reasons.append("POD_NOT_ACTIVE")
+        elif not shocks or any(set(desired) - set(shock) for shock in shocks):
+            reasons.append("UNKNOWN_POD_STRESS")
+        else:
+            worst = max((loss_under_shock(desired, account.marks, s) for s in shocks), default=ZERO)
+            if worst > _positive(state["policy"]["pods"][pod], "stress_loss"):
+                reasons.append("PRETRADE_POD_STRESS_BUDGET_REJECT")
+        if number(stats["remaining_daily"]) <= ZERO or number(stats["remaining_drawdown"]) <= ZERO:
+            reasons.append("POD_LOSS_BUDGET_EXHAUSTED")
+        if reasons:
+            for key, qty in list(state["routed_targets"][pod].items()):
+                if number(qty):
+                    state["routed_targets"][pod][key] = "0"
+                    changed = True
+            # Disallow re-entry on later ticks until an explicit restoration
+            # event, while preserving the central account's independent veto.
+            if stats["state"] != "SUSPENDED":
+                stats["state"] = "REDUCED"
+            stats["reason"] = ";".join(sorted(reasons))
+            state["pod_rejections"].append(
+                {
+                    "at": at,
+                    "pod": pod,
+                    "reasons": sorted(reasons),
+                    "requested": {k.key: str(v) for k, v in desired.items()},
+                }
+            )
+    return changed
+
+
+def _force_overcap_reductions(account: Account) -> bool:
+    """Request a modeled reduction without assuming executable liquidity.
+
+    This overlays already-held virtual pod books only; no change to target
+    provenance, PM-03 financial holdings, or submitted broker orders occurs.
+    """
+    state = account.pm04_state
+    cap = _positive(state["policy"], "max_gross_notional")
+    actual_gross = account.gross()
+    per_instrument = account.equity * number(state["policy"]["max_instrument_fraction_equity"])
+    ratio = min(D("1"), cap / actual_gross) if actual_gross > ZERO else D("1")
+    changed = False
+    for inst, qty in account.quantities.items():
+        if not qty or inst not in account.marks:
+            continue
+        marked = abs(qty * account.marks[inst])
+        local_ratio = min(ratio, per_instrument / marked) if marked else ratio
+        if local_ratio >= D("1"):
+            continue
+        for pod, book in account.pm_quantities.items():
+            old = book.get(inst, ZERO)
+            desired = old * local_ratio
+            current = number(state["routed_targets"].get(pod, {}).get(inst.key, "0"))
+            # Never increase exposure while trying to mitigate a limit breach.
+            if old and (abs(current) > abs(desired) or current * old < ZERO):
+                state["routed_targets"][pod][inst.key] = str(desired)
+                changed = True
     return changed
 
 
@@ -617,16 +810,41 @@ def apply_pm04(account: Account, event: Event, policy: RiskPolicy, mode: str) ->
     tracked = set(account.quantities) | {
         k for b in account.pm_quantities.values() for k, q in b.items() if q
     }
+    stale = [
+        k.key
+        for k, q in observations.items()
+        if (clock(event.decision_at) - clock(q.first_known_at)).total_seconds()
+        > _cost_model(raw["costs"]).max_age_seconds
+    ]
+    blocked = []
     if tracked - set(observations):
-        account.risk = RiskState.HALT
-        account.halt_reason = "MISSING_EXISTING_POSITION_MARK"
-        raise ValueError("UNKNOWN_MARK_ON_EXISTING_POSITION")
+        blocked.append("MISSING_EXISTING_POSITION_MARK")
+    if stale:
+        blocked.append("STALE_MARKET_OBSERVATION")
     if not raw["evidence"].get("account_state_known") or not raw["evidence"].get(
         "market_state_known"
     ):
+        blocked.append("UNKNOWN_AUTHORITATIVE_ACCOUNT_OR_MARKET")
+    if blocked:
+        # Record the fail-closed decision in the durable PM-03 event chain.
+        # Never mark a stale price or pretend an absent account is flat.
         account.risk = RiskState.HALT
-        account.halt_reason = "UNKNOWN_ACCOUNT_OR_MARKET"
-        raise ValueError("UNKNOWN_AUTHORITATIVE_ACCOUNT_OR_MARKET")
+        account.halt_reason = ";".join(sorted(blocked))
+        account.risk_reasons = tuple(sorted(set(account.risk_reasons) | set(blocked)))
+        state["blocked_observations"].append(
+            {
+                "at": event.decision_at,
+                "reasons": sorted(blocked),
+                "stale": stale,
+                "missing": sorted(k.key for k in tracked - set(observations)),
+            }
+        )
+        refresh(account, event.decision_at)
+        return {
+            "status": "HALT_UNRECONCILED_MARKET_OR_ACCOUNT",
+            "rejections": blocked,
+            "no_live_order_path": True,
+        }
     account.mark({k: q.mark for k, q in observations.items()}, event.decision_at)
     shocks = tuple(
         {Instrument.parse(k): number(v) for k, v in shock.items()} for shock in raw["shocks"]
@@ -641,8 +859,10 @@ def apply_pm04(account: Account, event: Event, policy: RiskPolicy, mode: str) ->
             _desired_refresh(state, {k: q.mark for k, q in observations.items()})
         else:
             _desired_refresh(state, {k: q.mark for k, q in observations.items()})
-        changed = _force_pod_reductions(account) or changed
         changed = _batch_due(account, event) or changed
+        changed = _vet_pod_new_risk(account, shocks, event.decision_at) or changed
+        changed = _force_pod_reductions(account) or changed
+        changed = _force_overcap_reductions(account) or changed
         if not changed and not state["pending_reductions"]:
             result = {
                 "status": "DEFERRED_BATCH_OR_NO_CHANGE",

@@ -66,6 +66,12 @@ def test_three_pod_policy_comparison_same_inputs_and_sha(tmp_path):
     assert D(netted["reconciliation_residual"]) == 0
     assert all(len(v["equity_curve"]) == 4 for v in report["comparison"].values())
     assert all(v["shadow_only"] for v in report["comparison"].values())
+    for scenario in report["comparison"].values():
+        assert D(scenario["worst_daily_floor_headroom"]) > 0
+        assert D(scenario["worst_contractual_floor_headroom"]) > 0
+        assert D(scenario["marked_gross_peak"]) <= D(scenario["gross_limit"])
+        assert all("daily_floor_headroom" in row for row in scenario["equity_curve"])
+        assert all("conservative_reserved_gross" in row for row in scenario["equity_curve"])
     assert report == compare_pm04_policies(spec, tmp_path)
 
 

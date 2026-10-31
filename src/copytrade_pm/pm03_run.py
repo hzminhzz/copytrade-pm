@@ -243,6 +243,10 @@ class ShadowRun:
             result = {"status": "HALT_LATCHED"}
         else:
             raise ValueError("UNKNOWN_EVENT_KIND")
+        if account.pm04_state and not kind.startswith("PM04_"):
+            from .pm04_shadow import on_account_event
+
+            on_account_event(account, kind, input_row, event.decision_at)
         return result
 
     def restore(self) -> dict:

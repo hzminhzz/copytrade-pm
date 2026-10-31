@@ -86,7 +86,16 @@ def _snapshot(account: Account, broker: dict, policy: dict, at: str) -> list[str
         and not broker["discrepancies"]
         and policy["broker_required"]
     )
-    if any(x in reasons for x in ("POSITION_MISMATCH", "BALANCE_MISMATCH", "UNKNOWN_ORDER")):
+    if any(
+        x in reasons
+        for x in (
+            "POSITION_MISMATCH",
+            "BALANCE_MISMATCH",
+            "FEES_FUNDING_MISMATCH",
+            "UNKNOWN_ORDER",
+            "CANCEL_FILL_RACE_UNRESOLVED",
+        )
+    ):
         account.risk = RiskState.HALT
         account.halt_reason = "BROKER_RECONCILIATION_DISCREPANCY"
         account.risk_reasons = tuple(sorted(set(account.risk_reasons) | set(reasons)))
@@ -100,8 +109,18 @@ def reconcile(account: Account, policy: dict, at: str) -> list[str]:
 def pending_quantities(account: Account) -> dict[Instrument, D]:
     """Conservatively count each unresolved in-flight order at full remaining size."""
     result: dict[Instrument, D] = {}
-    for order in account.pm04_state["broker"]["orders"].values():
+    broker = account.pm04_state["broker"]
+    for order in broker["orders"].values():
         if order["status"] in ("FILLED", "REJECTED", "UNKNOWN"):
+            continue
+        last = broker["position_snapshot"]
+        if (
+            order["status"].startswith("CANCELED")
+            and last is not None
+            and (clock(last["first_known_at"]) > clock(order["last_known_at"]))
+        ):
+            # A later independently complete position snapshot resolves the
+            # outstanding canceled balance, not a cancel receipt alone.
             continue
         inst = Instrument.parse(order["instrument"])
         qty = abs(number(order["quantity"])) - number(order["cumulative_filled"])

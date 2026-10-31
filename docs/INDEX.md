@@ -13,6 +13,7 @@
 | Audit the independent signed receipt contract | [PM-01 prospective ledger](PM-01-prospective-ledger.md) | `RECEIPT → AUDIT → OUTCOME → PM-02`, signatures and CLI |
 | Audit the account model | [PM-03 shadow simulator](PM-03-shadow-account.md) | Frozen public rulebook, reconciliation, HALT, stress and no-order boundary |
 | Inspect optional PM-04 three-pod shadow hardening | [PM-04 contract](PM-04-shadow-hardening.md) | Versioned pod targets, batching, risk budgets, read-only external evidence and no-live-order gate; Issue #12 |
+| Reproduce PM-04 18-case engineering acceptance | [PM-04 acceptance matrix](PM-04-acceptance.md) | Fixed-input 18 scenarios, fault recovery, comparison and manual halt/reconciliation runbook |
 | Understand the extraction itself | [Provenance](PROVENANCE.md) | Filtered source history and verified original PM-01/PM-02 byte parity |
 
 Start a task with `AGENTS.md`, this index, the relevant source code/tests, then the **live** issue and PR; do not treat an archived report as a current service or data state.
