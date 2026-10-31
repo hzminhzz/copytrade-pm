@@ -204,6 +204,9 @@ class Account:
     stage_passed: bool = False
     last_mark_at: str | None = None
     risk_reasons: tuple[str, ...] = ()
+    # Optional PM-04 research metadata, replayed by the SAME PM-03 account ledger.
+    # Absent for legacy PM-03 runs so their existing post-state hashes remain stable.
+    pm04_state: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def start(cls, rulebook: Rulebook, as_of: str) -> Account:
@@ -219,7 +222,8 @@ class Account:
     @property
     def unrealized_pnl(self) -> Decimal:
         return sum(
-            (q * (self.marks[k] - self.entries[k]) for k, q in self.quantities.items()), ZERO
+            (q * (self.marks[k] - self.entries[k]) for k, q in self.quantities.items() if q),
+            ZERO,
         )
 
     def floor(self) -> tuple[Decimal | None, dict[str, Decimal]]:
@@ -530,6 +534,8 @@ class Account:
             "last_mark_at": self.last_mark_at,
             "risk_reasons": list(self.risk_reasons),
         }
+        if self.pm04_state:
+            snap["pm04"] = self.pm04_state
         return snap
 
     @classmethod
@@ -563,6 +569,7 @@ class Account:
             revision=snap["revision"],
             last_mark_at=snap["last_mark_at"],
             risk_reasons=tuple(snap["risk_reasons"]),
+            pm04_state=snap.get("pm04", {}),
         )
         obj.verify()
         if str(obj.balance) != snap["balance"]:

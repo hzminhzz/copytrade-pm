@@ -46,6 +46,33 @@ A separate `pm_fill_tape` materializes a **historical-only** `pm01_observed_book
 
 `pm03_account` manages Decimal balance/equity/virtual manager inventory; `pm03_execution` netting and partial simulated fills; `pm03_attribution` financial reconciliation; `pm03_risk` GREEN/YELLOW/ORANGE/RED/HALT; `pm03_memory` locked, durable replay-first event store; `pm03_stress` compares three identical-path **synthetic** allocation policies. `copytrade-pm-shadow` accepts local JSON; it does **not** connect an exchange or order API. See [PM-03 design](PM-03-shadow-account.md).
 
+## PM-04 optional three-pod extension (Issue #12)
+
+The same PM-03 `ShadowRun` owns the account's quantities, cash, risk state and immutable ledger. Optional `pm04_shadow` coordinates versioned independent pod targets, nonresetting 300-second increase windows, immediate reductions, per-pod **independently funded** loss budgets with a frozen PM-03 rulebook-linked reserve receipt, conservative gross/inflight/queued exposure and event-replayed states. `pm04_broker` independently ingests **read-only** external observations (never broker orders); unresolved order or account evidence blocks new risk. `pm04_compare` replays three execution policies on identical synthetic input. Legacy PM-03 snapshots remain unchanged without PM-04. Read [PM-04 contract](PM-04-shadow-hardening.md). PM-36 PR #7 is still separate, unmerged research and cannot authorize live sizing.
+
+## Future ML4T execution ownership — approved boundary, not implemented in PR #13
+
+**Decision (2026-10-31; Issue #12):** retain PM-03/PM-04 as the owner of multi-pod targets, signed netting, virtual attribution, contractual shadow floors, portfolio stress and deterministic replay. Reuse the locally inspected `ml4t-live==0.1.2` and `trading-connector` for provider-neutral execution infrastructure in a **separate migration issue**; do not rewrite the PM-03 shadow account around `SafeBroker` or create a second account financial ledger.
+
+| Function | Current shadow owner | Future separately authorized execution boundary |
+| --- | --- | --- |
+| Independent pod targets, research clocks and SHA lineage | `copytrade-pm` | `copytrade-pm` unchanged |
+| 300-second net batching, per-pod veto, shared net target | `pm04_shadow` + PM-03 `classify` | Same portfolio intelligence, before a broker boundary |
+| Per-pod virtual books, central overlay, intended/executed research economics | `pm03_account`/`pm03_attribution` | Preserve as portfolio attribution; actual broker economics must come from reconciled observations |
+| Challenge-specific daily-start **realized balance** floor, intraday marked equity and HWM cap | Versioned PM-03 `Rulebook` | Thin Propr-specific contract policy; never replace with ML4T's generic fixed `max_daily_loss` float |
+| Broker execution, retries, idempotent order lifecycle and network transport | **None** | `trading-connector` provider adapter behind `ml4t-live.SafeBroker`; exact provider/account environment must be bound |
+| Generic order size, total exposure, frequency and kill switch | PM-03 synthetic checks | `SafeBroker`, explicitly fail-closed on any mismatch |
+| Actual broker cash, signed net positions, trades, balance, funding and fees | **UNKNOWN** (PM-03 is a shadow projection) | Independently reconciled provider observations are authoritative; PM-03 may only project/attribute, never claim to replace external truth |
+| Final live-trading authorization | **None** | Separate signed owner approval and provider contractual terms, not implied by software passing tests |
+
+**Observed local API evidence:** installed `ml4t-live==0.1.2` exposes `ml4t.live.safety.LiveRiskConfig.fail_on_reconciliation_mismatch` with default `False`; a future integration MUST explicitly use `True` and verify connection/restart behavior. Its `max_daily_loss` and `max_drawdown_pct` are generic limits and do not directly encode Propr's daily-start balance floor. The `trading-connector` checkout contains existing uncommitted work; its Propr ML4T bridges must be inspected/reconciled **read-only** before a separate scoped implementation. No adapter or connector work is in this PR.
+
+**Lossless instrument mapping:** the portfolio instrument identity `(venue, market namespace/DEX, symbol)` remains lossless. A future Propr adapter must prove that native `BTC` versus `BTC/USDC` resolves to one authoritative broker position if and only if the exact provider market IDs are equivalent; conflicting aliases, hedge-side ambiguity and account-ID mismatch must HALT. No heuristic ticker stripping. Preserve raw provider IDs and evidence clocks.
+
+**Risk composition:** `portfolio permission ∧ Propr contractual permission ∧ SafeBroker permission ∧ fresh reconciled actual broker state ∧ explicit authorization`. Any veto wins; neither an optimistic PM-03 mark nor a SafeBroker internal shadow `VirtualPortfolio` may fabricate actual balance or positions. Write-ahead durable intents must survive lost ACK/crash; a reconnect requires full provider reconciliation before new risk. The source-of-truth cutover and any genuinely redundant PM-03 function deprecation require **differential tests** against frozen PM-03 fixtures, versioned migration/rollback, and a dedicated review.
+
+See the independent GitHub ML4T migration issue (created after PM-04 engineering verification). No live execution path was introduced here.
+
 ## Source and package topology
 
 ```text

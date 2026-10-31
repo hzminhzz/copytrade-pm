@@ -108,6 +108,10 @@ uv run --group dev copytrade-pm-shadow \
 
 The CLI prints the content-addressed report path and SHA. It never submits orders. A `compare` request accepts only `RESEARCH_SYNTHETIC`; a `replay` request requires versioned input events, run ID and manifest SHAs.
 
+## Optional PM-04 shadow-only extension
+
+[PM-04](PM-04-shadow-hardening.md) adds `PM04_CONFIG`, `PM04_SIGNAL`, `PM04_TICK`, `PM04_RESTORE`, `PM04_BROKER` event kinds to `ShadowRun` with one immutable source and account ledger. It preserves the original `pm03_account_v2` snapshot when not enabled. The extension adds synthetic three-pod batching and gross/inflight pretrade checks, independent pod budgets and read-only broker observation discrepancies. `PM04_BROKER` **never** mutates positions/cash or submits an order. PM-36 remains a separate draft research PR, not a dependency required to run PM-03.
+
 ## Engineering limitations vs scientific qualification
 
 Synthetic engineering tests do not demonstrate real Propr fill economics or wallet skill. The PM01-first-known/cross-provider/account-continuity gap, real PM02 manager qualification, actual market order ID and capacity confirmation, fee/rebate/funding calibration and written contract approval are separate evidence gates. Zero wallets qualified as of last verified artifact. Stage transitions require an explicit sealed `STAGE` event rather than blindly enabling a funded account. A 1-minute midpoint proxy omits tick microstructure and actual broker queuing/counterparty execution. NO real trading, funding or production deployment is authorized by this package or PR.
