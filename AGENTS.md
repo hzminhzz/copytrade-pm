@@ -14,6 +14,13 @@
 - Preserve verified source SHA-256 lineage, 36-wallet cohort and `pm01_fill_only_replay_v2` consumer interface.
 - Scientific qualification is separate from engineering and passing tests. Until prospective follower evidence exists, zero live risk.
 
+## Decisions and recommendations
+- Before recommending any non-trivial decision to the user, MUST consult the judge model (`judge` / `judge_batch` from `eval`; see `xd://eval/judge`) with the evidence, not just an opinion.
+- Non-trivial means: cohort or tier changes, wallet removal or inclusion, scope or data cuts, architecture or interface changes, policy or threshold changes, anything irreversible, and any claim of qualification or suitability.
+- Trivial and exempt: mechanical edits, factual lookups, test runs, lint fixes, and restating already-agreed decisions.
+- Report the judge's verdict and its confidence alongside the recommendation. If confidence is low, revalidate with data before acting — never present a low-confidence judge answer as settled.
+- The judge informs the decision; it does not override repository evidence, fail-closed rules or the user's call.
+
 ## Required reading and durable documentation
 - Start at [docs/INDEX.md](docs/INDEX.md), then [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), the stage-specific [data acquisition](docs/DATA-ACQUISITION.md), [runbook](docs/RUNBOOK.md) and [qualification](docs/QUALIFICATION.md) guides. These are current navigation/operation contracts. Old `docs/PM-*.md` are time-scoped scientific or source-era records, not blanket execution authority.
 - Before altering CLI args, data contracts, evidence schemas, provider limits, wallet roster or Propr assumptions, inspect actual code/tests and update the relevant canonical guide in the same PR. Keep links and executable command examples verified; include commit/time scope for counts. Historical evidence bytes/SHAs are immutable.
