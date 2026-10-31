@@ -165,6 +165,7 @@ def _install(root: Path, generation: Path, market: Path, *, verdict: str | None 
         "generation": str(generation.relative_to(root)),
         "generation_manifest_sha256": sha256((generation / MANIFEST).read_bytes()).hexdigest(),
         "integrity_result": str(integrity.relative_to(root)),
+        "integrity_result_sha256": sha256(integrity.read_bytes()).hexdigest(),
         "targets": [
             {"alias": ALIAS_A, "address_sha256": sha256(ADDRESS_A.encode()).hexdigest(), "coins": ["HYPE"]},
             {"alias": ALIAS_B, "address_sha256": sha256(ADDRESS_B.encode()).hexdigest(), "coins": ["BTC"]},
@@ -315,6 +316,53 @@ def test_loader_rejects_address_collision_with_frozen_cohort(tmp_path):
     _install(root, generation, market)
     with pytest.raises(ValueError, match="collides with frozen cohort"):
         load_wave_c(root, _frozen(address=ADDRESS_B))
+
+
+def test_loader_rejects_tampered_page_bytes(tmp_path):
+    root, generation, market = _accepted(tmp_path)
+    _install(root, generation, market)
+    directory = generation / ALIAS_A / "HYPE"
+    raw = json.dumps(
+        {
+            "address": ADDRESS_A,
+            "page": 1,
+            "page_size": 2000,
+            "has_more": False,
+            "fills": [_fill(9, WINDOW_MS, "HYPE")],
+        }
+    ).encode()
+    (directory / "page-00001.json.gz").write_bytes(gzip.compress(raw))
+    sidecar = json.loads((directory / "page-00001.meta.json").read_text())
+    sidecar["sha256"] = sha256(raw).hexdigest()
+    (directory / "page-00001.meta.json").write_text(json.dumps(sidecar))
+    with pytest.raises(ValueError, match="page bytes drifted from manifest"):
+        load_wave_c(root, _frozen())
+
+
+def test_loader_rejects_in_place_integrity_tampering(tmp_path):
+    root, generation, market = _accepted(tmp_path)
+    _install(root, generation, market)
+    targets = json.loads((root / TARGETS).read_text())
+    integrity = root / targets["integrity_result"]
+    result = json.loads(integrity.read_text())
+    result["wallets"][0]["chain_breaks_in_window"] = 99
+    integrity.write_text(json.dumps(result, sort_keys=True))
+    with pytest.raises(ValueError, match="integrity artifact lineage mismatch"):
+        load_wave_c(root, _frozen())
+
+
+def test_loader_rejects_swapped_integrity_artifact(tmp_path):
+    root, generation, market = _accepted(tmp_path)
+    _install(root, generation, market)
+    targets = json.loads((root / TARGETS).read_text())
+    forged = root / "slow_pod_data_v1/wave_c_v1/wave-c-integrity-forged.json"
+    result = json.loads((root / targets["integrity_result"]).read_text())
+    result["wallets"] = []
+    forged.write_text(json.dumps(result, sort_keys=True))
+    targets["integrity_result"] = str(forged.relative_to(root))
+    (root / TARGETS).write_text(json.dumps(targets))
+    with pytest.raises(ValueError, match="integrity artifact lineage mismatch"):
+        load_wave_c(root, _frozen())
 
 
 def test_loader_rejects_unaccepted_integrity(tmp_path):

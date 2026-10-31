@@ -43,7 +43,9 @@ The one supported extension is the versioned **Wave C** cohort, which requires a
 | `…/g<UTC>/generation_manifest.json` | Page SHAs, rows, pagination exhaustion, adapter SHA | `pm_wave_c manifest`, re-derived by the audit |
 | `…/wave-c-integrity-<sha20>.json` | Independent integrity verdict, in/out-of-window chain breaks, instrument-day coverage | `pm_wave_c audit` |
 | `PRIVATE_WAVE_C_ALIAS_MAPPING_20261031.json` | Alias → address (never committed) | `pm_sources._private_map` permission + hash check |
-| `WAVE_C_2_TARGETS_20261031.json` | Versioned roster: exactly 2 aliases, coins, generation/integrity SHAs, replay window | `pm_wave_c.load_wave_c` |
+| `WAVE_C_2_TARGETS_20261031.json` | Versioned roster: exactly 2 aliases, coins, generation-manifest SHA, integrity-artifact SHA, replay window | `pm_wave_c.load_wave_c` |
+
+Consumption-time lineage is re-derived, not trusted: `load_wave_c` hashes the manifest against the pinned SHA, **recomputes the manifest from the page bytes** (so a page edited together with its sidecar still fails), and pins the integrity artifact by SHA. The targets file is the root of trust — keep the private directory immutable; editing targets can always mint a new self-consistent story.
 
 ```bash
 ROOT=/home/quant/.local/share/copytrade/reports/five-pod-20261029-research

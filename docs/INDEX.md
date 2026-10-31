@@ -49,7 +49,7 @@ Wallet research and frozen HyperX roster (PRIVATE, upstream of this repo)
 - `main`: PM-01 historical replay, bounded HyperX recovery/WS/REST probes, 36-wallet source contracts, minute-market and Propr-scope audits, PM-02 evidence/lifecycle/allocator, signed local prospective ledger adapter, PM-03 deterministic **synthetic** account simulator, versioned Wave C two-wallet intake (`pm_wave_c`: frozen 36 + 2 = 38, window-limited), first-party CI.
 - **Draft PR #7** (`feat/pm36-synchronized-challenge-research`) is **not on `main`** as of this inspection. Its 2026Q3 wallet research and command entrypoints must not appear in mainline runbooks until merged. Its VPS worktree has been observed with concurrent uncommitted changes: never reset, stash or clean it.
 - Scientific successor [PM-01 Issue #4](https://github.com/hzminhzz/copytrade-pm/issues/4) and [PM-02 Issue #5](https://github.com/hzminhzz/copytrade-pm/issues/5) remain open. PM-03 [Issue #2](https://github.com/hzminhzz/copytrade-pm/issues/2) closed **engineering-only**, not authorized for live trading.
-- Latest verified on `main` for this snapshot: **231 passing market-extra tests**, `uv build` and Ruff, GitHub CI green. These are *dated engineering results*, not a live quote for future commits.
+- Latest verified on `main` for this snapshot: **234 passing market-extra tests**, `uv build` and Ruff, GitHub CI green. These are *dated engineering results*, not a live quote for future commits.
 
 ## Historical documents — use as dated evidence, not an execution playbook
 

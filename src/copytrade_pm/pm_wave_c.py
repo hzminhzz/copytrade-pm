@@ -353,6 +353,14 @@ def load_wave_c(
         len(row.get("coins") or []) for row in rows
     ):
         raise ValueError("Wave C generation pair roster drifted")
+    # Re-derive from page bytes: a pinned manifest hash alone would let a
+    # tampered page (with its sidecar rewritten) pass consumption.
+    if build_manifest(generation) != manifest:
+        raise ValueError("Wave C generation page bytes drifted from manifest")
+    integrity_path = root / str(targets["integrity_result"])
+    integrity_sha = sha256(integrity_path.read_bytes()).hexdigest()
+    if integrity_sha != targets.get("integrity_result_sha256"):
+        raise ValueError("Wave C integrity artifact lineage mismatch")
     integrity = _load(root, str(targets["integrity_result"]))
     if integrity.get("schema") != "wave_c_source_integrity_v1":
         raise ValueError("Wave C integrity schema changed")
@@ -410,7 +418,7 @@ def load_wave_c(
         "wave_c_targets": sha256((root / TARGETS).read_bytes()).hexdigest(),
         "wave_c_identity": sha256((root / IDENTITY).read_bytes()).hexdigest(),
         "wave_c_generation_manifest": manifest_sha,
-        "wave_c_integrity": sha256((root / str(targets["integrity_result"])).read_bytes()).hexdigest(),
+        "wave_c_integrity": integrity_sha,
     }
     return tuple(entries), fingerprints
 
