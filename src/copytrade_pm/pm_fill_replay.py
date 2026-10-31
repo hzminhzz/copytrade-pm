@@ -252,6 +252,7 @@ def replay_wallet(
     risk_budget: Decimal = Decimal("0.10"),
     *,
     prepared: tuple[list, list[str], list[str]] | None = None,
+    record_path: bool = False,
 ):
     """Historical-oracle, complete vendor-listed-book replay, never broker PnL.
 
@@ -315,6 +316,7 @@ def replay_wallet(
     executions = 0
     right_censored = 0
     draws = [capital]
+    snapshots: list[dict] = []
     instrument_names = {}
     for coin in coins:
         try:
@@ -400,6 +402,15 @@ def replay_wallet(
             last_marks = marks
             equity = capital + sum(follower.pnl_by_instrument(marks).values(), ZERO)
             draws.append(equity)
+            if record_path:
+                snapshots.append(
+                    {
+                        "at": fill_time.isoformat(),
+                        "positions": {k: str(v) for k, v in sorted(follower.positions.items())},
+                        "flows": {k: str(v) for k, v in sorted(follower.flows.items())},
+                        "funding_accrued": str(follower.funding),
+                    }
+                )
             return None
         except MarketDataBlocked as exc:
             return {
@@ -478,6 +489,17 @@ def replay_wallet(
     if abs(cash + marked - capital - pnl) > Decimal("0.00000001"):
         raise AssertionError("independent cash/MTM attribution mismatch")
     draws.append(capital + pnl)
+    if record_path:
+        terminal_snapshot = {
+            "at": terminal_at.isoformat(),
+            "positions": {k: str(v) for k, v in sorted(follower.positions.items())},
+            "flows": {k: str(v) for k, v in sorted(follower.flows.items())},
+            "funding_accrued": str(follower.funding),
+        }
+        if snapshots and snapshots[-1]["at"] == terminal_snapshot["at"]:
+            snapshots[-1] = terminal_snapshot
+        else:
+            snapshots.append(terminal_snapshot)
     running_peak = draws[0]
     max_drawdown = ZERO
     for equity in draws:
@@ -525,6 +547,7 @@ def replay_wallet(
         "source_end_at": fills[-1][0].isoformat(),
         "actual_follower_fills": None,
         "source_equity_accounting_reconciled": False,
+        **({"historical_book_snapshots": snapshots} if record_path else {}),
     }
 
 
