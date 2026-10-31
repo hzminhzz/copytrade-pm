@@ -76,6 +76,8 @@ uv run --frozen --group dev --extra market --with websockets==15.0.1 \
   --store "$BASE/stream" --session-seconds 15 --sample-seconds 30
 ```
 
+**Pinned release/runtime:** The enabled research-only service runs from a locked detached Git worktree at `/home/quant/.local/share/copytrade/releases/copytrade-e4-source` rather than the transient DevSpace checkout. Do not remove this locked worktree or alter the pinned commit without an explicit service stop, reproducible build/test, and restart/health verification. After deployment, check the actual `systemctl --user show ...` values; the live session is not proof of uninterrupted 24-hour receipt coverage.
+
 **Service operational commands:** `systemctl --user status copytrade-e4-source-capture.service`, `journalctl --user -u copytrade-e4-source-capture.service --since '1 hour ago'`, and `systemctl --user stop copytrade-e4-source-capture.service` for immediate cessation. Never attach broker credentials. Audit reports before asserting healthy recurring capture; active systemd status alone does not prove source continuity.
 
 ## Research disposition
