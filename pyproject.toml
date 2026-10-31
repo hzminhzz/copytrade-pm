@@ -21,6 +21,7 @@ copytrade-pm-market-audit = "copytrade_pm.pm_market_audit:main"
 copytrade-pm-research = "copytrade_pm.pm_research:main"
 copytrade-pm-shadow = "copytrade_pm.pm03_cli:main"
 copytrade-pm-receipts = "copytrade_pm.pm_prospective_cli:main"
+copytrade-pm-wave-c = "copytrade_pm.pm_wave_c:main"
 
 [build-system]
 requires = ["hatchling"]

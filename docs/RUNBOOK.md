@@ -65,6 +65,22 @@ uv run --frozen --group dev --extra market copytrade-pm-scope \
 
 Those Propr terms and market display snapshots are **dated research metadata**; market-day coverage is not order permission. See [source acquisition](DATA-ACQUISITION.md) before any optional CryptoHFTData request.
 
+## 1b. Wave C versioned two-wallet intake (offline)
+
+```bash
+ROOT=/home/quant/.local/share/copytrade/reports/five-pod-20261029-research
+MARKET=/home/quant/dev/quant/ml4t-data/.data/store
+GEN="$ROOT/slow_pod_data_v1/wave_c_v1/g20261031T062715Z"
+
+# Index immutable pages (writes generation_manifest.json), then verify independently.
+uv run --frozen --group dev --extra market copytrade-pm-wave-c manifest --generation "$GEN"
+uv run --frozen --group dev --extra market copytrade-pm-wave-c audit \
+  --research-root "$ROOT" --generation "$GEN" --market-root "$MARKET" \
+  --out "$ROOT/slow_pod_data_v1/wave_c_v1"
+```
+
+`audit` exits with a JSON verdict. `BLOCKED` lists exact causes (`DUPLICATE_TIDS`, `PAGINATION_INCOMPLETE`, `CHAIN_BREAK_IN_WINDOW`, `UNVERIFIED_NATIVE_MARKET_DAY`, `COIN_OUTSIDE_PROPR_PUBLIC_UNIVERSE`) and is a valid research result — never relax the checks or backfill a market day from another venue. Only `ACCEPTED_FOR_IN_WINDOW_REPLAY` lets `pm_wave_c.load_research_cohort` return the 38-wallet cohort; the frozen `load_cohort` still returns exactly 36.
+
 ## 2. Frozen PM-01 36 × 5/15/60-minute replay
 
 ```bash
@@ -149,6 +165,7 @@ The checked-in fixture is fabricated, and the CLI works entirely offline. `pm03_
 | `copytrade-pm-replay` | Offline | Frozen 36-wallet historical fill replay; native market marks |
 | `copytrade-pm-market-audit` | Offline | 1m native instrument-day SHA coverage |
 | `copytrade-pm-scope` | Offline | Frozen public Propr **display** market scope vs audit |
+| `copytrade-pm-wave-c` | Offline | Versioned two-wallet Wave C generation manifest + independent integrity audit |
 | `copytrade-pm-rank` | Offline | PM-02 36-card manager research, optional sealed forward evidence |
 | `copytrade-pm-handoff` | Offline | Strict three-artifact dependency verdict |
 | `copytrade-pm-receipts` | Offline | Immutable receipt ingestion and external signed audits |

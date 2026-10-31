@@ -23,14 +23,47 @@ HyperX is a **vendor**, not proof that every exchange position/collateral event 
 | WS probe receipts | `/home/quant/.local/share/copytrade/reports/pm01-hyperx-prospective/receipts` | Local observation files; not yet economically verified |
 | REST probe generations | `/home/quant/.local/share/copytrade/reports/pm01-hyperx-rest-forward` | Fresh, bounded vendor pages and `first_local_receipts` subdirectories |
 | Private PM-02 parity | `/home/quant/.local/share/copytrade/reports/pm02-extraction-target-parity` | Dated frozen replay result, not current live manager ranking |
+| Wave C vendor generation | `…/five-pod-20261029-research/slow_pod_data_v1/wave_c_v1` | Versioned two-wallet generation + `generation_manifest.json` + content-addressed `wave-c-integrity-*.json` |
 
 These directories were verified to exist on the VPS at the inspection snapshot. Private output directories must be **0700** and files **0600**. No raw address pages, provider credentials, vendor responses, private mapping or market Parquet in Git. Never print the HyperX key or dump private JSON to a PR.
 
 The frozen identity loader is `pm_sources.load_cohort`: **6 original, 10 Wave 1, 20 Wave 2**, exact aliases and private source-SHA manifests. It checks vendor pagination and post-cutoff exclusions, including special W019/LIT generation; do not modify those manifests to accommodate an arbitrary new wallet.
 
-## 3. Acquiring a *new* wallet vs repairing the frozen 36
+Wave C is a **separate versioned cohort**, never an edit of those manifests: `pm_wave_c.load_research_cohort` composes the frozen 36 with exactly two additional wallets (6+10+20+2 = 38) and `pm_portfolio.validate_38_wallet_cohort` enforces that cardinality. `load_cohort` still returns 36 and still rejects Wave C aliases.
 
-**There is no new-wallet registration workflow in `copytrade-pm/main`.** Discovery and initial full-history pagination happened upstream in private HyperX wallet research, not through a generic package command. A helper exists at `$ROOT/slow_pod_hyperx_cache.py`, but it is **private and pinned by SHA** in `pm_hyperx_gap_recovery`; its cohort cutoff and cache locations are frozen. Use it for understanding historical lineage, **not for casually enrolling a 37th wallet or rewriting frozen data**.
+## 3. Wave C two-wallet intake vs repairing the frozen 36
+
+**There is no generic new-wallet registration command, and no 37th wallet may be added to the frozen 36.** Discovery and initial full-history pagination still happen upstream in private HyperX wallet research. A helper exists at `$ROOT/slow_pod_hyperx_cache.py`; it is **private and pinned by SHA** in `pm_hyperx_gap_recovery` and its cohort cutoff and cache locations are frozen. Use it for lineage understanding, never to rewrite frozen data.
+
+The one supported extension is the versioned **Wave C** cohort, which requires all of the following private artifacts under `$ROOT` (dirs 0700, files 0600):
+
+| Artifact | Content | Verified by |
+| --- | --- | --- |
+| `slow_pod_data_v1/wave_c_v1/g<UTC>/` | Immutable vendor pages + per-page SHA sidecars + `run-summary.json` | `pm_wave_c.audit_generation` |
+| `…/g<UTC>/generation_manifest.json` | Page SHAs, rows, pagination exhaustion, adapter SHA | `pm_wave_c manifest`, re-derived by the audit |
+| `…/wave-c-integrity-<sha20>.json` | Independent integrity verdict, in/out-of-window chain breaks, instrument-day coverage | `pm_wave_c audit` |
+| `PRIVATE_WAVE_C_ALIAS_MAPPING_20261031.json` | Alias → address (never committed) | `pm_sources._private_map` permission + hash check |
+| `WAVE_C_2_TARGETS_20261031.json` | Versioned roster: exactly 2 aliases, coins, generation/integrity SHAs, replay window | `pm_wave_c.load_wave_c` |
+
+```bash
+ROOT=/home/quant/.local/share/copytrade/reports/five-pod-20261029-research
+MARKET=/home/quant/dev/quant/ml4t-data/.data/store
+GEN="$ROOT/slow_pod_data_v1/wave_c_v1/g20261031T062715Z"
+
+# 1. Index the immutable pages (writes generation_manifest.json, 0600).
+uv run --frozen --group dev --extra market copytrade-pm-wave-c manifest --generation "$GEN"
+
+# 2. Independent verification; writes content-addressed evidence into wave_c_v1/.
+uv run --frozen --group dev --extra market copytrade-pm-wave-c audit   --research-root "$ROOT" --generation "$GEN" --market-root "$MARKET"   --out "$ROOT/slow_pod_data_v1/wave_c_v1"
+
+# 3. Load the 38-wallet research cohort (read-only; fails closed on any drift).
+uv run --frozen --group dev --extra market python -c   "from pathlib import Path; from copytrade_pm.pm_wave_c import load_research_cohort; \
+   e,f=load_research_cohort(Path('$ROOT')); print(len(e), sorted({x.cohort for x in e}))"
+```
+
+**Replay window (dated decision, 2026-10-31).** Wave C replay starts at **2026-04-11 UTC**, not at the first vendor fill. The native 1m lake has no verified source day for **2026-03-01…2026-04-07** (every coin in this cohort) or XMR **2026-04-10**, and 2025 vendor chains carry unresolved position breaks; both are recorded in the integrity artifact, never interpolated. The vendor pages keep the full history for later repair.
+
+**Wave C limits.** Both wallets are `HISTORICAL_ONLY` with `prospective_first_known: UNKNOWN`. There is no forward first-known clock, no follower PnL and no trading authority. The integrity verdict `ACCEPTED_FOR_IN_WINDOW_REPLAY` is engineering acceptance of *source bytes*, not scientific qualification. Fresh acquisition for a non-frozen alias still runs through the pinned private adapter, not a repo fetcher.
 
 Safe read-only inspection of its saved plan *for a known already-enrolled alias* (no API request, but reads private local roster):
 ```bash

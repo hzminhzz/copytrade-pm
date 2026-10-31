@@ -1,6 +1,6 @@
 # Architecture: evidence, manager governance, shadow account
 
-**Scope:** the code on `copytrade-pm/main` at `c3e9ccf` (2026-10-31). This repository was history-filtered from `hyperliquid-expert-ensemble` (see [PROVENANCE](PROVENANCE.md)). It is **not** the production wallet tracker or Telegram consensus engine. Its research code must never import a live broker/order gateway. Read [INDEX](INDEX.md) first.
+**Scope:** the code on `copytrade-pm/main` at `4db3ea7` (2026-10-31). This repository was history-filtered from `hyperliquid-expert-ensemble` (see [PROVENANCE](PROVENANCE.md)). It is **not** the production wallet tracker or Telegram consensus engine. Its research code must never import a live broker/order gateway. Read [INDEX](INDEX.md) first.
 
 ## Responsibility boundaries
 
@@ -9,6 +9,7 @@
 | Wallet candidate discovery and initial vendor roster | **Upstream/private** wallet research, outside this package | Wallet addresses, alias mapping and vendor-listed instrument roster → frozen cohort source manifests | Discovery only; not scientifically qualified |
 | Frozen historical source | `pm_sources`, `pm_source_audit`, `pm_hyperx_overlay_audit` | Owner-private HyperX pages and SHA manifests, optional fresh independent generations → 36 immutable source identities and diagnostic coverage | Historical vendor knowledge, **not** first-known trading signals |
 | Exact minute market evidence | `pm_shadow.VerifiedHyperliquidMinuteSource`, `pm_market_audit`, `pm_propr_scope` | Native Hyperliquid 1m Parquet under *ml4t-data* plus public display scope → market-day integrity/availability | Data coverage; not L2 capacity or Propr order-ID authorization |
+| Wave C cohort extension | `pm_wave_c`, `pm_portfolio.validate_38_wallet_cohort` | Two independently audited vendor generations + private identity map + replay-window decision → versioned 6+10+20+2 research cohort | Historical vendor knowledge only; frozen 36 untouched, no first-known clock |
 | Historical whole-wallet PM-01 | `pm_fill_replay`, `pm_fill_cards`, `pm_fill_tape` | Exact source fill books + minute marks → 36 wallets × 5/15/60m hypothetical follower rows; observed signed book tape | `pm01_fill_only_replay_v2` is **hindsight** |
 | Prospective collection | `pm_hyperx_forward`, `pm_hyperx_rest_forward` | Bounded read-only vendor WS/REST → immutable first-local receipt files | Receipt only; REST snapshots never qualify |
 | Independent receipt and economic audit | `pm_prospective_ledger`, `pm_prospective_cli` | Frozen cohort + receipt → external signed audit → external signed mature follower/control outcome | Exact PM-02 row adapter, as-of validated; cannot independently verify external economic truth |
@@ -20,7 +21,7 @@ The **source account's** realized PnL, a **historical modeled follower's** PnL, 
 
 ## PM-01 historical path
 
-`pm_sources.load_cohort(root)` is deliberately fixed to **6 original + 10 Wave1 + 20 Wave2** and references multiple authoritative private manifests. It reconciles alias/address collisions and vendor pagination; it does **not** accept an arbitrary fresh wallet address. `pm_source_audit.audit()` validates raw page hashes and selected market defects.
+`pm_sources.load_cohort(root)` is deliberately fixed to **6 original + 10 Wave1 + 20 Wave2** and references multiple authoritative private manifests. It reconciles alias/address collisions and vendor pagination; it does **not** accept an arbitrary fresh wallet address. `pm_wave_c.load_research_cohort(root)` is the only extension path: it keeps those 36 bytes intact, requires an independently audited two-wallet generation with a versioned roster, and returns exactly 38 identities. `pm_source_audit.audit()` validates raw page hashes and selected market defects.
 
 `pm_fill_replay.run(root, market_root, risk_budget, hyperx_generations)` loads the vendor-listed exact instrument roster and signed position-before/after fill chains. It withholds an initial book until each listed leg can be anchored; post-anchor discontinuities, missing marks, missing native markets and volume constraints yield `BLOCKED_*`, not manufactured trades or flat exposure. The 5/15/60-minute delays model hypothetical next-minute-open follower actions, not actual first-known receipt or observed Propr fills. `risk_budget=0.01` means **1% gross hypothetical notional**, NOT 0.01 R and NOT probability of passing a challenge.
 
@@ -51,6 +52,7 @@ A separate `pm_fill_tape` materializes a **historical-only** `pm01_observed_book
 ```text
 src/copytrade_pm/
   pm_sources.py / pm_source_audit.py       frozen cohort and source SHAs
+  pm_wave_c.py                             versioned 2-wallet extension (6+10+20+2)
   pm_hyperx_*                              bounded vendor diagnostics/forward collection
   pm_market_audit.py / pm_propr_scope.py   venue/data and display-universe gates
   pm_chd_*                                 optional scoped native market-day writers (ml4t-data owner)

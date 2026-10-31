@@ -37,7 +37,7 @@ class WalletSource:
     def __post_init__(self) -> None:
         if not self.wallet_id.strip():
             raise ValueError("wallet_id required")
-        if self.cohort not in {"original", "wave1", "wave2"}:
+        if self.cohort not in {"original", "wave1", "wave2", "waveC"}:
             raise ValueError("invalid cohort")
         if self.coverage is Coverage.PROSPECTIVE_VERIFIED:
             if not self.first_known_at:
@@ -49,19 +49,32 @@ class WalletSource:
         return self.coverage is Coverage.PROSPECTIVE_VERIFIED
 
 
-def validate_36_wallet_cohort(wallets: Iterable[WalletSource]) -> tuple[WalletSource, ...]:
+def _validate_cohort(
+    wallets: Iterable[WalletSource], expected: dict[str, int]
+) -> tuple[WalletSource, ...]:
     entries = tuple(wallets)
-    counts = {"original": 0, "wave1": 0, "wave2": 0}
+    counts = dict.fromkeys(expected, 0)
     seen: set[str] = set()
     for wallet in entries:
         key = wallet.wallet_id.casefold()
         if key in seen:
             raise ValueError(f"duplicate wallet: {wallet.wallet_id}")
         seen.add(key)
+        if wallet.cohort not in counts:
+            raise ValueError(f"cohort not accepted here: {wallet.cohort}")
         counts[wallet.cohort] += 1
-    if counts != {"original": 6, "wave1": 10, "wave2": 20}:
+    if counts != expected:
         raise ValueError(f"incomplete PM cohort: {counts}")
     return entries
+
+
+def validate_36_wallet_cohort(wallets: Iterable[WalletSource]) -> tuple[WalletSource, ...]:
+    return _validate_cohort(wallets, {"original": 6, "wave1": 10, "wave2": 20})
+
+
+def validate_38_wallet_cohort(wallets: Iterable[WalletSource]) -> tuple[WalletSource, ...]:
+    """Frozen 6+10+20 plus the versioned Wave C extension; 36 alone stays valid."""
+    return _validate_cohort(wallets, {"original": 6, "wave1": 10, "wave2": 20, "waveC": 2})
 
 
 def _aware(ts: datetime) -> datetime:

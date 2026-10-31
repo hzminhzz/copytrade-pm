@@ -344,14 +344,16 @@ def study(
     )
 
 
-def _write_private_evidence(out: Path, result: dict[str, Any]) -> tuple[Path, str]:
+def _write_private_evidence(
+    out: Path, result: dict[str, Any], prefix: str = "pm01-36-wallets"
+) -> tuple[Path, str]:
     """Content addressed and deterministic; never overwrite divergent evidence."""
     out.mkdir(parents=True, exist_ok=True, mode=0o700)
     if out.stat().st_mode & 0o077:
         raise ValueError("evidence directory is not private")
     raw = (json.dumps(result, sort_keys=True, indent=2, ensure_ascii=False) + "\n").encode()
     digest = sha256(raw).hexdigest()
-    file = out / f"pm01-36-wallets-{digest[:20]}.json"
+    file = out / f"{prefix}-{digest[:20]}.json"
     if file.exists():
         if sha256(file.read_bytes()).hexdigest() != digest:
             raise ValueError("existing research evidence hash conflict")
