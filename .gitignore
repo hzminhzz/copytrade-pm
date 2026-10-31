@@ -1,0 +1,29 @@
+# Runtime and build artifacts
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+dist/
+build/
+.coverage
+htmlcov/
+
+# Sensitive research and provider data: never commit
+.env
+.env.*
+!.env.example
+.workspace/
+PRIVATE_*
+**/PRIVATE_*
+*.parquet
+*.db
+*.sqlite
+*.sqlite3
+*.json.gz
+data/
+reports/
+secrets/
+credentials/
