@@ -7,7 +7,7 @@ This repository is **shadow-only**: no trading credentials, no broker integratio
 ## System roles
 
 - **PM-01:** reconstruct observable whole-wallet portfolios from sealed historical fills and independent first-known observations; replay hypothetical followers with exact Hyperliquid instrument identity, latency, funding, fees, market-only comparators, missing-data guards and explicit coverage status.
-- **PM-02:** immutable manager evidence cards, independence diagnostics, conservative hypothetical risk-budget proposals, historical/prospective separation and lifecycle research decisions.
+- **PM-02:** immutable manager evidence cards, independence diagnostics, conservative hypothetical risk-budget proposals, historical/prospective separation and lifecycle research decisions. The [sealed local receipt-to-outcome adapter](docs/PM-01-prospective-ledger.md) is an opt-in evidence input to the PM-02 CLI; unreviewed WS/REST receipts are never automatically qualified.
 - **PM-03 (engineering research):** one Decimal-based deterministic shadow account simulator, exact instrument/PM target netting and virtual internal crosses, modeled capacity/fees/partial fills, dated public Propr rulebook with contract fail-closed defaults, central graded risk authority, immutable replay-first event memory, and three-policy identical-path synthetic stress comparisons. Never assume research fills are Propr fills. [PM-03 design and reproducibility](docs/PM-03-shadow-account.md).
 
 ## Quickstart
@@ -22,6 +22,7 @@ uv run --group dev python -m copytrade_pm.pm_fill_replay --help
 uv run --group dev python -m copytrade_pm.pm_manager --help
 uv run --group dev python -m copytrade_pm.pm_handoff --help
 uv run --group dev python -m copytrade_pm.pm03_cli --help
+uv run --group dev python -m copytrade_pm.pm_prospective_cli --help
 ```
 
 The committed **GitHub Actions CI** workflow runs these tests, Ruff lint/format and the wheel build on both core and market-extra dependency sets for every PR into `main`. The latest pre-CI verified `main` baseline at merge commit `50f6fac` is **198 passed with the market extra** (2026-10-31). Historical figures in imported planning documents are not current suite counts.
@@ -32,7 +33,7 @@ Native Hyperliquid 1-minute Parquet and vendor-data research uses the optional P
 uv run --extra market --group dev python -m pytest -q tests
 ```
 
-CLI entry points: `copytrade-pm-replay`, `copytrade-pm-rank`, `copytrade-pm-scope`, `copytrade-pm-market-audit`, `copytrade-pm-handoff`, `copytrade-pm-research`, and **`copytrade-pm-shadow`** (offline research only).
+CLI entry points: `copytrade-pm-replay`, `copytrade-pm-rank`, `copytrade-pm-scope`, `copytrade-pm-market-audit`, `copytrade-pm-handoff`, `copytrade-pm-research`, **`copytrade-pm-shadow`**, and **`copytrade-pm-receipts`** (offline evidence-only).
 
 Synthetic example, with a content-addressed owner-private report:
 

@@ -205,7 +205,14 @@ def rank(
     history=None,
     previous_report=None,
     source_raw_sha256=None,
+    prospective_verified_head=None,
 ):
+    if prospective_verified_head is not None and (
+        not isinstance(prospective_verified_head, str)
+        or len(prospective_verified_head) != 64
+        or any(ch not in "0123456789abcdef" for ch in prospective_verified_head)
+    ):
+        raise ValueError("INVALID_VERIFIED_LEDGER_HEAD")
     at = timestamp(asof)
     if replay.get("study_cutoff") and at < timestamp(replay["study_cutoff"]):
         raise ValueError("PM01_FROZEN_SOURCE_IS_FUTURE_TO_DECISION")
@@ -328,7 +335,7 @@ def rank(
         "blocked_seat_candidates": allocations["blocked_candidates"],
         "emergency_recommendation": allocations["emergency_recommendation"],
         "research_risk_allocated_r": used,
-        "untrusted_prospective_input": bool(prospective),
+        "untrusted_prospective_input": bool(prospective) and prospective_verified_head is None,
         "scientifically_qualified_from_pm01": 0,
         "live_trading_authorized": False,
         "audit_chain": {
@@ -353,6 +360,8 @@ def rank(
             "validate prop firm account rules separately",
         ],
     }
+    if prospective_verified_head is not None:
+        report["audit_chain"]["prospective_ledger_head_sha256"] = prospective_verified_head
     report["sha256"] = digest(report)
     return report
 
@@ -363,7 +372,13 @@ def main():
     p.add_argument("--asof", required=True)
     p.add_argument("--out", type=Path, required=True)
     p.add_argument("--previous", type=Path)
+    p.add_argument("--prospective-ledger", type=Path)
+    p.add_argument("--research-root", type=Path)
+    p.add_argument("--auditor-public-key", type=Path)
     args = p.parse_args()
+    options = (args.prospective_ledger, args.research_root, args.auditor_public_key)
+    if any(x is not None for x in options) and not all(x is not None for x in options):
+        raise ValueError("PROSPECTIVE_LEDGER_REQUIRES_RESEARCH_ROOT_AND_AUDITOR_KEY")
     from .pm02_audit import immutable_report_write, read_previous, source_file_read
 
     replay, source_digest = source_file_read(args.pm01)
@@ -374,8 +389,28 @@ def main():
     counts = {r["wallet"]: r["cohort"] for r in replay["rows"]}
     validate_36_wallet_cohort(WalletSource(a, counts[a], Coverage.HISTORICAL_ONLY) for a in aliases)
     previous = read_previous(args.previous) if args.previous else None
+    prospective = None
+    prospective_head = None
+    if args.prospective_ledger is not None:
+        from .pm_prospective_cli import open_ledger
+
+        verified = open_ledger(
+            root=args.prospective_ledger,
+            research_root=args.research_root,
+            auditor_key_file=args.auditor_public_key,
+        )
+        if set(verified.manifest["cohort"]) != set(aliases):
+            raise ValueError("PROSPECTIVE_LEDGER_AND_PM01_COHORT_MISMATCH")
+        prospective = verified.pm02_rows_asof(args.asof)
+        prospective_head = verified.head_asof(args.asof)
     report = rank(
-        replay, aliases, args.asof, previous_report=previous, source_raw_sha256=source_digest
+        replay,
+        aliases,
+        args.asof,
+        prospective=prospective,
+        prospective_verified_head=prospective_head,
+        previous_report=previous,
+        source_raw_sha256=source_digest,
     )
     dest = immutable_report_write(args.out, report)
     print(
