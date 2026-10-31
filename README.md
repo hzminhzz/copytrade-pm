@@ -24,6 +24,8 @@ uv run --group dev python -m copytrade_pm.pm_handoff --help
 uv run --group dev python -m copytrade_pm.pm03_cli --help
 ```
 
+The committed **GitHub Actions CI** workflow runs these tests, Ruff lint/format and the wheel build on both core and market-extra dependency sets for every PR into `main`. The latest pre-CI verified `main` baseline at merge commit `50f6fac` is **198 passed with the market extra** (2026-10-31). Historical figures in imported planning documents are not current suite counts.
+
 Native Hyperliquid 1-minute Parquet and vendor-data research uses the optional Polars/Pandas extra:
 
 ```bash

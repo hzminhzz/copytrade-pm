@@ -1,7 +1,9 @@
-# PM-02 autonomous engineering goal — Issue #4
+# Archived PM-02 engineering goal — source repository Issue #4
+
+> **Historical source-era plan, not the live execution state.** This document was written in `hyperliquid-expert-ensemble` before extraction. In `copytrade-pm`, PM-02 engineering code is merged via [migration PR #3](https://github.com/hzminhzz/copytrade-pm/pull/3); remaining prospective scientific gates are tracked in [Issue #5](https://github.com/hzminhzz/copytrade-pm/issues/5). The current `main` whole-suite market-extra verification at merge SHA `50f6fac` is **198 passed** (2026-10-31). Source-staging test counts below are historical, not repo health claims. No wallet is scientifically qualified.
 
 **Scope owner:** ChatGPT Web direct engineer via VPS DevSpace; no delegated coding agents.
-**Base dependency:** unmerged PM-01 branch `feat/pm01-36-wallet-replay`; stacked PM-02 PR #7.
+**Historical base dependency:** then-unmerged source PM-01 branch `feat/pm01-36-wallet-replay`; source `hyperliquid-expert-ensemble` PM-02 PR #7 (not copytrade-pm's current PM-36 PR #7).
 **Do not touch:** production Telegram, account/broker credentials, order execution, original HyperX pages, ml4t-data partitions.
 **Completion:** all seven Issue #4 engineering acceptance criteria, not proven profitable wallets. Keep Issue #4 open until merge.
 
@@ -42,9 +44,9 @@
 
 ## Operational continuation
 
-- Once-per-hour automation **PM-02 Engineering Completion**, ID `6ae4d9f7284c819189b6cdf0b6ba45c4`, continues direct implementation each run while this goal remains unfinished.
+- **Historical scheduling note only:** the source-era plan referenced an hourly PM-02 engineering automation. This document does not attest to whether that schedule is currently active.
 - Every run: inspect current branch, dirty work, issues and PR first; make coherent verified edits; commit/push; update this file and PR with actual evidence.
 - On verified engineering acceptance: leave scientific qualification separate; do not merge/close Issue #4 automatically; disable this automation.
 - Blockers: describe precise data/permissions/test issue and safe follow-up without inventing results.
 
-**Current verified checkpoint:** 23 PM-02 tests (11 manager, 7 risk, 5 immutable-audit) and full repo 165 passed/1 skipped. Changed-file Ruff lint+format pass. SHA-verified PM-01 10%-gross overlay read-only replay: 36 historical-only cards, 0 scientifically eligible, EMPTY×5. Content-addressed research output SHA f3df08b95921c3a1ed5eea4a1e71b82efb375d60850873a652b8c52d0f9bb713. No actual exposure-dependent cluster inference. PR #7 remains draft/WIP, not acceptance.
+**Archived source-era checkpoint (not current):** 23 PM-02 tests (11 manager, 7 risk, 5 immutable-audit) and source staging suite 165 passed/1 skipped. Changed-file Ruff lint+format pass. SHA-verified PM-01 10%-gross overlay read-only replay: 36 historical-only cards, 0 scientifically eligible, EMPTY×5. Content-addressed research output SHA f3df08b95921c3a1ed5eea4a1e71b82efb375d60850873a652b8c52d0f9bb713. No actual exposure-dependent cluster inference. Original source PM-02 PR #7 was a draft/WIP at the archived checkpoint; this is not a statement about current `copytrade-pm` PR #7.
