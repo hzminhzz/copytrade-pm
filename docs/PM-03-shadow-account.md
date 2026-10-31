@@ -1,6 +1,6 @@
 # PM-03 — consolidated shadow challenge simulator
 
-Status: **engineering research capability**, not scientific wallet qualification or broker approval. This document records the implementation in PR #6. All simulation decisions and fills are **hypothetical**. There is no broker credential, live exchange order, Propr account connection, challenge purchase, automatic stage unlock, or live trading authorization.
+Status: **engineering research capability**, merged into `copytrade-pm/main` via [PR #6](https://github.com/hzminhzz/copytrade-pm/pull/6) (engineering Issue #2 closed), not scientific wallet qualification or broker approval. For the cross-project map, follow the [operator handbook](INDEX.md). All simulation decisions and fills are **hypothetical**. There is no broker credential, live exchange order, Propr account connection, challenge purchase, automatic stage unlock, or live trading authorization.
 
 ## Architecture and boundaries
 

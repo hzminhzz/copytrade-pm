@@ -1,6 +1,8 @@
 > **Package migration:** Commands below now use `copytrade_pm`. Research results and historical evidence classifications are unchanged.
 
-# PM-01 — Propr-scoped 90% data readiness (2026-10-31)
+# PM-01 — Propr-scoped 90% data readiness (2026-10-31 historical report)
+
+> **Dated source research:** Paths and checkout commands below record the original investigation, including a now-obsolete ensemble-worktree `cd`. Run current `copytrade-pm` commands from [the operator runbook](RUNBOOK.md), using fresh SHA-verified source outputs. 90% is **market-day acquisition** coverage only, not full-book/tradability/manager qualification.
 
 ## Decision and source authority
 
