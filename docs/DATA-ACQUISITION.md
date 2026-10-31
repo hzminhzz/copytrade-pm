@@ -29,7 +29,7 @@ These directories were verified to exist on the VPS at the inspection snapshot. 
 
 The frozen identity loader is `pm_sources.load_cohort`: **6 original, 10 Wave 1, 20 Wave 2**, exact aliases and private source-SHA manifests. It checks vendor pagination and post-cutoff exclusions, including special W019/LIT generation; do not modify those manifests to accommodate an arbitrary new wallet.
 
-Wave C is a **separate versioned cohort**, never an edit of those manifests: `pm_wave_c.load_research_cohort` composes the frozen 36 with exactly two additional wallets (6+10+20+2 = 38) and `pm_portfolio.validate_38_wallet_cohort` enforces that cardinality. `load_cohort` still returns 36 and still rejects Wave C aliases.
+Wave C is a **separate versioned cohort**, never an edit of those manifests: `pm_wave_c.load_research_cohort` composes the frozen 36 with exactly two additional wallets (6+10+20+2 = 38) and `pm_portfolio.validate_38_wallet_cohort` enforces that cardinality. `load_cohort` still returns exactly 36 and never includes a Wave C alias.
 
 ## 3. Wave C two-wallet intake vs repairing the frozen 36
 
@@ -63,7 +63,7 @@ uv run --frozen --group dev --extra market python -c   "from pathlib import Path
 
 **Replay window (dated decision, 2026-10-31).** Wave C replay starts at **2026-04-11 UTC**, not at the first vendor fill. The native 1m lake has no verified source day for **2026-03-01…2026-04-07** (every coin in this cohort) or XMR **2026-04-10**, and 2025 vendor chains carry unresolved position breaks; both are recorded in the integrity artifact, never interpolated. The vendor pages keep the full history for later repair.
 
-**Wave C limits.** Both wallets are `HISTORICAL_ONLY` with `prospective_first_known: UNKNOWN`. There is no forward first-known clock, no follower PnL and no trading authority. The integrity verdict `ACCEPTED_FOR_IN_WINDOW_REPLAY` is engineering acceptance of *source bytes*, not scientific qualification. Fresh acquisition for a non-frozen alias still runs through the pinned private adapter, not a repo fetcher.
+**Wave C limits.** Both wallets are `HISTORICAL_ONLY` with `prospective_first_known: UNKNOWN`. There is no forward first-known clock, no follower PnL and no trading authority. The integrity verdict `ACCEPTED_FOR_IN_WINDOW_REPLAY` is engineering acceptance of *source bytes*, not scientific qualification. Fresh acquisition for a non-frozen alias still runs through the pinned private adapter, not a repo fetcher, and no `pm01_fill_only_replay_v2` artifact covers Wave C: that frozen 36-wallet consumer interface is unchanged, so a Wave C replay needs a new versioned artifact and an explicit owner-approved research scope.
 
 Safe read-only inspection of its saved plan *for a known already-enrolled alias* (no API request, but reads private local roster):
 ```bash
