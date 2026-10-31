@@ -224,9 +224,28 @@ def _outstanding(account: Account) -> None:
     for instrument in set(account.quantities) | set(effective):
         actual = account.quantities.get(instrument, ZERO)
         wanted = effective.get(instrument, ZERO)
-        if actual and (wanted == ZERO or (actual * wanted > ZERO and abs(wanted) < abs(actual))):
-            outstanding[instrument.key] = str(wanted - actual)
+        if actual and (actual * wanted <= ZERO or abs(wanted) < abs(actual)):
+            # A signed net reversal first requires only the *exit to flat*.
+            # Its opposite-direction residual is NOT an executable reduction.
+            close = -actual if actual * wanted < ZERO else wanted - actual
+            if close:
+                outstanding[instrument.key] = str(close)
     state["pending_reductions"] = dict(sorted(outstanding.items()))
+    # Risk-triggered virtual pod exits must remain visible even once the
+    # aggregate book is flat: a virtual long hedged by a virtual short is not
+    # evidence that the suspended long pod has been liquidated.
+    pod_pending = {}
+    for pod in sorted(state["routed_targets"]):
+        desired = state["routed_targets"][pod]
+        current = account.pm_quantities.get(pod, {})
+        for instrument in set(current) | {Instrument.parse(k) for k in desired}:
+            prior = current.get(instrument, ZERO)
+            wanted = number(desired.get(instrument.key, "0"))
+            if prior and (prior * wanted <= ZERO or abs(wanted) < abs(prior)):
+                close = -prior if prior * wanted < ZERO else wanted - prior
+                if close:
+                    pod_pending.setdefault(pod, {})[instrument.key] = str(close)
+    state["pending_pod_reductions"] = pod_pending
 
 
 def _exposure(account: Account, at: str) -> dict:
@@ -371,6 +390,8 @@ def bootstrap(account: Account, policy: dict, at: str) -> dict:
             for p in sorted(policy["pods"])
         },
         "pending_reductions": {},
+        "pending_pod_reductions": {},
+        "pending_reversals": {},
         "risk_breaches": [],
         "broker": empty_broker(),
         "last_shocks": [],
@@ -472,8 +493,6 @@ def _batch_due(account: Account, event: Event) -> bool:
     for k, opened in list(sorted(state["batch_open"].items())):
         if (clock(event.decision_at) - clock(opened)).total_seconds() < policy["batch_seconds"]:
             continue
-        still_pending = False
-        instrument = Instrument.parse(k)
         for pod in sorted(state["pod_targets"]):
             desired = number(state["pod_targets"][pod].get(k, "0"))
             if state["pod_stats"][pod]["state"] in ("SUSPENDED", "REDUCED"):
@@ -500,16 +519,12 @@ def _batch_due(account: Account, event: Event) -> bool:
                 )
                 state["routed_targets"][pod][k] = str(old)
             else:
-                actual = account.quantities.get(instrument, ZERO)
-                if actual and actual * desired < ZERO and abs(desired) > ZERO:
-                    # Exit before reversal. A rejected close never becomes flat.
-                    state["routed_targets"][pod][k] = "0"
-                    still_pending = True
-                else:
-                    state["routed_targets"][pod][k] = str(desired)
+                # A pod's sign can oppose the account's current net position
+                # without reversing the *consolidated* broker-equivalent book.
+                # True net reversals are split at the account-risk boundary.
+                state["routed_targets"][pod][k] = str(desired)
             changed = changed or old != number(state["routed_targets"][pod][k])
-        if not still_pending:
-            state["batch_open"].pop(k)
+        state["batch_open"].pop(k)
     return changed
 
 
@@ -702,6 +717,63 @@ def _pretrade_guard(
     return sorted(set(reasons)), True
 
 
+def _reduction_before_reversal(account: Account, target_books: dict, at: str) -> dict:
+    """Clip *consolidated* sign flips at zero, preserving per-pod identities.
+
+    A pod can be short while the account remains net long. Only a proposed
+    account sign change is staged. After flat, the opposite-side remainder
+    stays blocked until a separate explicitly authorized change of policy.
+    """
+    state = account.pm04_state
+    net = account.external_targets(target_books)
+    for inst in sorted(set(net) | set(account.quantities)):
+        actual = account.quantities.get(inst, ZERO)
+        wanted = net.get(inst, ZERO)
+        hold = state["pending_reversals"].get(inst.key)
+        if actual and wanted * actual < ZERO:
+            previous = state["pending_reversals"].get(inst.key)
+            state["pending_reversals"][inst.key] = {
+                "at": previous["at"] if previous else at,
+                "last_attempt_at": at,
+                "blocked_new_net": str(wanted),
+                "reason": "AWAIT_EXPLICIT_NET_REVERSAL_AUTHORIZATION",
+            }
+            # Start from the *actually held* pod books; authorize only the
+            # part of requested deltas which decreases net exposure to flat.
+            prior = {
+                pod: account.pm_quantities.get(pod, {}).get(inst, ZERO) for pod in target_books
+            }
+            outstanding = abs(actual)
+            direction = D("-1") if actual > ZERO else D("1")
+            # Prioritize suspended-pod exits before new opposing pod risk.
+            order = sorted(
+                target_books,
+                key=lambda pod: (
+                    0 if state["pod_stats"][pod]["state"] in ("SUSPENDED", "REDUCED") else 1,
+                    pod,
+                ),
+            )
+            for pod in order:
+                request = target_books[pod].get(inst, ZERO) - prior[pod]
+                target_books[pod][inst] = prior[pod]
+                if request * direction > ZERO and outstanding > ZERO:
+                    amount = min(abs(request), outstanding)
+                    target_books[pod][inst] += direction * amount
+                    outstanding -= amount
+            if outstanding:
+                raise ValueError("UNABLE_TO_STAGE_CONSOLIDATED_EXIT")
+        elif hold and actual == ZERO and wanted:
+            # No implicit opening in the opposite direction after modeled
+            # flat; a pod-reduction backlog is not new-order permission.
+            for pod in target_books:
+                target_books[pod][inst] = account.pm_quantities.get(pod, {}).get(inst, ZERO)
+        elif hold and wanted == ZERO and not actual:
+            # Keep the audit of a canceled reversal in the ledger. New risk
+            # still requires a separate future authorization, not a stale tick.
+            pass
+    return target_books
+
+
 def _execute(
     account: Account,
     event: Event,
@@ -715,7 +787,9 @@ def _execute(
     evidence = _evidence(raw["evidence"])
     if evidence.input_status != mode:
         raise ValueError("RESEARCH_MODE_MISMATCH")
-    target_books = _books(state["routed_targets"])
+    target_books = _reduction_before_reversal(
+        account, _books(state["routed_targets"]), event.decision_at
+    )
     # The account is the sole source of broker-equivalent holdings. A required
     # external position snapshot must reconcile before any new-risk attempt.
     proposed = account.external_targets(target_books)

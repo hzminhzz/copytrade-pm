@@ -27,6 +27,17 @@
 
 Other mandatory checks live in `tests/test_pm04_faults.py`, `tests/test_pm04_extended_acceptance.py`, existing `tests/test_pm04_shadow.py`, `tests/test_pm04_compare.py` and PM-03 adversarial tests. These include five explicit independent-budget-funding contract tests (`tests/test_pm04_budget_contract.py`) proving total pod daily/drawdown/stress reserves cannot exceed the declared PM-03 account headroom, and cover fee/funding and position mismatches, stale/out-of-order provider observations, expired batch signals, stale or missing market marks, explicit pod restore, source/contract floor, independent pod risk, hard concentration limit, provider canceled-order release only after complete snapshot, journal corruption, comparison cache corruption, simulated crash **after immutable append but before in-memory state update**, and automatic deterministic recovery. Additional regression cases verify a funding-triggered pod loss immediately queues an *unfilled* reduction and that a challenge-stage rulebook change HALTs until reauthorization.
 
+## Independent reviewer P1 corrections (PR #13, comment #6540806432)
+
+`tests/test_pm04_review_regressions.py` now reproduces and protects the following formerly uncovered cases through public `ShadowRun` events:
+
+1. **Sequential opposing BTC pods:** after W028 holds +3 and W042 proposes -2 at the later 300-second batch, net BTC must be +1, W028 virtual +3 and W042 virtual -2. Pod-vs-net sign cannot falsely reject a valid consolidated net decrease.
+2. **Suspended pod net reversal:** W028 virtual +3 and W042 -2 produce account +1. After W028 loses its pod budget, request a safe net close to zero and retain the remaining W028 virtual +2 as a non-filled `pending_pod_reductions` amount of -2. The opposite-net -2 remains recorded as `pending_reversals` and cannot auto-open on the next tick.
+3. **Low/zero liquidity and restart:** with zero capacity, actual BTC remains +1 and pending safe net reduction -1; capacity 0.5 fills only 0.5, then later reaches flat. Full outstanding virtual pod exit and blocked reversal survive immutable checkpoint replay; no fictitious fill or short.
+4. **HALT and simultaneous offsetting changes:** account HALT still permits safe net reduction (when synthetic liquidity and model evidence permit), never new risk. Same-instrument opposing *pod reductions* produce an internal virtual cross without fictitious net broker fill.
+
+The held opposite-side remainder needs separately specified, explicit authorization before actual net-new-risk execution. There is deliberately no automatic release or live adapter in this PR. These tests supplement, not replace, the existing 18 numbered scenarios.
+
 ## How to reproduce
 
 ```bash
