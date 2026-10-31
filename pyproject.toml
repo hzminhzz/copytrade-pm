@@ -22,6 +22,8 @@ copytrade-pm-research = "copytrade_pm.pm_research:main"
 copytrade-pm-shadow = "copytrade_pm.pm03_cli:main"
 copytrade-pm-receipts = "copytrade_pm.pm_prospective_cli:main"
 copytrade-pm-synchronized = "copytrade_pm.pm_synchronized_challenge:main"
+copytrade-pm-quarter-fills = "copytrade_pm.pm_quarter_fill_audit:main"
+copytrade-pm-quarter-episodes = "copytrade_pm.pm_quarter_episode_replay:main"
 
 [build-system]
 requires = ["hatchling"]

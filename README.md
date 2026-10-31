@@ -26,6 +26,8 @@ uv run --group dev python -m copytrade_pm.pm_handoff --help
 uv run --group dev python -m copytrade_pm.pm03_cli --help
 uv run --group dev python -m copytrade_pm.pm_prospective_cli --help
 uv run --group dev python -m copytrade_pm.pm_synchronized_challenge --help
+uv run --group dev python -m copytrade_pm.pm_quarter_fill_audit --help
+uv run --group dev python -m copytrade_pm.pm_quarter_episode_replay --help
 ```
 
 The committed **GitHub Actions CI** workflow runs these tests, Ruff lint/format and wheel build with core and market-extra dependencies on every PR into `main`. Consult [live GitHub checks](https://github.com/hzminhzz/copytrade-pm/actions) and the dated verification record in the [handbook](docs/INDEX.md); do not treat old test counts in imported plans as current suite results.
