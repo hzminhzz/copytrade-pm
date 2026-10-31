@@ -156,6 +156,8 @@ def test_private_artifact_is_content_addressed_and_never_overwritten(tmp_path):
     target, sha = save_private_artifact(tmp_path / "private", data, "fills")
     assert target.name == f"pm36-2026q3-fills-{sha[:20]}.json"
     assert target.stat().st_mode & 0o077 == 0
+    assert target.read_text().endswith("\n")
+    assert json.loads(target.read_text()) == data
     assert save_private_artifact(tmp_path / "private", data, "fills") == (target, sha)
     target.write_bytes(b"corrupt")
     with pytest.raises(ValueError, match="HASH_CONFLICT"):
