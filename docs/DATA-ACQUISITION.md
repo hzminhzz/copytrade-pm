@@ -111,6 +111,10 @@ The [Portfolio C E4 audit](PORTFOLIO-C-E4-FAITHFUL.md) is a **read-only** consum
 
 To admit E4, independently acquire complete exchange-account positions across every DEX, signed leverage/equity/collateral, funding/withdrawal/liquidation streams, a complete position-event census, and actual first-local-known receipt clocks **going forward**. Never use the frozen trade-episode shortlist as E4 source, silently set omitted hedges to zero, or write fresh data into an existing immutable generation. A synthetic attestation flag or raw file SHA confirms only a payload contract, not independent account truth or Propr executable permission.
 
+## 6b. New E4 HyperX + official account ingestion (October 31)
+
+Read the [E4 acquired-source report](PORTFOLIO-C-E4-SOURCE-ACQUISITION-20261031.md). HyperX `pm_hyperx_account_triage` uses the **existing private token** for wallet analysis, 30-day bounded funding and 7-day margin timelines. These **do not deliver complete live all-DEX position books**. The new `pm_e4_prospective` and `pm_e4_stream` consume public official Hyperliquid all-DEX account states, fills/fundings/ledger and subaccount lists, preserving raw SHA-checked locally received frames in owner-private directories. The new `pm_e4_backfill` queries explicit Q3 official funding/nonfunding time ranges with bounded pagination. `pm_e4_reconcile` verifies HyperX identities, exact official DEX namespace, subaccount source provenance and asynchronous source equity cross-checks. All three wallets still lack a historically complete point-in-time source-account book/equity series, and all eight subaccount strategies require separate interpretation. No first-known July receipt is invented. Private evidence resides at `/home/quant/.local/share/copytrade/reports/pm-e4-hyperx-20261031`.
+
 ## 7. Forward receipts — network, not economic qualification
 
 **WebSocket** probes live data when explicitly requested (max 60 seconds / 5 messages; provider tier restrictions may reject the subscription):

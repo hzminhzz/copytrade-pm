@@ -1,0 +1,24 @@
+[Unit]
+Description=E4 read-only source account and subaccount observation (no orders)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=/home/quant/.devspace/worktrees/copytrade-pm-80b822d4
+ExecStart=/home/quant/.local/bin/uv run --frozen --group dev --extra market --with websockets==15.0.1 python -m copytrade_pm.pm_e4_stream --research-root /home/quant/.local/share/copytrade/reports/five-pod-20261029-research --store /home/quant/.local/share/copytrade/reports/pm-e4-hyperx-20261031/stream --forever --session-seconds 900 --sample-seconds 300
+Restart=on-failure
+RestartSec=12
+TimeoutStopSec=25
+KillSignal=SIGTERM
+UMask=0077
+Environment=PYTHONDONTWRITEBYTECODE=1
+NoNewPrivileges=true
+ProtectSystem=full
+MemoryMax=300M
+CPUQuota=50%
+
+[Install]
+WantedBy=default.target

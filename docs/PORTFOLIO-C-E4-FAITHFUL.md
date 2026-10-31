@@ -55,6 +55,10 @@ Retrospective account-value samples retrieved **October 29** are not proof of or
 
 **E4 historical scientific verdict: BLOCKED_E4_SOURCE_EVIDENCE for all three wallets.** The verified 2026Q3 E1–E3 source episode manifest (`pm_c_historical_oracle_input_v1`) is *not* a valid E4 input, and the E4 workflow refuses it. **There are no legitimate real-wallet E4 Q3 PnL, return, drawdown or challenge-pass probability outputs.**
 
+## Newly acquired source updates (2026-10-31)
+
+Authenticated HyperX account analytics, official 11-DEX current master/subaccount position books, point-in-time locally received WebSocket frames, independently reconciled source SHA evidence, and 2026Q3 *retrospective* main-account funding/nonfunding records are now present in the VPS private research store. See the separate [E4 source acquisition and reconciliation report](PORTFOLIO-C-E4-SOURCE-ACQUISITION-20261031.md) for bounded API calls, current holdings, eight subaccounts, immutable sources and the research-only continuous receiver. These new observations do **not** recover historically first-known Q3 wallet source books/equity or promote any wallet.
+
 ## Commands
 
 Source audit (read-only original vendor cache; emits private content-addressed report):
