@@ -21,6 +21,13 @@
 - Report the judge's verdict and its confidence alongside the recommendation. If confidence is low, revalidate with data before acting — never present a low-confidence judge answer as settled.
 - The judge informs the decision; it does not override repository evidence, fail-closed rules or the user's call.
 
+## Required reading and durable documentation
+- Start at [docs/INDEX.md](docs/INDEX.md), then [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), the stage-specific [data acquisition](docs/DATA-ACQUISITION.md), [runbook](docs/RUNBOOK.md) and [qualification](docs/QUALIFICATION.md) guides. These are current navigation/operation contracts. Old `docs/PM-*.md` are time-scoped scientific or source-era records, not blanket execution authority.
+- Before altering CLI args, data contracts, evidence schemas, provider limits, wallet roster or Propr assumptions, inspect actual code/tests and update the relevant canonical guide in the same PR. Keep links and executable command examples verified; include commit/time scope for counts. Historical evidence bytes/SHAs are immutable.
+- The current PM-01 cohort is exactly 6+10+20 (36). New wallets require a versioned new cohort and consumer-contract changes, never a silent edit of the frozen manifests. The original PM-01 replay v2 and canonical PM-02 source SHA parity must stay intact.
+- The HyperX historical fill-cache code and private alias maps live **outside** this repo. Bounded WS/REST receipts do not imply audited economic follower outcomes. An independent real signed matched-outcome producer is not yet verified/operational; keep actual qualified wallets at zero until measured evidence passes.
+- Separate **IMPLEMENTED**, **ENGINEERING VERIFIED**, **SCIENTIFICALLY QUALIFIED**, **AUTHORIZED** and **DEPLOYED**. Do not claim a positive PM-02 proposal is a live position or an independently calculated pass probability.
+
 ## Engineering
 - Run `uv run --group dev python -m pytest -q tests` and `uv run --group dev ruff check src tests`.
 - For the optional native Polars market-data tests, use `uv run --extra market --group dev python -m pytest -q tests`.

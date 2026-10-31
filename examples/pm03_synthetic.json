@@ -1,0 +1,121 @@
+{
+  "action": "compare",
+  "costs": {
+    "fee_bps": "2",
+    "full_spread_bps": "4",
+    "impact_bps_at_full_participation": "4",
+    "latency_seconds": 1,
+    "max_age_seconds": 300,
+    "max_participation": "0.1",
+    "slippage_bps": "1"
+  },
+  "historical_scores": {
+    "A": "2",
+    "B": "1"
+  },
+  "mode": "RESEARCH_SYNTHETIC",
+  "rulebook": {
+    "account_terms_confirmed": false,
+    "confirmed": true,
+    "daily_loss": null,
+    "daily_loss_rate": "0.03",
+    "effective_at": null,
+    "initial_balance": "10000",
+    "max_gross_leverage": "2",
+    "observed_at": "2026-10-31T04:00:00+00:00",
+    "permitted": [
+      "hyperliquid/mainnet:perp:default/BTC",
+      "hyperliquid/mainnet:perp:xyz/BTC"
+    ],
+    "profit_target": "1000",
+    "program": "SYNTHETIC",
+    "snapshot_sha": null,
+    "source": "synthetic-test",
+    "stage": "evaluation",
+    "static_loss": "600",
+    "timezone": "UTC",
+    "trailing_cap": null,
+    "trailing_loss": null,
+    "version": "synthetic-v1"
+  },
+  "schema": "pm03_cli_input_v1",
+  "started_at": "2026-10-31T04:00:00+00:00",
+  "steps": [
+    {
+      "as_of": "2026-10-31T04:01:00+00:00",
+      "hypothetical_fill_at": "2026-10-31T04:01:02+00:00",
+      "observations": [
+        {
+          "event_at": "2026-10-31T04:01:00+00:00",
+          "first_known_at": "2026-10-31T04:01:00+00:00",
+          "instrument": "hyperliquid/mainnet:perp:default/BTC",
+          "mark": "100",
+          "quality": "SYNTHETIC",
+          "supported": true,
+          "volume_base": "1000"
+        },
+        {
+          "event_at": "2026-10-31T04:01:00+00:00",
+          "first_known_at": "2026-10-31T04:01:00+00:00",
+          "instrument": "hyperliquid/mainnet:perp:xyz/BTC",
+          "mark": "50",
+          "quality": "SYNTHETIC",
+          "supported": true,
+          "volume_base": "1000"
+        }
+      ],
+      "proposed": {
+        "A": {
+          "hyperliquid/mainnet:perp:default/BTC": "10"
+        },
+        "B": {
+          "hyperliquid/mainnet:perp:xyz/BTC": "-4"
+        }
+      },
+      "shocks": [
+        {
+          "hyperliquid/mainnet:perp:default/BTC": "-0.1",
+          "hyperliquid/mainnet:perp:xyz/BTC": "0.1"
+        }
+      ]
+    },
+    {
+      "as_of": "2026-10-31T04:02:00+00:00",
+      "hypothetical_fill_at": "2026-10-31T04:02:02+00:00",
+      "observations": [
+        {
+          "event_at": "2026-10-31T04:02:00+00:00",
+          "first_known_at": "2026-10-31T04:02:00+00:00",
+          "instrument": "hyperliquid/mainnet:perp:default/BTC",
+          "mark": "80",
+          "quality": "SYNTHETIC",
+          "supported": true,
+          "volume_base": "1000"
+        },
+        {
+          "event_at": "2026-10-31T04:02:00+00:00",
+          "first_known_at": "2026-10-31T04:02:00+00:00",
+          "instrument": "hyperliquid/mainnet:perp:xyz/BTC",
+          "mark": "60",
+          "quality": "SYNTHETIC",
+          "supported": true,
+          "volume_base": "1000"
+        }
+      ],
+      "proposed": {
+        "A": {
+          "hyperliquid/mainnet:perp:default/BTC": "7"
+        },
+        "B": {
+          "hyperliquid/mainnet:perp:xyz/BTC": "-2"
+        }
+      },
+      "shocks": [
+        {
+          "hyperliquid/mainnet:perp:default/BTC": "-0.12",
+          "hyperliquid/mainnet:perp:xyz/BTC": "0.13"
+        }
+      ]
+    }
+  ]
+}

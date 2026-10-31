@@ -1,8 +1,10 @@
 > **Package migration:** Original historical output remains unchanged; current module commands use `copytrade_pm`.
 
-# PM-02 — Research-only portfolio-manager governance (partial engineering)
+# PM-02 — Research-only portfolio-manager governance (historical source-era research report)
 
-**Status:** NOT ACCEPTED / NOT SCIENTIFICALLY QUALIFIED. Engineering is in progress on stacked draft PR #7. The hourly autonomous direct-implementation goal is documented in `docs/PM-02-goal.md`.
+> **Archived state, not a current implementation checklist (2026-10-31):** The draft PR #7 and Issue #4 described below belong to the original `hyperliquid-expert-ensemble` source era. In `copytrade-pm`, PM-02 code is on `main`, the signed prospective receipt-to-PM-02 adapter merged in [PR #9](https://github.com/hzminhzz/copytrade-pm/pull/9), and the remaining **scientific** gates are tracked by [Issue #5](https://github.com/hzminhzz/copytrade-pm/issues/5). Follow [current architecture](ARCHITECTURE.md) and [runbook](RUNBOOK.md) for actual operation. The following lines retain their historical interpretation.
+
+**Historical checkpoint status:** NOT ACCEPTED / NOT SCIENTIFICALLY QUALIFIED. The original source-era stacked PM-02 PR #7 and hourly engineering plan described here are archival context, not current `copytrade-pm` tasks. Scientific manager qualification remains open.
 
 ## Source seam
 
