@@ -251,7 +251,7 @@ def _outstanding(account: Account) -> None:
 def _exposure(account: Account, at: str) -> dict:
     state = account.pm04_state
     policy = state["policy"]
-    inflight = pending_quantities(account)
+    inflight = pending_quantities(account, at)
     actual = account.gross()
     pending_notional = sum((qty * account.marks.get(k, ZERO) for k, qty in inflight.items()), ZERO)
     # Reserve every queued new pod increase, not only submitted broker intent.
@@ -628,7 +628,7 @@ def _pretrade_guard(
 ) -> tuple[list[str], bool]:
     state = account.pm04_state
     policy = state["policy"]
-    pending = pending_quantities(account)
+    pending = pending_quantities(account, at)
     marks = account.marks
     actual = account.quantities
     increase = any(

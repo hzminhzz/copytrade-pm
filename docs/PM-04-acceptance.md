@@ -38,6 +38,18 @@ Other mandatory checks live in `tests/test_pm04_faults.py`, `tests/test_pm04_ext
 
 The held opposite-side remainder needs separately specified, explicit authorization before actual net-new-risk execution. There is deliberately no automatic release or live adapter in this PR. These tests supplement, not replace, the existing 18 numbered scenarios.
 
+## Independent reviewer P1 source-clock correction (PR #13, comment #6540960265)
+
+`tests/test_pm04_broker_timestamps.py` reproduces the two reported false-READY states through public `ShadowRun` events, with failing tests recorded **before** the production changes:
+
+- **Pre-cancel source, post-cancel receipt:** intent at 10, cancel at 20, complete position snapshot `event_at=15` but `first_known_at=30`, followed by matching balance/fee receipts at 31/32. Broker remains **NOT READY**, cancel/fill race unresolved, full 3 BTC still reserved, and HALT persists across journal recovery. A receipt cannot retroactively change the provider as-of time.
+- **Old provider state, recent receipts:** position, balance and fees all `event_at=10`, received at 350/351/352, `broker_max_age_seconds=300`. All three snapshots are stale at decision 352 despite recent receipt clocks; broker remains **NOT READY** and shadow HALT is latched.
+- **Positive contrast:** complete position source at 21, received at 30 after cancel source at 20, releases the modeled canceled-order reservation when all snapshots are fresh. Broker may report reconciled readiness, but a previously latched account HALT is **never** automatically reset.
+- **Age progression:** after a valid post-cancel snapshot ages beyond 300 seconds, the cancellation balance becomes reserved again and broker readiness is revoked. **Reconnect** likewise requires an as-of source snapshot after the reconnect event, not just late receipt. A reconnect **re-reserves** previously discharged canceled-order quantities until new complete post-reconnect position evidence is received; fresh post-reconnect balance/fee snapshots are separately needed for full readiness.
+- **Crash and immutable replay:** an injected crash *after* journal append but *before* in-memory commit reconstructs the late-old snapshot and outstanding canceled-order reservation deterministically. No fabricated account position, broker fill or new live execution path.
+
+The tests run entirely offline and preserve source and receipt clocks independently. Historical SHA-sealed runs from earlier commits are not rewritten; reproduce them using their originally pinned code. Required checks: `uv run --extra market --group dev python -m pytest -q tests/test_pm04_broker_timestamps.py` plus the complete core/market suites, Ruff and build.
+
 ## How to reproduce
 
 ```bash

@@ -25,9 +25,45 @@ def empty_broker() -> dict:
         "balance_snapshot": None,
         "fee_snapshot": None,
         "reconnect_at": None,
+        "reconnect_event_at": None,
         "discrepancies": [],
         "ready": False,
     }
+
+
+def _snapshot_fresh(snapshot: dict, at: str, max_age: int) -> bool:
+    """Fresh receipt and fresh provider state are both necessary."""
+    decision = clock(at)
+    return all(
+        0 <= (decision - clock(snapshot[field])).total_seconds() <= max_age
+        for field in ("event_at", "first_known_at")
+    )
+
+
+def _snapshot_after_reconnect(snapshot: dict | None, broker: dict) -> bool:
+    """Reconnection needs new authoritative source state and new receipt."""
+    return snapshot is not None and (
+        broker["reconnect_at"] is None
+        or (
+            clock(snapshot["event_at"]) > clock(broker["reconnect_event_at"])
+            and clock(snapshot["first_known_at"]) > clock(broker["reconnect_at"])
+        )
+    )
+
+
+def _snapshot_after_order(snapshot: dict | None, order: dict, at: str, max_age: int) -> bool:
+    """A late receipt is not proof of post-cancel broker account state.
+
+    Both provider source time and independent local knowledge must advance
+    beyond the last observed lifecycle event before remaining order quantity
+    may be discharged.
+    """
+    return (
+        snapshot is not None
+        and clock(snapshot["event_at"]) > clock(order["last_event_at"])
+        and clock(snapshot["first_known_at"]) > clock(order["last_known_at"])
+        and _snapshot_fresh(snapshot, at, max_age)
+    )
 
 
 def _snapshot(account: Account, broker: dict, policy: dict, at: str) -> list[str]:
@@ -47,11 +83,9 @@ def _snapshot(account: Account, broker: dict, policy: dict, at: str) -> list[str
             if required:
                 reasons.append(f"MISSING_{name}_SNAPSHOT")
             continue
-        if (clock(at) - clock(snap["first_known_at"])).total_seconds() > max_age:
+        if not _snapshot_fresh(snap, at, max_age):
             reasons.append(f"STALE_{name}_SNAPSHOT")
-        if broker["reconnect_at"] is not None and (
-            clock(snap["first_known_at"]) <= clock(broker["reconnect_at"])
-        ):
+        if not _snapshot_after_reconnect(snap, broker):
             reasons.append(f"RECONNECT_{name}_UNRESOLVED")
     p = broker["position_snapshot"]
     if p is not None:
@@ -78,7 +112,7 @@ def _snapshot(account: Account, broker: dict, policy: dict, at: str) -> list[str
             reasons.append("UNKNOWN_ORDER")
         if order["status"] == "CANCELED" or order["status"] == "CANCELED_PARTIAL":
             # A cancel acknowledgement does not prove a fill/cancel race is over.
-            if p is None or clock(p["first_known_at"]) <= clock(order["last_known_at"]):
+            if not _snapshot_after_order(p, order, at, max_age):
                 reasons.append("CANCEL_FILL_RACE_UNRESOLVED")
     broker["discrepancies"] = sorted(set(reasons))
     broker["ready"] = (
@@ -95,7 +129,7 @@ def _snapshot(account: Account, broker: dict, policy: dict, at: str) -> list[str
             "UNKNOWN_ORDER",
             "CANCEL_FILL_RACE_UNRESOLVED",
         )
-    ):
+    ) or (required and any(reason.startswith("STALE_") for reason in reasons)):
         account.risk = RiskState.HALT
         account.halt_reason = "BROKER_RECONCILIATION_DISCREPANCY"
         account.risk_reasons = tuple(sorted(set(account.risk_reasons) | set(reasons)))
@@ -106,7 +140,7 @@ def reconcile(account: Account, policy: dict, at: str) -> list[str]:
     return _snapshot(account, account.pm04_state["broker"], policy, at)
 
 
-def pending_quantities(account: Account) -> dict[Instrument, D]:
+def pending_quantities(account: Account, at: str) -> dict[Instrument, D]:
     """Conservatively count each unresolved in-flight order at full remaining size."""
     result: dict[Instrument, D] = {}
     broker = account.pm04_state["broker"]
@@ -116,8 +150,10 @@ def pending_quantities(account: Account) -> dict[Instrument, D]:
         last = broker["position_snapshot"]
         if (
             order["status"].startswith("CANCELED")
-            and last is not None
-            and (clock(last["first_known_at"]) > clock(order["last_known_at"]))
+            and _snapshot_after_order(
+                last, order, at, int(account.pm04_state["policy"]["broker_max_age_seconds"])
+            )
+            and _snapshot_after_reconnect(last, broker)
         ):
             # A later independently complete position snapshot resolves the
             # outstanding canceled balance, not a cancel receipt alone.
@@ -172,6 +208,7 @@ def ingest(account: Account, observation: dict, policy: dict, at: str) -> dict:
                 "status": "INTENT",
                 "last_sequence": seq,
                 "last_known_at": observation["first_known_at"],
+                "last_event_at": observation["event_at"],
             }
             broker["orders"][order_id] = order
         elif order is None:
@@ -184,6 +221,7 @@ def ingest(account: Account, observation: dict, policy: dict, at: str) -> dict:
                 "status": "UNKNOWN",
                 "last_sequence": seq,
                 "last_known_at": observation["first_known_at"],
+                "last_event_at": observation["event_at"],
             }
         else:
             previous = number(order["cumulative_filled"])
@@ -210,6 +248,8 @@ def ingest(account: Account, observation: dict, policy: dict, at: str) -> dict:
             order["last_sequence"] = max(order["last_sequence"], seq)
             if clock(observation["first_known_at"]) > clock(order["last_known_at"]):
                 order["last_known_at"] = observation["first_known_at"]
+            if clock(observation["event_at"]) > clock(order["last_event_at"]):
+                order["last_event_at"] = observation["event_at"]
     elif kind == "POSITION_SNAPSHOT":
         if observation.get("complete") is not True:
             raise ValueError("INCOMPLETE_BROKER_POSITION_SNAPSHOT")
@@ -259,7 +299,14 @@ def ingest(account: Account, observation: dict, policy: dict, at: str) -> dict:
         ):
             raise ValueError("CONFLICTING_SAME_TIME_BROKER_SNAPSHOT")
     elif kind == "RECONNECT":
-        broker["reconnect_at"] = observation["first_known_at"]
+        if broker["reconnect_at"] is None or clock(observation["first_known_at"]) > clock(
+            broker["reconnect_at"]
+        ):
+            broker["reconnect_at"] = observation["first_known_at"]
+        if broker["reconnect_event_at"] is None or clock(observation["event_at"]) > clock(
+            broker["reconnect_event_at"]
+        ):
+            broker["reconnect_event_at"] = observation["event_at"]
     broker["observations"][oid] = frozen
     discrepancies = _snapshot(account, broker, policy, at)
     return {
