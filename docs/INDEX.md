@@ -1,6 +1,6 @@
 # copytrade-pm handbook — start here
 
-**Audience:** an engineer/researcher taking over `hzminhzz/copytrade-pm`, or an operator tracing one wallet from HyperX evidence through PM-01, PM-02, and PM-03. **Canonical entry point for this repo.** Last code/GitHub inspection: **2026-10-31**, `main` at `4db3ea708b92e1afb2028071776fa292d225e65a`. Recheck live Git and private source manifests before acting.
+**Audience:** an engineer/researcher taking over `hzminhzz/copytrade-pm`, or an operator tracing one wallet from HyperX evidence through PM-01, PM-02, and PM-03. **Canonical entry point for this repo.** Last code/GitHub inspection: **2026-10-31**, `main` at `712ce7b`. Recheck live Git and private source manifests before acting.
 
 ## Read in this order
 
