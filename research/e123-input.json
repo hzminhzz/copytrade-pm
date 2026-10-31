@@ -1,0 +1,20 @@
+{
+  "schema": "pm36_e123_research_input_v1",
+  "classification": "HISTORICAL_ORACLE_INCOMPLETE_BOOK_RESEARCH_ONLY",
+  "source_report_sha256": "9806e1064dfb66690886955ef9b1788225ef7d46874f0ce56ad80ce01d477718",
+  "pods": ["W028", "W042", "W030"],
+  "start": "2026-07-01T00:00:00+00:00",
+  "end_exclusive": "2026-10-01T00:00:00+00:00",
+  "initial_balance_usd": "10000",
+  "profit_target_usd": "1000",
+  "initial_daily_loss_allowance_usd": "300",
+  "static_loss_allowance_usd": "600",
+  "pod_daily_loss_usd": "60",
+  "pod_stress_loss_usd": "60",
+  "pod_max_drawdown_usd": "120",
+  "reserve_usd": "50",
+  "execution_policies": ["IMMEDIATE", "ASYMMETRIC_5M"],
+  "cost_multipliers": [1, 2],
+  "funding_multiplier": 1,
+  "sizing_contract": "Sizing operates on a pod's simultaneous signed source quantities and point-in-time marks. It returns signed target quantities keyed by instrument. PM-04 remains responsible for central and pod vetoes, real inventory and attribution. Missing marks or volatility history block new risk; exits remain eligible."
+}
