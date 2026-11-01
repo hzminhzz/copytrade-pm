@@ -1,0 +1,24 @@
+[Unit]
+Description=Read-only A/B/C bounded source observations (no broker route)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=/home/quant/.local/share/copytrade/releases/copytrade-source-recovery-20261101
+ExecStart=/home/quant/.local/share/copytrade/releases/copytrade-source-recovery-20261101/.venv/bin/python -m copytrade_pm.pm_source_rotation --research-root /home/quant/.local/share/copytrade/reports/five-pod-20261029-research --store /home/quant/.local/share/copytrade/reports/source-abc-v2 --forever --session-seconds 60 --sample-seconds 15
+Restart=on-failure
+RestartSec=12
+TimeoutStopSec=30
+KillSignal=SIGTERM
+UMask=0077
+Environment=PYTHONDONTWRITEBYTECODE=1
+NoNewPrivileges=true
+ProtectSystem=full
+MemoryMax=300M
+CPUQuota=50%
+
+[Install]
+WantedBy=default.target
