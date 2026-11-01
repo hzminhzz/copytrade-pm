@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from contextlib import AsyncExitStack
 from datetime import UTC, datetime
 from hashlib import sha256
 import json
@@ -37,6 +38,13 @@ from .pm_hyperx_account_triage import _write_immutable_private
 from .pm_hyperx_gap_recovery import _private_dir
 from .pm_sources import load_cohort
 
+PORTFOLIO_PODS = {
+    "A": ("W028", "W042", "W030"),
+    "B": ("W044", "CA-005", "W031"),
+    "C": PODS,
+}
+
+MAX_SUBSCRIPTIONS_PER_CONNECTION = 15
 MIN_SESSION_SECONDS = 10
 MAX_SESSION_SECONDS = 3600
 MIN_SAMPLE_SECONDS = 15
@@ -63,17 +71,19 @@ def capture_book_change(
     return changed, checkpoint
 
 
-def _discovery(root: Path, session_root: Path) -> tuple[dict, dict[str, str], set[str], dict]:
+def _discovery(
+    root: Path, session_root: Path, pods: tuple[str, ...] = PODS
+) -> tuple[dict, dict[str, str], set[str], dict]:
     entries, manifests = load_cohort(root)
-    roster = {x.alias: x for x in entries if x.alias in PODS}
-    if set(roster) != set(PODS):
+    roster = {x.alias: x for x in entries if x.alias in pods}
+    if set(roster) != set(pods):
         raise ValueError("E4_STREAM_FROZEN_ROSTER_MISMATCH")
     dex, raw, catalog_sha = _guarded_info({"type": "perpDexs"})
     _write_immutable_private(session_root / "discovery" / "dex_catalog.json", raw)
     dexs = _dex_universe(dex)
-    subjects = {p: roster[p].address for p in PODS}
+    subjects = {p: roster[p].address for p in pods}
     sub_counts: dict[str, int] = {}
-    for pod in PODS:
+    for pod in pods:
         content, raw, response_sha = _guarded_info(
             {"type": "subAccounts", "user": roster[pod].address}
         )
@@ -104,6 +114,7 @@ async def session(
     session_seconds: int = 900,
     sample_seconds: int = 300,
     stop_event: asyncio.Event | None = None,
+    pods: tuple[str, ...] = PODS,
 ) -> dict:
     if not MIN_SESSION_SECONDS <= session_seconds <= MAX_SESSION_SECONDS:
         raise ValueError("E4_INVALID_SESSION_DURATION")
@@ -142,7 +153,9 @@ async def session(
     }
     latest: dict[str, tuple[str, datetime]] = {}
     try:
-        subjects, subcounts, dexs, discovery = await asyncio.to_thread(_discovery, root, generation)
+        subjects, subcounts, dexs, discovery = await asyncio.to_thread(
+            _discovery, root, generation, pods
+        )
         report.update(discovery)
         report["subaccount_counts"] = subcounts
         report["subjects"] = {
@@ -151,42 +164,47 @@ async def session(
         by_addr = {address.lower(): code for code, address in subjects.items()}
         import websockets
 
-        async with websockets.connect(
-            WS_URL,
-            open_timeout=16,
-            close_timeout=6,
-            ping_interval=15,
-            ping_timeout=12,
-            max_size=MAX_BODY,
-        ) as ws:
-            report["connection"] = "CONNECTED"
-            report["connection_at"] = datetime.now(UTC).isoformat()
-            for subject, address in subjects.items():
-                types = SUBSCRIPTIONS if subject in PODS else ("allDexsClearinghouseState",)
-                for message_type in types:
-                    await ws.send(
-                        json.dumps(
-                            {
-                                "method": "subscribe",
-                                "subscription": {
-                                    "type": message_type,
-                                    "user": address,
-                                },
-                            }
-                        )
+        async with AsyncExitStack() as stack:
+            subscriptions = [
+                {"type": kind, "user": address}
+                for address in subjects.values()
+                for kind in SUBSCRIPTIONS
+            ]
+            connections = []
+            for start in range(0, len(subscriptions), MAX_SUBSCRIPTIONS_PER_CONNECTION):
+                ws = await stack.enter_async_context(
+                    websockets.connect(
+                        WS_URL, open_timeout=16, close_timeout=6,
+                        ping_interval=15, ping_timeout=12, max_size=MAX_BODY,
                     )
+                )
+                connections.append(ws)
+                for subscription in subscriptions[start:start + MAX_SUBSCRIPTIONS_PER_CONNECTION]:
+                    await ws.send(json.dumps({"method": "subscribe", "subscription": subscription}))
+            report["connection"] = "CONNECTED"
+            report["connection_count"] = len(connections)
+            report["connection_at"] = datetime.now(UTC).isoformat()
+            pending = {asyncio.create_task(ws.recv()): ws for ws in connections}
+            ready: list[asyncio.Task] = []
             until = monotonic() + session_seconds
             serial = 0
             while monotonic() < until:
                 if stop_event is not None and stop_event.is_set():
                     report["disconnect_reason"] = "OPERATOR_REQUESTED_STOP"
                     break
-                try:
-                    received = await asyncio.wait_for(
-                        ws.recv(), timeout=min(5.0, max(0.01, until - monotonic()))
+                if not ready:
+                    done, _ = await asyncio.wait(
+                        pending, timeout=min(5.0, max(0.01, until - monotonic())),
+                        return_when=asyncio.FIRST_COMPLETED,
                     )
-                except asyncio.TimeoutError:
+                    ready.extend(done)
+                if not ready:
                     continue
+                task = ready.pop()
+                ws = pending.pop(task)
+                try:
+                    received = task.result()
+                    pending[asyncio.create_task(ws.recv())] = ws
                 except Exception as exc:
                     report["errors"].append("WS_RECV_" + type(exc).__name__)
                     report["disconnect_reason"] = "STREAM_DISCONNECTED"
@@ -250,9 +268,10 @@ async def session(
                     store_frame = True
                     report["subscription_acks"] += 1
                 elif channel == "error":
+                    # Persist provider rejection before terminating the session.
+                    store_frame = True
                     report["errors"].append("SUBSCRIPTION_OR_SOURCE_ERROR")
                     report["disconnect_reason"] = "SOURCE_REJECTED_SUBSCRIPTION"
-                    break
                 if not store_frame:
                     continue
                 wire = received.encode()
@@ -286,6 +305,8 @@ async def session(
                 report["frames_stored"] += 1
                 report["raw_bytes_stored"] += len(wire)
                 serial += 1
+                if channel == "error":
+                    break
                 if snapshot_parsed is not None:
                     report["snapshots"][subject] = {
                         "locally_received_at": at.isoformat(),
@@ -294,6 +315,10 @@ async def session(
                         "official_dex_catalog_parity": True,
                         "last_frame_sha256": raw_sha,
                     }
+            for task in pending:
+                task.cancel()
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
             if report["disconnect_reason"] == "UNKNOWN":
                 report["disconnect_reason"] = "BOUNDED_SESSION_ROTATION"
     except Exception as exc:
@@ -323,6 +348,7 @@ async def run(
     forever: bool,
     session_seconds: int,
     sample_seconds: int,
+    pods: tuple[str, ...] = PODS,
 ) -> None:
     stop = asyncio.Event()
     if forever:
@@ -337,6 +363,7 @@ async def run(
             session_seconds=session_seconds,
             sample_seconds=sample_seconds,
             stop_event=stop,
+            pods=pods,
         )
         print(json.dumps(outcome, sort_keys=True), flush=True)
         if not forever or stop.is_set():
@@ -356,6 +383,7 @@ def main() -> None:
     p.add_argument("--forever", action="store_true")
     p.add_argument("--session-seconds", type=int, default=900)
     p.add_argument("--sample-seconds", type=int, default=300)
+    p.add_argument("--portfolio", choices=tuple(PORTFOLIO_PODS), default="C")
     a = p.parse_args()
     asyncio.run(
         run(
@@ -364,6 +392,7 @@ def main() -> None:
             forever=a.forever,
             session_seconds=a.session_seconds,
             sample_seconds=a.sample_seconds,
+            pods=PORTFOLIO_PODS[a.portfolio],
         )
     )
 
