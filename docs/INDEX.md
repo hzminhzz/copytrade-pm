@@ -1,6 +1,6 @@
 # copytrade-pm handbook — start here
 
-**Audience:** an engineer/researcher taking over `hzminhzz/copytrade-pm`, or an operator tracing one wallet from HyperX evidence through PM-01, PM-02, and PM-03. **Canonical entry point for this repo.** Last code/GitHub inspection: **2026-10-31**, `main` at `c3e9ccf4f2c46ef99cdf79d4195260009a2242b6`. Recheck live Git and private source manifests before acting.
+**Audience:** an engineer/researcher taking over `hzminhzz/copytrade-pm`, or an operator tracing one wallet from HyperX evidence through PM-01, PM-02, and PM-03. **Canonical entry point for this repo.** Recovery inspection: **2026-11-01**, PR17 verified at `d3e0ce916c2f0b64ad36593f55b261607ec0cbdd`; E0/E4 recovery merged through PR18 at `7a8be42dbee374f7ce3d5702f98dadc638853f4a`. Recheck live Git and private source manifests before acting.
 
 ## Read in this order
 
@@ -14,6 +14,9 @@
 | Audit the account model | [PM-03 shadow simulator](PM-03-shadow-account.md) | Frozen public rulebook, reconciliation, HALT, stress and no-order boundary |
 | Inspect optional PM-04 three-pod shadow hardening | [PM-04 contract](PM-04-shadow-hardening.md) | Versioned pod targets, batching, risk budgets, read-only external evidence and no-live-order gate; Issue #12 |
 | Reproduce PM-04 18-case engineering acceptance | [PM-04 acceptance matrix](PM-04-acceptance.md) | Fixed-input 18 scenarios, fault recovery, comparison and manual halt/reconciliation runbook |
+| Review integrated A/B/C intent and source operations | [Recovery integration](RECOVERY-INTEGRATION.md) | PR7/15/16 lineage, exact whole-book handoff, bounded durable source capture |
+| Operate registered prospective PM02 decisions | [PM02 evidence gates](PM-02-EVIDENCE-GATES.md) | Whole-account v2 audits, immutable OOS looks, multiplicity, lifecycle and conservative risk |
+| Review the future broker interface boundary | [ML4T/Propr integration specification](ML4T-PROPR-INTEGRATION.md) | Actual installed source findings, native identity, mandatory mismatch veto and offline-only contract tests |
 | Understand the extraction itself | [Provenance](PROVENANCE.md) | Filtered source history and verified original PM-01/PM-02 byte parity |
 
 Start a task with `AGENTS.md`, this index, the relevant source code/tests, then the **live** issue and PR; do not treat an archived report as a current service or data state.
@@ -51,7 +54,7 @@ Wallet research and frozen HyperX roster (PRIVATE, upstream of this repo)
 - `main`: PM-01 historical replay, bounded HyperX recovery/WS/REST probes, 36-wallet source contracts, minute-market and Propr-scope audits, PM-02 evidence/lifecycle/allocator, signed local prospective ledger adapter, PM-03 deterministic **synthetic** account simulator, first-party CI.
 - **Draft PR #7** (`feat/pm36-synchronized-challenge-research`) is **not on `main`** as of this inspection. Its 2026Q3 wallet research and command entrypoints must not appear in mainline runbooks until merged. Its VPS worktree has been observed with concurrent uncommitted changes: never reset, stash or clean it.
 - Scientific successor [PM-01 Issue #4](https://github.com/hzminhzz/copytrade-pm/issues/4) and [PM-02 Issue #5](https://github.com/hzminhzz/copytrade-pm/issues/5) remain open. PM-03 [Issue #2](https://github.com/hzminhzz/copytrade-pm/issues/2) closed **engineering-only**, not authorized for live trading.
-- Latest verified on `main` for this snapshot: **219 passing market-extra tests**, `uv build` and Ruff, GitHub CI green. These are *dated engineering results*, not a live quote for future commits.
+- PR18 integration verified **363 passing core and market-extra tests**, build, Ruff and green GitHub CI. Later recovery validation is recorded with its exact commit and evidence in [the recovery disposition](RECOVERY-DISPOSITION-2026-11-01.md). These are dated engineering results, not scientific qualification.
 
 ## Historical documents — use as dated evidence, not an execution playbook
 

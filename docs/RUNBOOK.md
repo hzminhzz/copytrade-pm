@@ -104,17 +104,24 @@ uv run --frozen --group dev --extra market copytrade-pm-rank \
 
 With this specific frozen PM-01 input and as-of, previous parity verification yielded PM-02 digest `7bf28ee5ad53cdac9212bb0222ae1b3e0ef020eee5faae9972c53028e4b60f4f` (36 historical-only cards; 0 qualified; five EMPTY; 0 actionable R). **Recompute from the actual source and compare before claiming parity.** The `--asof` must not precede the PM-01 frozen `study_cutoff`. For a later decision, `--previous` accepts a signed/canonical `pm02-<fullsha>.json`, monotonic as-of, unchanged frozen source and the same 36-wallet cohort.
 
-When genuine independently signed outcomes exist, add **all three** opt-in flags:
+For registered whole-account qualification, first freeze a future [PM02 campaign](PM-02-EVIDENCE-GATES.md) with `python -m copytrade_pm.pm02_campaign --pm01 "$REPLAY" --out "$CAMPAIGN_REGISTRY" --oos-start "$FUTURE_OOS_START" --windows 4`. Registration uses the actual clock and pins the selection code bytes. It does not approve the science or permit access to another study's protected holdout.
+
+When genuine independently signed v2 outcomes exist, supply the three ledger trust flags **and** `--campaign`:
 
 ```bash
 # Only after a real owner-private ledger and independent auditor public key exist:
 # uv run --frozen --group dev copytrade-pm-rank \
 #   --pm01 "$REPLAY" --asof 2026-11-01T00:00:00+00:00 \
 #   --out "$PM02_OUT" --prospective-ledger "$LEDGER" \
-#   --research-root "$ROOT" --auditor-public-key "$AUDITOR_PUBLIC_KEY"
+#   --research-root "$ROOT" --auditor-public-key "$AUDITOR_PUBLIC_KEY" \
+#   --campaign "$CAMPAIGN_FILE"
 ```
 
 See [ledger contract](PM-01-prospective-ledger.md). A new WS receipt **without an audited and mature economic outcome** must still produce no verified prospective episode. No synthetic user-generated signature is proof of real-world follower returns.
+
+### A/B/C source operations
+
+The pinned read-only `copytrade-source-abc.service` observes bounded A/B/C account windows. Check `systemctl --user show copytrade-source-abc.service -p ActiveState -p UnitFileState -p MainPID -p NRestarts`, the journal, and `loginctl show-user quant -p Linger`. Audit each portfolio with `python -m copytrade_pm.pm_e4_source_readiness --store "$CAPTURE_ROOT/A" --portfolio A` (repeat B/C). Preserve incomplete generations and inter-session gaps. Follow [the release and rollback procedure](RECOVERY-INTEGRATION.md); do not point the service at a dirty worktree or revive the over-limit legacy observer.
 
 ## 4. PM-01/PM-02 to PM-03 evidence handoff (offline)
 

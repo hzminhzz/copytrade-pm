@@ -38,6 +38,8 @@ The [dated PM-01 Propr coverage study](PM-01-propr-90pct-scope.md) targeted **90
 - `pm02_risk` checks synchronized exposure and tail dependence; no asynchronous missing-return zeros. Candidate seats max five; EMPTY is allowed; PM-03 owns simulated account-level risk. A wallet may rank high historically yet be ineligible for any R.
 - The signed ledger enforces SHA chain, Ed25519 independent attestation, conservative local first-known and matured outcome. **A valid cryptographic signature proves a key signed a declaration, not that the market data or actual follower trades were measured honestly.** Independent audit material must be retained off Git.
 
+The [2026-11-01 PM02 gates](PM-02-EVIDENCE-GATES.md) additionally require code-pinned predeclared OOS windows, all declared horizons, whole-account v2 economic proof and independent selection-plan review. Familywise correction uses the declared wallet × horizon × look family; broader search history and tail uncertainty still require independent audit. Reused windows cannot advance lifecycle, RETIRED cannot requalify under the same policy, and missing evidence never counts as falsification. Current qualified count remains zero.
+
 ## PM-04 incremental engineering — NOT qualification
 
 [PM-04 contract](PM-04-shadow-hardening.md) and [PM-04 engineering acceptance](PM-04-acceptance.md) add three-pod synthetic target batching, pretrade gross/inflight guards, pod loss budgets, separate intended vs executed attribution and a read-only external execution-evidence seam to the **same** PM-03 account authority. Synthetic reconciliation fixtures, passing accounting identities and report SHA demonstrate only an *engineering* contract. They do **not** show actual Propr order acknowledgments, signed verified broker fills, a profitable independent follower, an authorized account or a live deployment. The currently selected `W028 + W042 + W030` research set remains post-hoc and **not scientifically qualified**.
@@ -49,6 +51,8 @@ The [dated PM-01 Propr coverage study](PM-01-propr-90pct-scope.md) targeted **90
 - `pm03_stress` compares equal-risk, historical top-PnL (**hindsight biased**) and centralized supervision on the *same synthetic PIT steps*. Simulated target touches and drawdowns are not a calibrated pass-probability distribution; missing source episodes must not be dropped as non-losses.
 
 ## Current evidence register — time-scoped, not a permanent result
+
+The latest [recovery disposition](RECOVERY-DISPOSITION-2026-11-01.md) records PR18 integration, current source capture, PM02 governance repairs, bounded market acquisition and the offline [ML4T/Propr specification](ML4T-PROPR-INTEGRATION.md). The older register below retains its historical evidence scope.
 
 | Workstream | Verified scope at this snapshot | Remaining UNKNOWN/blocked |
 | --- | --- | --- |

@@ -108,3 +108,18 @@ def test_risk_budget_never_exceeds_seats_or_uncertainty_reserve():
     assert result["risk_allocated_r"] <= 0.5
     assert result["reserve_r"] >= 0.5
     assert all(s["risk_budget_r"] <= 0.2 for s in result["five_seats"])
+
+
+def test_concentration_cannot_be_averaged_away_by_quiet_days():
+    rows = episodes("A", BTC)
+    rows[0]["signed_exposures_r"][BTC] = 10.0
+    result = allocate(["A"], {"A": score(2)}, {"A": rows}, {"A": "ACTIVE"})
+    assert result["five_seats"][0]["state"] == "EMPTY"
+
+
+def test_same_day_reversal_cannot_cancel_the_observed_risk_envelope():
+    rows = episodes("A", BTC)
+    opposite = {**rows[0], "episode_id": "reversal", "signed_exposures_r": {BTC: -10.0}}
+    rows[0]["signed_exposures_r"] = {BTC: 10.0}
+    result = allocate(["A"], {"A": score(2)}, {"A": rows + [opposite]}, {"A": "ACTIVE"})
+    assert result["five_seats"][0]["state"] == "EMPTY"

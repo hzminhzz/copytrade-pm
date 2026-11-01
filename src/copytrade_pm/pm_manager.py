@@ -12,7 +12,7 @@ from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from math import isfinite, sqrt
 from pathlib import Path
-from statistics import mean, pstdev
+from statistics import NormalDist, mean, pstdev
 
 SCHEMA = "pm02_manager_governance_v1"
 # Research policy, deliberately conservative and fixed before forward evidence.
@@ -113,9 +113,9 @@ def _prospective_evidence(rows, asof):
         if known > asof or matured > asof:
             continue
         if (
-            not r.get("verified_first_known")
-            or r.get("oracle_hindsight")
-            or not r.get("matched_control")
+            r.get("verified_first_known") is not True
+            or r.get("oracle_hindsight") is not False
+            or r.get("matched_control") is not True
         ):
             continue
         if not r.get("independent_source_digest") or not r.get("market_source_digest"):
@@ -132,7 +132,7 @@ def _prospective_evidence(rows, asof):
         if float(r["tail_loss_r"]) < 0 or float(r["turnover_r"]) < 0:
             raise ValueError("INVALID_COST_RISK")
         seen[key] = r
-    return sorted(seen.values(), key=lambda r: (r["event_at"], r["episode_id"]))
+    return sorted(seen.values(), key=lambda r: (timestamp(r["event_at"]), r["episode_id"]))
 
 
 def _score(rows, asof, tests):
@@ -149,11 +149,13 @@ def _score(rows, asof, tests):
     neff = effective_n(values)
     std = pstdev(values)
     mu = mean(values)
-    # Bonferroni familywise two-sided conservative bound (normal tail).
-    # 3.5 sigma is conservative for >=36 hypotheses at alpha=0.05.
-    z = 3.5
+    # Two-sided Bonferroni normal approximation, never weaker than the prior 3.5 floor.
+    # Independent tail/uncertainty review is additionally required by the v2 outcome contract.
+    if type(tests) is not int or not 1 <= tests <= 100000:
+        raise ValueError("INVALID_MULTIPLICITY_FAMILY")
+    z = max(3.5, NormalDist().inv_cdf(1 - ALPHA_FAMILY / (2 * tests)))
     lcb = mu * neff / (neff + 40) - z * std / sqrt(neff)
-    recent = timestamp(rows[-1]["outcome_known_at"])
+    recent = max(timestamp(row["outcome_known_at"]) for row in rows)
     distinct_days = len({timestamp(r["event_at"]).date() for r in rows})
     peak = 0.0
     equity = 0.0
@@ -187,6 +189,8 @@ def _score(rows, asof, tests):
         "calendar_days": distinct_days,
         "incremental_mean_r": round(mu, 8),
         "incremental_lcb_r": round(lcb, 8),
+        "critical_z": round(z, 8),
+        "declared_hypotheses": tests,
         "follower_total_r": round(sum(followers), 8),
         "matched_control_total_r": round(sum(float(r["control_net_r"]) for r in rows), 8),
         "turnover_r": round(sum(float(r["turnover_r"]) for r in rows), 8),
@@ -206,6 +210,7 @@ def rank(
     previous_report=None,
     source_raw_sha256=None,
     prospective_verified_head=None,
+    campaign=None,
 ):
     if prospective_verified_head is not None and (
         not isinstance(prospective_verified_head, str)
@@ -220,15 +225,30 @@ def rank(
     from .pm02_audit import validate_parent
 
     parent = validate_parent(previous_report, at.isoformat(), digest(replay))
+    window = None
+    if campaign is not None:
+        from .pm02_campaign import validate_plan, window_asof
+
+        validate_plan(campaign)
+        if campaign["cohort"] != sorted(aliases) or campaign["pm01_source_sha256"] != digest(
+            replay
+        ):
+            raise ValueError("CAMPAIGN_SOURCE_OR_COHORT_MISMATCH")
+        window = window_asof(campaign, at.isoformat())
+    previous_campaign = (previous_report or {}).get("campaign")
+    if previous_campaign is not None and (
+        campaign is None or previous_campaign["sha256"] != campaign["sha256"]
+    ):
+        raise ValueError("DECISION_CAMPAIGN_CHANGED")
     prospective = prospective or {}
     history = history or {}
+    if campaign is not None and history:
+        raise ValueError("CAMPAIGN_REQUIRES_SEALED_HISTORY")
     if previous_report is not None:
         if history:
             raise ValueError("AMBIGUOUS_UNSEALED_AND_SEALED_DECISION_HISTORY")
         history = {
-            card["wallet"]: [
-                {"state": card["lifecycle"]["state"], "decided_at": previous_report["asof"]}
-            ]
+            card["wallet"]: [{**card["lifecycle"], "decided_at": previous_report["asof"]}]
             for card in previous_report["cards"]
         }
         if set(history) != set(aliases):
@@ -236,9 +256,22 @@ def rank(
     scores = {}
     episodes = {}
     for alias in sorted(aliases):
-        actual = _prospective_evidence(prospective.get(alias, []), at)
-        episodes[alias] = actual
-        score = _score(actual, at, len(aliases))
+        if campaign is not None:
+            from .pm02_campaign import evaluate_window
+
+            actual, score, episodes[alias] = evaluate_window(
+                prospective.get(alias, []), campaign, window, at.isoformat()
+            )
+            if prospective_verified_head is None:
+                score["reasons"].append("INDEPENDENT_LEDGER_REQUIRED")
+                score["qualified"] = False
+        else:
+            actual = _prospective_evidence(prospective.get(alias, []), at)
+            episodes[alias] = actual
+            score = _score(actual, at, len(aliases))
+            if prospective_verified_head is not None:
+                score["reasons"].append("PREDECLARED_OOS_REQUIRED")
+                score["qualified"] = False
         historical = []
         for r in sorted(grouped[alias], key=lambda r: r["latency_minutes"]):
             pnl = r.get("pnl")
@@ -260,7 +293,58 @@ def rank(
         previous = prior[-1]["state"] if prior else "CANDIDATE"
         if prior and timestamp(prior[-1]["decided_at"]) >= at:
             raise ValueError("NONMONOTONIC_DECISION_HISTORY")
-        if score["qualified"]:
+        lifecycle_extra = {}
+        if campaign is not None:
+            from .pm02_campaign import transition
+
+            evaluated = list(prior[-1].get("evaluated_oos_windows", [])) if prior else []
+            new_window = window is not None and window["id"] not in evaluated
+            failures = int(prior[-1].get("statistical_failures", 0)) if prior else 0
+            # Missing/unaudited evidence is not a falsified scientific hypothesis.
+            statistical_reasons = {
+                "INCREMENTAL_ALPHA_NOT_CONFIRMED",
+                "DRAWDOWN_LIMIT",
+                "ADVERSE_REGIME_DRIFT",
+            }
+            independent_reject = any(
+                s["reasons"] and set(s["reasons"]) <= statistical_reasons
+                for s in score.get("horizon_scores", {}).values()
+            ) and not any(
+                r in score["reasons"]
+                for r in (
+                    "INDEPENDENT_LEDGER_REQUIRED",
+                    "INDEPENDENT_WHOLE_ACCOUNT_OUTCOME_REQUIRED",
+                    "CAMPAIGN_LINEAGE_MISMATCH",
+                    "OVERLAPPING_OUTCOME_WINDOWS",
+                )
+            )
+            if new_window:
+                evaluated.append(window["id"])
+                failures += int(independent_reject)
+            state = transition(
+                previous,
+                qualified=score["qualified"],
+                new_window=new_window,
+                failures=failures,
+                stale=score.get("stale", False),
+            )
+            if state == "RETIRED":
+                score["qualified"] = False
+                score["reasons"].append("LIFECYCLE_RETIRED")
+            lifecycle_extra = {
+                "evaluated_oos_windows": evaluated,
+                "statistical_failures": failures,
+                "transition_reason": (
+                    "RETIRED_POLICY_LATCH"
+                    if state == "RETIRED"
+                    else "NEW_PREDECLARED_OOS_PASS"
+                    if score["qualified"] and new_window
+                    else "NO_NEW_OOS_WINDOW"
+                    if not new_window
+                    else "OOS_REJECTED_OR_INCOMPLETE"
+                ),
+            }
+        elif score["qualified"]:
             state = (
                 "SHADOW"
                 if previous == "CANDIDATE"
@@ -288,8 +372,15 @@ def rank(
                 "decided_at": at.isoformat(),
                 "reasons": score["reasons"],
                 "research_only": True,
+                **lifecycle_extra,
             },
         }
+        if campaign is not None and actual and prospective_verified_head is not None:
+            scores[alias]["source_wallet_performance"] = {
+                "source_net_r": round(sum(float(r["source_net_r"]) for r in actual), 8),
+                "account_reconciled": True,
+                "selection_plan_sha256": campaign["sha256"],
+            }
     qualified = [a for a in sorted(aliases) if scores[a]["prospective"]["qualified"]]
     from .pm02_risk import allocate
 
@@ -360,6 +451,15 @@ def rank(
             "validate prop firm account rules separately",
         ],
     }
+    if campaign is not None:
+        report["campaign"] = {
+            "sha256": campaign["sha256"],
+            "registered_at": campaign["registered_at"],
+            "window_id": window["id"] if window else None,
+            "declared_hypotheses": campaign["declared_hypotheses"],
+            "fixed_decision_at": window["decision_at"] if window else None,
+        }
+        report["audit_chain"]["policy_sha256"] = digest(campaign["policy"])
     if prospective_verified_head is not None:
         report["audit_chain"]["prospective_ledger_head_sha256"] = prospective_verified_head
     report["sha256"] = digest(report)
@@ -375,6 +475,7 @@ def main():
     p.add_argument("--prospective-ledger", type=Path)
     p.add_argument("--research-root", type=Path)
     p.add_argument("--auditor-public-key", type=Path)
+    p.add_argument("--campaign", type=Path)
     args = p.parse_args()
     options = (args.prospective_ledger, args.research_root, args.auditor_public_key)
     if any(x is not None for x in options) and not all(x is not None for x in options):
@@ -391,6 +492,14 @@ def main():
     previous = read_previous(args.previous) if args.previous else None
     prospective = None
     prospective_head = None
+    campaign = None
+    evidence_asof = args.asof
+    if args.campaign is not None:
+        from .pm02_campaign import read_plan, window_asof
+
+        campaign = read_plan(args.campaign)
+        window = window_asof(campaign, args.asof)
+        evidence_asof = window["decision_at"] if window else args.asof
     if args.prospective_ledger is not None:
         from .pm_prospective_cli import open_ledger
 
@@ -401,8 +510,8 @@ def main():
         )
         if set(verified.manifest["cohort"]) != set(aliases):
             raise ValueError("PROSPECTIVE_LEDGER_AND_PM01_COHORT_MISMATCH")
-        prospective = verified.pm02_rows_asof(args.asof)
-        prospective_head = verified.head_asof(args.asof)
+        prospective = verified.pm02_rows_asof(evidence_asof)
+        prospective_head = verified.head_asof(evidence_asof)
     report = rank(
         replay,
         aliases,
@@ -411,6 +520,7 @@ def main():
         prospective_verified_head=prospective_head,
         previous_report=previous,
         source_raw_sha256=source_digest,
+        campaign=campaign,
     )
     dest = immutable_report_write(args.out, report)
     print(

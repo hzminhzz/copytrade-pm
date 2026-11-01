@@ -129,7 +129,12 @@ def fetch_days(
         )
         creds = importlib.import_module("scripts.fetch_hyperliquid_multi_hftcryptodata")
         key = creds.load_api_key()
-        client = chd.CryptoHFTDataClient(api_key=key, timeout=45, max_retries=2)
+        client = chd.CryptoHFTDataClient(api_key=key, timeout=45, max_retries=2, use_jwt=False)
+        # Both metadata and object downloads use the documented read-only API key.
+        # Set identity on each transport; never print or serialize its auth headers.
+        user_agent = "OpenAI File Downloader, XaiImageApiFetch/1.0"
+        client._http_client.session.headers["User-Agent"] = user_agent
+        client._download_session.headers["User-Agent"] = user_agent
         verified = []
         for symbol, day_text in targets:
             day = date.fromisoformat(day_text)
