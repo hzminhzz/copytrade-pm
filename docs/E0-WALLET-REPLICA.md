@@ -39,6 +39,12 @@ Preserve legacy E1/E2/E3 and E4 functions and their sealed outcomes as separate,
 
 The source scale may change when new audited source equity arrives; it must not be inferred from a new fill amount. E0 does not guess leverage, margin contribution or lot-size equivalence. Hedge/correlation benefits may affect risk-policy choices but never license dropping a hedge while claiming faithful replication.
 
+## Verifiable three-gate readiness status
+
+`pm_e0_readiness.assess_readiness` checks each of the three frozen pods for historical whole-book/equity/native-mark sufficiency, prospective first-known and independent matched economics/OOS, and separately confirmed account-specific contract permissions/market IDs/broker reconciliation. A single pod with a missing prerequisite blocks its portfolio. Even all caller-supplied flags set to true yield **REQUIRES_INDEPENDENT_REVIEW** and **REQUIRES_HUMAN_AUTHORIZATION**—never live orders. These flags are claims until authenticated against separately pinned source artifacts.
+
+The current evidence assessment remains: A/B/C `BLOCKED_EVIDENCE` for historically faithful whole-book Q3 replay; A/B/C `UNQUALIFIED` scientifically; A/B/C `NOT_AUTHORIZED` for live execution. C-only E4 read-only collection being active does not qualify A/B/C outcomes or license trade execution. The qualification gate is deliberately independent of the E0 simulation module and does not create a trade adapter.
+
 ## Qualification paths
 
 **Retrospective path:** Audit genuine source books and account NAV at each event, retain exchange event timestamps distinct from knowledge time, and label results `HISTORICAL_ORACLE`. Even if a full quarter becomes reconstructible, it cannot prove prospective follower execution.
@@ -48,5 +54,6 @@ The source scale may change when new audited source equity arrives; it must not 
 ## Validation
 
 Focused tests: `uv run --group dev python -m pytest -q tests/test_pm_wallet_replica.py tests/test_pm_portfolio_e0.py`.
+Additional readiness tests: `uv run --group dev python -m pytest -q tests/test_pm_e0_readiness.py`.
 Repository check: `uv run --group dev python -m pytest -q tests`; `uv run --group dev ruff check src tests`.
 No external live execution, Propr broker authorization, or claim of first-known Q3 events follows from these tests.
