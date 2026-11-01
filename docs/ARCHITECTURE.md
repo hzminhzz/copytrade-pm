@@ -15,9 +15,14 @@
 | Independent receipt and economic audit | `pm_prospective_ledger`, `pm_prospective_cli` | Frozen cohort + receipt → external signed audit → external signed mature follower/control outcome | Exact PM-02 row adapter, as-of validated; cannot independently verify external economic truth |
 | Manager allocator | `pm_manager`, `pm02_audit`, `pm02_risk` | Frozen PM-01 + optional independently attested prospective rows → cards, history, dependence checks and up to five proposed R seats | Research proposals, not orders |
 | Handoff | `pm_handoff`, `pm03_bridge` | SHA-pinned PM-01/PM-02/tape → dependency verdict; positions require separate sealed contract | Cannot turn risk R into position targets |
+| Whole-wallet E0 source-intent seam | `pm_wallet_replica` | Independently audited complete account positions, equity, first-known clock → one-scalar intended source book and staged fidelity measures | Research target only; NEVER authenticates a self-declared source audit or authorizes orders |
 | Challenge/account simulator | `pm03_rules/account/risk/execution/attribution/memory/run/stress/cli` | Versioned **synthetic** market/PM targets/account evidence → simulated equity, event ledger, HALT and policy comparisons | One **shadow-only** account-risk supervisor |
 
 The **source account's** realized PnL, a **historical modeled follower's** PnL, a **prospective matched follower's** net R, and a **consolidated prop shadow account's** PnL are different objects. Never add or relabel one as another.
+
+## Source-fidelity E0 baseline
+
+For A/B/C future studies, the primary research object is one complete signed, point-in-time wallet book. Each fill is an update to that book, not a fresh independently sized episode. `pm_wallet_replica.replicate` applies one source-equity-to-pod-capital factor across all positions and explicitly refuses incomplete, retrospective/unverified or noncausal inputs. `pm_wallet_replica.fidelity` distinguishes intended vs risk-approved vs executed position tracking. The PM-03/PM-04 simulation retains sole account authority. The legacy partial-episode studies remain immutable historical diagnostics; see [E0 research migration](E0-WALLET-REPLICA.md).
 
 ## PM-01 historical path
 

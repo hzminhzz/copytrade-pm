@@ -7,6 +7,7 @@
 | Goal | Authoritative guide | Contains |
 | --- | --- | --- |
 | Understand why modules exist and what is *not* connected | [Architecture and contracts](ARCHITECTURE.md) | Two evidence pipelines, module ownership, immutable boundaries |
+| Research source-faithful position sizing | [E0 wallet replica](E0-WALLET-REPLICA.md) | Complete-book source sizing, fidelity metrics, A/B/C migration, evidence gates |
 | Start with a wallet, vendor fills, source gaps, OHLCV, or a new cohort | [Wallet data and acquisition](DATA-ACQUISITION.md) | Frozen 36 cohort, private paths, HyperX/ML4T sources, bounded repairs and fresh observations |
 | Execute the supported research steps | [Research operator runbook](RUNBOOK.md) | Verified commands, exact artifact handoffs, safe test and incident responses |
 | Decide what counts as evidence or authorization | [Qualification gates](QUALIFICATION.md) | Provenance clocks, source/follower PnL, PIT, Propr universe, states and blockers |
@@ -41,6 +42,8 @@ Wallet research and frozen HyperX roster (PRIVATE, upstream of this repo)
                                              |
                                   PM-02 as-of consumer (optional)
 ```
+
+**E0 source-fidelity contract:** The independently verified *whole-wallet* intended book is the baseline, not individually normalized fill episodes. See [E0 wallet replica](E0-WALLET-REPLICA.md). Existing A/B/C E1/E2/E3 results remain historical partial-episode diagnostics. E0's risk and execution fidelity metrics do not prove source economics.
 
 **Critical separation:** the historical branch does *not* feed genuine first-known follower observations to the forward branch. The signed-receipt adapter is present, but an **independent, real-world verified matched-outcome producer is not implemented**. A passed unit test, vendor fill time or account-simulator win is not alpha.
 
