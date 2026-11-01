@@ -172,6 +172,9 @@ Source-entry names for the first eight are pinned in `pyproject.toml`. The final
 
 ## 7. Failure/runbook matrix
 
+When any operation fails or returns BLOCKED, execute [RECOVER](BLOCKER-RECOVERY.md) before ending the wider task. Keep the affected artifact fail-closed; investigate a bounded repair or compatible source, verify it, then resume the original objective. If the original historical window is unrecoverable, preserve that verdict while continuing independently valid work or prospective evidence collection. Repeated identical retries without new evidence are not progress.
+
+
 | Symptom | Meaning | Next *safe* move |
 | --- | --- | --- |
 | `UNSUPPORTED_PM01_REPLAY`, `UNPINNED_PM01_ARTIFACT_SHA` | Wrong schema or file SHA/filename | Inspect `schema`, byte SHA, exact output path; never rename unverified data |

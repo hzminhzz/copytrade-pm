@@ -68,4 +68,6 @@ Current scientific trackers: [PM-01 #4](https://github.com/hzminhzz/copytrade-pm
 5. **Report rejects and uncertainty.** Negative, blocked, unknown and censored episodes remain visible; no survivorship or missing-return zero fill.
 6. **Never authorize live trading** from the PM-01/02/03 package. Any new execution boundary requires a separate specification, dated written Propr approval and explicit owner authorization.
 
+A blocked scientific result stays blocked. For root-cause repair, bounded acquisition and continuation of independent work, follow [RECOVER](BLOCKER-RECOVERY.md); never reclassify missing PIT or outcomes as qualified.
+
 For actual commands: [RUNBOOK](RUNBOOK.md). For precise clock/audit signatures: [PM-01 prospective ledger](PM-01-prospective-ledger.md).

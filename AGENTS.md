@@ -1,3 +1,46 @@
+## Memory
+
+Your memory is OptMem:
+- The tool is `~/.optmem/memo`
+- Your memories are in `~/.optmem/memory`
+
+OptMem outlives every session, compaction, model and vendor change.
+Without it you do not know who you are, or what was decided and tried.
+
+### At startup: activating OptMem (mandatory)
+
+Run `~/.optmem/memo wake` before any other tool call, in every session, and
+then do exactly what it prints, to the end of its output.
+
+### While working: register memories (mandatory)
+
+Call `~/.optmem/memo note "<1 line, max 280 bytes>"` whenever you learn
+something new, or something worth keeping happens. That covers a task
+worth real effort, a fact or insight the user teaches you, anything you
+learn about their life (even indirectly), any event of lasting effect.
+
+Do not register redundant memories.
+
+If `~/.optmem/memo note` asks a compression: do it before your next action.
+
+Never edit or delete anything under `~/.optmem/memory`: the tool manages it.
+
+### When you need an old memory: search, or navigate
+
+`~/.optmem/memo recall <regex>` searches every memory, word for word.
+
+Your memories also form a binary tree: #0-1, #2-3 ... exist as one-line
+summaries, pairs of those as #0-3, and so on -- every `#a-b` line wake
+prints is one node of it. `~/.optmem/memo zoom <a-b>` opens a node into its
+two halves, down to the raw memories.
+
+### If you're a subagent: skip everything above
+
+Parallel sessions on this machine are all you, and may all write memories.
+A subagent is not: it must never run `memo`, because it cannot judge what
+is already known, and its notes would arrive duplicated and incorrectly.
+When you spawn one, write: `You are a subagent. Don't run memo.`
+
 # copytrade-pm repository rules
 
 ## Scope and authority
@@ -14,15 +57,20 @@
 - Preserve verified source SHA-256 lineage, 36-wallet cohort and `pm01_fill_only_replay_v2` consumer interface.
 - Scientific qualification is separate from engineering and passing tests. Until prospective follower evidence exists, zero live risk.
 
+## Autonomous blocker recovery — RECOVER
+- On a failing test, missing data, vendor/tool outage, source mismatch, inconclusive evidence or `BLOCKED` verdict, follow [docs/BLOCKER-RECOVERY.md](docs/BLOCKER-RECOVERY.md): diagnose root cause, compare authorized repairs, implement, verify and **resume the original objective**. A blocked artifact is not permission to terminate the wider program.
+- Fail closed for the affected wallet/window and continue independently valid work. A historical first-known/PIT gap is never repairable by fabricating retrospective observations; pivot to verified prospective acquisition when authorized.
+- Resolve routine dependencies, code, tests, data catalogs, documentation and bounded API repairs without asking for new routine approval. Escalate only proven external/user-only dependencies or operations requiring additional authority; preserve frozen evidence, financial risk and other sessions' work.
+- Complete OptMem `wake`/`note`/`nap` obligations and then resume the interrupted work. Keep a durable checkpoint when an active session or automation cannot finish; never claim a background process exists unless verified.
+
 ## Decisions and recommendations
-- Before recommending any non-trivial decision to the user, MUST consult the judge model (`judge` / `judge_batch` from `eval`; see `xd://eval/judge`) with the evidence, not just an opinion.
-- Non-trivial means: cohort or tier changes, wallet removal or inclusion, scope or data cuts, architecture or interface changes, policy or threshold changes, anything irreversible, and any claim of qualification or suitability.
-- Trivial and exempt: mechanical edits, factual lookups, test runs, lint fixes, and restating already-agreed decisions.
-- Report the judge's verdict and its confidence alongside the recommendation. If confidence is low, revalidate with data before acting — never present a low-confidence judge answer as settled.
-- The judge informs the decision; it does not override repository evidence, fail-closed rules or the user's call.
+- For non-trivial recommendations, attempt the independent judge (`judge` / `judge_batch` from `eval`; see `xd://eval/judge`) with actual evidence **when the integration is available**. Record the actual verdict and confidence; revalidate low-confidence findings with data.
+- If unavailable, record `JUDGE_UNAVAILABLE` without inventing a verdict. Continue reversible, already-authorized engineering/research after explicit evidence-based evaluation. Missing judge access never authorizes changing an immutable contract, a live risk gate or any unapproved irreversible decision.
+- Non-trivial means: cohort/tier changes, wallet inclusion/exclusion, scope/data cuts, architecture/interfaces, thresholds/policies, irreversible actions and claims of qualification or suitability. Trivial mechanical edits, factual lookups, tests and already-approved decisions need no separate judge.
+- Independent review informs decisions; source evidence, scientific fail-closed requirements and the user's explicit authorization remain binding.
 
 ## Required reading and durable documentation
-- Start at [docs/INDEX.md](docs/INDEX.md), then [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), the stage-specific [data acquisition](docs/DATA-ACQUISITION.md), [runbook](docs/RUNBOOK.md) and [qualification](docs/QUALIFICATION.md) guides. These are current navigation/operation contracts. Old `docs/PM-*.md` are time-scoped scientific or source-era records, not blanket execution authority.
+- Start at [docs/INDEX.md](docs/INDEX.md), then [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), the stage-specific [data acquisition](docs/DATA-ACQUISITION.md), [runbook](docs/RUNBOOK.md) and [qualification](docs/QUALIFICATION.md) guides. On any blocker or failed gate, load [blocker recovery](docs/BLOCKER-RECOVERY.md). These are current navigation/operation contracts. Old `docs/PM-*.md` are time-scoped scientific or source-era records, not blanket execution authority.
 - Before altering CLI args, data contracts, evidence schemas, provider limits, wallet roster or Propr assumptions, inspect actual code/tests and update the relevant canonical guide in the same PR. Keep links and executable command examples verified; include commit/time scope for counts. Historical evidence bytes/SHAs are immutable.
 - The current PM-01 cohort is exactly 6+10+20 (36). New wallets require a versioned new cohort and consumer-contract changes, never a silent edit of the frozen manifests. The original PM-01 replay v2 and canonical PM-02 source SHA parity must stay intact.
 - The HyperX historical fill-cache code and private alias maps live **outside** this repo. Bounded WS/REST receipts do not imply audited economic follower outcomes. An independent real signed matched-outcome producer is not yet verified/operational; keep actual qualified wallets at zero until measured evidence passes.
