@@ -6,8 +6,8 @@ from copytrade_pm.pm_wallet_replica import WalletBook, fidelity, replicate
 
 AT = "2026-11-01T04:00:00+00:00"
 SHA = "a" * 64
-BTC = "hyperliquid:mainnet:perp:default:BTC"
-ETH = "hyperliquid:mainnet:perp:default:ETH"
+BTC = "hyperliquid/mainnet:perp:default/BTC"
+ETH = "hyperliquid/mainnet:perp:default/ETH"
 
 
 def book(**changes):

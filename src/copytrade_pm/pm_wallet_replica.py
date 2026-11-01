@@ -61,9 +61,16 @@ class WalletBook:
             raise ValueError("E0_NONCAUSAL_SOURCE_CLOCK")
         _decimal(self.equity_usd, positive=True)
         for key, qty in self.positions.items():
-            if not isinstance(key, str) or not key.startswith("hyperliquid:mainnet:perp:"):
-                raise ValueError("E0_NON_NATIVE_INSTRUMENT")
-            if len(key.split(":")) != 5 or not all(key.split(":")[-2:]):
+            from .pm03_account import Instrument
+
+            try:
+                inst = Instrument.parse(key)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("E0_NON_NATIVE_INSTRUMENT") from exc
+            if (inst.venue != "hyperliquid" or
+                    not inst.market.startswith("mainnet:perp:") or
+                    len(inst.market.split(":")) != 3 or
+                    not inst.market.split(":")[-1] or "/" in inst.market.split(":")[-1]):
                 raise ValueError("E0_UNMAPPED_INSTRUMENT")
             _decimal(qty)
 

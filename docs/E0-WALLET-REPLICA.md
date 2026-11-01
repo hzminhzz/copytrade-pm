@@ -27,6 +27,12 @@
 - **C:** `CO-001 + W015 + VS066`. E1/E2/E3 12 scenarios stopped at differing dates because of exact 1m price gaps; no method ranking. E4 on branch `research/portfolio-c-e4-wallet-fidelity` implements proportional complete-book target semantics, but source preflight reports **zero admissible Q3 E4 snapshots for each of three wallets**. Do not import the E4 Q3 synthetic fixture as historical evidence.
 - Official prospective E4 acquisition has master + subaccount discovery and all-DEX position frames, but independently reconciled combined source capital is still unavailable, and account scope of subaccounts is unknown. A source snapshot observed October 31 cannot become a July receipt.
 
+## A/B/C portfolio-level E0 implementation
+
+`pm_portfolio_e0.PORTFOLIOS` freezes the A, B and C three-pod membership listed above. `prepare_portfolio` requires exactly those three wallet identities and three independently audited `WalletBook` inputs; one incomplete, retrospective, wrong-identity or missing source book blocks the **entire portfolio**, never just that pod. `assess_portfolio` calculates per-pod source-intent/risk-approved/execution differences without deriving economic results. The native instrument identifier is `hyperliquid/mainnet:perp:<dex>/<coin>` (as understood by `pm03_account.Instrument.parse`); the original E0 colon-only identifier was incorrect and fixed during A/B/C integration.
+
+These tests use **synthetic fixture books only** and do not certify historical A/B/C source completeness. Actual A/B/C account-level Q3 E0 outcomes remain `BLOCKED_EVIDENCE`. This shared adapter is deliberately independent of in-flight dirty Portfolio B research and frozen Portfolio A and C execution branches.
+
 ## Portfolio adapter migration — no fabricated runs
 
 Preserve legacy E1/E2/E3 and E4 functions and their sealed outcomes as separate, labeled experiments. For each wallet A/B/C, an audited producer must emit `WalletBook` with an explicit master/subaccount scope, original position identities, all-DEX census, reconciled account equity, account event sequence, receipt clock and original evidence SHA. Feed E0 intended books to PM-04 as atomic *full-book target revisions* at the first legally subsequent decision; compare PM-04 risk-approved and executed books via `fidelity` on the exact native market and mark time. Reuse PM-03/04 execution/risk accounting and immutable event lineage; do not create a second ledger.
@@ -41,6 +47,6 @@ The source scale may change when new audited source equity arrives; it must not 
 
 ## Validation
 
-Focused tests: `uv run --group dev python -m pytest -q tests/test_pm_wallet_replica.py`.
+Focused tests: `uv run --group dev python -m pytest -q tests/test_pm_wallet_replica.py tests/test_pm_portfolio_e0.py`.
 Repository check: `uv run --group dev python -m pytest -q tests`; `uv run --group dev ruff check src tests`.
 No external live execution, Propr broker authorization, or claim of first-known Q3 events follows from these tests.
