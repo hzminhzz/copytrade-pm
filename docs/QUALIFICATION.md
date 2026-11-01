@@ -63,6 +63,14 @@ Current scientific trackers: [PM-01 #4](https://github.com/hzminhzz/copytrade-pm
 
 The branch `research/portfolio-c-e123-2026q3` implements an **offline** historical Q3 source-to-PM04-to-PM03 account replay for CO-001, W015 and conditional VS066 on a synthetic $10k challenge. The [twelve-scenario evidence record](PORTFOLIO-C-2026Q3-E123.md) documents a real native HIP-3 source audit and SHA-sealed risk/account ledger, **but all 12 scenarios stopped before quarter-end on missing exact 1m market evidence**. Intermediate net PnL and stress scenarios cannot establish a 92-day follower return, passing odds, source-wallet independence, qualified manager or broker availability. Some non-action session marks were censored, leaving unverified floor intervals. The 2026-10-30 Propr public display universe is not a historical broker market ID, and reconstructed flat-to-flat source episodes omit carry-in/out and hedge paths. Qualification and live authorization are both **NO**. Keep each raw market gap, aborted scenario and pending exit in immutable evidence; do not tune away these exclusions on the same Q3 window.
 
+## E4 source-relative fidelity (2026-10-31)
+
+The [E4 research adapter](PORTFOLIO-C-E4-FAITHFUL.md) preserves **signed relative allocations within a supplied complete account book**, but PM-04 simulated fills, global/net risk gates and broker restrictions can still deviate. It is *not* appropriate to infer account equity, leverage, hedges, unreported positions, pre-quarter anchor or causal first-known timestamps from individually flat-to-flat 2026Q3 trade episodes. The independent source preflight reports **0 admissible complete account snapshots** for each of CO-001, W015 and VS066. E4 historic account/PnL evaluation remains **BLOCKED_E4_SOURCE_EVIDENCE**, independent source authentication and actual Propr broker authorization remain UNKNOWN, and any synthetic test/ledger success is **engineering-only**.
+
+## Newly acquired E4 source evidence (October 31, 2026)
+
+[Verified acquired-source receipts](PORTFOLIO-C-E4-SOURCE-ACQUISITION-20261031.md) now include original authenticated HyperX analytics, official 11-Dex master/subaccount current position snapshots, October 31 locally received WebSocket frames, and official Q3 *retrospective* main-account funding/nonfunding pages. This is a substantial **data-acquisition** milestone but not Q3 full-account positions, equity/collateral reconciliation, complete all-subaccount strategy/funding history, or causal first-known Q3 evidence. **No change** to E4 `BLOCKED_E4_SOURCE_EVIDENCE`, scientific qualification, PM-02 promotion or live authorization.
+
 ## Decision protocol for new research
 
 1. **Define a narrow falsifiable thesis** and the causal event/decision/fill clock, target universe, horizon and held-out period before seeing outcome returns.
