@@ -1,6 +1,6 @@
 # Architecture: evidence, manager governance, shadow account
 
-**Scope:** the code on `copytrade-pm/main` at `c3e9ccf` (2026-10-31). This repository was history-filtered from `hyperliquid-expert-ensemble` (see [PROVENANCE](PROVENANCE.md)). It is **not** the production wallet tracker or Telegram consensus engine. Its research code must never import a live broker/order gateway. Read [INDEX](INDEX.md) first.
+**Scope:** the mainline research architecture, updated during the 2026-11-01 PR17 recovery; see [the dated disposition](RECOVERY-DISPOSITION-2026-11-01.md) for exact commits and verification. This repository was history-filtered from `hyperliquid-expert-ensemble` (see [PROVENANCE](PROVENANCE.md)). It is **not** the production wallet tracker or Telegram consensus engine. Its research code must never import a live broker/order gateway. Read [INDEX](INDEX.md) first.
 
 ## Responsibility boundaries
 
@@ -12,7 +12,7 @@
 | Historical whole-wallet PM-01 | `pm_fill_replay`, `pm_fill_cards`, `pm_fill_tape` | Exact source fill books + minute marks → 36 wallets × 5/15/60m hypothetical follower rows; observed signed book tape | `pm01_fill_only_replay_v2` is **hindsight** |
 | Prospective collection | `pm_hyperx_forward`, `pm_hyperx_rest_forward` | Bounded read-only vendor WS/REST → immutable first-local receipt files | Receipt only; REST snapshots never qualify |
 | Independent receipt and economic audit | `pm_prospective_ledger`, `pm_prospective_cli` | Frozen cohort + receipt → external signed audit → external signed mature follower/control outcome | Exact PM-02 row adapter, as-of validated; cannot independently verify external economic truth |
-| Manager allocator | `pm_manager`, `pm02_audit`, `pm02_risk` | Frozen PM-01 + optional independently attested prospective rows → cards, history, dependence checks and up to five proposed R seats | Research proposals, not orders |
+| Manager allocator | `pm_manager`, `pm02_audit`, `pm02_risk`, `pm02_campaign`, `pm02_outcomes` | Frozen PM-01 + optional independently attested prospective rows → cards, history, dependence checks and up to five proposed R seats | Research proposals, not orders |
 | Handoff | `pm_handoff`, `pm03_bridge` | SHA-pinned PM-01/PM-02/tape → dependency verdict; positions require separate sealed contract | Cannot turn risk R into position targets |
 | Challenge/account simulator | `pm03_rules/account/risk/execution/attribution/memory/run/stress/cli` | Versioned **synthetic** market/PM targets/account evidence → simulated equity, event ledger, HALT and policy comparisons | One **shadow-only** account-risk supervisor |
 
@@ -25,6 +25,14 @@ The **source account's** realized PnL, a **historical modeled follower's** PnL, 
 `pm_fill_replay.run(root, market_root, risk_budget, hyperx_generations)` loads the vendor-listed exact instrument roster and signed position-before/after fill chains. It withholds an initial book until each listed leg can be anchored; post-anchor discontinuities, missing marks, missing native markets and volume constraints yield `BLOCKED_*`, not manufactured trades or flat exposure. The 5/15/60-minute delays model hypothetical next-minute-open follower actions, not actual first-known receipt or observed Propr fills. `risk_budget=0.01` means **1% gross hypothetical notional**, NOT 0.01 R and NOT probability of passing a challenge.
 
 A separate `pm_fill_tape` materializes a **historical-only** `pm01_observed_book_tape_v1`. Its account snapshots may be useful for source diagnostics but `pm03_actionable_targets_available=False`. A Rust observation path (`pm_portfolio` + `pm_research`) exists as a **separate/legacy** replay boundary; it is not a prerequisite for the fill-only 36-wallet research.
+
+## Whole-wallet and broker boundaries
+
+[E0/E4 integration](RECOVERY-INTEGRATION.md) adds complete-book validation, a single proportional scale per source wallet, native DEX identity and `pm_wallet_handoff` into the existing PM04 authority. Bounded public A/B/C collection remains raw evidence; discovery, freshness and storage integrity do not establish complete capital reconciliation.
+
+[Registered PM02 evidence](PM-02-EVIDENCE-GATES.md) adds immutable fixed OOS looks and independent whole-account v2 attestations. Horizon trials stay separate, repeated looks cannot advance lifecycle, and worst-case exposure envelopes cannot be averaged away.
+
+[The ML4T/Propr specification](ML4T-PROPR-INTEGRATION.md) and `pm_ml4t_contract` provide a pure offline identity/reconciliation oracle. They import no broker or credential provider and implement no execution path. The existing PM03/PM04 financial authority remains unchanged.
 
 ## PM-01 forward path
 

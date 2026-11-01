@@ -2,6 +2,23 @@
 
 **Use this for “get wallet fills,” “new wallet,” “fix gaps,” “get 1m OHLCV,” or “start forward capture.”** Read [INDEX](INDEX.md) and [ARCHITECTURE](ARCHITECTURE.md) first. No commands in this guide authorize orders. Offline auditing is distinct from vendor/SDK downloads. Live source snapshot inspected 2026-10-31; private paths can change.
 
+## Recovery operations added 2026-11-01
+
+[The dated disposition](RECOVERY-DISPOSITION-2026-11-01.md) pins the new evidence
+hashes and acquisition counts. The bounded CHD adapter uses SDK 0.8.0's documented
+read-only key transport and identifies both metadata and download sessions. Its
+five-day request cap, audited target allowlist, native namespace checks and refusal
+to overwrite existing partitions remain in force. No authentication material is
+serialized. A partial day is retained and labeled partial, never filled with
+invented returns or promoted to execution/capacity proof.
+
+The A/B/C observer now records raw public account scope, first application receipt,
+source clocks and discovery hashes in bounded windows. Follow [source operation and
+audit instructions](RECOVERY-INTEGRATION.md). Ten users per provider/IP window does
+not cover all 24 discovered accounts continuously. Current snapshots, source perp NAV,
+and spot/vault/subaccount discovery do not reconstruct an unknown historical
+starting equity or independently certify total wallet capital.
+
 ## 1. The three different data problems
 
 | Request | Actual source and writer | What it establishes | What it cannot establish |

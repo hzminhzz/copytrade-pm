@@ -80,6 +80,10 @@ copytrade-pm-rank \
 
 `copytrade-pm-rank` without new flags remains **byte-compatible** with the original PM-02 historical-only default. For sealed mode, all three new CLI arguments are mandatory; the caller cannot input raw arbitrary prospective rows. Existing manifest and full journal must pass hash/signature validation, PM-01 aliases must exactly match ledger aliases, and as-of excludes future outcomes. A preexisting ledger is required; rank does not create evidence.
 
+## Whole-account extension
+
+The additive `pm02_independent_matched_outcome_v2` contract and `--campaign` selection gate are documented in [PM02 evidence gates](PM-02-EVIDENCE-GATES.md). Legacy v1 records retain their reader shape but cannot satisfy the new whole-account qualification gate. The same external auditor trust root and immutable clock/signature checks apply; no local signing capability or fabricated economics is added.
+
 ## Qualification boundaries
 
 - Engineering: tests for WS/REST ingestion, independent signatures, invalid keys, stale/snapshot/quarantined source events, duplicated/conflicting receipts, malicious revisions, as-of, future signal, double-counting, missing costs/market, loss of journal data, thread contention, CLI, PM-02 consumer contract, and frozen PM01 v2 behavior.

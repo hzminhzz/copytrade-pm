@@ -294,7 +294,8 @@ class ProspectiveLedger:
         except (InvalidSignature, ValueError) as exc:
             raise ValueError("INVALID_OUTCOME_SIGNATURE") from exc
         if (
-            attestation.get("schema") != "pm02_independent_matched_outcome_v1"
+            attestation.get("schema")
+            not in ("pm02_independent_matched_outcome_v1", "pm02_independent_matched_outcome_v2")
             or attestation.get("receipt_audit_sha256") != audit["sha"]
             or attestation.get("source_event_id") != receipt["payload"]["event_id"]
             or not attestation.get("episode_id")
@@ -317,11 +318,20 @@ class ProspectiveLedger:
             or attestation["horizon_minutes"] not in (5, 15, 60)
         ):
             raise ValueError("UNKNOWN_FOLLOWER_ECONOMICS")
+        from .pm02_outcomes import SCHEMA as WHOLE_SCHEMA, validate_whole_account
+
+        whole_account = attestation.get("schema") == WHOLE_SCHEMA
+        if whole_account:
+            validate_whole_account(attestation)
         exposure = attestation.get("signed_exposures_r")
         if (
             not isinstance(exposure, dict)
             or not exposure
-            or any(not isinstance(k, str) or not k.startswith("hyperliquid:") for k in exposure)
+            or any(
+                not isinstance(k, str)
+                or not k.startswith("hyperliquid/" if whole_account else "hyperliquid:")
+                for k in exposure
+            )
         ):
             raise ValueError("UNKNOWN_SIGNED_EXPOSURES")
         for key in ("follower_net_r", "control_net_r", "tail_loss_r", "turnover_r"):
@@ -416,6 +426,18 @@ class ProspectiveLedger:
                     # The first local receipt can never be rewritten after a reconnect.
                     raise ValueError("CONFLICTING_PROSPECTIVE_EVENT")
                 return {"appended": False, "row": prior}
+            if (
+                kind == "OUTCOME"
+                and payload["attestation"]["schema"] == "pm02_independent_matched_outcome_v2"
+            ):
+                fields = ("source_event_id", "horizon_minutes", "selection_plan_sha256")
+                identity = tuple(payload["attestation"][key] for key in fields)
+                if any(
+                    row["kind"] == "OUTCOME"
+                    and tuple(row["payload"]["attestation"].get(key) for key in fields) == identity
+                    for row in rows
+                ):
+                    raise ValueError("DUPLICATE_SOURCE_HORIZON_OUTCOME")
             when = utc(payload["recorded_at"])
             if rows and when < utc(rows[-1]["payload"]["recorded_at"]):
                 raise ValueError("OUT_OF_ORDER_PROSPECTIVE_EVENT")
@@ -597,8 +619,14 @@ class ProspectiveLedger:
                     )
                 },
             }
+            if attestation["schema"] == "pm02_independent_matched_outcome_v2":
+                from .pm02_outcomes import CONSUMER_FIELDS
+
+                consumer.update({key: attestation[key] for key in CONSUMER_FIELDS})
+                consumer["whole_account_verified"] = True
+                consumer["outcome_schema"] = attestation["schema"]
             result.setdefault(wallet, []).append(consumer)
         return {
-            k: sorted(v, key=lambda r: (r["event_at"], r["episode_id"]))
+            k: sorted(v, key=lambda r: (utc(r["event_at"]), r["episode_id"]))
             for k, v in sorted(result.items())
         }

@@ -42,6 +42,7 @@ def daily_path(rows: list[dict]) -> dict[str, dict]:
                 "control": 0.0,
                 "turnover": 0.0,
                 "exposures": defaultdict(float),
+                "gross_envelope": defaultdict(float),
                 "has_exposure": True,
             }
         bucket = grouped[day]
@@ -59,12 +60,28 @@ def daily_path(rows: list[dict]) -> dict[str, dict]:
             bucket["has_exposure"] = False
         else:
             for instrument, signed_r in positions.items():
-                if not isinstance(instrument, str) or not instrument.startswith("hyperliquid:"):
+                if not isinstance(instrument, str):
+                    raise ValueError("UNSCOPED_EXPOSURE_INSTRUMENT")
+                if instrument.startswith("hyperliquid/"):
+                    from .pm03_account import Instrument
+
+                    parsed = Instrument.parse(instrument)
+                    if (
+                        parsed.venue != "hyperliquid"
+                        or not parsed.market.startswith("mainnet:perp:")
+                        or len(parsed.market.split(":")) != 3
+                        or ":" in parsed.symbol
+                    ):
+                        raise ValueError("UNSCOPED_EXPOSURE_INSTRUMENT")
+                elif not instrument.startswith("hyperliquid:mainnet:perp:"):
                     raise ValueError("UNSCOPED_EXPOSURE_INSTRUMENT")
                 value = float(signed_r)
                 if not isfinite(value):
                     raise ValueError("NONFINITE_EXPOSURE")
                 bucket["exposures"][instrument] += value
+                bucket["gross_envelope"][instrument] = max(
+                    bucket["gross_envelope"][instrument], abs(value)
+                )
     return dict(sorted(grouped.items()))
 
 
@@ -222,15 +239,22 @@ def _instrument_concentration(weights: dict[str, float], paths: dict[str, dict])
     common = _common_days(sorted(weights), paths)
     if len(common) < MIN_PAIRED_DAYS:
         return None
-    concentration: dict[str, float] = defaultdict(float)
+    # A quiet day or an intraday reversal cannot erase an observed concentration.
+    # Without exact cross-wallet simultaneity, sum each wallet's daily absolute
+    # envelope conservatively; never assume opposing managers provide an offset.
+    worst = None
     for day in common:
+        concentration: dict[str, float] = defaultdict(float)
         for a, weight in weights.items():
             exposure = paths[a][day]
             if not exposure["has_exposure"]:
                 return None
-            for symbol, value in exposure["exposures"].items():
-                concentration[symbol] += weight * value / len(common)
-    return max((abs(value) for value in concentration.values()), default=None)
+            for symbol, value in exposure["gross_envelope"].items():
+                concentration[symbol] += weight * value
+        if concentration:
+            daily = max(concentration.values())
+            worst = daily if worst is None else max(worst, daily)
+    return worst
 
 
 def _portfolio_utility(

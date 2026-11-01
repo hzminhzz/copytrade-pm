@@ -147,3 +147,40 @@ def test_wrong_or_unpinned_audit_rejected(tmp_path):
     )
     with pytest.raises(ValueError, match="NOT_VERIFIED_PM01"):
         fetch_days(tmp_path, evidence, (("ALGO", "2026-10-29"),))
+
+
+def test_documented_read_only_key_transport_and_identity_on_both_sessions(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    import sys
+    from copytrade_pm import pm_chd_target_1m as target
+
+    key = "SYNTHETIC_TEST_KEY"
+    client = SimpleNamespace(
+        _http_client=SimpleNamespace(session=SimpleNamespace(headers={})),
+        _download_session=SimpleNamespace(headers={}),
+    )
+
+    def factory(**kwargs):
+        assert kwargs == {"api_key": key, "timeout": 45, "max_retries": 2, "use_jwt": False}
+        return client
+
+    def fetch(actual, *args):
+        assert actual is client
+        for headers in (client._http_client.session.headers, client._download_session.headers):
+            assert headers["User-Agent"] == "OpenAI File Downloader, XaiImageApiFetch/1.0"
+        return {"status": "no_covered_range"}
+
+    writer = SimpleNamespace(
+        partition=lambda *args: tmp_path / "absent.parquet", fetch_symbol=fetch
+    )
+    creds = SimpleNamespace(load_api_key=lambda: key)
+    monkeypatch.setitem(sys.modules, "cryptohftdata", SimpleNamespace(CryptoHFTDataClient=factory))
+    monkeypatch.setattr(
+        target.importlib,
+        "import_module",
+        lambda name: creds if name.endswith("fetch_hyperliquid_multi_hftcryptodata") else writer,
+    )
+    monkeypatch.setattr(target.time, "sleep", lambda _: None)
+    result = fetch_days(tmp_path, _audit(tmp_path), (("ALGO", "2026-10-29"),), max_days=1)
+    assert result["targets"][0]["status"] == "CHD_NO_COVERED_RANGE"
+    assert key not in json.dumps(result)
