@@ -134,6 +134,8 @@ The producer output uses `pm01_hyperx_first_local_receipt_v1`. A REST receipt is
 
 `pm_hyperx_account_triage` can query HyperX wallet-analysis, funding and margin timeline for up to **two** existing aliases in a fresh `g...` private generation. It may help explain missing positions/funding, but **no vendor summary is an independently reconciled historical account NAV**. A first-page `has_more` cannot be treated as complete funding. See [PM-01 direct forensic record](PM-01-2026-10-31-direct-execution.md) for the historical interpretation.
 
+For a failed acquisition or incomplete source, follow [blocker recovery](BLOCKER-RECOVERY.md): diagnose, attempt only bounded authorized new generations, independently re-audit, and resume the unaffected research work. Preserve the blocked historical window when causal evidence cannot be recovered.
+
 ## Never perform these shortcuts
 
 - Do **not** broaden acquisition to every exotic/outside-Propr pair simply to raise an arbitrary coverage percentage; preserve hedge relevance and whole-source economics first.

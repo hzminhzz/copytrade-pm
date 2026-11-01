@@ -66,6 +66,10 @@ Wallet research and frozen HyperX roster (PRIVATE, upstream of this repo)
 
 Where a historical document says “current,” “staging,” an old checkout path, or “PR #7” without a repository name, the live `copytrade-pm` code/GitHub state and the guides above take precedence. Preserve the old document as provenance rather than silently rewriting its scientific results.
 
+## Recovery on blockers
+
+On blocked data, tests, tools or evidence, use [Autonomous blocker recovery](BLOCKER-RECOVERY.md). Repair and verify recoverable dependencies, resume the wider approved objective, and keep affected scientific results fail-closed.
+
 ## Safe default for a new work session
 
 1. Verify repository path, HEAD, branch, dirty/untracked work and remote; read `AGENTS.md`. Use an isolated worktree from fetched `origin/main` for changes.
