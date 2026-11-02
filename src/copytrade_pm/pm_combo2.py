@@ -989,6 +989,38 @@ class Combo2PaperTracker:
         self.account, self.meta = staged_account, staged_meta
         return self.state()
 
+    def verified_paper_decisions(self) -> list[dict]:
+        """Re-verify every post-state before exposing simulated decisions.
+
+        This read-only projection has no broker, transport or SQLite writes.
+        A caller may copy each verified paper result to a separate journal;
+        the original hash-chained account stays the sole P&L authority.
+        """
+        account = Account.start(self.rulebook, self.manifest["started_at"])
+        meta = _fresh_state()
+        decisions = []
+        for row in self.ledger.read():
+            event = Event(**row["event"])
+            if event.payload.get("manifest_sha") != digest(self.manifest):
+                raise ValueError("PROJECTION_MANIFEST_MISMATCH")
+            outcome = self._apply(account, meta, event)
+            account.verify()
+            if event.payload.get("post_state_sha") != digest(
+                {"state": self._state(account, meta), "result": outcome}
+            ):
+                raise ValueError("PROJECTION_POST_STATE_DIVERGENCE")
+            if event.kind == "PAPER_REBALANCE":
+                decisions.append(
+                    {
+                        "run_id": self.manifest["run_id"],
+                        "event_id": event.event_id,
+                        "paper_event_sha": row["sha"],
+                        "account_alias": self.policy.account_alias,
+                        "report": deepcopy(outcome),
+                    }
+                )
+        return decisions
+
     def state(self) -> dict:
         return {
             "schema": SCHEMA,

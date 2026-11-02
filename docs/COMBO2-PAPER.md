@@ -55,6 +55,31 @@ The importer requires a finished, private, error-free E4 session with one comple
 
 **Current external blockers:** the running `copytrade-source-abc.service` rotates A/B/C and does not provide continuous complete Combo2 (W028, CA-008, W015) capture. Existing W028 observations report additional subaccounts, so the single-account proof cannot safely be asserted; CA-008 is not an A/B/C member. Starting another reader concurrently can violate the shared Hyperliquid per-IP account limit. A bounded shared-source producer, aggregate source-NAV/subaccount proof, real Propr market-ID/lot/session attestations, and separate connector-owned SQLite projection/independent transport spy remain required. Do not deploy a Combo2 service from this ingestion-only module.
 
+## November 2, 2026 read-only source acquisition evidence
+
+The immutable, **REST-only** `pm_combo2_rest_capture` collector captured W028 parent + seven subaccounts, CA-008 and W015, each across the 11 official DEX namespaces. The two completed generations reside privately under `/home/quant/.local/share/copytrade/reports/combo2-source-20261102/`. Each generation recorded **134 `POST /info` informational calls**, 10/10 accounts, zero account-census errors and zero order API calls. Hyperliquid's documented `userAbstraction` query returned **`unifiedAccount` for all three leaders**; separate-DEX `marginSummary.accountValue` is **not** the complete wallet denominator in unified mode. The collector explicitly records `follower_source_equity_verified=false` and never feeds this unqualified partial-source account into the paper simulator.
+
+Capture again without consuming extra WebSocket user subscriptions:
+
+~~~bash
+uv run --group dev python -m copytrade_pm.pm_combo2_rest_capture \\
+  --research-root /home/quant/.local/share/copytrade/reports/five-pod-20261029-research \\
+  --store /home/quant/.local/share/copytrade/reports/combo2-source-20261102
+~~~
+
+Read-only health for one specific generation:
+
+~~~bash
+uv run --group dev python -m copytrade_pm.pm_combo2_health \\
+  --generation /home/quant/.local/share/copytrade/reports/combo2-source-20261102/gC2-readonly-20261102-a
+~~~
+
+The second capture succeeded as a **transient `systemd --user` service** with exit `0/SUCCESS`, and the existing `copytrade-source-abc.service` stayed active. This is a bounded acquisition/service-health smoke, **not** a deployed unattended paper follower. The source-health result intentionally reports `BLOCKED_SOURCE_EQUITY_AND_MARKET_ATTESTATION`; no live/paper opening permission is derived from capture completeness.
+
+`Combo2PaperTracker.verified_paper_decisions()` independently checks every journal hash, post-state and synthetic decision. The separate `trading-connector` module `connectors.propr.combo2_paper_projection` accepts only these verified paper reports and stores them in dedicated `combo2_paper_*` tables in the existing local SQLite IntentJournal. The real broker `intents` and `audit` rows remain unchanged; paper fills are never broker fills. The connector-owned import CLI is `python -m connectors.propr.examples.project_combo2_paper --paper-root ... --run-id ... --sqlite ...`. This projection has been tested across repository boundaries, including crash/restart and zero outbound socket spies, but has not been installed as a production paper supervisor.
+
+Authenticated, read-only Propr `GET` inspection confirmed margin configuration records for `HYPE`, `ZEC`, and `xyz:MU` and nine leverage-limit overrides. The response exposes margin mode/leverage but **not** validated instrument lots, tick sizes, order minima, session calendars or execution prices. Those market contracts remain **UNKNOWN**; generic/unverified registry aliases may not authorize model fills.
+
 ## Current limits and release gates
 
 - **IMPLEMENTED IN THIS BRANCH:** the existing offline synthetic engine plus the new hash-checked, single-account prospective E4 source-book ingest, frozen scope/market proof manifests, independent consumer first-known clock, reconnect baselines and safe source-gap state. Offline receipt-to-paper fixture tests do not establish a continuously running follower.
