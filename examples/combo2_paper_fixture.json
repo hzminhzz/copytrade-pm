@@ -1,0 +1,98 @@
+{
+  "schema": "combo2_first_known_fixture_v1",
+  "run_id": "combo2-fixture-20261102",
+  "started_at": "2026-11-02T10:00:00+00:00",
+  "source_subject_hashes": {
+    "W028": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "CA-008": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "W015": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "events": [
+    {
+      "kind": "SOURCE_RECEIPT",
+      "event_id": "fixture-W028-BTC",
+      "source_event_at": "2026-11-02T10:00:00+00:00",
+      "first_known_at": "2026-11-02T10:00:00+00:00",
+      "decision_at": "2026-11-02T10:00:00+00:00",
+      "hypothetical_fill_at": "2026-11-02T10:00:00+00:00",
+      "data": {
+        "manager": "W028",
+        "instrument": "hyperliquid/mainnet:perp:default/BTC"
+      }
+    },
+    {
+      "kind": "PAPER_REBALANCE",
+      "event_id": "fixture-rebalance-1",
+      "source_event_at": "2026-11-02T10:00:00+00:00",
+      "first_known_at": "2026-11-02T10:05:00+00:00",
+      "decision_at": "2026-11-02T10:05:00+00:00",
+      "hypothetical_fill_at": "2026-11-02T10:05:00+00:00",
+      "data": {
+        "leaders": {
+          "W028": {
+            "manager": "W028",
+            "subject_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "quality": "OFFICIAL_ALL_DEXS_READ_ONLY",
+            "full_book": true,
+            "all_dexes_complete": true,
+            "equity": "100000",
+            "positions": {
+              "hyperliquid/mainnet:perp:default/BTC": {
+                "quantity": "3",
+                "mark": "100000"
+              }
+            },
+            "event_at": "2026-11-02T10:05:00+00:00",
+            "first_known_at": "2026-11-02T10:05:00+00:00"
+          }
+        },
+        "markets": {
+          "hyperliquid/mainnet:perp:default/BTC": {
+            "first_known_at": "2026-11-02T10:05:00+00:00",
+            "mark": "100000",
+            "lot": "0.0000001",
+            "minimum": "0.0000001",
+            "volume_base": "1000",
+            "fee_bps": "5",
+            "spread_bps": "3",
+            "slippage_bps": "2",
+            "session_open": true,
+            "supported": true,
+            "native_market_id": "BTC-PERP"
+          }
+        },
+        "shocks": [
+          {
+            "hyperliquid/mainnet:perp:default/BTC": "-0.01"
+          }
+        ],
+        "hedge_break_loss": "0"
+      }
+    },
+    {
+      "kind": "PAPER_MARK",
+      "event_id": "fixture-mark-1",
+      "source_event_at": "2026-11-02T10:06:00+00:00",
+      "first_known_at": "2026-11-02T10:06:00+00:00",
+      "decision_at": "2026-11-02T10:06:00+00:00",
+      "hypothetical_fill_at": "2026-11-02T10:06:00+00:00",
+      "data": {
+        "markets": {
+          "hyperliquid/mainnet:perp:default/BTC": {
+            "first_known_at": "2026-11-02T10:06:00+00:00",
+            "mark": "90000",
+            "lot": "0.0000001",
+            "minimum": "0.0000001",
+            "volume_base": "1000",
+            "fee_bps": "5",
+            "spread_bps": "3",
+            "slippage_bps": "2",
+            "session_open": true,
+            "supported": true,
+            "native_market_id": "BTC-PERP"
+          }
+        }
+      }
+    }
+  ]
+}
