@@ -7,6 +7,10 @@
 | Goal | Authoritative guide | Contains |
 | --- | --- | --- |
 | Understand why modules exist and what is *not* connected | [Architecture and contracts](ARCHITECTURE.md) | Two evidence pipelines, module ownership, immutable boundaries |
+| **Find, rank and select the best wallets with research/OOS evidence** | **[Canonical wallet research handbook](WALLET-RESEARCH-HANDBOOK.md)** | Agent workflow G0–G9, paper adaptations, independent wallet skill, five-minute follower, baselines B0–B4, portfolio and holdout gates |
+| Perform detailed fixed-loss directional pod screening | [Wallet selection and three-pod checklist](WALLET-POD-SELECTION.md) | $200 pod-loss hypothesis, whole-book sizing, archetypes, source-quality checklist, clone/funding/hedge and execution checks |
+| Review the Gemini 5-wallet report without promoting simulated profits | [2026-11-02 independent Gemini methodology audit](GEMINI-REPORT-METHODOLOGY-AUDIT-20261102.md) | Verified CSV counts, source PnL, clone correlation, and unverified 50-200ms follower/pass claims |
+| Investigate new **non-carry directional** Nansen wallets | [2026-11-02 Nansen 10-wallet shortlist and funding audit](NANSEN-DIRECTIONAL-POD-SHORTLIST-20261102.md) | Ten historical source research candidates, live books, independent signed funding cashflows, hedge/carry vetoes, missing HyperX/equity replay gates |
 | Start with a wallet, vendor fills, source gaps, OHLCV, or a new cohort | [Wallet data and acquisition](DATA-ACQUISITION.md) | Frozen 36 cohort, private paths, HyperX/ML4T sources, bounded repairs and fresh observations |
 | Execute the supported research steps | [Research operator runbook](RUNBOOK.md) | Verified commands, exact artifact handoffs, safe test and incident responses |
 | Decide what counts as evidence or authorization | [Qualification gates](QUALIFICATION.md) | Provenance clocks, source/follower PnL, PIT, Propr universe, states and blockers |
