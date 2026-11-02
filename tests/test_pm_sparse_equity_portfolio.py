@@ -236,6 +236,49 @@ def test_capacity_stress_cannot_use_same_minute_volume_without_prior_bar():
         )
 
 
+def test_custom_trio_cli_reports_scenarios_instead_of_empty_results(monkeypatch, capsys):
+    import sys
+    from copytrade_pm import pm_sparse_equity_portfolio as cli
+
+    trio = ["W042", "W044", "W028"]
+    result = {
+        "name": "CUSTOM_W042_W044_W028",
+        "wallets": trio,
+        "scenario": "BASE_8D_1X",
+        "status": "PARTIAL_CONDITIONAL_REPLAY",
+        "stop_reason": "SIMULATED_STAGE_TARGET_REACHED",
+        "pnl_usd": "1000.47",
+        "observed_through": "2026-09-09T06:41:00+00:00",
+        "equity_sizing": {wallet: {"counters": {}} for wallet in trio},
+    }
+    monkeypatch.setattr(cli, "study", lambda *_args, **_kwargs: {"results": [result]})
+    monkeypatch.setattr(cli, "_write_private_evidence", lambda *_args: ("report.json", SHA))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "pm_sparse_equity_portfolio",
+            "--research-root",
+            "/tmp/source",
+            "--market-root",
+            "/tmp/market",
+            "--ab-equity-root",
+            "/tmp/ab",
+            "--c-equity-root",
+            "/tmp/c",
+            "--out",
+            "/tmp/private",
+            "--only-combo",
+            "--combo",
+            *trio,
+        ],
+    )
+    cli.main()
+    output = json.loads(capsys.readouterr().out)
+    assert output["results"][0]["portfolio"] == "CUSTOM_W042_W044_W028"
+    assert output["results"][0]["pnl_usd_partial"] == "1000.47"
+
+
 def test_invalid_exploratory_policy_bounds():
     with pytest.raises(ValueError, match="BOUNDED_CARRY"):
         BoundedCarryMinuteMarket("/tmp", max_minutes=1441)

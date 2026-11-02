@@ -661,6 +661,18 @@ def _run_combo(
                 except MarketDataBlocked as exc:
                     reason = "MISSING_REQUESTED_MARK:" + str(exc).split(":", 1)[0]
                     break
+                # These positions were present in the latest source targets
+                # but not in current holdings or this minute's new messages.
+                # Their marks were fetched after the initial account.mark().
+                # Re-mark explicitly before PM03 internal crosses; NEVER pass
+                # a fresh price while leaving an earlier cached mark active.
+                account.mark(prices, current.isoformat())
+                if account.breached:
+                    reason = "CONTRACTUAL_DRAWDOWN_BREACH"
+                    break
+                if account.stage_passed:
+                    reason = "SIMULATED_STAGE_TARGET_REACHED"
+                    break
             prior_closed_quote_volume = None
             if capacity_enforced:
                 # Use only a finished t-1 market bar for the capacity proxy.
