@@ -7,6 +7,7 @@
 | Goal | Authoritative guide | Contains |
 | --- | --- | --- |
 | Understand why modules exist and what is *not* connected | [Architecture and contracts](ARCHITECTURE.md) | Two evidence pipelines, module ownership, immutable boundaries |
+| Choose wallets and compose fixed-loss prop challenge pods | [Wallet selection and three-pod checklist](WALLET-POD-SELECTION.md) | $200 pod-loss hypothesis, whole-book sizing, archetypes, source-quality checklist, co-loss, replay gates, dated Nansen discovery |
 | Start with a wallet, vendor fills, source gaps, OHLCV, or a new cohort | [Wallet data and acquisition](DATA-ACQUISITION.md) | Frozen 36 cohort, private paths, HyperX/ML4T sources, bounded repairs and fresh observations |
 | Execute the supported research steps | [Research operator runbook](RUNBOOK.md) | Verified commands, exact artifact handoffs, safe test and incident responses |
 | Decide what counts as evidence or authorization | [Qualification gates](QUALIFICATION.md) | Provenance clocks, source/follower PnL, PIT, Propr universe, states and blockers |
