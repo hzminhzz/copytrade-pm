@@ -17,6 +17,7 @@
 | Review integrated A/B/C intent and source operations | [Recovery integration](RECOVERY-INTEGRATION.md) | PR7/15/16 lineage, exact whole-book handoff, bounded durable source capture |
 | Implement wallet-equity-relative sizing, including missed trades | [Equity-normalized wallet exposure](EQUITY-WEIGHT-SIZING.md) | Source notional/equity, follower pod capital, catch-up and historical NAV availability |
 | Execute equity-weighted Q3 3-pod portfolio research | [Q3 sparse-equity execution results](Q3-SPARSE-EQUITY-PORTFOLIO-EXECUTION-20261102.md) | 84 hindsight combinations; source-NAV carry, A/B/C risk and exposure fidelity, 3 capacity-stress follow-ups; zero qualified |
+| Inspect the W042/W044/W028 replay and mark-ordering regression | [Q3 W042 + W044 + W028 results](Q3-TRIO-W042-W044-W028-20261102.md) | Four executed equity-weight scenarios, SHA audit, missed risk exposure and PM03 quote-mark correction; not qualified |
 | Review archived gross-notional proxy run | [Q3 conditional observed-chain replay](HISTORICAL-THREE-WALLET-COMPARISON.md) | Historical 84-combo predecessor, not the source-equity sizing objective |
 | Operate registered prospective PM02 decisions | [PM02 evidence gates](PM-02-EVIDENCE-GATES.md) | Whole-account v2 audits, immutable OOS looks, multiplicity, lifecycle and conservative risk |
 | Review the future broker interface boundary | [ML4T/Propr integration specification](ML4T-PROPR-INTEGRATION.md) | Actual installed source findings, native identity, mandatory mismatch veto and offline-only contract tests |

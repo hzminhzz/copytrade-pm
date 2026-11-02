@@ -163,6 +163,65 @@ def test_capacity_policy_uses_prior_complete_minute_not_future_bar_volume():
     assert result["stop_reason"] is None
 
 
+def test_lazy_latest_target_instrument_must_be_marked_before_internal_cross():
+    """Previously vetoed target returns later; prior mark must never be reused."""
+    t1 = START + timedelta(minutes=1)
+    t2 = START + timedelta(minutes=2)
+    t3 = START + timedelta(minutes=3)
+    btc = Instrument("hyperliquid", "mainnet:perp:default", "BTC")
+    eth = Instrument("hyperliquid", "mainnet:perp:default", "ETH")
+
+    class FallingBTC(FixedMarket):
+        def get(self, instrument, when):
+            px = (
+                D("100000")
+                if instrument == "hyperliquid:mainnet:perp:default:BTC" and when < t2
+                else (
+                    D("50000") if instrument == "hyperliquid:mainnet:perp:default:BTC" else D("100")
+                )
+            )
+            return MinuteBar(when, px, D("10000000"), "f" * 64)
+
+    # At t1, each $10k BTC leg violates the $6k pod cap: no fills, but a
+    # $100k BTC quote is cached. At t2, BTC falls to $50k; a fresh ETH event
+    # triggers re-evaluation of the unchanged, now admissible BTC target pair.
+    # The BTC quote is fetched *after* the initial account.mark(t2).
+    override = [
+        (t1, {"W042": {btc: D("0.1")}, "W044": {btc: D("-0.1")}}),
+        (t2, {"W028": {eth: D("1")}}),
+        (t3, {"W042": {}, "W044": {}, "W028": {}}),
+    ]
+    eps = {
+        "W042": [ep(wallet="W042", coin="BTC")],
+        "W044": [ep(wallet="W044", coin="BTC")],
+        "W028": [ep(wallet="W028", coin="ETH")],
+    }
+    result = _run_combo(
+        "stale-mark-crossover",
+        ("W042", "W044", "W028"),
+        eps,
+        {w: D("1") for w in eps},
+        FallingBTC(),
+        actions_override=override,
+        risk_limits=(D("6000"), D("18000"), D("9000")),
+    )
+    assert result["counters"].get("risk_budget_rejected_batches", 0) >= 1, result
+    assert result["counters"]["internal_crosses"] >= 2
+    assert result["stop_reason"] is None
+    assert result["status"] == "CONDITIONAL_EPISODE_REPLAY_FULL_Q3"
+    reordered = _run_combo(
+        "stale-mark-crossover-reordered",
+        ("W028", "W042", "W044"),
+        eps,
+        {w: D("1") for w in eps},
+        FallingBTC(),
+        actions_override=override,
+        risk_limits=(D("6000"), D("18000"), D("9000")),
+    )
+    assert result["pnl_usd"] == reordered["pnl_usd"]
+    assert result["counters"] == reordered["counters"]
+
+
 def test_positions_unknown_without_episodes_not_marked_flat():
     result = _run_combo(
         "B",

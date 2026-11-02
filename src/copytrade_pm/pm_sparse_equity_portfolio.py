@@ -566,7 +566,7 @@ def main() -> None:
                         ),
                     }
                     for r in report["results"]
-                    if r["name"] in PORTFOLIOS
+                    if r["name"] in PORTFOLIOS or (args.combo and r["wallets"] == args.combo)
                 ],
             },
             sort_keys=True,
