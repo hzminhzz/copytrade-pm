@@ -6,6 +6,7 @@
 
 | Goal | Authoritative guide | Contains |
 | --- | --- | --- |
+| Pick up the selected Gemini portfolio and prepare demo/paper rollout | [2026-11-02 three-wallet decision](decisions/2026-11-02-gemini-selected-three-pod.md) | **S053-HYPE / S051-BTC / S035-ENA**, decision scope, sizing direction, rollout gates; not deployed |
 | Understand why modules exist and what is *not* connected | [Architecture and contracts](ARCHITECTURE.md) | Two evidence pipelines, module ownership, immutable boundaries |
 | Start with a wallet, vendor fills, source gaps, OHLCV, or a new cohort | [Wallet data and acquisition](DATA-ACQUISITION.md) | Frozen 36 cohort, private paths, HyperX/ML4T sources, bounded repairs and fresh observations |
 | Execute the supported research steps | [Research operator runbook](RUNBOOK.md) | Verified commands, exact artifact handoffs, safe test and incident responses |
