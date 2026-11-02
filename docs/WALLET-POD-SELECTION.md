@@ -1,5 +1,7 @@
 # Wallet selection for fixed-loss prop-challenge pods
 
+**Use [WALLET-RESEARCH-HANDBOOK.md](WALLET-RESEARCH-HANDBOOK.md) as the canonical end-to-end research procedure** (wallet discovery, arXiv adaptations, independent skill vs market, five-minute follower economics, B0–B4 baselines, portfolio construction, OOS and decision artifacts). This document is the **detailed directional-pod screening and fixed-risk checklist**, not a competing ranking architecture or scientific qualification policy.
+
 **Status:** Research policy and operator checklist, not a qualified roster or live-trading authorization. **Decision date:** 2026-11-02. **Repository baseline:** `d11d754660714a2572ad1c6b91680a89b9d5e397`. **Owner intent:** three independent source-wallet portfolio managers, each with a nominal loss budget of 2% of a $10,000 challenge ($200); source-equity-relative position sizing; five-minute rebalance batching; no 1:1 fill-copying or HFT.
 
 Read with [INDEX](INDEX.md), [EQUITY-WEIGHT-SIZING](EQUITY-WEIGHT-SIZING.md), [QUALIFICATION](QUALIFICATION.md), [PM-04](PM-04-shadow-hardening.md), [DATA-ACQUISITION](DATA-ACQUISITION.md), and [BLOCKER-RECOVERY](BLOCKER-RECOVERY.md). Qualification terminology and account-contract rules live in those documents, not here.
