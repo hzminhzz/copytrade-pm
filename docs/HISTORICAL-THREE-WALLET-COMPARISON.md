@@ -1,5 +1,7 @@
 # Q3 2026 observed-chain three-wallet research (November 2, 2026)
 
+**Superseded for the equity-weight sizing objective (same day):** This page records an **archived gross-normalized experiment**. It does **not** reproduce each wallet's signed notional exposure as a proportion of its actual account equity. The A/B/C numbers below therefore must **not** be used to choose wallets, assess sizing fidelity or estimate challenge pass rates. See [corrected sizing model and historical account-value recovery](EQUITY-WEIGHT-SIZING.md). The default CLI now returns `BLOCKED_HISTORICAL_SOURCE_EQUITY`, with `pnl_usd=null` for all 84; reproduce this page's old model only by explicitly adding `--legacy-gross-proxy`. Original SHA-addressed evidence remains immutable.
+
 ## Result and status
 
 This is an executed exploratory backtest, **not** a complete-wallet 90-day simulation or a demonstrated Propr trading strategy. The Q3 research interval is July 1 inclusive to October 1 exclusive (92 UTC calendar days). Three frozen portfolios A, B, C plus all 81 other combinations of the same nine wallets were evaluated. **All 84 combinations remain partial; no valid full-quarter comparison winner is available.**
@@ -32,10 +34,11 @@ Across all 84 possible triples: 70 stopped at missing market-minute marks, eight
 uv run --frozen --group dev --extra market python -m copytrade_pm.pm_historical_combos \
   --research-root /home/quant/.local/share/copytrade/reports/five-pod-20261029-research \
   --market-root /home/quant/dev/quant/ml4t-data/.data/store \
-  --out /home/quant/.local/share/copytrade/reports/historical-3pod-20261102
+  --out /home/quant/.local/share/copytrade/reports/historical-3pod-20261102 \
+  --legacy-gross-proxy
 ```
 
-Add `--no-mixed` to evaluate only A/B/C. `--hyperx-generations` accepts paths to independently SHA-audited vendor page generations, not raw unverified replacements. The output `wallet_audit` and `portfolio_results` distinguish coverage, admitted/excluded episodes, source scaling, actual stopping reasons and partial economic trajectories. This CLI does not send orders, activate the ML4T/Propr broker, alter PM02 qualification, or modify the preexisting source manifests.
+This explicitly reruns the obsolete non-equity-sized model. Omit `--legacy-gross-proxy` for the current source-equity-gated study. Add `--no-mixed` to evaluate only A/B/C. `--hyperx-generations` accepts paths to independently SHA-audited vendor page generations, not raw unverified replacements. The output `wallet_audit` and `portfolio_results` distinguish coverage, admitted/excluded episodes, source scaling, actual stopping reasons and partial economic trajectories. This CLI does not send orders, activate the ML4T/Propr broker, alter PM02 qualification, or modify the preexisting source manifests.
 
 ## Next source-repair priorities
 

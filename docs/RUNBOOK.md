@@ -125,7 +125,7 @@ The pinned read-only `copytrade-source-abc.service` observes bounded A/B/C accou
 
 ## Exploratory Q3 three-wallet historical replay (offline)
 
-See [the dated 84-combination study](HISTORICAL-THREE-WALLET-COMPARISON.md) for the complete command, model, results and limitations. Use `python -m copytrade_pm.pm_historical_combos` with frozen source and native market roots. This is an ex-post **observed flat-to-flat chain** account simulator; it is NOT a complete source-wallet portfolio, PIT follower receipt or Propr executable result. Every partial stop is reported and no full-wallet combination is ranked.
+See [the corrected equity-weight sizing standard](EQUITY-WEIGHT-SIZING.md) first, then [the legacy 84-combination gross-normalized study](HISTORICAL-THREE-WALLET-COMPARISON.md). The default `python -m copytrade_pm.pm_historical_combos` requires genuine historical wallet equity; without it every scenario has null PnL and `BLOCKED_HISTORICAL_SOURCE_EQUITY`. Once independently reconciled as-of equity observations exist, supply `--source-equity-ledger PATH`. `--legacy-gross-proxy` is opt-in for archived reproducibility **only**, never a wallet-style sizing comparison. This is still an ex-post observed-chain simulation, not complete source-wallet accounting, PIT follower receipt or Propr execution.
 
 ## 4. PM-01/PM-02 to PM-03 evidence handoff (offline)
 

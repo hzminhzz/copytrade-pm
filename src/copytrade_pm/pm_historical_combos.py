@@ -1,14 +1,11 @@
-"""Exploratory Q3 observed-chain three-wallet replay; NEVER a complete source-account replay.
+"""Q3 three-wallet historical replay: source-equity sizing required by default.
 
-Only directly observed flat-to-flat source-instrument chains enter this study.
-This is a retrospective, survivorship-conditioned oracle. Wallet source equity,
-unobserved exposures, authentic follower receipt clocks and actual Propr fills
-are UNKNOWN. No synthetic zero inventory is asserted for the original wallet.
-
-One *fixed* quantity scale per wallet (chosen from its first observed opening
-fill) preserves relative source sizes among admitted chains. No per-episode
-position normalization or forward selection of optimal leverage is performed.
-The existing PM-03 Account owns the sole shadow financial ledger.
+Only directly observed flat-to-flat instrument chains are available for Q3.
+Without independently reconciled source equity, the correct output is an
+explicit equity-denominator blocker and null PnL, not a gross-normalized proxy.
+The old non-equity run is opt-in and retained only as immutable prior research.
+Even with real historical equity the source path is a hindsight-selected,
+incomplete wallet oracle, not prospective trading evidence. PM03 owns cash.
 """
 
 from __future__ import annotations
@@ -26,6 +23,7 @@ from pathlib import Path
 from .pm03_account import Account, Instrument, Rulebook
 from .pm03_execution import _allocate
 from .pm_fill_replay import _coins, _market_instrument, _same_position, _source_fills
+from .pm_historical_equity import HistoricalEquity, load_equity
 from .pm_hyperx_overlay_audit import examine
 from .pm_portfolio_e0 import PORTFOLIOS
 from .pm_propr_scope import SCOPE_STRICT, SCOPE_TENTATIVE, classify_coin
@@ -53,6 +51,8 @@ FULL_SPREAD_BPS = D("3")
 SLIPPAGE_BPS = D("5")
 FUNDING_ABS_BPS_PER_8H = D("1")
 SCHEMA = "copytrade_q3_conditional_observed_chains_v1"
+EQUITY_SCHEMA = "copytrade_q3_equity_weight_conditional_chains_v1"
+POD_CAPITAL_USD = D("2000")
 ALL_WALLETS = tuple(dict.fromkeys(wallet for trio in PORTFOLIOS.values() for wallet in trio))
 
 
@@ -327,6 +327,82 @@ def _batched_actions(
     return sorted(out.items())
 
 
+def _batched_actions_equity(
+    episodes: dict[str, list[Episode]],
+    trio: tuple[str, str, str],
+    equity: HistoricalEquity,
+    *,
+    pod_capital_usd: D = POD_CAPITAL_USD,
+):
+    """Recompute quantities from source position/equity at *each decision*.
+
+    Historical-only source clock. At a given minute, a missed follower trade
+    does NOT change source book or create a new independent trade budget.
+    """
+    if pod_capital_usd <= ZERO:
+        raise ValueError("INVALID_POD_CAPITAL")
+    out = defaultdict(dict)
+    for wallet in trio:
+        rows = sorted(
+            (
+                (event[0], event[1], ep.coin, event[4])
+                for ep in episodes[wallet]
+                for event in ep.events
+            ),
+            key=lambda row: (row[0], row[1], row[2]),
+        )
+        # Event-driven source quantity snapshots, already batched for five
+        # minutes as before. These are retrospective vendor events, not
+        # prospective receipts.
+        source_batches: dict[datetime, dict[Instrument, D]] = {}
+        observed_book: dict[Instrument, D] = {}
+        index = 0
+        while index < len(rows):
+            due = _minute_at_or_after(rows[index][0] + WAIT)
+            while index < len(rows) and rows[index][0] < due:
+                _, _, coin, after = rows[index]
+                instrument = _native_pm(coin)
+                if after:
+                    observed_book[instrument] = after
+                else:
+                    observed_book.pop(instrument, None)
+                index += 1
+            if due < END:
+                source_batches[due] = dict(observed_book)
+        # A source wallet changes effective leverage when equity changes even
+        # if it submits zero new fills. Include genuine equity observations as
+        # independent sizing ticks, but NEVER manufacture intermediate equity.
+        # Prior to the first reconstructed source book, NAV-only events cannot
+        # establish the missing source positions and must not generate orders.
+        equity_due = {
+            _minute_at_or_after(point.at + timedelta(microseconds=1) + WAIT)
+            for point in equity.points.get(wallet, ())
+            if START <= point.at < END
+        }
+        book: dict[Instrument, D] = {}
+        initialized = False
+        for due in sorted(set(source_batches) | equity_due):
+            if due >= END:
+                continue
+            if due in source_batches:
+                initialized = True
+                book = source_batches[due]
+            if not initialized:
+                continue
+            if not book:
+                # A directly observed zero-after close needs no equity
+                # denominator. Do not request idle NAV updates as orders.
+                if due in source_batches:
+                    out[due][wallet] = {}
+                continue
+            source_equity = equity.asof(wallet, due)
+            scale = pod_capital_usd / source_equity
+            out[due][wallet] = {
+                inst: (qty * scale).quantize(QUANTITY_GRID) for inst, qty in sorted(book.items())
+            }
+    return sorted(out.items())
+
+
 def _synthetic_rulebook(instruments: set[Instrument]) -> Rulebook:
     return Rulebook(
         program="RESEARCH_CLASSIC_1STEP_PROXY",
@@ -460,9 +536,15 @@ def _run_combo(
     episodes: dict[str, list[Episode]],
     scales: dict[str, D | None],
     market: VerifiedHyperliquidMinuteSource,
+    *,
+    actions_override: list[tuple] | None = None,
 ) -> dict:
-    actions = _batched_actions(episodes, trio, scales)
-    if any(scales[w] is None or not episodes[w] for w in trio):
+    actions = (
+        actions_override
+        if actions_override is not None
+        else _batched_actions(episodes, trio, scales)
+    )
+    if any((actions_override is None and scales[w] is None) or not episodes[w] for w in trio):
         return {
             "name": name,
             "wallets": list(trio),
@@ -607,7 +689,7 @@ def _run_combo(
     }
 
 
-def study(
+def study_legacy_proxy(
     root: Path, market_root: Path, generations: tuple[Path, ...], *, mixed: bool = True
 ) -> dict:
     market = VerifiedHyperliquidMinuteSource(market_root)
@@ -677,6 +759,129 @@ def study(
     }
 
 
+def _named_combinations(mixed: bool):
+    for name, trio in PORTFOLIOS.items():
+        yield name, trio
+    if mixed:
+        for trio in combinations(ALL_WALLETS, 3):
+            if trio not in PORTFOLIOS.values():
+                yield "MIX_" + "_".join(trio), trio
+
+
+def study(
+    root: Path,
+    market_root: Path,
+    generations: tuple[Path, ...],
+    *,
+    mixed: bool = True,
+    source_equity_ledger: Path | None = None,
+    legacy_gross_proxy: bool = False,
+) -> dict:
+    """Source-EQUITY sizing by default. An old gross-normalized run is opt-in.
+
+    Q3 fill pages are not source equity. Without independently retained
+    historical equity, do not run 84 fake-sized PnL paths. Explicitly preserve
+    every scenario as BLOCKED_HISTORICAL_SOURCE_EQUITY instead.
+    """
+    if legacy_gross_proxy:
+        if source_equity_ledger is not None:
+            raise ValueError("CONFLICTING_HISTORICAL_SIZING_MODES")
+        return study_legacy_proxy(root, market_root, generations, mixed=mixed)
+
+    entries, fingerprints = load_cohort(root)
+    identities = {e.alias: e.address_sha256 for e in entries if e.alias in ALL_WALLETS}
+    if len(identities) != len(ALL_WALLETS):
+        raise ValueError("HISTORICAL_EQUITY_UNKNOWN_WALLET_COHORT")
+    names = list(_named_combinations(mixed))
+    preflight = {
+        "schema": EQUITY_SCHEMA,
+        "status": "BLOCKED_HISTORICAL_SOURCE_EQUITY"
+        if source_equity_ledger is None
+        else "HISTORICAL_EQUITY_ORACLE_RESEARCH",
+        "study_start": START.isoformat(),
+        "study_end_exclusive": END.isoformat(),
+        "initial_cash_usd": str(CASH),
+        "pod_capital_usd_each": str(POD_CAPITAL_USD),
+        "sizing_equation": "source_signed_qty * pod_capital_usd / asof_source_equity_usd",
+        "source_event_time_is_not_first_known": True,
+        "source_equity_evidence": "UNAVAILABLE_FOR_Q3"
+        if source_equity_ledger is None
+        else "EXTERNALLY_DECLARED_RECONCILED_STILL_HINDSIGHT",
+        "source_identity_manifests_sha256": fingerprints,
+        "source_equity_ledger_sha256": None,
+        "wallets_with_predecision_equity_evidence": 0,
+        "full_wallet_book_reconstructed": False,
+        "legacy_gross_proxy_pnl_is_not_wallet_weight_replication": True,
+        "portfolio_membership": {k: list(v) for k, v in PORTFOLIOS.items()},
+        "fully_faithful_whole_wallet_replays": 0,
+        "valid_full_wallet_combo_ranking_available": False,
+        "conditional_rank_names": [],
+        "scientifically_qualified": False,
+        "broker_trading_authorized": False,
+        "portfolio_results": [],
+    }
+    if source_equity_ledger is None:
+        preflight["portfolio_results"] = [
+            {
+                "name": name,
+                "wallets": list(trio),
+                "status": "BLOCKED_HISTORICAL_SOURCE_EQUITY",
+                "source_equity_usd": None,
+                "pnl_usd": None,
+                "reason": "NO_AUTHENTIC_Q3_WALLET_EQUITY_SERIES",
+            }
+            for name, trio in names
+        ]
+        return preflight
+
+    equity = load_equity(source_equity_ledger, identities=identities)
+    preflight["source_equity_ledger_sha256"] = equity.ledger_sha256
+    preflight["wallets_with_predecision_equity_evidence"] = sum(
+        bool(equity.points[w] and equity.points[w][0].at < END) for w in ALL_WALLETS
+    )
+    market = VerifiedHyperliquidMinuteSource(market_root)
+    episodes, audits, _, source = _source_inputs(root, market, generations)
+    for audit in audits.values():
+        # No fixed July-Aug gross scalar is used anywhere in equity mode.
+        audit.pop("fixed_source_quantity_multiplier", None)
+        audit.pop("training_62d_observed_source_peak_gross_fill_price_proxy_usd", None)
+        audit.pop("source_peak_scope", None)
+        audit["source_equity_at_decision"] = "REQUIRES_ASOF_LEDGER_LOOKUP"
+    for name, trio in names:
+        try:
+            actions = _batched_actions_equity(episodes, trio, equity)
+        except ValueError as exc:
+            preflight["portfolio_results"].append(
+                {
+                    "name": name,
+                    "wallets": list(trio),
+                    "status": "BLOCKED_HISTORICAL_SOURCE_EQUITY",
+                    "reason": str(exc),
+                    "pnl_usd": None,
+                }
+            )
+            continue
+        result = _run_combo(
+            name,
+            trio,
+            episodes,
+            {w: D("1") for w in trio},
+            market,
+            actions_override=actions,
+        )
+        result["source_equity_weight_sizing"] = True
+        result["evidence_class"] = "HINDSIGHT_PARTIAL_EPISODE_ORACLE_NOT_COMPLETE_WALLET"
+        preflight["portfolio_results"].append(result)
+    preflight["status"] = "PARTIAL_EQUITY_WEIGHTED_RESEARCH_NOT_WALLET_QUALIFICATION"
+    preflight["wallet_audit"] = audits
+    preflight["market_sha_checked_days"] = len(market.source_days)
+    preflight["source"] = {
+        "public_snapshot_sha256": source["public_snapshot_sha256"],
+        "verified_overlay_report_sha256": source["verified_overlay_report_sha256"],
+    }
+    return preflight
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--research-root", required=True, type=Path)
@@ -684,20 +889,25 @@ def main() -> None:
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--hyperx-generations", nargs="*", type=Path, default=[])
     parser.add_argument("--no-mixed", action="store_true")
+    parser.add_argument("--source-equity-ledger", type=Path)
+    parser.add_argument("--legacy-gross-proxy", action="store_true")
     args = parser.parse_args()
     report = study(
         args.research_root,
         args.market_root,
         tuple(args.hyperx_generations),
         mixed=not args.no_mixed,
+        source_equity_ledger=args.source_equity_ledger,
+        legacy_gross_proxy=args.legacy_gross_proxy,
     )
     path, digest = _write_private_evidence(args.out, report)
     print(
         json.dumps(
             {
-                "schema": SCHEMA,
+                "schema": report["schema"],
                 "full_wallet_faithful": 0,
                 "conditional_complete_combinations": len(report["conditional_rank_names"]),
+                "source_equity_replay_status": report.get("status", "LEGACY_GROSS_PROXY_EXPLICIT"),
                 "portfolios": [
                     {k: row[k] for k in ("name", "status", "pnl_usd") if k in row}
                     for row in report["portfolio_results"]

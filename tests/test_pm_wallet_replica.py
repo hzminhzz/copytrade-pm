@@ -79,6 +79,26 @@ def test_e0_fidelity_never_converts_flat_to_zero_error_score():
     assert result["no_source_exposure"] is True
 
 
+def test_e0_fidelity_reports_true_equity_normalized_leverage_when_follower_skips_order():
+    b = book(
+        equity_usd=D("100000"),
+        positions={BTC: D("3")},
+    )
+    planned = replicate(b, decision_at=AT, pod_capital_usd=D("2000"))
+    assert planned.intended[BTC] == D(".06")
+    skipped = fidelity(
+        planned,
+        approved=planned.intended,
+        executed={},
+        marks={BTC: D("100000")},
+    )
+    assert skipped["source_signed_exposure_weights"][BTC] == "3"
+    assert skipped["source_gross_exposure_multiple"] == "3"
+    assert D(skipped["pod_capital_usd"]) == D("2000")
+    assert D(skipped["tracking_deviation_as_fraction_of_pod_capital"]) == D("3")
+    assert skipped["executed_signed_exposure_weights"] == {}
+
+
 def test_e0_missing_market_mark_blocks():
     a = replicate(book(), decision_at=AT, pod_capital_usd=D("2000"))
     with pytest.raises(ValueError, match="E0_INCOMPLETE_FIDELITY_MARKS"):

@@ -2,6 +2,8 @@
 
 **Decision:** Whole-wallet **observed target positions** are the research baseline. A fill is a state transition, not an independently sized trade signal. The E0 adapter is `pm_wallet_replica`, not a replacement for PM-03 or PM-04. The original A/B/C E1/E2/E3 artifacts are immutable *historical-oracle partial-episode diagnostics*; they are not source-account replicas and cannot be relabeled.
 
+**Updated interpretation (2026-11-02):** The sizing unit is signed source position **notional divided by source account equity**. For a $100k wallet long $300k BTC, a $2k follower pod targets +$6k BTC pre-risk. One missed follower trade is a tracking gap, not a new per-trade sizing decision. The production E0 `pod_capital / source_equity` multiplier is algebraically the same with matched native marks; see [Equity-weight sizing and recovered Q3 NAV evidence](EQUITY-WEIGHT-SIZING.md). The subsequent legacy Q3 gross-normalized replay did **not** measure this and must not be used for wallet selection.
+
 ## Invariants
 
 - Each pod is one explicitly scoped account identity (master vs subaccount is not guessed). All active signed legs across the selected scope are considered; a missing market or hedge blocks rather than gets dropped.
