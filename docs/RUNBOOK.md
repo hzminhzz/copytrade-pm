@@ -123,6 +123,10 @@ See [ledger contract](PM-01-prospective-ledger.md). A new WS receipt **without a
 
 The pinned read-only `copytrade-source-abc.service` observes bounded A/B/C account windows. Check `systemctl --user show copytrade-source-abc.service -p ActiveState -p UnitFileState -p MainPID -p NRestarts`, the journal, and `loginctl show-user quant -p Linger`. Audit each portfolio with `python -m copytrade_pm.pm_e4_source_readiness --store "$CAPTURE_ROOT/A" --portfolio A` (repeat B/C). Preserve incomplete generations and inter-session gaps. Follow [the release and rollback procedure](RECOVERY-INTEGRATION.md); do not point the service at a dirty worktree or revive the over-limit legacy observer.
 
+## Exploratory Q3 three-wallet historical replay (offline)
+
+See [the dated 84-combination study](HISTORICAL-THREE-WALLET-COMPARISON.md) for the complete command, model, results and limitations. Use `python -m copytrade_pm.pm_historical_combos` with frozen source and native market roots. This is an ex-post **observed flat-to-flat chain** account simulator; it is NOT a complete source-wallet portfolio, PIT follower receipt or Propr executable result. Every partial stop is reported and no full-wallet combination is ranked.
+
 ## 4. PM-01/PM-02 to PM-03 evidence handoff (offline)
 
 `copytrade-pm-handoff` is a strict historical contract verifier. It requires all three **matching** sealed artifacts: PM-01 v2 replay, PM-01 observed-book tape, and PM-02 governance output. They must share source manifests, cutoff, cohort and PM-01 digest. **Do not pick “latest” tape and replay independently**, or mix overlay/non-overlay generations.
