@@ -15,7 +15,7 @@
 | TI-02 | `trader_intelligence_intake.py` | Arbitrary 1/36/94+ rosters, read-only SQLite journal, first-known versus vendor clocks, coalesced changes, invalidation/barrier, explicit HyperX/public fill schemas |
 | TI-03 | `trader_intelligence_book.py` | Explicit coherent all-DEX source book/equity/chain/spot/parent-cluster evidence; reduce/exit/reversal semantics, basket/carry/unknown veto |
 | TI-04 | `trader_intelligence_research.py` | 300s follower minimum, native 1m next-open proxy, prior completed-minute capacity, taker/spread/slippage/funding assumptions, fixed-horizon versus conservative OHLC stop, missing-mark refusal |
-| TI-05 | `trader_intelligence.py` and `trader_intelligence_research.py` | Sparse-history shrinkage by episode group; source PnL never directly substitutes for follower economics; **no positive calibrated A/B assignment** without independently attested outcomes |
+| TI-05 | `trader_intelligence.py` and `trader_intelligence_research.py` | Sparse-history shrinkage by episode group; diagnostic C/X `ResearchRank` with parent-first dependence collapse, strict matured outcome clocks, policy/horizon comparability, failed-episode and conflicting-ID guards, explicit `UNATTESTED_DIAGNOSTIC_ONLY` provenance; **no positive calibrated A/B assignment** without independently attested outcomes |
 | TI-06 | `trader_intelligence_research.py` | Exploratory same-cut five-policy comparisons, optional matched market controls with exact policy SHA, null missing controls; always `NOT_QUALIFIED` |
 | TI-07 | `ensemble/trader_grade_adapter.py` plus optional `copy_digest.py` kwargs | Strict model/policy/source/time/namespace/grade validation, bounded escaped research appendix, descriptive-only by default, no CLI activation or new sends |
 | TI-08 | Tests and this checkpoint | Independent integration test, source/restart/adversarial fixtures; full signoff and release still pending |
@@ -36,6 +36,12 @@ At inspection the live `copy-opportunities-live.db` contained **74,148** durable
 - Ensemble full tests `uv run --group dev python -m pytest -q tests` → **276 passed**; Ruff lint and build → PASS. Ensemble-wide `ruff format --check src tests` fails on 73 **pre-existing** files; changed grade adapter/test files are formatted, and an unrelated project-wide format rewrite was deliberately avoided.
 - Real cross-repository in-process contract test, from PM `assessment_document_for_board` to ensemble `inspect_grade_artifact`: **PASS**, no risk/order authority; source board SHA `f0dd4d11a99dec70ec68ca931a7f66fa38a5a7eff20f0b179aef4620a9cbca99` (synthetic board fixture).
 - Tests are engineering evidence. Recheck GitHub CI for each pushed commit before any merge.
+
+## Research ranker integrity — continuation after handoff
+
+`rank_research_opportunities(...)` is a read-only **watch-order**, not a calibrated trader-skill estimate. The retained as-of source hash must match the evaluator's decision cut. Parent-linked subaccounts collapse before explicit cluster labels; unverified independence contributes no independent score. Episode identity conflicts, incomparable policies/horizons and matured failed follower episodes fail closed. A rank can be derived from hypothetical labels, including retrospective proxies, so **every** output carries `evidence_class=UNATTESTED_DIAGNOSTIC_ONLY` and `UNATTESTED_REPLAY_NOT_FOLLOWER_PROOF`; no A/B or account risk can be assigned. The episode-history digest now covers the full label payload rather than only IDs. Outcome clocks are checked before the shrinkage step and a future first-local receipt cannot improve an earlier rank.
+
+2026-11-03 local acceptance for this incremental ranker: both core and native-market suites **538 passed** each, Ruff lint/format and wheel/sdist build passed. This is engineering verification only; no independent signed economic evidence or OOS qualification was produced.
 
 ## Scientific and release limitations
 

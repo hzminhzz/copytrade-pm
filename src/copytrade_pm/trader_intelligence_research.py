@@ -7,7 +7,7 @@ produces diagnostic hypothetical labels, not observed fills or prospective proof
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 from decimal import Decimal
 from math import sqrt
@@ -16,6 +16,7 @@ from typing import Iterable
 
 from .trader_intelligence import (
     ObservationSnapshot,
+    OpportunityAssessment,
     WalletEvent,
     decimal,
     digest,
@@ -378,18 +379,39 @@ def asof_skill(
     if prior_strength < 1 or decimal(tail_probability_z) <= 0:
         raise ValueError("INVALID_PRIOR_OR_CONFIDENCE")
     cut = utc(decision_at)
-    eligible = [
-        o
-        for o in outcomes
-        if o.wallet == wallet
-        and o.instrument == instrument
-        and o.direction == direction
-        and o.strategy_style == style
-        and o.status in ("OK", "STOP_PROXY_FILLED")
-        and o.net_r is not None
-        and o.outcome_known_at is not None
-        and utc(o.outcome_known_at) < cut
-    ]
+    eligible_by_id: dict[str, FollowerEpisode] = {}
+    for o in outcomes:
+        if not (
+            o.wallet == wallet
+            and o.instrument == instrument
+            and o.direction == direction
+            and o.strategy_style == style
+            and o.status in ("OK", "STOP_PROXY_FILLED")
+            and o.net_r is not None
+            and o.outcome_known_at is not None
+            and o.hypothetical_entry_at is not None
+            and o.hypothetical_exit_at is not None
+        ):
+            continue
+        # A claimed matured timestamp is insufficient if the local receipt,
+        # hypothetical entry or exit was only known after this decision.
+        observed, entered, exited, known = (
+            utc(o.observation_at),
+            utc(o.hypothetical_entry_at),
+            utc(o.hypothetical_exit_at),
+            utc(o.outcome_known_at),
+        )
+        first_known = utc(o.first_known_at) if o.first_known_at else observed
+        if not (observed <= first_known <= entered <= exited <= known < cut):
+            continue
+        if decimal(o.gross_r or "0") - decimal(o.cost_r or "0") != decimal(o.net_r):
+            # Follower profit cannot be chosen independently of declared costs.
+            raise ValueError("INCONSISTENT_FOLLOWER_NET_ECONOMICS")
+        existing = eligible_by_id.get(o.episode_id)
+        if existing is not None and existing != o:
+            raise ValueError("CONFLICTING_FOLLOWER_EPISODE")
+        eligible_by_id[o.episode_id] = o
+    eligible = sorted(eligible_by_id.values(), key=lambda o: o.episode_id)
     by_group: dict[str, list[Decimal]] = defaultdict(list)
     for e in eligible:
         by_group[e.group_id].append(decimal(e.net_r))
@@ -402,7 +424,7 @@ def asof_skill(
             "direction": direction,
             "style": style,
             "cut": norm_clock(decision_at),
-            "episode_ids": sorted(o.episode_id for o in eligible),
+            "episodes": [o.as_wire() for o in eligible],
         }
     )
     if not n:
@@ -656,3 +678,166 @@ def matched_benchmark(
         trial_count=5,
         rows=tuple(rows),
     )
+
+
+@dataclass(frozen=True)
+class ResearchRank:
+    """Deterministic research watch-order, never A/B or account risk."""
+
+    candidate_id: str
+    instrument: str
+    direction: str
+    watch_grade: str
+    rank: int | None
+    independent_scored_clusters: int | None
+    matured_episode_groups: int | None
+    cluster_conservative_lcb_r: str | None
+    reasons: tuple[str, ...]
+    input_sha256: str
+    evidence_class: str = "UNATTESTED_DIAGNOSTIC_ONLY"
+
+
+def rank_research_opportunities(
+    assessments: tuple[OpportunityAssessment, ...],
+    snapshot: ObservationSnapshot,
+    outcomes: Iterable[FollowerEpisode],
+    *,
+    decision_at: str,
+    prior_strength: int,
+    tail_probability_z: str,
+) -> tuple[ResearchRank, ...]:
+    """Order C/X watch candidates using *past matured* follower evidence.
+
+    Each wallet skill is conditional on instrument, side and detected strategy.
+    Related wallets collapse to one cluster vote using its minimum LCB.
+    No estimate or rank can authorize A/B or account exposure.
+    """
+    cut = utc(decision_at)
+    if utc(snapshot.roster_known_at) > cut:
+        raise ValueError("FUTURE_RESEARCH_RANK_ROSTER")
+    asof = tuple(
+        event
+        for event in {e.event_id: e for e in snapshot.events}.values()
+        if event.known_at <= cut and utc(event.event_at) <= cut
+    )
+    asof_sha = ObservationSnapshot(
+        roster_id=snapshot.roster_id,
+        roster_known_at=snapshot.roster_known_at,
+        wallets=snapshot.wallets,
+        events=asof,
+        roster_origin=snapshot.roster_origin,
+    ).sha256
+    latest: dict[tuple[str, str], WalletEvent] = {}
+    for event in sorted(asof, key=lambda e: (e.known_at, utc(e.event_at), e.event_id)):
+        latest[(event.wallet, event.instrument)] = event
+    roster = {w.alias: w for w in snapshot.wallets}
+    # The replay's deterministic IDs are evidence identities. Conflicts are
+    # errors, not an opportunity to pick a favorable revision of a result.
+    indexed: dict[str, FollowerEpisode] = {}
+    for episode in outcomes:
+        previous = indexed.get(episode.episode_id)
+        if previous is not None and previous != episode:
+            raise ValueError("CONFLICTING_FOLLOWER_EPISODE")
+        indexed[episode.episode_id] = episode
+    labels = tuple(indexed.values())
+    ranked: list[ResearchRank] = []
+    for a in assessments:
+        if norm_clock(a.decision_at) != norm_clock(decision_at) or a.input_sha256 != asof_sha:
+            raise ValueError("RESEARCH_RANK_DECISION_LINEAGE_MISMATCH")
+        if a.grade not in ("C", "X") or a.research_r != "0" or a.order_authorized:
+            raise ValueError("RESEARCH_RANK_CANNOT_PROMOTE_GRADE")
+        clusters: dict[str, list[SkillEstimate]] = defaultdict(list)
+        reasons = set(a.reasons)
+        reasons.add("UNATTESTED_REPLAY_NOT_FOLLOWER_PROOF")
+        relevant = [
+            e
+            for e in latest.values()
+            if e.instrument == a.instrument and e.direction == a.direction
+        ]
+        # Skill is only comparable within the exact model cost/exit contract
+        # and outcome horizon. Do not pool 15m and 60m or cheap/stressed costs.
+        relevant_wallets = {e.wallet for e in relevant}
+        history = tuple(
+            o
+            for o in labels
+            if o.wallet in relevant_wallets
+            and o.instrument == a.instrument
+            and o.direction == a.direction
+            and o.strategy_style == "DIRECTIONAL"
+            and utc(o.observation_at) < cut
+        )
+        comparable = {(o.policy_sha256, o.horizon_minutes) for o in history}
+        if len(comparable) > 1:
+            reasons.add("INCOMPARABLE_LABEL_POLICY_OR_HORIZON")
+        # A failed/unknown matured label cannot disappear from the denominator
+        # while profitable labels are retained. Keep the watch unranked.
+        if any(
+            o.status not in ("OK", "STOP_PROXY_FILLED") or o.net_r is None
+            for o in history
+            if utc(o.observation_at) + timedelta(minutes=o.horizon_minutes + 5) < cut
+        ):
+            reasons.add("UNRESOLVED_MATURED_FOLLOWER_EPISODE")
+        for event in latest.values():
+            if (
+                event.instrument != a.instrument
+                or event.direction != a.direction
+                or event.book_complete is not True
+                or event.source_equity_usd is None
+                or event.strategy_style != "DIRECTIONAL"
+            ):
+                continue
+            wallet = roster[event.wallet]
+            cluster = (f"parent:{wallet.parent}" if wallet.parent else None) or wallet.cluster
+            if cluster is None:
+                reasons.add("INDEPENDENCE_UNVERIFIED")
+                continue
+            skill = asof_skill(
+                event.wallet,
+                event.instrument,
+                a.direction,
+                "DIRECTIONAL",
+                history,
+                decision_at,
+                prior_strength=prior_strength,
+                tail_probability_z=tail_probability_z,
+            )
+            if skill.lower_bound_r is not None:
+                clusters[cluster].append(skill)
+        if (
+            clusters
+            and a.grade == "C"
+            and not reasons.intersection(
+                {"INCOMPARABLE_LABEL_POLICY_OR_HORIZON", "UNRESOLVED_MATURED_FOLLOWER_EPISODE"}
+            )
+        ):
+            # A clone's extra wins cannot count as a second independent sample.
+            cluster_scores = [
+                min(decimal(s.lower_bound_r) for s in group if s.lower_bound_r is not None)
+                for group in clusters.values()
+            ]
+            score = sum(cluster_scores, Decimal(0)) / Decimal(len(cluster_scores))
+            groups = sum(max(s.effective_groups for s in group) for group in clusters.values())
+        else:
+            score = None
+            groups = None
+            reasons.add("NO_MATURED_INDEPENDENT_FOLLOWER_SKILL")
+        ranked.append(
+            ResearchRank(
+                candidate_id=a.candidate_id,
+                instrument=a.instrument,
+                direction=a.direction,
+                watch_grade=a.grade,
+                rank=None,
+                independent_scored_clusters=len(clusters) if clusters else None,
+                matured_episode_groups=groups,
+                cluster_conservative_lcb_r=str(score) if score is not None else None,
+                reasons=tuple(sorted(reasons)),
+                input_sha256=asof_sha,
+            )
+        )
+    ordered = sorted(
+        (r for r in ranked if r.cluster_conservative_lcb_r is not None),
+        key=lambda r: (-decimal(r.cluster_conservative_lcb_r), r.candidate_id),
+    )
+    positions = {r.candidate_id: index for index, r in enumerate(ordered, 1)}
+    return tuple(replace(r, rank=positions.get(r.candidate_id)) for r in ranked)
