@@ -118,7 +118,9 @@ def audit(root: Path) -> dict:
         wallet = wallets[address]
         prev = None
         opened = None
-        for row in sorted(rows, key=lambda r: (r["timestamp_ms"], int(r["tid"]))):
+        for row in sorted(rows, key=lambda r: r["timestamp_ms"]):
+            # Exchange trade IDs are identities, not chronological sequence numbers.
+            # Stable timestamp sort preserves the provider's original within-ms order.
             before = Decimal(row["start_position"])
             after = Decimal(row["end_position"])
             if prev is not None and before != prev:

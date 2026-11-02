@@ -1,32 +1,30 @@
-# Hyperliquid 94-wallet cohort: ingestion and audit checkpoint (2026-11-02)
+# Hyperliquid 94-wallet raw cohort: read-only integrity audit (2026-11-02)
 
-## Evidence status
+**Status: IMPLEMENTED / ENGINEERING VERIFIED.** Historical partial-source replay now exists separately: [HL94 Gemini-inspired three-pod study](HL94-GEMINI-THREE-POD-20261102.md). This audit does not prove whole-wallet economic returns or first-known observations.
 
-- **COMPLETED:** isolated read-only raw-fill ingestion audit, both vendor naming styles, trade-identity validation, SHA-addressed private per-wallet report.
-- **NOT COMPLETED:** complete historical source position-book reconciliation, per-wallet authentic historical equity, Propr market-scope/native 1m coverage screen, 60/30 window selection, top-20 shortlist, PM03/PM04 three-pod portfolio experiments, validation, sensitivities or superiority claims.
-- **RESEARCH DISPOSITION:** NO QUALIFIED PORTFOLIO. This is not a negative return finding. No candidate has been compared through the full follower engine in this cohort.
-- **TRADING AUTHORIZATION:** NONE.
+## Scope and immutable evidence
 
-## Verified source audit
+Private source root: `/home/quant/dev/copytrade-pm/data/`. Three independent directories contain 19 primary active roster, 20 Nansen Smart Money, and 55 broader active inventory JSON files. **94 files and 94 unique full wallet addresses**, deduplicated by address rather than label. Original frozen 36-wallet PM-01 cohort unchanged.
 
-Raw cohort root: `/home/quant/dev/copytrade-pm/data`.
+**Final read-only audit:** `/home/quant/.local/share/copytrade/reports/hl94-20261102/hl94-audit-fb280b2e1cab827116a9.json`.
 
-Versioned, immutable private report:
-`/home/quant/.local/share/copytrade/reports/hl94-20261102/hl94-audit-84b1c1b344fa03c3df7f.json`
+**SHA-256:** `fb280b2e1cab827116a93c339aa925cad377b38145c1dcc77fcba4d618e3d9e5`.
 
-SHA-256: `84b1c1b344fa03c3df7f9bd7d9485f646f474601224c0361b63f6158a2fd752`.
+| Audit dimension | Observed result |
+| --- | ---: |
+| Raw 90-day-designated fills (before actual date-window filtering) | 500,168 |
+| Distinct valid native fill identities | 500,131 |
+| Rejected invalid rows | 37 |
+| Distinct wallet addresses | 94 |
+| Source-file count by directory | 19 / 20 / 55 |
 
-- 19 original active roster JSON files, 20 Nansen JSON files, 55 broader inventory files.
-- 94 files and **94 unique full wallet addresses** (no address-level overlap).
-- **500,168 raw fill rows**; 37 invalid rows; **500,131 validated unique fill identities**.
-- Invalid rows are quarantined, not used for source-account replay. Trade IDs at zero are not unique exchange evidence and are explicitly rejected, not silently deduplicated.
-- Counts are for source-file contents, not first-known/real-time trades.
-- Per-wallet report stores raw file SHA, label, instruments, observed chain breaks, gross reported turnover, aggregate reported closed PnL, and measured zero-to-zero holding times where a continuous book segment is observed.
-- Closed PnL alone cannot proxy all-in wallet or follower profitability; source funding, collateral and unknown initial inventory remain unverified.
-- One source's top-level `equity` value is a retrieval snapshot, not valid for historical position weights.
-- No raw source file or original 36-wallet cohort was modified.
+Both `startPosition`/`closedPnl` and `start_position`/`closed_pnl` are normalized. Native coin names, source timestamps, signed sizes, trade IDs, position-before/after, order IDs and raw SHA are retained. `tid=0` rows are invalid identity evidence, not safe deduplication keys. Source snapshot `equity` was **not used** as a historical as-of equity denominator.
 
-Reproduce:
+**Audit correction:** A prior report `hl94-audit-84b1c1b344fa03c3df7f.json` reordered same-millisecond fills by exchange `tid`. That ID is not a chronological rank. The current version instead uses stable timestamp sort, preserving original vendor order within each timestamp. This changes measured chain discontinuities/episode holds but **not** the raw/valid fill counts. A dedicated regression test prevents the original sequencing bug. Preserve the original SHA report as superseded history; do not erase it.
+
+Observed source realized PnL, completed-episode median holding times, and gross trade turnover are **descriptive**, not follower PnL, full source equity or complete book coverage. Zero-to-zero episodes cannot recover unknown opening inventory, omitted hedges, omitted subaccounts, funding or collateral.
+
+## Reproduce
 
 ```bash
 uv run --frozen --group dev python -m copytrade_pm.pm_hl94_audit \
@@ -34,10 +32,6 @@ uv run --frozen --group dev python -m copytrade_pm.pm_hl94_audit \
   --out /home/quant/.local/share/copytrade/reports/hl94-20261102
 ```
 
-## Blocker recovery path
+**Research decision (user, 2026-11-02):** Historical-equity recovery is *not required for exploratory wallet-selection experiments*. The successor study uses discovery-calibrated, fixed source-position scale factors and clearly labels them as proxies. This decision does **not** override the exact source-equity sizing contract for any claim of faithful replication or live authorization.
 
-The existing Q3 `pm_sparse_equity_portfolio` is **not** directly parameterized for this cohort. It is tied to the frozen 36-wallet alias roster, July–October window and nine source-equity files. Existing retrospective official portfolio NAV has sparse prior-only observations for the old nine wallets; that does not establish historical NAV or full books for the new 94.
-
-Continue by acquiring separate source-account equity observations **without querying the official account-fill endpoint**, enforcing address/scope/as-of provenance and partial-book labels; extend cohort and dates in a new versioned engine configuration; then run the actual synchronized PM03/PM04 portfolio comparisons. Do not use today's snapshots or 90-day closed PnL as historical source equity. Do not interpret observed completed-position medians as whole-wallet holding-time estimates.
-
-Do not select or deploy a wallet from this checkpoint. The `W042/W044/W028` Q3 baseline remains a separately evaluated, non-qualified historical proxy, not something this new cohort has beaten.
+No raw source data, private address map or vendor credentials were committed to Git.

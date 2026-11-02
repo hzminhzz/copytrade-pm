@@ -46,3 +46,14 @@ def test_dedupe_does_not_collapse_distinct_partial_trade_ids(tmp_path):
     assert result["counts"]["exact_duplicates"] == 1
     assert result["wallets"][0]["portfolio_eligible"] is False
     assert result["wallets"][0]["evidence_status"] == "RAW_FILLS_ONLY_NO_HISTORICAL_EQUITY"
+
+
+def test_identical_timestamp_preserves_provider_sequence_not_tid_sort(tmp_path):
+    folder = tmp_path / "wallet_fills_90d"
+    folder.mkdir()
+    rows = [sample(time=1780000000000, tid=999, sz="2", startPosition="0"),
+            sample(time=1780000000000, tid=2, sz="2", side="A", startPosition="2")]
+    (folder / "x.json").write_text(json.dumps({"address": "0x" + "b" * 40, "fills": rows}))
+    record = audit(tmp_path)["wallets"][0]
+    assert record["position_discontinuities"] == 0
+    assert record["completed_episodes"] == 1
