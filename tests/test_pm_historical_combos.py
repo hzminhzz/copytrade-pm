@@ -136,6 +136,33 @@ def test_any_missing_active_minute_stops_metrics_not_zero_fills():
     assert result["observed_through"] == bad.isoformat()
 
 
+def test_capacity_policy_uses_prior_complete_minute_not_future_bar_volume():
+    """An order at 00:07 cannot know 00:07's finished quote volume."""
+    opening = START + timedelta(minutes=1, seconds=5)
+    entry_at = START + timedelta(minutes=7)
+    previous_at = entry_at - timedelta(minutes=1)
+
+    class AsymmetricMinuteVolume(FixedMarket):
+        def get(self, instrument, when):
+            current = super().get(instrument, when)
+            volume = D("0") if when == previous_at else D("10000000")
+            return MinuteBar(when, current.open, volume, current.source_sha256)
+
+    obs = {"W028": [ep(wallet="W028", start=opening, quantity="0.06")]}
+    result = _run_combo(
+        "capacity-PIT",
+        ("W028",),
+        obs,
+        {"W028": D("1")},
+        AsymmetricMinuteVolume(),
+        capacity_enforced=True,
+    )
+    assert result["counters"]["capacity_blocked_orders"] == 1
+    assert result["counters"].get("hypothetical_net_orders", 0) == 0
+    assert result["pnl_usd"] == "0"
+    assert result["stop_reason"] is None
+
+
 def test_positions_unknown_without_episodes_not_marked_flat():
     result = _run_combo(
         "B",

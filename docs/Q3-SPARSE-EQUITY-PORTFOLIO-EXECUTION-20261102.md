@@ -14,7 +14,7 @@ This research executes the **user's actual sizing equation** (`source signed qua
 - Two historical source-equity carry policies: latest **prior** positive official `perpAllTime.accountValueHistory` sample no more than **8 days** (base), or **16 days** (stress). No interpolation from future samples. Source equity updates trigger a new 5-minute-lagged **whole-position target vector** even without a source fill. Zero/stale/missing NAV means skip the sizing **decision**, retain previous follower holdings and explicitly count the missed target; verified source flat events still close.
 - Source portfolios use only directly observed *completed* flat-to-flat instrument episodes from immutable HyperX fills, screened to the October 30 Propr public display scope and native verified 1m day eligibility. This is **post-hoc source/market availability selection bias**, not a complete source-wallet book. Some source hedges and starting inventory are unknown.
 - A missing one-minute price is never magically a new bar. **Only for exploratory holding marks**, carry a prior SHA-verified native bar open for at most 180 minutes while recording bar-age and frequency; **never fill an order at that carried price**. This enabled C to progress past the 155-minute observed `xyz:MU` July 7 quote gap. No intragap excursion is measured.
-- Capacity diagnostics flag orders above 5% of observed 1m quote volume. Separate *enforced* scenario **skips** such orders instead of inventing executable fills, measuring the resulting exposure gap. Quote volume is not a Propr order-book capacity attestation.
+- Base-case capacity diagnostics flag orders above 5% of their **same-minute final quote volume**; this diagnostic is **noncausal** and never controls base-case execution. The independent *enforced* scenario uses **only the previous completed minute's quote volume**, available at the hypothetical order's minute open, and **skips** orders above 5% of that volume. A missing preceding minute means no authorized hypothetical capacity. This review fix prevents same-bar future-volume leakage into execution. Neither minute-volume proxy attests executable Propr order-book liquidity.
 
 ## A/B/C observed outcomes
 
@@ -26,7 +26,7 @@ This research executes the **user's actual sizing equation** (`source signed qua
 
 **A's $847 profit is not evidence that its source portfolio was copied.** Action-weighted absolute exposure tracking deviation is W028 **100%**, W042 **~100%**, W030 **90%**; PM03 vetoed 727 source-target batches. B's deviations: W044 **15.6%**, CA-005 **12.6%**, W031 **41.4%**. C: CO-001 **18.9%**, W015 **77.6%**, VS066 **29.6%**. This is **simulation target-vs-executed exposure** at decision times, not real-world copy fidelity or a time-weighted ratio. The stale/missing source NAV updates that never generated targets are counted separately and are not in this denominator.
 
-Under 2× costs: A +$766.39 unresolved at end; B +$1,004.83 hits the modeled target later; C -$94.77 breaches daily drawdown earlier. Under 16-day previous-NAV carry: A +$775.53 unresolved; B hits the target Aug 21; C breaches Aug 13. With 5% 1-minute-volume *capacity enforced*, A +$462.30 unresolved; B still reaches modeled target Aug 21; C breaches Aug 13. **None is verified executable.**
+Under 2× costs: A +$766.39 unresolved at end; B +$1,004.83 hits the modeled target later; C -$94.77 breaches daily drawdown earlier. Under 16-day previous-NAV carry: A +$775.53 unresolved; B hits the target Aug 21; C breaches Aug 13. With 5% of the **previous completed minute's** quote volume *capacity enforced*, A **+$838.01** unresolved at Q3 end, B **+$1,007.07** hits the modeled target Aug 21, C **−$54.06** breaches daily drawdown Aug 13. **None is verified executable.** Earlier same-minute-volume capacity results are retained only as superseded noncausal research.
 
 ## All 84 unique three-wallet combinations
 
@@ -48,11 +48,11 @@ All three reached the synthetic +10% first-passage threshold in the base, 16-day
 
 | Combination | Base target hit | Capacity-enforced target hit | Capacity-blocked hypothetical order attempts | Worst capacity-stress pod tracking error |
 | --- | --- | --- | ---: | ---: |
-| W030 / W044 / VS066 | Aug 17 | Aug 20 | 209 | ~71% (W044) |
-| W030 / W044 / CO-001 | Aug 19 | Aug 20 | 189 | ~45% (W044) |
-| W044 / CA-005 / CO-001 | Sep 9 | Sep 9 | 163 | ~27% (W044) |
+| W030 / W044 / VS066 | Aug 17 | Aug 20 | 156 | ~66% (W044) |
+| W030 / W044 / CO-001 | Aug 19 | Aug 21 | 215 | ~73% (W044) |
+| W044 / CA-005 / CO-001 | Sep 9 | Sep 17 | 217 | ~34% (W044) |
 
-**Highest-priority follow-up for paper/shadow research:** W044 + CA-005 + CO-001. It is the lowest sensitivity to the defined volume-capacity stress of these three; all three source legs remain represented in the modeled book. It is **not** a verified winner. In particular W044's official master NAV has a zero historical observation, CA-005 and CO-001 may have other subaccount exposures, and the 163 blocked *order attempts* exceed the few occasional skipped follower trades envisaged by the user. Some capacity attempts may represent repeats, not distinct original source fills.
+**Highest-priority follow-up for paper/shadow research:** W044 + CA-005 + CO-001. It is the lowest sensitivity to the defined volume-capacity stress of these three; all three source legs remain represented in the modeled book. It is **not** a verified winner. In particular W044's official master NAV has a zero historical observation, CA-005 and CO-001 may have other subaccount exposures, and the 217 blocked *order attempts* exceed the few occasional skipped follower trades envisaged by the user. Some capacity attempts may represent repeats, not distinct original source fills.
 
 W030 + W044 + VS066 is an alternative, with earlier modeled first passage, fewer executed orders, but sparse VS066 source NAV (only seven Q3 samples) and substantially worse W044 exposure tracking when capacity is enforced.
 
@@ -62,9 +62,9 @@ Private, immutable SHA-addressed report root:
 
 `/home/quant/.local/share/copytrade/reports/q3-sparse-equity-weighted-20261102/`
 
-**Consolidated 84-combo + selected-sensitivity summary:** `pm01-36-wallets-ba9e2057ab3df354bdfe.json`, full SHA256 `ba9e2057ab3df354bdfe59f3538bd33d8fdc65d46a32a3a0abf2c9660f4bea64`. It cryptographically checks the SHA-addressed base report, all seven disjoint mixed batches and all three custom sensitivity generations, matching source SHA maps, Propr screen, account policy, and market settings.
+**Consolidated 84-combo + selected-sensitivity summary (post-review):** `pm01-36-wallets-67c12a0dd37b7983041b.json`, full SHA256 `67c12a0dd37b7983041b7f669efc77cc3b11a20f42980fa6a2ab42b7e43259be`. It cryptographically checks the SHA-addressed base report, all seven disjoint mixed batches and all three custom sensitivity generations, matching source SHA maps, Propr screen, account policy, and market settings.
 
-Original A/B/C + 4 scenarios: `pm01-36-wallets-9b5a44377269236ab93c.json`. All 81 mixed:
+Re-reviewed A/B/C + 4 scenarios: `pm01-36-wallets-0b09e40f94cf811cbffb.json`. The 81 unchanged **base-case** mixed results are reused from their original immutable generations (the base-case sizing/execution logic did not change). All 81 mixed:
 - 0: `f0743653602e054136eb`
 - 12: `05235dc15776c48b1b7e`
 - 24: `32ef3cdf82293731550e`
@@ -73,7 +73,7 @@ Original A/B/C + 4 scenarios: `pm01-36-wallets-9b5a44377269236ab93c.json`. All 8
 - 60: `465f9074ea79b0be71ed`
 - 72: `b9f5054dafb14ab389be`
 
-Selected stress experiments (4 scenarios each): `87c4a8ab646b174db374`, `8cb967d4286711e40c19`, `cfd55187d600c4397fe5`, respectively. All file names use `pm01-36-wallets-<20 SHA hex>.json`.
+Re-reviewed selected stress experiments (4 scenarios each): `ae4d1840a60db674be3a`, `98972150ae7176f368da`, `54f3fe4d3b1babbcbfeb`, respectively. The pre-review reports remain privately immutable and **must not** be used as causal capacity results. All file names use `pm01-36-wallets-<20 SHA hex>.json`.
 
 ```bash
 # Base frozen A/B/C; native data and historical equity files remain read-only.

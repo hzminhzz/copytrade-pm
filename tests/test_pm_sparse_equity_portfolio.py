@@ -185,16 +185,18 @@ def test_capacity_veto_records_missed_follower_delta_and_preserves_account():
     account = Account.start(_synthetic_rulebook({BTC_INST}), START.isoformat())
     target = {"W028": {BTC_INST: D(".06")}}
     counters = Counter()
-    scarce = MinuteBar(START, D("100000"), D("100"), SHA)
+    # Current minute volume looks ample but is not available at its OPEN.
+    current_bar = MinuteBar(START, D("100000"), D("10000000"), SHA)
     _rebalance(
         account,
         target,
         {BTC_INST: D("100000")},
-        {BTC_INST: scarce},
+        {BTC_INST: current_bar},
         counters,
         execution_minute=START,
         risk_limits=(D("6000"), D("18000"), D("9000")),
         capacity_enforced=True,
+        prior_closed_quote_volume={BTC_INST: D("100")},
     )
     assert account.quantities.get(BTC_INST, D("0")) == 0
     assert counters["capacity_blocked_orders"] == 1
@@ -212,10 +214,26 @@ def test_capacity_veto_records_missed_follower_delta_and_preserves_account():
         execution_minute=START + timedelta(minutes=1),
         risk_limits=(D("6000"), D("18000"), D("9000")),
         capacity_enforced=True,
+        prior_closed_quote_volume={BTC_INST: D("10000000")},
     )
     assert account.quantities[BTC_INST] == D(".06")
     assert counters["hypothetical_net_orders"] == 1
     account.verify()
+
+
+def test_capacity_stress_cannot_use_same_minute_volume_without_prior_bar():
+    account = Account.start(_synthetic_rulebook({BTC_INST}), START.isoformat())
+    current_bar = MinuteBar(START, D("100000"), D("10000000"), SHA)
+    with pytest.raises(ValueError, match="MISSING_PRIOR_CLOSED_MINUTE_CAPACITY"):
+        _rebalance(
+            account,
+            {"W028": {BTC_INST: D(".06")}},
+            {BTC_INST: D("100000")},
+            {BTC_INST: current_bar},
+            Counter(),
+            execution_minute=START,
+            capacity_enforced=True,
+        )
 
 
 def test_invalid_exploratory_policy_bounds():

@@ -341,6 +341,11 @@ def _scenario(
     result["max_prior_nav_age_days"] = max_age_days
     result["costs_multiplier"] = str(costs_x)
     result["capacity_enforced"] = capacity_enforced
+    result["capacity_volume_reference"] = (
+        "PRIOR_COMPLETED_1MIN_BAR_AT_ORDER_OPEN"
+        if capacity_enforced
+        else "CURRENT_1MIN_FINAL_VOLUME_DIAGNOSTIC_ONLY_NONCAUSAL"
+    )
     result["carried_native_minute_proxy_count"] = market.diagnostics["stale_open_price_proxy_bars"]
     result["max_carried_price_age_seconds"] = market.max_carried_age_seconds
     result["max_allowed_stale_price_minutes"] = max_stale_mark_minutes

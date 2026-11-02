@@ -434,8 +434,11 @@ def _rebalance(
     cost_multiplier: D = D("1"),
     execution_minute: datetime | None = None,
     capacity_enforced: bool = False,
+    prior_closed_quote_volume: dict[Instrument, D] | None = None,
 ):
     """Net across three virtual PM books in the existing sole PM03 account."""
+    if capacity_enforced and prior_closed_quote_volume is None:
+        raise ValueError("MISSING_PRIOR_CLOSED_MINUTE_CAPACITY")
     pod_cap, account_cap, instrument_cap = risk_limits or (
         POD_GROSS_CAP,
         ACCOUNT_GROSS_CAP,
@@ -505,10 +508,14 @@ def _rebalance(
         if not net:
             continue
         bar = bars[inst]
-        cap_qty = bar.quote_volume / bar.open * MAX_PARTICIPATION
-        # EXPLORATORY MID-OPEN PROXY: estimate economics regardless of
-        # unverified volume capacity. Flag every order above 5% bar volume;
-        # this is NOT an executable/venue-verified fill.
+        # Only the volume of the PREVIOUS completed minute can be used to
+        # decide an order at this minute's open. Using the current minute's
+        # final volume is lookahead. Legacy non-enforced diagnostics retain
+        # their same-minute metric to preserve earlier historical evidence.
+        volume = (
+            prior_closed_quote_volume.get(inst, ZERO) if capacity_enforced else bar.quote_volume
+        )
+        cap_qty = volume / bar.open * MAX_PARTICIPATION
         if cap_qty <= ZERO or abs(net) > cap_qty:
             counters["orders_above_5pct_minute_volume_or_zero_volume"] += 1
             if capacity_enforced:
@@ -654,6 +661,26 @@ def _run_combo(
                 except MarketDataBlocked as exc:
                     reason = "MISSING_REQUESTED_MARK:" + str(exc).split(":", 1)[0]
                     break
+            prior_closed_quote_volume = None
+            if capacity_enforced:
+                # Use only a finished t-1 market bar for the capacity proxy.
+                # Never use the t bar's final volume to decide at its open.
+                prior_closed_quote_volume = {}
+                native = getattr(market, "native", market)
+                for inst in set(prices):
+                    try:
+                        prior_bar = _quote(native, inst, current - MINUTE)
+                    except MarketDataBlocked:
+                        counters["capacity_prior_minute_unavailable"] += 1
+                        prior_closed_quote_volume[inst] = ZERO
+                    else:
+                        prior_closed_quote_volume[inst] = (
+                            prior_bar.quote_volume
+                            if prior_bar.timestamp == current - MINUTE
+                            else ZERO
+                        )
+                        if prior_bar.timestamp != current - MINUTE:
+                            counters["capacity_prior_minute_unavailable"] += 1
             _rebalance(
                 account,
                 desired,
@@ -664,6 +691,7 @@ def _run_combo(
                 cost_multiplier=cost_multiplier,
                 execution_minute=current,
                 capacity_enforced=capacity_enforced,
+                prior_closed_quote_volume=prior_closed_quote_volume,
             )
             counters["wallet_batch_actions"] += len(pending)
             if measure_tracking:

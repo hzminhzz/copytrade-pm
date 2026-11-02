@@ -61,6 +61,7 @@ def _compact(row: dict):
             "orders_above_5pct_minute_volume_or_zero_volume", 0
         ),
         "capacity_blocked_rebalances": row.get("counters", {}).get("capacity_blocked_orders", 0),
+        "capacity_volume_reference": row.get("capacity_volume_reference"),
         "risk_veto_batches": row.get("counters", {}).get("risk_budget_rejected_batches", 0),
         "source_exposure_tracking_errors": {
             wallet: stats["action_weighted_tracking_error_fraction"]
