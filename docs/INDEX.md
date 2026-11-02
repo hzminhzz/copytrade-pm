@@ -8,6 +8,7 @@
 | --- | --- | --- |
 | Pick up the selected Gemini portfolio and prepare demo/paper rollout | [2026-11-02 three-wallet decision](decisions/2026-11-02-gemini-selected-three-pod.md) | **S053-HYPE / S051-BTC / S035-ENA**, decision scope, sizing direction, rollout gates; not deployed |
 | Review Gemini's other proposed combinations | [2026-11-03 alternative portfolio registry](decisions/2026-11-03-gemini-alternative-portfolios.md) | Four alternate three-pod sets and five distinct five-pod sets (including two risk budgets); all unselected |
+| Continue the Phase 3 paper-research decisions and planned 180-day evidence extension | [2026-11-03 Phase 3 adoption decision](decisions/2026-11-03-gemini-phase3-adoption-180d.md) | P1 primary, P14 equal-risk challenger, optional P16; P15 deferred; 180-day data **not yet fetched** |
 | Understand why modules exist and what is *not* connected | [Architecture and contracts](ARCHITECTURE.md) | Two evidence pipelines, module ownership, immutable boundaries |
 | Start with a wallet, vendor fills, source gaps, OHLCV, or a new cohort | [Wallet data and acquisition](DATA-ACQUISITION.md) | Frozen 36 cohort, private paths, HyperX/ML4T sources, bounded repairs and fresh observations |
 | Execute the supported research steps | [Research operator runbook](RUNBOOK.md) | Verified commands, exact artifact handoffs, safe test and incident responses |

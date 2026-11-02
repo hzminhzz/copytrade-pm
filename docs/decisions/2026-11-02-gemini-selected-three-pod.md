@@ -27,6 +27,8 @@
 
 **Alternative portfolio registry (preserved 2026-11-03):** Gemini also reported four other three-wallet combinations and five distinct five-wallet sets, with separate risk-normalized five-wallet sizing. Their exact memberships, report metrics, modeled status and deployment guards are recorded in [the Gemini Phase 2 alternative portfolio registry](2026-11-03-gemini-alternative-portfolios.md). **These are not fallbacks or approved deployments; the locked primary roster above remains unchanged.**
 
+**Phase 3 review / 180-day next step (2026-11-03):** [Phase 3 paper-research adoption decision](2026-11-03-gemini-phase3-adoption-180d.md) keeps this same three-wallet roster as **P1 primary**, accepts **P14 five-wallet at the same $600 nominal total risk only as a separate paper challenger**, and optionally retains P16 as a control; P15's extra risk is deferred. The user **plans** to extend relevant source histories to 180 days for new research. **No such data acquisition or new validation is claimed here.**
+
 ## What this decision does and does not establish
 
 **Verified or source-grounded at decision time**
