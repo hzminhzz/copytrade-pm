@@ -25,6 +25,8 @@
 
 Start a task with `AGENTS.md`, this index, the relevant source code/tests, then the **live** issue and PR; do not treat an archived report as a current service or data state.
 
+**Combo 2 paper-only development:** [single-issue, five-minute paper tracker guide](COMBO2-PAPER.md) links the frozen spec and one-work-item plan. This is a local synthetic engineering preview, not a live Propr automation.
+
 ## End-to-end mental model
 
 ```text
