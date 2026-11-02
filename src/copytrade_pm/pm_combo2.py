@@ -283,19 +283,27 @@ def _mark_with_extremes(
     now: str,
     policy: PaperPolicy,
 ) -> None:
-    held = {inst: qty for inst, qty in account.quantities.items() if qty}
-    if held:
-        if set(held) - set(quotes):
-            raise ValueError("MISSING_HELD_PAPER_MARK")
+    # Opposing virtual manager books require marks even when net inventory
+    # is zero. They are attribution positions, not external order inventory.
+    tracked = set(account.quantities) | {
+        inst for book in account.pm_quantities.values() for inst, qty in book.items() if qty
+    }
+    if tracked - set(quotes):
+        raise ValueError("MISSING_HELD_PAPER_MARK")
+    if tracked:
         adverse = {
-            inst: quotes[inst]["adverse_low"] if qty > ZERO else quotes[inst]["adverse_high"]
-            for inst, qty in held.items()
+            inst: (
+                quotes[inst]["adverse_low"]
+                if account.quantities.get(inst, ZERO) > ZERO
+                else quotes[inst]["adverse_high"]
+                if account.quantities.get(inst, ZERO) < ZERO
+                else quotes[inst]["mark"]
+            )
+            for inst in tracked
         }
-        # The bar does not establish a tick path across instruments. A
-        # conservative simultaneous adverse touch may latch risk, not alpha.
         account.mark(adverse, now)
         _latch(account, meta, policy)
-    account.mark({inst: quotes[inst]["mark"] for inst in held}, now)
+    account.mark({inst: quotes[inst]["mark"] for inst in tracked}, now)
     _latch(account, meta, policy)
 
 
@@ -324,6 +332,8 @@ def _model_fill(
     quotes: dict,
     policy: PaperPolicy,
     owner: dict[str, D],
+    *,
+    remaining_capacity: D | None = None,
 ) -> dict:
     info = quotes[inst]
     if not info["session_open"] or not info["supported"]:
@@ -337,6 +347,10 @@ def _model_fill(
     if not is_reduce and abs(qty * mark) < policy.min_opening_usd:
         return {"status": "MIN_NOTIONAL", "requested": str(qty)}
     capacity = _round_zero(info["volume_base"] * policy.max_participation, lot)
+    if remaining_capacity is not None:
+        if remaining_capacity < ZERO:
+            raise ValueError("NEGATIVE_REMAINING_CAPACITY")
+        capacity = min(capacity, _round_zero(remaining_capacity, lot))
     if capacity <= ZERO:
         return {"status": "NO_CAPACITY", "requested": str(qty)}
     fill = min(abs(qty), capacity) * (D("1") if qty > ZERO else D("-1"))
@@ -566,7 +580,14 @@ def _run_rebalance(
                 legs.append((opening, pending))
         else:
             legs.append((delta, pending))
-        for leg, request in legs:
+        # Close and opening legs share one decision's capacity allowance.
+        remaining_capacity = _round_zero(
+            info["volume_base"] * policy.max_participation, info["lot"]
+        )
+        for leg_index, (leg, request) in enumerate(legs):
+            if leg_index and account.quantities.get(inst, ZERO):
+                # Never open the opposite side while the close is partial.
+                break
             if account.breached:
                 results.append(
                     {"kind": "REJECTED", "instrument": inst.key, "reason": "CONTRACTUAL_BREACH"}
@@ -592,16 +613,41 @@ def _run_rebalance(
                     remaining -= portion
             if remaining:
                 raise ValueError("REVERSAL_ALLOCATION_UNDERFUNDED")
-            item = _model_fill(account, inst, leg, quotes, policy, shares)
+            item = _model_fill(
+                account,
+                inst,
+                leg,
+                quotes,
+                policy,
+                shares,
+                remaining_capacity=remaining_capacity,
+            )
             results.append({"kind": "EXTERNAL_PAPER", "instrument": inst.key, **item})
+            if "quantity" in item:
+                remaining_capacity -= abs(number(item["quantity"]))
             prior = account.quantities.get(inst, ZERO)
             _latch(account, meta, policy)
 
     account.verify()
-    for manager in touched:
-        for key in due:
-            if key.startswith(manager + "|"):
-                meta["pending"].pop(key, None)
+    for key in due:
+        meta["pending"].pop(key, None)
+    # Explicitly requeue partial closes/opens and closed/illiquid markets.
+    # The next decision must acquire another fresh causal source state.
+    retry_instruments = {
+        Instrument.parse(action["instrument"])
+        for action in results
+        if action.get("kind") == "EXTERNAL_PAPER"
+        and action.get("status") in ("PARTIAL", "NO_CAPACITY", "CLOSED_MARKET")
+    }
+    for manager in MANAGERS:
+        for inst in retry_instruments:
+            wanted = existing_books[manager].get(inst, ZERO)
+            actual = account.pm_quantities.get(manager, {}).get(inst, ZERO)
+            if wanted != actual:
+                key = manager + "|" + inst.key
+                meta["pending"].setdefault(
+                    key, (_utc(now) + timedelta(seconds=BATCH_SECONDS)).isoformat()
+                )
     meta["desired"] = _book_json(desired_original)
     meta["last_rebalance"] = now
     info = {
@@ -696,9 +742,10 @@ class Combo2PaperTracker:
             if not isinstance(rows, dict):
                 raise ValueError("MISSING_MARKS")
             quotes = {}
-            for inst, qty in account.quantities.items():
-                if not qty:
-                    continue
+            tracked = set(account.quantities) | {
+                inst for book in account.pm_quantities.values() for inst, qty in book.items() if qty
+            }
+            for inst in tracked:
                 quotes[inst] = _quote(
                     rows[inst.key], event.decision_at, self.policy, require_open=False
                 )

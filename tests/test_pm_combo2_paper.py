@@ -282,6 +282,79 @@ def test_reversal_is_two_separate_hypothetical_legs(tmp_path):
     assert [D(a["quantity"]) for a in external] == [D("-.0125"), D("-.0125")]
 
 
+def test_zero_net_hedged_virtual_books_keep_marking_and_attribution(tmp_path):
+    engine = tracker(tmp_path)
+    receipt(engine, "W028", eid="r-long")
+    receipt(engine, "W015", eid="r-short")
+    state = rebalance(
+        engine,
+        sources={"W028": source(quantity="1"), "W015": source("W015", quantity="-1")},
+        hedge="1",
+        shocks=[{}],
+    )
+    assert D(state["account"]["quantities"].get(BTC, "0")) == 0
+    marked = mark(engine, eid="m-hedge", seconds=360, price="90000")
+    assert D(marked["account"]["equity"]) == D("5000")
+    assert marked["meta"]["status"] == "ACTIVE_PAPER"
+    engine.account.verify()
+    pnl = engine.account.pm_equity_pnl()
+    assert pnl["W028"] == -pnl["W015"]
+    assert pnl["W028"] < 0
+    assert (
+        Combo2PaperTracker(
+            tmp_path, run_id="fixture", started_at=time(), source_subject_hashes=IDS
+        ).state()
+        == marked
+    )
+
+
+def test_partial_reversal_does_not_reuse_same_capacity(tmp_path):
+    engine = tracker(tmp_path)
+    receipt(engine)
+    rebalance(engine)
+    receipt(engine, eid="reverse-event", sec=360)
+    state = rebalance(
+        engine,
+        eid="reverse",
+        seconds=660,
+        sources={"W028": source(seconds=660, quantity="-3")},
+        markets={BTC: quote(660, capacity=".5")},  # one percent = .005 BTC
+        shocks=[{BTC: "0.01"}],
+    )
+    fills = [
+        a
+        for a in state["meta"]["last_report"]["actions"]
+        if a["kind"] == "EXTERNAL_PAPER" and a["status"] in ("FILLED", "PARTIAL")
+    ]
+    assert sum((abs(D(a["quantity"])) for a in fills), D("0")) <= D(".005")
+    assert D(state["account"]["quantities"][BTC]) == D(".0075")
+    assert state["meta"]["pending"]  # retry partial close on a fresh source state
+
+
+def test_partial_opening_retains_due_catchup(tmp_path):
+    engine = tracker(tmp_path)
+    receipt(engine)
+    state = rebalance(engine, markets={BTC: quote(capacity=".1")})
+    assert D(state["account"]["quantities"][BTC]) == D(".001")
+    assert state["meta"]["pending"]["W028|" + BTC] == time(600)
+    assert state["meta"]["last_report"]["actions"][0]["status"] == "PARTIAL"
+    caught_up = rebalance(
+        engine,
+        eid="catch-up",
+        seconds=600,
+        sources={"W028": source(seconds=600)},
+        markets={BTC: quote(600)},
+    )
+    assert D(caught_up["account"]["quantities"][BTC]) == D(".0125")
+    assert not caught_up["meta"]["pending"]
+    assert (
+        Combo2PaperTracker(
+            tmp_path, run_id="fixture", started_at=time(), source_subject_hashes=IDS
+        ).state()
+        == caught_up
+    )
+
+
 def test_crash_fault_and_corrupted_journal_detected(tmp_path):
     engine = tracker(tmp_path)
     receipt(engine)
