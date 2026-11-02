@@ -1,7 +1,7 @@
 """Combo 2: causal, strictly local, read-only-source paper follower.
 
-Only SOURCE_RECEIPT, PAPER_REBALANCE, PAPER_FUNDING and OPERATOR_RESET events
-are accepted. There is no network, broker, exchange order or credential import.
+Only local source receipt/book/gap and paper rebalance/mark/funding/reset
+events are accepted. There is no broker, exchange order or credential import.
 The existing PM-03 Account is the *only* PnL and position authority. Ledger is
 the existing PM-03 append-only, hash-chained store, not a second account engine.
 
@@ -390,6 +390,8 @@ def _run_rebalance(
     now: str,
     policy: PaperPolicy,
     hashes: dict[str, str],
+    *,
+    prospective: bool = False,
 ) -> dict:
     due = {key: at for key, at in meta["pending"].items() if _utc(now) >= _utc(at)}
     if not due:
@@ -399,8 +401,33 @@ def _run_rebalance(
     touched = {key.split("|", 1)[0] for key in due}
     raw_books = payload.get("leaders")
     market_rows = payload.get("markets")
+    if prospective:
+        if raw_books is not None:
+            raise ValueError("PROSPECTIVE_SOURCE_OVERRIDE_PROHIBITED")
+        if meta.get("source_gaps"):
+            raise ValueError("PROSPECTIVE_SOURCE_GAP_UNRECONCILED")
+        raw_books = meta.get("source_books", {})
+        if set(raw_books) != set(MANAGERS):
+            raise ValueError("PROSPECTIVE_THREE_SOURCE_BASELINES_REQUIRED")
+        # Refresh *all* source books; the netted risk can depend on other managers.
+        for manager in MANAGERS:
+            _snapshot(raw_books[manager], manager, now, hashes, policy.max_snapshot_age_seconds)
+        proof = payload.get("market_attestation_sha")
+        if (
+            payload.get("market_scope_verified") is not True
+            or not isinstance(proof, str)
+            or len(proof) != 64
+            or any(c not in "0123456789abcdef" for c in proof)
+        ):
+            raise ValueError("PROSPECTIVE_MARKET_CONTRACT_UNATTESTED")
     if not isinstance(raw_books, dict) or not isinstance(market_rows, dict):
         raise ValueError("MISSING_LEADERS_OR_MARKETS")
+    if prospective and any(
+        row.get("verified_native_market_id") is not True
+        for row in market_rows.values()
+        if isinstance(row, dict)
+    ):
+        raise ValueError("PROSPECTIVE_NATIVE_MARKET_ID_UNATTESTED")
     sources = {}
     for manager in touched:
         source = raw_books.get(manager)
@@ -681,8 +708,12 @@ class Combo2PaperTracker:
         started_at: str,
         source_subject_hashes: dict[str, str],
         policy: PaperPolicy | None = None,
+        prospective: bool = False,
+        source_evidence_hashes: dict[str, str] | None = None,
+        market_contract_sha: str | None = None,
     ):
         self.policy = policy or PaperPolicy()
+        self.prospective = prospective
         if not run_id or "/" in run_id or run_id in (".", ".."):
             raise ValueError("UNSAFE_RUN_ID")
         if set(source_subject_hashes) != set(MANAGERS) or any(
@@ -700,6 +731,29 @@ class Combo2PaperTracker:
             "source_subject_hashes": dict(sorted(source_subject_hashes.items())),
             "rulebook_sha": self.rulebook.sha,
         }
+        if prospective:
+            if (
+                not isinstance(source_evidence_hashes, dict)
+                or set(source_evidence_hashes) != set(MANAGERS)
+                or any(
+                    len(value) != 64 or any(c not in "0123456789abcdef" for c in value)
+                    for value in source_evidence_hashes.values()
+                )
+            ):
+                raise ValueError("THREE_FROZEN_SOURCE_SCOPE_EVIDENCE_SHAS_REQUIRED")
+            if market_contract_sha is not None and (
+                len(market_contract_sha) != 64
+                or any(c not in "0123456789abcdef" for c in market_contract_sha)
+            ):
+                raise ValueError("INVALID_FROZEN_MARKET_EVIDENCE_SHA")
+            # Preserve the existing fixture manifest and its reproducible digest.
+            self.manifest["ingress_mode"] = "verified_prospective_source_v1"
+            self.manifest["source_scope_evidence_shas"] = dict(
+                sorted(source_evidence_hashes.items())
+            )
+            self.manifest["market_contract_sha"] = market_contract_sha
+        elif source_evidence_hashes is not None or market_contract_sha is not None:
+            raise ValueError("PROSPECTIVE_EVIDENCE_IN_FIXTURE_RUN")
         self.ledger = Ledger(Path(root) / run_id)
         _atomic_private(
             self.ledger.path / "manifest.json",
@@ -714,6 +768,8 @@ class Combo2PaperTracker:
         data = event.payload["input"]
         kind = event.kind
         if kind == "SOURCE_RECEIPT":
+            if self.prospective:
+                raise ValueError("PROSPECTIVE_RAW_RECEIPT_NOT_ACCEPTED")
             manager, inst_key = data["manager"], data["instrument"]
             if manager not in MANAGERS:
                 raise ValueError("UNKNOWN_COMBO2_MANAGER")
@@ -728,7 +784,91 @@ class Combo2PaperTracker:
                     _utc(event.first_known_at) + timedelta(seconds=BATCH_SECONDS)
                 ).isoformat()
             return {"status": "SCHEDULED", "due": meta["pending"][key], "key": key}
+        if kind == "SOURCE_GAP":
+            if not self.prospective or data.get("manager") not in MANAGERS:
+                raise ValueError("PROSPECTIVE_GAP_IDENTITY_REQUIRED")
+            manager = data["manager"]
+            meta.setdefault("source_gaps", {})[manager] = event.first_known_at
+            meta.setdefault("source_books", {}).pop(manager, None)
+            for key in list(meta["pending"]):
+                if key.startswith(manager + "|"):
+                    meta["pending"].pop(key)
+            meta["status"] = "BLOCKED_SOURCE"
+            return {"status": "BLOCKED_SOURCE", "manager": manager}
+        if kind == "SOURCE_BOOK":
+            if not self.prospective:
+                raise ValueError("SOURCE_BOOK_REQUIRES_PROSPECTIVE_RUN")
+            source = data.get("source_book")
+            manager = source.get("manager") if isinstance(source, dict) else None
+            proof = data.get("source_raw_sha256")
+            if (
+                manager not in MANAGERS
+                or not isinstance(proof, str)
+                or len(proof) != 64
+                or any(c not in "0123456789abcdef" for c in proof)
+                or data.get("producer") != "OFFICIAL_HYPERLIQUID_LOCAL_RECEIPT"
+                or source.get("first_known_at") != event.first_known_at
+                or source.get("event_at") != event.source_event_at
+                or source.get("not_first_known_fill") is not True
+                or source.get("source_scope_evidence_sha256")
+                != self.manifest["source_scope_evidence_shas"].get(manager)
+                or not isinstance(source.get("capture_session"), str)
+                or not source["capture_session"]
+            ):
+                raise ValueError("INVALID_PROSPECTIVE_SOURCE_PROVENANCE")
+            book = _snapshot(
+                source,
+                manager,
+                event.decision_at,
+                self.manifest["source_subject_hashes"],
+                self.policy.max_snapshot_age_seconds,
+            )
+            latest = meta.setdefault("source_books", {})
+            prior = latest.get(manager)
+            if prior is not None and _utc(source["first_known_at"]) <= _utc(
+                prior["first_known_at"]
+            ):
+                raise ValueError("NONMONOTONIC_PROSPECTIVE_SOURCE_BOOK")
+            changed = []
+            session_changed = (
+                prior is not None and prior.get("capture_session") != source["capture_session"]
+            )
+            snapshot_restart = prior is not None and data.get("source_was_initial_snapshot") is True
+            if session_changed or snapshot_restart:
+                # A reconnect/rotation is an observation gap, not a new trade.
+                for key in list(meta["pending"]):
+                    if key.startswith(manager + "|"):
+                        meta["pending"].pop(key)
+            if prior is not None and not (session_changed or snapshot_restart):
+                previous = _positions(prior["positions"])
+                for inst in sorted(set(previous) | set(book)):
+                    if previous.get(inst, (ZERO, ZERO))[0] != book.get(inst, (ZERO, ZERO))[0]:
+                        changed.append(inst)
+                        key = manager + "|" + inst.key
+                        meta["pending"].setdefault(
+                            key,
+                            (
+                                _utc(event.first_known_at) + timedelta(seconds=BATCH_SECONDS)
+                            ).isoformat(),
+                        )
+            # A post-gap book re-establishes baseline but cannot backfill gap trades.
+            meta.setdefault("source_gaps", {}).pop(manager, None)
+            latest[manager] = source
+            if not meta["source_gaps"] and meta["status"] == "BLOCKED_SOURCE":
+                meta["status"] = "ACTIVE_PAPER"
+            return {
+                "status": "SOURCE_BOOK_RECORDED",
+                "manager": manager,
+                "baseline_only": prior is None or session_changed or snapshot_restart,
+                "session_gap": session_changed or snapshot_restart,
+                "changed": [inst.key for inst in changed],
+            }
         if kind == "PAPER_REBALANCE":
+            if (
+                self.prospective
+                and data.get("market_attestation_sha") != self.manifest["market_contract_sha"]
+            ):
+                raise ValueError("PROSPECTIVE_MARKET_SHA_MISMATCH")
             return _run_rebalance(
                 account,
                 meta,
@@ -736,6 +876,7 @@ class Combo2PaperTracker:
                 event.decision_at,
                 self.policy,
                 self.manifest["source_subject_hashes"],
+                prospective=self.prospective,
             )
         if kind == "PAPER_MARK":
             rows = data.get("markets")

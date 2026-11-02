@@ -13,6 +13,8 @@
 
 A fifth state, **DEPLOYED**, requires actual service/release and health verification. Neither repo tests nor PR merge imply it. NO TRADE is the default when evidence is missing.
 
+**Combo 2 (Issue #22) continuation:** The source-ingestion module is a deterministic local consumer of time-stamped and SHA-checked public read-only Hyperliquid receipts. Its own later first-known clock, verified single-account scope and fail-closed market proof support **engineering fixture verification only**. Without complete real W028/CA-008/W015 source scopes, connector SQLite projection, account-specific market/rule attestations and a healthy actual paper service, neither **PAPER OBSERVED** nor **SCIENTIFICALLY QUALIFIED**, **LIVE AUTHORIZED** or **DEPLOYED** may be asserted. No change to the frozen PM-01/02 qualification thresholds.
+
 ## Evidence ladder and what each level permits
 
 | Level | Required proof | Allowed claim | Forbidden promotion |

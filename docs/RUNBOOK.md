@@ -200,6 +200,10 @@ When any operation fails or returns BLOCKED, execute [RECOVER](BLOCKER-RECOVERY.
 | `HALT` in PM-03 | Simulated supervisor latches uncertainty/breach | Inspect immutable journal and cause; manual-only reset when permitted, no implicit flatten |
 | GitHub checks red | Lint/test/build regression | Fix on branch, rerun both core + market matrix; no bypass on protected main |
 
+## Combo 2 prospective paper source (Issue #22, not a running service)
+
+See [Combo 2 paper contract](COMBO2-PAPER.md#prospective-source-receipt-import-continuation-under-issue-22) for the exact private source-manifest schema, local E4 generation import command, two first-known clocks, fail-closed subaccount/equity rules, and current absence of an unattended source-to-paper execution service. Do not start another Hyperliquid observer while the shared rotating observer owns the IP cap. No remote order mutation is allowed under any flag. The standalone fixture command remains the only completed paper account replay.
+
 ## 8. Required engineering closeout
 
 Before merging any non-trivial code or data-contract change: preserve dirty work, read `AGENTS.md`, inspect GitHub and real VPS sources, write behavior tests at the consumer seam, run **both** CI-equivalent dependency variants, Ruff and build, inspect diff and evidence SHA, update handbook links if CLI or source boundaries changed, push and wait for actual required checks. Do **not** confuse successful engineering with scientific qualification or deployment. Protected `main` requires `verify (core)` and `verify (market)`, strict current-base checks; no force push. Never touch production `hyperliquid-expert-ensemble` as a side effect of this repository.
