@@ -19,7 +19,7 @@ HEX64 = re.compile(r"^[a-f0-9]{64}$")
 INSTRUMENT = re.compile(r"^hyperliquid/mainnet:perp:(?:default|[a-z][a-z0-9_-]*)/[A-Za-z0-9_.-]+$")
 GRADES = {"A": "1", "B": "0.5", "C": "0", "X": "0"}
 ORIGINS = {"HISTORICAL_PROXY", "PROSPECTIVE_OBSERVED", "PROSPECTIVE_VALIDATED"}
-STYLES = {"DIRECTIONAL", "FUNDING_CARRY", "MARKET_NEUTRAL", "UNKNOWN"}
+STYLES = {"DIRECTIONAL", "FUNDING_CARRY", "MARKET_NEUTRAL", "HEDGED_BASKET", "UNKNOWN"}
 
 
 def canonical(obj: Any) -> bytes:
@@ -31,17 +31,21 @@ def digest(obj: Any) -> str:
     return sha256(canonical(obj)).hexdigest()
 
 
-def utc(value: str) -> datetime:
+def utc(value: str | datetime) -> datetime:
     try:
-        t = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except (ValueError, TypeError) as exc:
+        t = (
+            value
+            if isinstance(value, datetime)
+            else datetime.fromisoformat(value.replace("Z", "+00:00"))
+        )
+    except (ValueError, TypeError, AttributeError) as exc:
         raise ValueError("INVALID_CLOCK") from exc
     if t.tzinfo is None or t.utcoffset() is None:
         raise ValueError("NAIVE_CLOCK")
     return t.astimezone(UTC)
 
 
-def norm_clock(value: str) -> str:
+def norm_clock(value: str | datetime) -> str:
     return utc(value).isoformat().replace("+00:00", "Z")
 
 
@@ -323,6 +327,14 @@ class OpportunityAssessment:
             raise ValueError("INCOMPATIBLE_ASSESSMENT_SCHEMA")
         if self.claim_status not in ("PROVISIONAL", "VALIDATED", "NOT_QUALIFIED"):
             raise ValueError("INVALID_EVIDENCE_CLAIM")
+        if self.evidence_status not in ORIGINS and self.evidence_status != "INSUFFICIENT":
+            raise ValueError("INVALID_EVIDENCE_STATUS")
+        if self.grade in ("A", "B") and (
+            self.follower_lcb_r is None or self.claim_status == "NOT_QUALIFIED"
+        ):
+            raise ValueError("UNSUPPORTED_POSITIVE_GRADE")
+        if self.claim_status == "VALIDATED" and self.evidence_status != "PROSPECTIVE_VALIDATED":
+            raise ValueError("INVALID_PROSPECTIVE_VALIDATION_CLAIM")
         for sha in (self.input_sha256, self.model_sha256, self.policy_sha256):
             _sha(sha)
         if self.first_known_at is not None and utc(self.first_known_at) > utc(self.decision_at):
@@ -408,6 +420,15 @@ class TraderIntelligence:
             (e for e in unique.values() if e.known_at <= cut and utc(e.event_at) <= cut),
             key=lambda e: (e.known_at, utc(e.event_at), e.event_id),
         )
+        # Only events knowable by this cut participate in the input identity.
+        # Append-only future observations must not alter older decision hashes.
+        asof_sha256 = ObservationSnapshot(
+            roster_id=snapshot.roster_id,
+            roster_known_at=snapshot.roster_known_at,
+            wallets=snapshot.wallets,
+            events=tuple(asof),
+            roster_origin=snapshot.roster_origin,
+        ).sha256
         latest: dict[tuple[str, str], WalletEvent] = {}
         for e in asof:
             key = (e.wallet, e.instrument)
@@ -466,7 +487,7 @@ class TraderIntelligence:
                 if e.book_complete is not True:
                     reasons.add("INCOMPLETE_OR_UNKNOWN_SOURCE_BOOK")
                     continue
-                if e.strategy_style in ("FUNDING_CARRY", "MARKET_NEUTRAL"):
+                if e.strategy_style in ("FUNDING_CARRY", "MARKET_NEUTRAL", "HEDGED_BASKET"):
                     reasons.add(e.strategy_style)
                     continue
                 if e.strategy_style != "DIRECTIONAL":
@@ -489,20 +510,27 @@ class TraderIntelligence:
                     reasons.add("HEDGED_OR_MULTI_LEG_BOOK")
                     continue
                 valid.append(e)
-            independent = {
+            cluster_ids = [
                 roster[e.wallet].cluster
-                or (
-                    f"parent:{roster[e.wallet].parent}" if roster[e.wallet].parent else "UNRESOLVED"
-                )
+                or (f"parent:{roster[e.wallet].parent}" if roster[e.wallet].parent else None)
                 for e in valid
-            }
-            if len(independent) < len(valid):
+            ]
+            independence_unverified = any(cluster is None for cluster in cluster_ids)
+            independent = {cluster for cluster in cluster_ids if cluster is not None}
+            if independence_unverified:
+                reasons.add("INDEPENDENCE_UNVERIFIED")
+            if len(independent) < len([c for c in cluster_ids if c is not None]):
                 reasons.add("DEPENDENT_SOURCE_WALLETS")
             if not valid:
                 grade = (
                     "X"
                     if reasons.intersection(
-                        {"FUNDING_CARRY", "MARKET_NEUTRAL", "HEDGED_OR_MULTI_LEG_BOOK"}
+                        {
+                            "FUNDING_CARRY",
+                            "MARKET_NEUTRAL",
+                            "HEDGED_BASKET",
+                            "HEDGED_OR_MULTI_LEG_BOOK",
+                        }
                     )
                     else "C"
                 )
@@ -516,19 +544,17 @@ class TraderIntelligence:
                 # Never infer outcome-known time from an estimate: this is read-only input.
                 if self.calibration is None or self.calibration.a_lower_bound_r is None:
                     reasons.add("UNCALIBRATED_FOLLOWER_ECONOMICS")
-                elif valid and self.calibration.evidence_origin == origin:
-                    lcb = decimal(economics[1])
-                    if lcb >= decimal(self.calibration.a_lower_bound_r):
-                        grade = "A"
-                    elif lcb >= decimal(self.calibration.b_lower_bound_r):
-                        grade = "B"
                 else:
-                    reasons.add("CALIBRATION_ORIGIN_MISMATCH")
+                    # Calibration metadata and caller-supplied floats are not
+                    # evidence that the candidate's outcome was independently
+                    # observed, matured and bound to this decision cut.
+                    # Until signed outcome verification exists, C/X only.
+                    reasons.add("UNATTESTED_FOLLOWER_ESTIMATE_NO_A_B")
             else:
                 reasons.add("FOLLOWER_ECONOMICS_UNAVAILABLE")
             if not valid:
                 reasons.add("WATCH_NOT_ACTIONABLE")
-            if not independent:
+            if independence_unverified or not independent:
                 reasons.add("INDEPENDENT_CLUSTER_COUNT_UNKNOWN")
             if grade in ("A", "B"):
                 claim = (
@@ -550,13 +576,18 @@ class TraderIntelligence:
                     "instrument": instrument,
                     "direction": direction,
                     "decision_at": norm_clock(decision_at),
-                    "snapshot_sha256": snapshot.sha256,
+                    "snapshot_sha256": asof_sha256,
                     "model_sha256": self.model_sha256,
                     "policy_sha256": self.policy_sha256,
                 }
             )
             first_known = (
-                max(e.first_known_at for e in events if e.first_known_at is not None)
+                norm_clock(
+                    max(
+                        (e.first_known_at for e in events if e.first_known_at is not None),
+                        key=utc,
+                    )
+                )
                 if origin != "HISTORICAL_PROXY"
                 else None
             )
@@ -566,7 +597,7 @@ class TraderIntelligence:
                     instrument=instrument,
                     direction=direction,
                     decision_at=decision_at,
-                    input_sha256=snapshot.sha256,
+                    input_sha256=asof_sha256,
                     model_sha256=self.model_sha256,
                     policy_sha256=self.policy_sha256,
                     grade=grade,
@@ -574,10 +605,12 @@ class TraderIntelligence:
                     evidence_status=origin,
                     claim_status=claim,
                     reasons=tuple(sorted(reasons)),
-                    independent_clusters=len(independent) if independent else None,
+                    independent_clusters=(
+                        len(independent) if independent and not independence_unverified else None
+                    ),
                     qualified_contributors=len(valid) if valid else None,
                     first_known_at=first_known,
-                    latest_source_event_at=max(e.event_at for e in events),
+                    latest_source_event_at=norm_clock(max((e.event_at for e in events), key=utc)),
                     follower_net_r=economics[0] if economics else None,
                     follower_lcb_r=economics[1] if economics else None,
                 )
@@ -607,3 +640,38 @@ def assessment_document(
             a.as_wire() for a in sorted(assessments, key=lambda x: (x.instrument, x.direction))
         ],
     }
+
+
+def assessment_document_for_board(
+    assessments: tuple[OpportunityAssessment, ...],
+    *,
+    decision_at: str,
+    four_hour_board: dict[str, Any],
+    one_hour_board: dict[str, Any],
+) -> dict[str, Any]:
+    """Bind a grade artifact to both original descriptive board snapshots.
+
+    This has the same canonical SHA formula as the optional ensemble consumer.
+    It does not import the production publisher or grant order authority.
+    """
+    cut = norm_clock(decision_at)
+    for board in (four_hour_board, one_hour_board):
+        if (
+            board.get("schema") != "copy-flow-board-v1"
+            or board.get("status") != "DESCRIPTIVE_ONLY_INDEPENDENCE_NOT_QUALIFIED"
+            or norm_clock(board["as_of"]) != cut
+            or board.get("truncated") is not False
+            or board.get("financial_execution") is not False
+            or board.get("predictive_qualified") is not False
+        ):
+            raise ValueError("UNSUPPORTED_OR_STALE_SOURCE_FLOW_BOARD")
+    return assessment_document(
+        assessments,
+        decision_at=decision_at,
+        source_sha256=digest(
+            {
+                "four_hour": four_hour_board,
+                "one_hour": one_hour_board,
+            }
+        ),
+    )

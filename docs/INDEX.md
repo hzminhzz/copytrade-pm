@@ -7,6 +7,7 @@
 | Goal | Authoritative guide | Contains |
 | --- | --- | --- |
 | Understand why modules exist and what is *not* connected | [Architecture and contracts](ARCHITECTURE.md) | Two evidence pipelines, module ownership, immutable boundaries |
+| Review in-progress Trader Intelligence A/B/C/X research | [Trader Intelligence checkpoint](TRADER-INTELLIGENCE-CHECKPOINT-20261102.md) | PIT roster and journal intake, five-minute hypothetical follower replay, matched control scaffold, unqualified research grade, Telegram shadow consumer |
 | Start with a wallet, vendor fills, source gaps, OHLCV, or a new cohort | [Wallet data and acquisition](DATA-ACQUISITION.md) | Frozen 36 cohort, private paths, HyperX/ML4T sources, bounded repairs and fresh observations |
 | Execute the supported research steps | [Research operator runbook](RUNBOOK.md) | Verified commands, exact artifact handoffs, safe test and incident responses |
 | Decide what counts as evidence or authorization | [Qualification gates](QUALIFICATION.md) | Provenance clocks, source/follower PnL, PIT, Propr universe, states and blockers |
@@ -58,6 +59,7 @@ Wallet research and frozen HyperX roster (PRIVATE, upstream of this repo)
 ## What is on `main` vs elsewhere
 
 - `main`: PM-01 historical replay, bounded HyperX recovery/WS/REST probes, 36-wallet source contracts, minute-market and Propr-scope audits, PM-02 evidence/lifecycle/allocator, signed local prospective ledger adapter, PM-03 deterministic **synthetic** account simulator, first-party CI.
+- **Draft PR #36**, Trader Intelligence, is an independent research-only implementation branch. Its 2026-11-02 checkpoint records a C/X fail-closed engine and a separate shadow-only ensemble adapter. It is **not** a calibrated A/B grader, approved order source, or production Telegram policy. Do not promote it without Issue #27 scientific and release gates.
 - **Draft PR #7** (`feat/pm36-synchronized-challenge-research`) is **not on `main`** as of this inspection. Its 2026Q3 wallet research and command entrypoints must not appear in mainline runbooks until merged. Its VPS worktree has been observed with concurrent uncommitted changes: never reset, stash or clean it.
 - Scientific successor [PM-01 Issue #4](https://github.com/hzminhzz/copytrade-pm/issues/4) and [PM-02 Issue #5](https://github.com/hzminhzz/copytrade-pm/issues/5) remain open. PM-03 [Issue #2](https://github.com/hzminhzz/copytrade-pm/issues/2) closed **engineering-only**, not authorized for live trading.
 - PR18 integration verified **363 passing core and market-extra tests**, build, Ruff and green GitHub CI. Later recovery validation is recorded with its exact commit and evidence in [the recovery disposition](RECOVERY-DISPOSITION-2026-11-01.md). These are dated engineering results, not scientific qualification.

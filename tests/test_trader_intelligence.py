@@ -10,6 +10,7 @@ from copytrade_pm.trader_intelligence import (
     WalletEvent,
     WalletIdentity,
     assessment_document,
+    assessment_document_for_board,
     canonical,
     digest,
 )
@@ -195,6 +196,34 @@ def test_following_reduction_not_an_episode():
     outcomes = follower_replay(snapshot(event(before="4", after="2")), bars(), policy())
     assert outcomes[0].status == "NOT_DIRECTIONAL_ENTRY"
     assert outcomes[0].net_r is None
+
+
+def test_exact_board_fingerprint_contract_and_stale_source_refusal():
+    snap = snapshot(event())
+    assessments = TraderIntelligence().evaluate(snap, T1)
+    board = {
+        "schema": "copy-flow-board-v1",
+        "status": "DESCRIPTIVE_ONLY_INDEPENDENCE_NOT_QUALIFIED",
+        "as_of": T1,
+        "truncated": False,
+        "financial_execution": False,
+        "predictive_qualified": False,
+        "coins": [],
+    }
+    document = assessment_document_for_board(
+        assessments,
+        decision_at=T1,
+        four_hour_board=board,
+        one_hour_board=board,
+    )
+    assert document["source_sha256"] == digest({"four_hour": board, "one_hour": board})
+    with pytest.raises(ValueError, match="UNSUPPORTED_OR_STALE_SOURCE_FLOW_BOARD"):
+        assessment_document_for_board(
+            assessments,
+            decision_at=T1,
+            four_hour_board={**board, "truncated": True},
+            one_hour_board=board,
+        )
 
 
 def test_late_observation_not_backdated_into_decision():

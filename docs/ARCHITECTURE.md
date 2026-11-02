@@ -100,6 +100,14 @@ docs/                                      current handbook + preserved source-e
 examples/pm03_synthetic.json              only synthetic no-network demonstration
 ```
 
+## Trader Intelligence research seam (draft PR #36; 2026-11-02)
+
+Issue #27 defines the independent read-only intelligence consumer. The WIP implementation lives on a separate feature branch, and is **not** part of released `main` until reviewed and merged. It adds only `trader_intelligence.py` (pure C/X-first assessment and stable SHA), `trader_intelligence_intake.py` (read-only historical/prospective events), `trader_intelligence_book.py` (verified full-book enrichment) and `trader_intelligence_research.py` (hypothetical 300s minute follower, conservative stop/capacity, source-independent matched-control scaffold). **No new account risk, PM-02 frozen 36 interface, broker connector, source journal, or network order transport exists.**
+
+Original HyperX/public fills remain historical proxies and cannot become prospective first-known data. The full-book enrichment requires coherent locally observed equity and positions and explicit account-mode/spot/subaccount attestation; no source gap can be filled by inference. Unknown independence stays unknown. The reproducible benchmark has no attested unbiased PIT/holdout, independently observed matched follower economics or calibrated positive selection policy, so all comparative scientific conclusions remain **NOT_QUALIFIED** and all model-produced A/B grades remain disabled. Passing deterministic tests cannot authorize live risk.
+
+The actual `hyperliquid-expert-ensemble` descriptive publisher modules `copy_board.py` and `copy_digest.py` are present on its active `feat/expert-wallet-execution-correctness-prospective-research` branch (VPS inspected November 2) but **not** the ensemble `main` SHA `ef8d7c1`. Its separate draft adapter must therefore be reviewed against that feature branch and not silently merged into or deployed through the production service. Default Telegram output stays the original descriptive digest. See [the evidence checkpoint](TRADER-INTELLIGENCE-CHECKPOINT-20261102.md).
+
 ## Things deliberately NOT implied by this architecture
 
 - A public Propr instrument list is not an authenticated tradable market-ID allowlist.

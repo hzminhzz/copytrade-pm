@@ -61,6 +61,7 @@ class FollowerPolicy:
     required_notional_usd: str
     max_prior_minute_participation: str
     funding_rate_fraction_per_8h: str
+    exit_policy: str = "FIXED_HORIZON"
 
     def __post_init__(self) -> None:
         if self.delay_seconds < 300:
@@ -90,6 +91,10 @@ class FollowerPolicy:
         if decimal(self.max_prior_minute_participation) > 1:
             raise ValueError("INVALID_PARTICIPATION_FRACTION")
         decimal(self.funding_rate_fraction_per_8h)
+        if decimal(self.stop_distance_bps) >= Decimal(10_000):
+            raise ValueError("UNREALISTIC_STOP_RISK_UNIT")
+        if self.exit_policy not in ("FIXED_HORIZON", "STOP_OR_HORIZON"):
+            raise ValueError("UNKNOWN_FOLLOWER_EXIT_POLICY")
 
     @property
     def sha256(self) -> str:
@@ -97,6 +102,7 @@ class FollowerPolicy:
             {
                 "delay_seconds": self.delay_seconds,
                 "horizons_minutes": self.horizons_minutes,
+                "exit_policy": self.exit_policy,
                 **{
                     field: getattr(self, field)
                     for field in (
@@ -155,6 +161,34 @@ def _sorted_bars(bars: Iterable[MinuteBar]) -> dict[str, list[MinuteBar]]:
     return grouped
 
 
+def _simulate_exit(
+    series: list[MinuteBar],
+    entry_idx: int,
+    exit_idx: int,
+    entry_px: Decimal,
+    direction: str,
+    policy: FollowerPolicy,
+) -> tuple[Decimal, object, str]:
+    """Conservative OHLC stop proxy; intrabar timestamps remain unobservable.
+
+    A stop hit is only known after the containing minute has closed. Gap opens
+    receive the worse of open and stop; no optimistic same-bar fill priority.
+    """
+    if policy.exit_policy == "STOP_OR_HORIZON":
+        distance = decimal(policy.stop_distance_bps) / Decimal(10_000)
+        stop = entry_px * (1 - distance) if direction == "LONG" else entry_px * (1 + distance)
+        for i in range(entry_idx, exit_idx):
+            bar = series[i]
+            if direction == "LONG" and decimal(bar.low_px) <= stop:
+                fill = min(decimal(bar.open_px), stop)
+            elif direction == "SHORT" and decimal(bar.high_px) >= stop:
+                fill = max(decimal(bar.open_px), stop)
+            else:
+                continue
+            return fill, utc(bar.start_at) + timedelta(minutes=1), "STOP_PROXY_FILLED"
+    return decimal(series[exit_idx].open_px), utc(series[exit_idx].start_at), "OK"
+
+
 def follower_replay(
     snapshot: ObservationSnapshot,
     bars: Iterable[MinuteBar],
@@ -192,7 +226,7 @@ def follower_replay(
             status = "OK"
             if direction is None:
                 status = "NOT_DIRECTIONAL_ENTRY"
-            elif event.strategy_style in ("FUNDING_CARRY", "MARKET_NEUTRAL"):
+            elif event.strategy_style in ("FUNDING_CARRY", "MARKET_NEUTRAL", "HEDGED_BASKET"):
                 status = "NON_DIRECTIONAL_STRATEGY"
             elif event.book_complete is not True:
                 status = "INCOMPLETE_OR_UNKNOWN_BOOK"
@@ -250,10 +284,15 @@ def follower_replay(
                                 if not contiguous:
                                     status = "INTERIOR_MARKET_GAP"
                                 else:
-                                    exit_ = norm_clock(series[exit_idx].start_at)
                                     sign = Decimal(1) if direction == "LONG" else Decimal(-1)
                                     p_in = decimal(b.open_px)
-                                    p_out = decimal(series[exit_idx].open_px)
+                                    p_out, known_exit_at, status = _simulate_exit(
+                                        series, candidate_idx, exit_idx, p_in, direction, policy
+                                    )
+                                    exit_ = norm_clock(known_exit_at)
+                                    held_minutes = Decimal(
+                                        str((known_exit_at - utc(entry)).total_seconds() / 60)
+                                    )
                                     gross_bps = sign * (p_out / p_in - 1) * Decimal(10_000)
                                     cost_bps = sum(
                                         (
@@ -269,7 +308,7 @@ def follower_replay(
                                     funding_bps = (
                                         sign
                                         * decimal(policy.funding_rate_fraction_per_8h)
-                                        * Decimal(horizon)
+                                        * held_minutes
                                         / Decimal(480)
                                         * Decimal(10_000)
                                     )
@@ -346,7 +385,7 @@ def asof_skill(
         and o.instrument == instrument
         and o.direction == direction
         and o.strategy_style == style
-        and o.status == "OK"
+        and o.status in ("OK", "STOP_PROXY_FILLED")
         and o.net_r is not None
         and o.outcome_known_at is not None
         and utc(o.outcome_known_at) < cut
@@ -408,6 +447,27 @@ class CandidateCut:
 
 
 @dataclass(frozen=True)
+class MatchedMarketControl:
+    """Independent matched market-only outcome, never inferred from source PnL."""
+
+    candidate_episode_id: str
+    policy_sha256: str
+    control_net_r: str
+    outcome_known_at: str
+    source_sha256: str
+
+    def __post_init__(self) -> None:
+        from .trader_intelligence import _sha
+
+        _sha(self.policy_sha256)
+        _sha(self.source_sha256)
+        decimal(self.control_net_r)
+        utc(self.outcome_known_at)
+        if not self.candidate_episode_id:
+            raise ValueError("MISSING_CONTROL_MATCHED_CANDIDATE")
+
+
+@dataclass(frozen=True)
 class BenchmarkRow:
     policy: str
     evaluated: int
@@ -416,6 +476,7 @@ class BenchmarkRow:
     net_r_mean: str | None
     net_r_min: str | None
     net_r_vs_market_control: str | None
+    missing_controls: int
     pnl_sha256: str
 
 
@@ -445,6 +506,7 @@ def matched_benchmark(
     *,
     prior_strength: int,
     tail_probability_z: str,
+    market_controls: dict[str, MatchedMarketControl] | None = None,
 ) -> BenchmarkReport:
     """Five matched policies, single candidate cuts and identical outcome labels.
 
@@ -469,7 +531,13 @@ def matched_benchmark(
                 misses[key] += 1
             continue
         label = by_id[cut.outcome_episode_id]
-        if label.status != "OK":
+        if (
+            label.instrument != cut.instrument
+            or label.direction != cut.direction
+            or utc(label.observation_at) > utc(cut.decision_at)
+        ):
+            raise ValueError("CONTROL_OR_OUTCOME_CANDIDATE_MISMATCH")
+        if label.status not in ("OK", "STOP_PROXY_FILLED"):
             for key in selected:
                 misses[key] += 1
             continue
@@ -486,7 +554,7 @@ def matched_benchmark(
         aligned = [e for e in last_by_wallet.values() if e.direction == cut.direction]
         opposing = [e for e in last_by_wallet.values() if e.direction != cut.direction]
         roster = {w.alias: w for w in cut.snapshot.wallets}
-        clusters = {roster[e.wallet].cluster or "UNKNOWN" for e in aligned}
+        clusters = {roster[e.wallet].cluster for e in aligned if roster[e.wallet].cluster}
         # Never count unknown clusters as distinct.
         if len(aligned) >= 3 and len(aligned) >= 2 * max(1, len(opposing)):
             selected["incumbent_3_addresses_2_to_1"].append(label)
@@ -536,6 +604,19 @@ def matched_benchmark(
     rows = []
     for policy, values in selected.items():
         rs = [decimal(v.net_r) for v in values if v.net_r is not None]
+        matched: list[Decimal] = []
+        missing_controls = 0
+        for value in values:
+            control = (market_controls or {}).get(value.episode_id)
+            if control is None:
+                missing_controls += 1
+                continue
+            if control.policy_sha256 != value.policy_sha256:
+                raise ValueError("CONTROL_EXECUTION_POLICY_MISMATCH")
+            if utc(control.outcome_known_at) <= utc(value.observation_at):
+                raise ValueError("CONTROL_OUTCOME_BEFORE_CANDIDATE")
+            if value.net_r is not None:
+                matched.append(decimal(value.net_r) - decimal(control.control_net_r))
         rows.append(
             BenchmarkRow(
                 policy=policy,
@@ -544,7 +625,10 @@ def matched_benchmark(
                 missing_outcomes=misses[policy],
                 net_r_mean=str(mean(rs)) if rs else None,
                 net_r_min=str(min(rs)) if rs else None,
-                net_r_vs_market_control=None,  # no independent market control provided
+                net_r_vs_market_control=(
+                    str(mean(matched)) if matched and missing_controls == 0 else None
+                ),
+                missing_controls=missing_controls,
                 pnl_sha256=digest([v.episode_id for v in values]),
             )
         )
