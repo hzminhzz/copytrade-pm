@@ -5,6 +5,7 @@
 - **Decision status:** **ARCHIVED AS ALTERNATIVES — NOT SELECTED, NOT DEPLOYED**.
 - **Primary user-approved roster:** **`S053-HYPE + S051-BTC + S035-ENA`**; see [the binding selection decision](2026-11-02-gemini-selected-three-pod.md). Recording these choices does not amend it.
 - **Scope:** preserve the alternative wallet membership and original risk-normalization scenarios for future comparisons and optional separately approved demo/paper experiments. Do not use this registry as an automatic fallback or deployment allowlist.
+- **Later Phase 3 decision:** [2026-11-03 Phase 3 adoption and planned 180-day research](2026-11-03-gemini-phase3-adoption-180d.md). Phase 3's `P1/P14/P15/P16` refer to new candidate variants and **do not overwrite** this Phase 2 archive.
 
 ## Alias and input conventions
 
