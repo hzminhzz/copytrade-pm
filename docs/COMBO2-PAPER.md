@@ -80,6 +80,14 @@ The second capture succeeded as a **transient `systemd --user` service** with ex
 
 Authenticated, read-only Propr `GET` inspection confirmed margin configuration records for `HYPE`, `ZEC`, and `xyz:MU` and nine leverage-limit overrides. The response exposes margin mode/leverage but **not** validated instrument lots, tick sizes, order minima, session calendars or execution prices. Those market contracts remain **UNKNOWN**; generic/unverified registry aliases may not authorize model fills.
 
+## Signed REST position-change detector (Issue #22)
+
+`pm_combo2_signed_delta.compare_generations(previous, current)` verifies two private, complete, SHA-checked REST snapshots. It nets the parent and subaccounts per manager and instrument before detecting signed changes. Subaccount-only transfers with zero net exposure change do not signal. Changed account identities, account modes, DEX lists, raw hashes or excessively spaced observations fail closed.
+
+The new aggregate observation is first-known only when the entire second sweep completes. Its due timestamp uses the unchanged Combo 2 `BATCH_SECONDS=300` constant. Each event carries signed before/after/delta, deterministic signal ID, source-event time explicitly unknown, and no equity or trading authorization. REST differences are not identified as exact native fills.
+
+Read-only CLI: `python -m copytrade_pm.pm_combo2_signed_delta --earlier PRIVATE_GEN_1 --later PRIVATE_GEN_2`. The connector may use a selected real delta for a separate, capped Free Trial diagnostic. The original `Combo2PaperTracker` remains broker-free and unified source-equity sizing is still blocked.
+
 ## Current limits and release gates
 
 - **IMPLEMENTED IN THIS BRANCH:** the existing offline synthetic engine plus the new hash-checked, single-account prospective E4 source-book ingest, frozen scope/market proof manifests, independent consumer first-known clock, reconnect baselines and safe source-gap state. Offline receipt-to-paper fixture tests do not establish a continuously running follower.
