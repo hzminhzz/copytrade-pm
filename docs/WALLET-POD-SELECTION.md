@@ -4,6 +4,8 @@
 
 Read with [INDEX](INDEX.md), [EQUITY-WEIGHT-SIZING](EQUITY-WEIGHT-SIZING.md), [QUALIFICATION](QUALIFICATION.md), [PM-04](PM-04-shadow-hardening.md), [DATA-ACQUISITION](DATA-ACQUISITION.md), and [BLOCKER-RECOVERY](BLOCKER-RECOVERY.md). Qualification terminology and account-contract rules live in those documents, not here.
 
+**New directional-only rule (2026-11-02):** Reject deliberate funding-carry/basis, market-neutral and long-major/short-alt basket PMs from candidate intake, even if they have positive realized PnL. Require **historical** position and funding forensics, not just current account books. The [Nansen directional shortlist and independent funding audit](NANSEN-DIRECTIONAL-POD-SHORTLIST-20261102.md) documents ten provisional candidates, excluded hedged accounts, and the remaining complete-fill/equity replay evidence gates.
+
 **Methodology update (2026-11-02):** The user-supplied Gemini five-wallet report contributes concrete maker/taker, clone, martingale and portfolio forensic ideas. Its reported +43.74% and 100% historical pass claims are **not scientifically validated** for our five-minute batched, equity-relative follower. Read the [dated independent report and source-CSV audit](GEMINI-REPORT-METHODOLOGY-AUDIT-20261102.md) before relying on its candidates, `k` factors, or simulated drawdowns.
 
 ## Objective and non-negotiable distinctions
@@ -23,7 +25,7 @@ Read with [INDEX](INDEX.md), [EQUITY-WEIGHT-SIZING](EQUITY-WEIGHT-SIZING.md), [Q
 | --- | --- | --- |
 | Controlled medium-frequency directional/swing PM | PRIORITIZE | Repeatable risk sizing, multi-hour holds, meaningful positions; check 5-minute execution decay |
 | Selective higher-volatility directional PM | EXPERIMENT | Fixed follower risk permits rougher equity curves **only** when realistic loss truncation leaves positive net R |
-| Differentiated long/short basket PM | EXPERIMENT | Potential diversification; demand entire book including hedges and Propr-eligible execution |
+| Funding-carry, basis/market-neutral, or long BTC/HYPE against broad altcoin shorts | **REJECT for directional cohort** | Owner mandate: avoid non-directional PnL and hedged baskets; keep a separate research universe if ever needed |
 | Concentrated single-coin whale | CONDITIONAL | May drive fast target gains but large adverse excursions, hard-stop breaches and shared coin beta |
 | High-fill-count trader | INVESTIGATE, not auto-reject | Millions of partial fills may collapse into few order IDs/decision episodes; measure effective turnover after batching |
 | HFT scalper, market maker, latency/rebate arbitrage | REJECT for 5m follower if edge disappears | Five-minute batch and market orders cannot replicate maker economics |
@@ -39,6 +41,7 @@ Read with [INDEX](INDEX.md), [EQUITY-WEIGHT-SIZING](EQUITY-WEIGHT-SIZING.md), [Q
 - [ ] Canonical 0x address, optional alias, discovery time UTC, source(s), provider endpoint and exact date window retained; deduplicate related/subaccounts and aliases; use a versioned new cohort rather than editing the frozen 36-wallet manifest.
 - [ ] Confirm active equity and meaningful recent position *decisions*, not just nonzero balance; inspect dormant/wiped wallets using existing dated exclusion registries before spending API quota. A historical zero-equity snapshot does not prove permanent death.
 - [ ] Capture **whole-wallet**, not single-coin, realized + unrealized PnL, fees, funding, deposits/withdrawals and collateral/positions where available; distinguish missing data from zero.
+- [ ] **Funding/carry veto:** compare signed realized funding payments from a complete bounded history (e.g. Hyperliquid `userFunding`) with realized PnL, and detect same-timestamp opposing signed positions; repeated long BTC/HYPE/ETH/SOL and short-alt legs mean exclusion from this *directional* cohort. A negative net funding balance does not prove absence of carry elsewhere; a single mixed calendar day can reflect a same-day reversal. Detect actual overlap and document uncertainties.
 - [ ] Classify missing `closedPnl` by **opening vs closing** action; zero or blank opening records can be legitimate, but closing-record blanks need explicit reconciliation. Reconstructed weighted-average-cost PnL is a **modeled estimate**, not verified native PnL when initial inventory is unknown. Flag export pagination caps and left/right censoring.
 - [ ] Verify leader equity is an **as-of time series**, not one terminal balance repeated on every historical fill. Account balances after withdrawals are not valid historical leverage or drawdown denominators.
 - [ ] Split by months and market regimes. Mark concentration of economic profit into one open position, one month, one token or a few outsized events. Source selection from the same backtest period = in-sample, regardless of later split.
