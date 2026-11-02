@@ -177,6 +177,14 @@ def fidelity(
     execution_error = sum((abs(approved_q[k] - executed_q[k]) * prices[k] for k in keys), ZERO)
     total_error = sum((abs(intended_q[k] - executed_q[k]) * prices[k] for k in keys), ZERO)
     unsupported = sorted(k for k in replica.intended if replica.intended[k] and not approved_q[k])
+    # Same native mark for source and follower: the signed notional/equity
+    # weights are invariant under E0's one wallet-wide scalar. PM04's risk
+    # clipping or a skipped order may change the executed weight, not intent.
+    pod_capital = replica.scale * replica.equity_usd
+    source_weights = {
+        k: replica.source.get(k, ZERO) * prices[k] / replica.equity_usd for k in sorted(keys)
+    }
+    actual_weights = {k: executed_q[k] * prices[k] / pod_capital for k in sorted(keys)}
     return {
         "classification": "E0_INTENT_FIDELITY_NOT_REALIZED_PNL",
         "source_sha256": replica.source_sha256,
@@ -184,6 +192,14 @@ def fidelity(
         "first_known_at": replica.first_known_at,
         "decision_at": replica.decision_at,
         "intended_gross_usd": str(gross),
+        "source_equity_usd": str(replica.equity_usd),
+        "pod_capital_usd": str(pod_capital),
+        "source_signed_exposure_weights": {k: str(w) for k, w in source_weights.items() if w},
+        "executed_signed_exposure_weights": {k: str(w) for k, w in actual_weights.items() if w},
+        "source_gross_exposure_multiple": str(sum((abs(w) for w in source_weights.values()), ZERO)),
+        "source_net_exposure_multiple": str(sum(source_weights.values(), ZERO)),
+        "mark_assumption": "SAME_NATIVE_ASOF_PRICE_FOR_SOURCE_AND_FOLLOWER",
+        "tracking_deviation_as_fraction_of_pod_capital": str(total_error / pod_capital),
         "overlay_deviation_usd": str(overlay_error),
         "execution_deviation_usd": str(execution_error),
         "tracking_deviation_usd": str(total_error),
