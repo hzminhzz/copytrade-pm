@@ -42,6 +42,9 @@ If source equity rises to $120,000 with unchanged 3 BTC at $100,000, signed BTC 
 
 ## Q3 retrospective equity recovery and its limits
 
+**Exploratory execution completed November 2, 2026:** the user's full-portfolio research was run in a separately named sparse-NAV approximation using the actual signed-wallet-position/equity sizing equation, historical previous-positive NAV (8d/16d carry), five-minute delay, PM03 account, and market-gap/capacity stress. It does not weaken the strict E0/PIT contract. The executed 84-combination, 3-pod results and selected follow-up are documented in [Q3 sparse-equity execution results](Q3-SPARSE-EQUITY-PORTFOLIO-EXECUTION-20261102.md). Base A +$847.40 with ~90–100% exposure mismatch, B modeled +10% target Aug 21 with 13–41% mismatch, C daily loss breach Aug 13; none is a verified follower return. The strict source-equity replay remains blocked because weekly historical source NAV is insufficient to establish true per-decision account equity.
+
+
 The previous PR #20 historical study used **July–August peak observed vendor gross notional**, not source wallet equity. Its A/B/C and 84 mixed-combo modeled PnLs are archived as an expressly obsolete **gross-normalized proxy**, not evidence of correct wallet risk sizing.
 
 The corrected historical CLI now defaults to **equity-weight mode**. Without a complete, authentic source-equity ledger, it writes a private immutable report with `pnl_usd=null` for all 84 combinations and reason `BLOCKED_HISTORICAL_SOURCE_EQUITY`. Add `--legacy-gross-proxy` only to deliberately reproduce the old, scientifically limited method; never use its PnL to choose wallets.

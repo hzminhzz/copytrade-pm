@@ -429,8 +429,20 @@ def _rebalance(
     prices: dict[Instrument, D],
     bars: dict[Instrument, object],
     counters: Counter,
+    *,
+    risk_limits: tuple[D, D, D] | None = None,
+    cost_multiplier: D = D("1"),
+    execution_minute: datetime | None = None,
+    capacity_enforced: bool = False,
 ):
     """Net across three virtual PM books in the existing sole PM03 account."""
+    pod_cap, account_cap, instrument_cap = risk_limits or (
+        POD_GROSS_CAP,
+        ACCOUNT_GROSS_CAP,
+        INSTRUMENT_GROSS_CAP,
+    )
+    if min(pod_cap, account_cap, instrument_cap, cost_multiplier) <= ZERO:
+        raise ValueError("INVALID_RESEARCH_SCENARIO")
     pods = sorted(set(desired) | set(account.pm_quantities))
     all_inst = {inst for book in desired.values() for inst in book}
     all_inst |= {inst for book in account.pm_quantities.values() for inst in book}
@@ -442,12 +454,11 @@ def _rebalance(
     # source reductions; a veto must not prevent an existing pod from exiting.
     if (
         any(
-            sum((abs(q * prices[inst]) for inst, q in desired.get(p, {}).items()), ZERO)
-            > POD_GROSS_CAP
+            sum((abs(q * prices[inst]) for inst, q in desired.get(p, {}).items()), ZERO) > pod_cap
             for p in pods
         )
-        or sum((abs(q * prices[inst]) for inst, q in new_net.items()), ZERO) > ACCOUNT_GROSS_CAP
-        or any(abs(q * prices[inst]) > INSTRUMENT_GROSS_CAP for inst, q in new_net.items())
+        or sum((abs(q * prices[inst]) for inst, q in new_net.items()), ZERO) > account_cap
+        or any(abs(q * prices[inst]) > instrument_cap for inst, q in new_net.items())
     ):
         counters["risk_budget_rejected_batches"] += 1
         reduced: dict[str, dict[Instrument, D]] = {}
@@ -468,6 +479,11 @@ def _rebalance(
         desired = reduced
         counters["risk_overlay_reduce_only_batches"] += 1
     for inst in sorted(all_inst):
+        if execution_minute is not None and bars[inst].timestamp != execution_minute:
+            # The last verified quote can support an explicit stale mark for
+            # exploratory holding PnL, but it is NOT an executable order bar.
+            counters["skipped_orders_stale_market_mark"] += 1
+            continue
         changes = {
             p: desired.get(p, {}).get(inst, ZERO) - account.pm_quantities.get(p, {}).get(inst, ZERO)
             for p in pods
@@ -495,9 +511,14 @@ def _rebalance(
         # this is NOT an executable/venue-verified fill.
         if cap_qty <= ZERO or abs(net) > cap_qty:
             counters["orders_above_5pct_minute_volume_or_zero_volume"] += 1
+            if capacity_enforced:
+                counters["capacity_blocked_orders"] += 1
+                continue
         side = D(1) if net > ZERO else D(-1)
-        exec_px = prices[inst] * (D(1) + side * (FULL_SPREAD_BPS / 2 + SLIPPAGE_BPS) / D("10000"))
-        fee = abs(net * exec_px) * FEE_BPS / D("10000")
+        exec_px = prices[inst] * (
+            D(1) + side * cost_multiplier * (FULL_SPREAD_BPS / 2 + SLIPPAGE_BPS) / D("10000")
+        )
+        fee = abs(net * exec_px) * FEE_BPS * cost_multiplier / D("10000")
         alloc = _allocate(net, pending)
         try:
             account.simulate_fill(inst, net, exec_px, fee, accepted=True, allocated=alloc)
@@ -538,6 +559,10 @@ def _run_combo(
     market: VerifiedHyperliquidMinuteSource,
     *,
     actions_override: list[tuple] | None = None,
+    risk_limits: tuple[D, D, D] | None = None,
+    cost_multiplier: D = D("1"),
+    measure_tracking: bool = False,
+    capacity_enforced: bool = False,
 ) -> dict:
     actions = (
         actions_override
@@ -556,6 +581,7 @@ def _run_combo(
     account = Account.start(_synthetic_rulebook(instruments), START.isoformat())
     latest: dict[str, dict[Instrument, D]] = {w: {} for w in trio}
     counters = Counter()
+    per_wallet_tracking = defaultdict(Counter)
     curve = []
     peak = CASH
     max_dd = ZERO
@@ -628,8 +654,42 @@ def _run_combo(
                 except MarketDataBlocked as exc:
                     reason = "MISSING_REQUESTED_MARK:" + str(exc).split(":", 1)[0]
                     break
-            _rebalance(account, desired, prices, bars, counters)
+            _rebalance(
+                account,
+                desired,
+                prices,
+                bars,
+                counters,
+                risk_limits=risk_limits,
+                cost_multiplier=cost_multiplier,
+                execution_minute=current,
+                capacity_enforced=capacity_enforced,
+            )
             counters["wallet_batch_actions"] += len(pending)
+            if measure_tracking:
+                for wallet, target in latest.items():
+                    actual = account.pm_quantities.get(wallet, {})
+                    insts_for_wallet = set(target) | set(actual)
+                    intended = sum(
+                        (abs(target.get(inst, ZERO) * prices[inst]) for inst in insts_for_wallet),
+                        ZERO,
+                    )
+                    actual_gross = sum(
+                        (abs(actual.get(inst, ZERO) * prices[inst]) for inst in insts_for_wallet),
+                        ZERO,
+                    )
+                    error = sum(
+                        (
+                            abs(target.get(inst, ZERO) - actual.get(inst, ZERO)) * prices[inst]
+                            for inst in insts_for_wallet
+                        ),
+                        ZERO,
+                    )
+                    stats = per_wallet_tracking[wallet]
+                    stats["intended_gross_usd_sum"] += intended
+                    stats["actual_gross_usd_sum"] += actual_gross
+                    stats["tracking_error_usd_sum"] += error
+                    stats["samples"] += 1
             i += 1
         # Fixed conservative funding debit proxy at eight-hour settlement.
         if current.minute == 0 and current.hour in (0, 8, 16) and account.quantities:
@@ -637,7 +697,9 @@ def _run_combo(
             for pod, book in account.pm_quantities.items():
                 gross = sum((abs(q * prices[inst]) for inst, q in book.items()), ZERO)
                 if gross:
-                    distribution[pod] = -gross * FUNDING_ABS_BPS_PER_8H / D("10000")
+                    distribution[pod] = (
+                        -gross * FUNDING_ABS_BPS_PER_8H * cost_multiplier / D("10000")
+                    )
             if distribution:
                 fee = sum(distribution.values(), ZERO)
                 account.post_funding(fee, distribution)
@@ -657,6 +719,22 @@ def _run_combo(
         curve.append({"date": last_day.isoformat(), "equity_usd": str(account.equity)})
     account.verify()
     eligible_full = reason is None
+    tracking = None
+    if measure_tracking:
+        tracking = {
+            wallet: {
+                "intended_gross_usd_sum": str(stats["intended_gross_usd_sum"]),
+                "actual_gross_usd_sum": str(stats["actual_gross_usd_sum"]),
+                "tracking_error_usd_sum": str(stats["tracking_error_usd_sum"]),
+                "action_count": stats["samples"],
+                "action_weighted_tracking_error_fraction": (
+                    str(stats["tracking_error_usd_sum"] / stats["intended_gross_usd_sum"])
+                    if stats["intended_gross_usd_sum"]
+                    else None
+                ),
+            }
+            for wallet, stats in sorted(per_wallet_tracking.items())
+        }
     return {
         "name": name,
         "wallets": list(trio),
@@ -686,6 +764,7 @@ def _run_combo(
         "daily_curve": curve,
         "economic_classification": "HISTORICAL_ORACLE_CONDITIONAL_EPISODES_NOT_WALLET_EQUITY_OR_VERIFIED_FOLLOWER",
         "source_and_realized_cost_fidelity": False,
+        **({"action_weighted_exposure_tracking": tracking} if measure_tracking else {}),
     }
 
 
