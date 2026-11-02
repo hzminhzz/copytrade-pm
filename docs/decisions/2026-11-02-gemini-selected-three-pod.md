@@ -25,6 +25,8 @@
 - Existing A/B/C historical portfolios and `W028 + CA-008 + W015` Combo 2 demo-paper work remain **separate**. No running account, watchlist, deployment, active paper strategy, or production config is replaced by this documentation decision.
 - Gemini's preferred 5-wallet alternatives are **not** chosen for this implementation.
 
+**Alternative portfolio registry (preserved 2026-11-03):** Gemini also reported four other three-wallet combinations and five distinct five-wallet sets, with separate risk-normalized five-wallet sizing. Their exact memberships, report metrics, modeled status and deployment guards are recorded in [the Gemini Phase 2 alternative portfolio registry](2026-11-03-gemini-alternative-portfolios.md). **These are not fallbacks or approved deployments; the locked primary roster above remains unchanged.**
+
 ## What this decision does and does not establish
 
 **Verified or source-grounded at decision time**
