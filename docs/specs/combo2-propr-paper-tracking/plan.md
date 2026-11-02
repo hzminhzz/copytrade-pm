@@ -1,6 +1,6 @@
 # Plan: Combo 2 paper tracker - one-shot delivery
 
-Single work unit: [spec.md](spec.md) (approved 2026-11-02). The original 13 logical units become **internal implementation checkpoints of one GitHub issue and one pull request**, not 13 individually managed tickets. Implement, test and review continuously; do not stop for intermediate ticket approval. Preserve the strictly **zero remote order mutation** contract.
+Single work unit: [spec.md](spec.md) (approved 2026-11-02). The original 13 logical units become **internal implementation checkpoints of one GitHub issue**, not 13 individually managed tickets. The owner subsequently authorized merging the reviewed offline foundation first; remaining checkpoints may land in reviewed continuation PRs under the same open issue. Implement, test and review continuously; do not stop for intermediate ticket approval. Preserve the strictly **zero remote order mutation** contract.
 
 ## Environment and safety
 
@@ -14,7 +14,7 @@ Single work unit: [spec.md](spec.md) (approved 2026-11-02). The original 13 logi
 
 **Issue 1 - Implement and verify the entire Combo 2 five-minute paper tracker end to end**
 
-**Goal:** Complete every acceptance criterion in the approved `spec.md` through one branch, one reviewed pull request and one engineering acceptance report. This issue must not be closed merely because a module or a synthetic test passes.
+**Goal:** Complete every acceptance criterion in the approved `spec.md` through independently reviewed changes and one engineering acceptance report. A foundation-only merge must not close this issue; it remains open until the entire prospective paper service is verified.
 
 **Implementation checkpoints (internal, not separate GitHub tickets):**
 
@@ -43,4 +43,4 @@ Single work unit: [spec.md](spec.md) (approved 2026-11-02). The original 13 logi
 - For connector changes: `python -m pytest -q connectors/propr/tests` in its installed environment, including no-mutation transport spies and preserving all existing shadow clients.
 - Re-run the deterministic replay after restart; assert identical hashes, manager attribution, net paper equity, and zero mutation-capable outbound calls. Record redacted SHA-addressed evidence. If read-only external account permissions/market metadata are missing, explicitly report `BLOCKED_EXTERNAL_SMOKE` and preserve fully functioning offline paper mechanics; do not fabricate a successful network smoke.
 
-**Closure:** One PR covers the verified implementation and references this single issue. Reviewer checks the complete diff, unit/integration and fault cases, all economic assumptions, PIT timestamps, no-order guarantee and exclusions. Close only if all local gates pass, the requested read-only evidence gate is honestly classified, and the final status separately declares: IMPLEMENTED / ENGINEERING VERIFIED / PAPER OBSERVED / SCIENTIFICALLY QUALIFIED / LIVE AUTHORIZED. Live authorization stays **NO**.
+**Closure:** All implementation PRs reference this same issue without issue-closing footers until the final gate passes. Reviewer checks the complete diff, unit/integration and fault cases, all economic assumptions, PIT timestamps, no-order guarantee and exclusions. Close only if all local gates pass, the requested read-only evidence gate is honestly classified, and the final status separately declares: IMPLEMENTED / ENGINEERING VERIFIED / PAPER OBSERVED / SCIENTIFICALLY QUALIFIED / LIVE AUTHORIZED. Live authorization stays **NO**.
