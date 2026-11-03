@@ -49,6 +49,10 @@ The optional `trader_intelligence_qualification.py` read-only audit and `trader_
 
 In the inspected private PM-01 forward reports, no signed whole-account outcome ledger manifest was located. A separate [2026-11-03 P1 real-journal audit](TRADER-INTELLIGENCE-P1-EXPLORATORY-AUDIT-20261103.md), using the existing ensemble validator rather than a new simulator, found 712 P1 first decisions, mixed 5m/15m/1h hypothetical net results, largely unverified source coverage, and no positive Holm-corrected 1h alpha evidence. Its SHA-pinned 217-wallet report is private, not a newly protected holdout. The existing systemd `copytrade-source-abc.service` and `copytrade-tracker.service` were observed **active**, but active observation services are not independent matched economic producers. No service was changed. Historical/private accounts and evidence remain off Git.
 
+## Current P1 source-acquisition recovery
+
+A [read-only native P1 capture](TRADER-INTELLIGENCE-P1-NATIVE-SOURCE-20261103.md) now documents the official HTTP/WS 422 endpoint distinction and a successful 40-request, 3-parent, 11-DEX-per-account source snapshot with immutable private SHA receipts. It is a **non-atomic** present-state snapshot and cannot establish continuous prospective matched account NAV, nor follower profitability. No service or financial account was modified. All current grades remain C/X at 0R.
+
 ## Scientific and release limitations
 
 1. **No qualified A/B edge.** A user-provided follower estimate or a syntactically plausible calibration is insufficient to confer A/B. The in-repo default remains C/X at 0R; positive-grading needs independent receipt/outcome attestation and frozen OOS calibration.
