@@ -55,6 +55,10 @@ uv run --group dev python -m copytrade_pm.trader_intelligence_qualification_cli 
 
 The command can only run after real capture, independently reviewed selection plan and signed outcomes exist. It verifies the original SHA chain and trusted Ed25519 signatures, reports eligible v2 episodes and matched horizon coverage, groups correlated horizons per source event, and emits only descriptive follower-minus-control net R. Its result is **always NOT_SCIENTIFICALLY_QUALIFIED** until a distinct independent, frozen statistical and economic evaluation is implemented and verified.
 
+## Already inspected data exclusions
+
+The October–November prospective-journal/midpoint-markout period has **already been examined** in the [P1 exploratory diagnostic](TRADER-INTELLIGENCE-P1-EXPLORATORY-AUDIT-20261103.md), including P1 outcome means, intervals and multiplicity diagnostics. It is **permanently ineligible as an untouched independent validation window** for these selected wallets and model hypotheses. Do not use the apparent positive S053-HYPE results to silently redefine P1 or change the holdout family. The proposed Nov 4 window still cannot begin as a valid study without verified actual pre-registration, eligible source capture and an independent economic outcome producer.
+
 ## Current finding (2026-11-03)
 
 The original immutable PM-01 prospective ledger and the PM-02 v2 contract already exist as code. In the inspected private PM-01 HyperX prospective/REST report trees, **no qualifying signed outcome ledger manifest was located**. Historical Q3 and 90-day fills and read-only opportunity-journal observations cannot repair that absence. Engineering code and signatures from unit-test fixtures are **not** positive research evidence. No live order, Telegram activation, or financial-account mutation is authorized by this protocol.
