@@ -55,6 +55,51 @@ uv run --group dev python -m copytrade_pm.trader_intelligence_qualification_cli 
 
 The command can only run after real capture, independently reviewed selection plan and signed outcomes exist. It verifies the original SHA chain and trusted Ed25519 signatures, reports eligible v2 episodes and matched horizon coverage, groups correlated horizons per source event, and emits only descriptive follower-minus-control net R. Its result is **always NOT_SCIENTIFICALLY_QUALIFIED** until a distinct independent, frozen statistical and economic evaluation is implemented and verified.
 
+## Matched walk-forward diagnostics (engineering amendment, 2026-11-03)
+
+`trader_intelligence_walkforward.walkforward_diagnostic` reuses the existing
+five-policy comparator at each *as-of decision cut*. It enforces explicitly
+ordered, non-overlapping, 60-minute-or-greater embargoed folds, rejects a
+candidate reused across folds, counts missing outcomes and controls without
+zero-imputation and never ignores a cut outside the declared windows. It
+calculates paired follower-minus-control R by policy, aggregates correlated
+observations by UTC calendar day and computes a deterministic day-block
+bootstrap lower diagnostic bound, with a conservative predeclared comparison
+family default of 10 (five policies × two portfolios). Fewer than five observed
+calendar days yield no bound; missing matched controls suppress the bound.
+
+**Scientific limitation:** these offline descriptive bootstrap diagnostics do
+not validate an independent real matched economic producer, actual Propr fills,
+pre-registration, positive skill or a protected holdout. The tool always returns
+`NOT_SCIENTIFICALLY_QUALIFIED`. There are no real P1/P14 300-second executed
+follower/control observations to score in this study. The frozen future dates
+are not enough to run genuine OOS evaluation. Cost/latency stresses require
+matching independent observed scenarios; simulated tests cannot establish them.
+
+## PIT trader features (engineering amendment, 2026-11-03)
+
+`trader_intelligence_features.extract_asof_features` derives descriptive wallet ×
+instrument direction, OPEN/ADD/REDUCE/EXIT/REVERSE status, parent-first
+independence grouping, observed holding-time lower bounds and optional marked
+notional-to-equity fraction from the versioned existing observation snapshot.
+A continuous local zero-to-position transition is required before inferring
+holding duration. A conflicting position chain, missing coherent source book,
+unknown equity/mark or retrospective vendor-only receipt is never silently
+imputed. A stable decision-cut report hash includes the **full as-of observation
+content**, not only event IDs. These measurements are diagnostics, not proven
+execution exposure, trader independence, A/B quality or a position target.
+
+## Matched-benchmark integrity (engineering amendment, 2026-11-03)
+
+The offline five-policy comparator now rejects conflicting duplicate episode IDs,
+wallet outcomes outside the decision-cut monitored roster, future-first-known
+labels, mismatched matched-control candidate identities, and controls whose
+outcome clock precedes the selected hypothetical exit. These are mandatory
+source-to-outcome binding checks, not statistical validation. Positive or negative
+exploratory means remain descriptive only; none can establish a new independent
+holdout or justify an A/B grade. Benchmark selection and evaluation must never
+silently overwrite duplicate economic labels or merge different control events.
+
 ## Already inspected data exclusions
 
 The October–November prospective-journal/midpoint-markout period has **already been examined** in the [P1 exploratory diagnostic](TRADER-INTELLIGENCE-P1-EXPLORATORY-AUDIT-20261103.md), including P1 outcome means, intervals and multiplicity diagnostics. It is **permanently ineligible as an untouched independent validation window** for these selected wallets and model hypotheses. Do not use the apparent positive S053-HYPE results to silently redefine P1 or change the holdout family. The proposed Nov 4 window still cannot begin as a valid study without verified actual pre-registration, eligible source capture and an independent economic outcome producer.
