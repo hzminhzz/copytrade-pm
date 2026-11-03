@@ -191,6 +191,19 @@ def test_control_identity_and_maturity_must_match_selected_episode():
         )
 
 
+def test_missing_follower_economics_are_counted_not_dropped_as_wins():
+    cut, episode, control = example()
+    report = matched_benchmark(
+        (cut,),
+        (replace(episode, net_r=None),),
+        prior_strength=5,
+        tail_probability_z="1.96",
+        market_controls={SHA: control},
+    )
+    assert all(row.selected == 0 and row.missing_outcomes == 1 for row in report.rows)
+    assert all(row.net_r_mean is None for row in report.rows)
+
+
 def test_policy_mismatch_fail_closed_and_missing_controls_nullable():
     cut, episode, control = example()
     with pytest.raises(ValueError, match="CONTROL_EXECUTION_POLICY_MISMATCH"):

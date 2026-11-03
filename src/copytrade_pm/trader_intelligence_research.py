@@ -569,7 +569,12 @@ def matched_benchmark(
             )
         ):
             raise ValueError("CONTROL_OR_OUTCOME_CANDIDATE_MISMATCH")
-        if label.status not in ("OK", "STOP_PROXY_FILLED"):
+        if (
+            label.status not in ("OK", "STOP_PROXY_FILLED")
+            or label.net_r is None
+            or label.outcome_known_at is None
+            or label.hypothetical_exit_at is None
+        ):
             for key in selected:
                 misses[key] += 1
             continue
