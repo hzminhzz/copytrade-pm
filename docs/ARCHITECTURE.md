@@ -12,6 +12,8 @@
 | Historical whole-wallet PM-01 | `pm_fill_replay`, `pm_fill_cards`, `pm_fill_tape` | Exact source fill books + minute marks → 36 wallets × 5/15/60m hypothetical follower rows; observed signed book tape | `pm01_fill_only_replay_v2` is **hindsight** |
 | Prospective collection | `pm_hyperx_forward`, `pm_hyperx_rest_forward` | Bounded read-only vendor WS/REST → immutable first-local receipt files | Receipt only; REST snapshots never qualify |
 | Independent receipt and economic audit | `pm_prospective_ledger`, `pm_prospective_cli` | Frozen cohort + receipt → external signed audit → external signed mature follower/control outcome | Exact PM-02 row adapter, as-of validated; cannot independently verify external economic truth |
+| Trader Intelligence scientific readiness (draft PR #36) | `trader_intelligence_qualification`, `trader_intelligence_qualification_cli` | Existing sealed prospective ledger → independent signature/hash/as-of checks → evidence counts, complete horizon groups, descriptive paired net R | Read-only; **never** signs, creates evidence, confers A/B or marks SCIENTIFICALLY QUALIFIED |
+| Trader Intelligence bounded native source snapshot (draft PR #36) | `trader_intelligence_source_capture` | Existing private candidate aliases and official Hyperliquid per-DEX/spot REST responses → immutable local SHA evidence and current source positions | No atomic book, complete NAV, trading permission or historical first-known reconstruction |
 | Manager allocator | `pm_manager`, `pm02_audit`, `pm02_risk`, `pm02_campaign`, `pm02_outcomes` | Frozen PM-01 + optional independently attested prospective rows → cards, history, dependence checks and up to five proposed R seats | Research proposals, not orders |
 | Handoff | `pm_handoff`, `pm03_bridge` | SHA-pinned PM-01/PM-02/tape → dependency verdict; positions require separate sealed contract | Cannot turn risk R into position targets |
 | Challenge/account simulator | `pm03_rules/account/risk/execution/attribution/memory/run/stress/cli` | Versioned **synthetic** market/PM targets/account evidence → simulated equity, event ledger, HALT and policy comparisons | One **shadow-only** account-risk supervisor |
@@ -99,6 +101,14 @@ tests/                                     deterministic, synthetic, adversarial
 docs/                                      current handbook + preserved source-era historical reports
 examples/pm03_synthetic.json              only synthetic no-network demonstration
 ```
+
+## Trader Intelligence research seam (draft PR #36; 2026-11-02)
+
+Issue #27 defines the independent read-only intelligence consumer. The WIP implementation lives on a separate feature branch, and is **not** part of released `main` until reviewed and merged. It adds only `trader_intelligence.py` (pure C/X-first assessment and stable SHA), `trader_intelligence_intake.py` (read-only historical/prospective events), `trader_intelligence_book.py` (verified full-book enrichment) and `trader_intelligence_research.py` (hypothetical 300s minute follower, conservative stop/capacity, source-independent matched-control scaffold). **No new account risk, PM-02 frozen 36 interface, broker connector, source journal, or network order transport exists.**
+
+Original HyperX/public fills remain historical proxies and cannot become prospective first-known data. The full-book enrichment requires coherent locally observed equity and positions and explicit account-mode/spot/subaccount attestation; no source gap can be filled by inference. Unknown independence stays unknown. The reproducible benchmark has no attested unbiased PIT/holdout, independently observed matched follower economics or calibrated positive selection policy, so all comparative scientific conclusions remain **NOT_QUALIFIED** and all model-produced A/B grades remain disabled. Passing deterministic tests cannot authorize live risk.
+
+The actual `hyperliquid-expert-ensemble` descriptive publisher modules `copy_board.py` and `copy_digest.py` are present on its active `feat/expert-wallet-execution-correctness-prospective-research` branch (VPS inspected November 2) but **not** the ensemble `main` SHA `ef8d7c1`. Its separate draft adapter must therefore be reviewed against that feature branch and not silently merged into or deployed through the production service. Default Telegram output stays the original descriptive digest. See [the evidence checkpoint](TRADER-INTELLIGENCE-CHECKPOINT-20261102.md).
 
 ## Things deliberately NOT implied by this architecture
 
