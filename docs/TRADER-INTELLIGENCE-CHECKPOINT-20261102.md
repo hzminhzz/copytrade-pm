@@ -43,6 +43,12 @@ At inspection the live `copy-opportunities-live.db` contained **74,148** durable
 
 2026-11-03 local acceptance for this incremental ranker: both core and native-market suites **538 passed** each, Ruff lint/format and wheel/sdist build passed. This is engineering verification only; no independent signed economic evidence or OOS qualification was produced.
 
+## 2026-11-03 signed economic evidence continuation
+
+The optional `trader_intelligence_qualification.py` read-only audit and `trader_intelligence_qualification_cli.py` now verify the **existing** prospective ledger's full SHA chain and external Ed25519 signatures before counting eligible whole-account v2 observations. They require an exact selection-plan SHA and future evaluation window, preserve as-of sealing, reject older v1/incorrect-plan outcomes and missing matched 5/15/60m horizons, and report per-source-event conservative follower-minus-control net R only from fully matched groups. No new mutable ledger, signer or order gateway was added. **The audit deliberately never issues A/B or scientific qualification:** a signed assertion does not establish economic truth, pre-registration, independent follower fills or statistical OOS skill. The future [study proposal](TRADER-INTELLIGENCE-PROSPECTIVE-STUDY-20261103.md) is not an active registered holdout.
+
+In the inspected private PM-01 forward reports, no signed whole-account outcome ledger manifest was located. The existing systemd `copytrade-source-abc.service` and `copytrade-tracker.service` were observed **active**, but active observation services are not independent matched economic producers. No service was changed. Historical/private accounts and evidence remain off Git.
+
 ## Scientific and release limitations
 
 1. **No qualified A/B edge.** A user-provided follower estimate or a syntactically plausible calibration is insufficient to confer A/B. The in-repo default remains C/X at 0R; positive-grading needs independent receipt/outcome attestation and frozen OOS calibration.
