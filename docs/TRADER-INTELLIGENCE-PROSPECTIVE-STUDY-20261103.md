@@ -55,6 +55,17 @@ uv run --group dev python -m copytrade_pm.trader_intelligence_qualification_cli 
 
 The command can only run after real capture, independently reviewed selection plan and signed outcomes exist. It verifies the original SHA chain and trusted Ed25519 signatures, reports eligible v2 episodes and matched horizon coverage, groups correlated horizons per source event, and emits only descriptive follower-minus-control net R. Its result is **always NOT_SCIENTIFICALLY_QUALIFIED** until a distinct independent, frozen statistical and economic evaluation is implemented and verified.
 
+## Matched-benchmark integrity (engineering amendment, 2026-11-03)
+
+The offline five-policy comparator now rejects conflicting duplicate episode IDs,
+wallet outcomes outside the decision-cut monitored roster, future-first-known
+labels, mismatched matched-control candidate identities, and controls whose
+outcome clock precedes the selected hypothetical exit. These are mandatory
+source-to-outcome binding checks, not statistical validation. Positive or negative
+exploratory means remain descriptive only; none can establish a new independent
+holdout or justify an A/B grade. Benchmark selection and evaluation must never
+silently overwrite duplicate economic labels or merge different control events.
+
 ## Already inspected data exclusions
 
 The October–November prospective-journal/midpoint-markout period has **already been examined** in the [P1 exploratory diagnostic](TRADER-INTELLIGENCE-P1-EXPLORATORY-AUDIT-20261103.md), including P1 outcome means, intervals and multiplicity diagnostics. It is **permanently ineligible as an untouched independent validation window** for these selected wallets and model hypotheses. Do not use the apparent positive S053-HYPE results to silently redefine P1 or change the holdout family. The proposed Nov 4 window still cannot begin as a valid study without verified actual pre-registration, eligible source capture and an independent economic outcome producer.

@@ -538,7 +538,12 @@ def matched_benchmark(
     """
     candidates = sorted(cuts, key=lambda c: (utc(c.decision_at), c.instrument, c.direction))
     history = list(outcomes)
-    by_id = {e.episode_id: e for e in history}
+    by_id: dict[str, FollowerEpisode] = {}
+    for episode in history:
+        previous = by_id.get(episode.episode_id)
+        if previous is not None and previous != episode:
+            raise ValueError("CONFLICTING_BENCHMARK_EPISODE")
+        by_id[episode.episode_id] = episode
     selected: dict[str, list[FollowerEpisode]] = {
         "incumbent_3_addresses_2_to_1": [],
         "independent_cluster_consensus": [],
@@ -556,7 +561,12 @@ def matched_benchmark(
         if (
             label.instrument != cut.instrument
             or label.direction != cut.direction
+            or label.wallet not in {w.alias for w in cut.snapshot.wallets}
             or utc(label.observation_at) > utc(cut.decision_at)
+            or (
+                label.first_known_at is not None
+                and utc(label.first_known_at) > utc(cut.decision_at)
+            )
         ):
             raise ValueError("CONTROL_OR_OUTCOME_CANDIDATE_MISMATCH")
         if label.status not in ("OK", "STOP_PROXY_FILLED"):
@@ -633,9 +643,14 @@ def matched_benchmark(
             if control is None:
                 missing_controls += 1
                 continue
+            if control.candidate_episode_id != value.episode_id:
+                raise ValueError("CONTROL_EPISODE_IDENTITY_MISMATCH")
             if control.policy_sha256 != value.policy_sha256:
                 raise ValueError("CONTROL_EXECUTION_POLICY_MISMATCH")
-            if utc(control.outcome_known_at) <= utc(value.observation_at):
+            if utc(control.outcome_known_at) <= utc(value.observation_at) or (
+                value.hypothetical_exit_at is not None
+                and utc(control.outcome_known_at) < utc(value.hypothetical_exit_at)
+            ):
                 raise ValueError("CONTROL_OUTCOME_BEFORE_CANDIDATE")
             if value.net_r is not None:
                 matched.append(decimal(value.net_r) - decimal(control.control_net_r))

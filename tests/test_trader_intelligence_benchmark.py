@@ -141,6 +141,56 @@ def test_misbound_outcome_cannot_be_used_for_another_market_or_direction():
         )
 
 
+def test_conflicting_duplicate_episode_never_silently_overwrites_economics():
+    cut, episode, control = example()
+    with pytest.raises(ValueError, match="CONFLICTING_BENCHMARK_EPISODE"):
+        matched_benchmark(
+            (cut,),
+            (episode, replace(episode, net_r="99")),
+            prior_strength=5,
+            tail_probability_z="1.96",
+            market_controls={SHA: control},
+        )
+
+
+def test_outcome_must_belong_to_cut_roster_and_be_known_by_decision():
+    cut, episode, control = example()
+    for bad in (
+        replace(episode, wallet="NOT_MONITORED"),
+        replace(episode, first_known_at=(NOW + timedelta(minutes=4)).isoformat()),
+    ):
+        with pytest.raises(ValueError, match="CONTROL_OR_OUTCOME_CANDIDATE_MISMATCH"):
+            matched_benchmark(
+                (cut,),
+                (bad,),
+                prior_strength=5,
+                tail_probability_z="1.96",
+                market_controls={SHA: control},
+            )
+
+
+def test_control_identity_and_maturity_must_match_selected_episode():
+    cut, episode, control = example()
+    with pytest.raises(ValueError, match="CONTROL_EPISODE_IDENTITY_MISMATCH"):
+        matched_benchmark(
+            (cut,),
+            (episode,),
+            prior_strength=5,
+            tail_probability_z="1.96",
+            market_controls={SHA: replace(control, candidate_episode_id="wrong")},
+        )
+    with pytest.raises(ValueError, match="CONTROL_OUTCOME_BEFORE_CANDIDATE"):
+        matched_benchmark(
+            (cut,),
+            (episode,),
+            prior_strength=5,
+            tail_probability_z="1.96",
+            market_controls={
+                SHA: replace(control, outcome_known_at=(NOW + timedelta(minutes=6)).isoformat())
+            },
+        )
+
+
 def test_policy_mismatch_fail_closed_and_missing_controls_nullable():
     cut, episode, control = example()
     with pytest.raises(ValueError, match="CONTROL_EXECUTION_POLICY_MISMATCH"):
