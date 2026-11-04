@@ -60,6 +60,53 @@ User+system CPU p50 1.210000s, observed nearest-rank CPU p95
 These are **empirical warm shared-host samples**, not a promised latency SLA,
 independent cold-disk runs, or whole PM03 account simulator benchmark.
 
+## Reproducible bounded 90-day benchmark (Issue #89)
+
+The read-only `pm_offline_benchmark` CLI measures the **same sealed
+historical-oracle research job** on a newly empty application cache and
+repeats it without clearing OS page cache or source lake. Run:
+
+```bash
+uv run --extra market --group dev python -m copytrade_pm.pm_offline_benchmark \
+  docs/OFFLINE-HL94-ORACLE-JOB-20261104.json \
+  --input-root docs \
+  --source-root /home/quant/dev/copytrade-pm/data \
+  --market-root /home/quant/dev/quant/ml4t-data/.data/store \
+  --cache-root /home/quant/.cache/copytrade-polars-bench-20261104-verified-v1/cache \
+  --workers 2 --repeats 10
+```
+
+Actual first-run independent-cache result (2026-11-04): **one
+CACHE_CREATED + nine CACHE_HIT**, unchanged report SHA
+`3141e4acb2df842025f880403d9dd4be2702c6811917bcb7949546dbdc6cbd1a`.
+
+| Measure | Verified value |
+| --- | ---: |
+| First application-cache run (not OS cold disk) | 11.381831 s |
+| Nine warm wall p50 / nearest-rank p95 | 0.951180 s / 1.042981 s |
+| Nine warm CPU p50 / nearest-rank p95 | 1.120042 s / 1.338226 s |
+| All 10 wall p50 / nearest-rank p95 | 0.959456 s / 11.381831 s |
+| All 10 CPU p50 / nearest-rank p95 | 1.148770 s / 16.624076 s |
+| Peak process RSS high-water (including first scan) | 835,596 KiB |
+| Cache footprint after ten identical runs | 15,751,252 bytes |
+| Linux physical-read counter first run / warm runs | 180,224 bytes / 0 bytes |
+| Candidate batches / native matched batches | 377,130 / 322,970 |
+
+`/proc/self/io` physical reads reflect the OS page cache, not all
+logical bytes scanned. Polars scratch-file high-water is unmeasured
+(`null` in reproducible report), not fictitiously zero. Comparison to
+the **full 90-day PM-03 financial replay** is **BLOCKED_REAL_WORKLOAD**:
+the original source supplies no independently as-of NAV/whole-account
+snapshots/real first-known. The old PM-01 constant-price fixture uses a
+different execution/financial policy; never claim a meaningful
+end-to-end old/new financial simulation speedup.
+
+The separately frozen source+native join stage was instead compared
+on identical market batch inputs: unoptimized 75.50s versus optimized
+5.20–8.12s (measured stage-only reduction; native Parquet output SHA
+identical). All tests and performance work are **engineering screening**
+and do not supply real follower P&L.
+
 ## Verified native market evidence
 
 Canonical market root is the adjacent ML4T data lake under `crypto_futures_ohlcv_1m_HYPERLIQUID_*` daily Hive Parquet. Full verification reads **and hashes** each consumed `data.parquet` against the corresponding native `source.json`; it never substitutes the partial consolidated short candle files.

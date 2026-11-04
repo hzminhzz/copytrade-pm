@@ -120,6 +120,49 @@ def test_missing_other_manager_book_blocks():
         )
 
 
+def test_independently_calculated_two_pod_cash_equity_fee_funding_golden():
+    # Two source pods: +2 BTC and -1 BTC, equity 1000 each.
+    # k=0.1, follower equity 10000, leader/follower marks 100:
+    #   pod A +2 BTC, pod B -1 BTC, one internal BTC cross,
+    #   one *external* +1 BTC; fee = 1 * 100 * 10bps = 0.1.
+    # At 110: net MTM gain = 10. Funding -1.25.
+    # Independently calculated final cash 9898.65, equity 10008.65.
+    priced_costs = replace(costs(), fee_bps=D("10"))
+    funding_at = T + timedelta(minutes=1)
+    second = minute(1, price="110")
+    second["funding"] = [
+        {
+            "amount": "-1.25",
+            "allocated": {"a": "-1.25"},
+            "first_known_at": funding_at,
+        }
+    ]
+    result = replay_fixture(
+        rulebook=rules(),
+        minutes=[
+            minute(0, updates=[update("a", "2"), update("b", "-1")]),
+            second,
+        ],
+        costs=priced_costs,
+        k_by_manager={"a": D("0.1"), "b": D("0.1")},
+        funding_evidence_complete=True,
+    )
+    ledger = result["ledger"]
+    first = ledger["events"][0]["execution"]
+    assert len(first["internal_crosses"]) == 1
+    assert len(first["fills"]) == 1
+    assert D(first["fills"][0]["quantity"]) == D("1")
+    assert D(ledger["fees"]) == D("0.1")
+    assert D(ledger["funding"]) == D("-1.25")
+    assert D(ledger["cash"]) == D("9898.65")
+    assert D(ledger["equity"]) == D("10008.65")
+    assert D(ledger["unrealized_pnl"]) == D("10")
+    assert D(ledger["positions"]["hyperliquid/perp/BTC"]) == D("1")
+    assert D(ledger["pm_quantities"]["a"]["hyperliquid/perp/BTC"]) == D("2")
+    assert D(ledger["pm_quantities"]["b"]["hyperliquid/perp/BTC"]) == D("-1")
+    assert result["contractual_real_verdict"] == "UNKNOWN"
+
+
 def test_equal_opposing_pods_do_not_fake_external_fill():
     result = replay_fixture(
         rulebook=rules(),

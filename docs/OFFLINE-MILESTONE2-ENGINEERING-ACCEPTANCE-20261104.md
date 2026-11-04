@@ -83,6 +83,8 @@ Never close issues by merely writing a blocker note.
 
 ## Reporting
 
+The dated [implementation and acceptance evidence matrix](OFFLINE-MILESTONE2-ENGINEERING-VERIFICATION-20261104.md) gives each engineering ticket its reproducible tests, measurements, and explicit scientific blockers.
+
 On every PR update show separately: IMPLEMENTED, ENGINEERING VERIFIED,
 REAL DATA BLOCKED/UNKNOWN, SCIENTIFICALLY QUALIFIED, AUTHORIZED, DEPLOYED.
 Only the first two can be achieved by this approved engineering program

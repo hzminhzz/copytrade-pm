@@ -65,6 +65,27 @@ the first weekly minute has no in-week prior capacity. This optional
 screening-only view is **not** an execution order book, fixed-point P&L
 or a replacement for the default full-study native context cache.
 
+For repeatable **Issue #89 resource profiling** of the same sealed 90-day
+research job with a new private application cache, run:
+
+```bash
+uv run --extra market --group dev python -m copytrade_pm.pm_offline_benchmark \
+  docs/OFFLINE-HL94-ORACLE-JOB-20261104.json \
+  --input-root docs \
+  --source-root /home/quant/dev/copytrade-pm/data \
+  --market-root /home/quant/dev/quant/ml4t-data/.data/store \
+  --cache-root /home/quant/.cache/copytrade-polars-bench-20261104-verified-v1/cache \
+  --workers 2 --repeats 10
+```
+
+Use a **new** owner-private cache root when measuring initial application
+cache cost; never delete or flush the canonical market lake or live
+services. The benchmark reports per-run CPU, OS process I/O, application
+cache bytes, peak RSS and observed p50/p95, with unknown Polars spill and
+cold OS page-cache state clearly distinguished. See the
+[measured 90-day results](OFFLINE-PIT-REAL-ORACLE-20261104.md).
+`BLOCKED_REAL_WORKLOAD` remains the full PM-03 follower economics state.
+
 All original wallet files, market lake partitions, frozen PM-01 36 wallets and
 Forward-Paper T+300s scheduler remain unmodified. No orders, merges,
 protected service restarts or deployments are authorized.
