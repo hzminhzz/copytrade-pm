@@ -80,4 +80,4 @@ def test_unsupported_qualification_is_not_inferred_from_research_provenance(
         assert initial["recorded_research_blocked_or_negative"] == 0
         assert initial["positive_verdicts_supported"] is False
         assert initial["external_independent_signoff"] == "UNAVAILABLE"
-        assert con.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == 6
+        assert con.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == 7

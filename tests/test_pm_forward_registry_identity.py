@@ -14,7 +14,7 @@ from copytrade_pm.pm_forward_registry_identity import (
 )
 
 
-def prepare(tmp_path, *, resolved=False):
+def prepare(tmp_path, *, resolved=False, late_known=False):
     primary = tmp_path / "wallet_fills_90d"
     secondary = tmp_path / "nansen_smart_money_fills_90d"
     primary.mkdir()
@@ -44,10 +44,27 @@ def prepare(tmp_path, *, resolved=False):
                 "doc_sha256 TEXT,selection_known_at TEXT)"
             )
             conn.execute("CREATE TABLE wallets(wallet_id INTEGER,venue TEXT,address TEXT)")
+            conn.execute(
+                "CREATE TABLE wallet_aliases(namespace TEXT,alias TEXT,"
+                "wallet_id INTEGER,known_at TEXT)"
+            )
             for i, alias in enumerate(P14, 1):
                 conn.execute(
                     "INSERT INTO wallets VALUES (?,?,?)", (i, "hyperliquid", addresses[alias])
                 )
+            if resolved:
+                for i, alias in enumerate(P14, 1):
+                    conn.execute(
+                        "INSERT INTO wallet_aliases VALUES (?,?,?,?)",
+                        (
+                            "research_v2",
+                            alias,
+                            i,
+                            "2026-11-05T04:00:00+00:00"
+                            if late_known
+                            else "2026-11-04T03:00:00+00:00",
+                        ),
+                    )
             for portfolio, members in (("P1", P1), ("P14", P14)):
                 conn.execute(
                     "INSERT INTO portfolio_seals VALUES (?,?,?,?,?)",
@@ -97,6 +114,20 @@ def test_readonly_fully_resolved_identity_still_does_not_admit_trading(tmp_path)
     assert not p14["source_wallet_equity_attested"]
     assert not p14["paper_admitted"]
     assert p14["unresolved_aliases"] == []
+
+
+def test_retroactive_v7_alias_backfill_must_not_reseal_historical_membership(tmp_path):
+    db, primary, secondary = prepare(tmp_path, resolved=True, late_known=True)
+    original = db.read_bytes()
+    report = audit(db, primary, secondary, "P14")
+    assert db.read_bytes() == original
+    assert report["status"] == "BLOCKED"
+    assert report["member_count"] == 5
+    assert len(report["unresolved_aliases"]) == 5
+    assert len(report["post_seal_binding_aliases"]) == 5
+    assert all(member["status"] == "BLOCKED_POST_SEAL_BINDING" for member in report["members"])
+    assert report["source_wallet_equity_attested"] is False
+    assert report["paper_admitted"] is False
 
 
 def test_conflicting_wallet_link_or_bad_whale_file_fails_closed(tmp_path):

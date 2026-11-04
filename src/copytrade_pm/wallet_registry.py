@@ -20,7 +20,7 @@ from contextlib import closing, contextmanager
 import fcntl
 
 from . import wallet_registry_portfolios as portfolio_contract
-from . import wallet_registry_priority as priority_contract
+from . import wallet_registry_catalog as catalog
 from . import wallet_registry_qualification as qualification_contract
 from . import wallet_registry_science_proofs as scientific_proofs
 from . import wallet_registry_runs as paper_contract
@@ -388,9 +388,24 @@ def collect(root: Path, env_path: Path | None, decision_repo: Path | None = None
         key = f"portfolio_doc:{portfolio_name}"
         sources[key] = pinned["payload"]["source_doc_sha256"]
         source_paths[key] = doc_path
+    v2 = None
+    identities: dict[str, str] = {}
+    if (decision_root / catalog.V2_FILE).is_file():
+        v2 = catalog.read_v2(decision_root, observed_at=datetime.now(timezone.utc).isoformat())
+        sources["portfolio_doc:gemini_v2"] = v2["source_sha256"]
+        source_paths["portfolio_doc:gemini_v2"] = decision_root / catalog.V2_FILE
+        # Owner-private Phase 4 data is optional: a missing map is UNKNOWN,
+        # never a fictitious source-account identity or admission proof.
+        identity_source = catalog.PRIVATE_PHASE4_SOURCE
+        if root.resolve() == ROOT.resolve() and identity_source.is_file():
+            identities = catalog.read_private_identities(identity_source, v2)
+            sources["phase4_private_aliases"] = digest(identity_source)
+            source_paths["phase4_private_aliases"] = identity_source
     return {
         "cohorts": cohorts,
         "portfolio_contracts": decision_docs,
+        "catalog_v2": v2,
+        "catalog_aliases": identities,
         "decision_repo": decision_root,
         "frozen_aliases": frozen_aliases,
         "source_paths": source_paths,
@@ -442,6 +457,18 @@ def apply(db: Path, snapshot: dict, when: str) -> dict:
         )
         if observed != snapshot["portfolio_contracts"]:
             raise ValueError("portfolio source decision changed since staging")
+    if snapshot.get("catalog_v2") is not None:
+        observed = catalog.read_v2(
+            snapshot.get("decision_repo", Path(__file__).resolve().parents[2]),
+            observed_at=when,
+        )
+        if observed != snapshot["catalog_v2"]:
+            raise ValueError("research selection changed after source staging")
+        identities = catalog.read_private_identities(
+            snapshot.get("source_paths", {}).get("phase4_private_aliases"), observed
+        )
+        if identities != snapshot.get("catalog_aliases", {}):
+            raise ValueError("private canonical wallet identities changed before import")
     # Validate the staged payload even for a no-op, before trusting source digests.
     for key, path in snapshot.get("source_paths", {}).items():
         if digest(path) != snapshot["sources"][key]:
@@ -457,6 +484,7 @@ def apply(db: Path, snapshot: dict, when: str) -> dict:
         | snapshot["desired"]
         | snapshot["subscribed"]
         | set(snapshot.get("frozen_aliases", {}).values())
+        | set(snapshot.get("catalog_aliases", {}).values())
     )
     manifest = sha256(json.dumps(snapshot["sources"], sort_keys=True).encode()).hexdigest()
     with private_lock(db):
@@ -475,6 +503,7 @@ def apply(db: Path, snapshot: dict, when: str) -> dict:
             con.executescript(
                 DDL
                 + portfolio_contract.SEALED_DDL
+                + catalog.DDL
                 + paper_contract.RUN_DDL
                 + qualification_contract.DDL
                 + scientific_proofs.DDL
@@ -486,6 +515,7 @@ def apply(db: Path, snapshot: dict, when: str) -> dict:
                 con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(4,?)", (when,))
                 con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(5,?)", (when,))
                 con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(6,?)", (when,))
+                con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(7,?)", (when,))
             previous = con.execute(
                 "SELECT value FROM snapshot_meta WHERE key='manifest_sha256'"
             ).fetchone()
@@ -504,6 +534,7 @@ def apply(db: Path, snapshot: dict, when: str) -> dict:
                 con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(4,?)", (when,))
                 con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(5,?)", (when,))
                 con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(6,?)", (when,))
+                con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(7,?)", (when,))
                 ids = {}
                 for addr in sorted(all_addresses):
                     con.execute(
@@ -572,6 +603,20 @@ def apply(db: Path, snapshot: dict, when: str) -> dict:
                         con.execute(
                             "INSERT INTO wallet_aliases VALUES(?,?,?,?)",
                             ("frozen_pm01", alias, ids[addr], when),
+                        )
+                # Research aliases are never identity-complete without a
+                # reconciled owner-private Phase 4 source and source hash.
+                for alias, addr in sorted(snapshot.get("catalog_aliases", {}).items()):
+                    existing = con.execute(
+                        "SELECT DISTINCT wallet_id FROM wallet_aliases WHERE alias=?",
+                        (alias,),
+                    ).fetchall()
+                    if any(row[0] != ids[addr] for row in existing):
+                        raise ValueError("cross-namespace alias collision")
+                    if not existing:
+                        con.execute(
+                            "INSERT INTO wallet_aliases VALUES(?,?,?,?)",
+                            ("research_v2", alias, ids[addr], when),
                         )
                 for a, reason in snapshot["exclusions"].items():
                     con.execute(
@@ -693,6 +738,16 @@ def apply(db: Path, snapshot: dict, when: str) -> dict:
                                 contract["selection_known_at"],
                             ),
                         )
+                if snapshot.get("catalog_v2") is not None:
+                    alias_ids = {
+                        alias: ids[address]
+                        for alias, address in snapshot.get("catalog_aliases", {}).items()
+                    }
+                    # Later alias evidence must not rewrite frozen P1/P14 v2
+                    # membership rows, even when their wallet_id is NULL.
+                    # Resolve such evidence as-of from wallet_aliases at read
+                    # time. New versioned V2 definitions are stored separately.
+                    catalog.store_selection(con, snapshot["catalog_v2"], alias_ids, when)
                 for key, value in (
                     ("manifest_sha256", manifest),
                     ("observed_at", when),
@@ -841,6 +896,9 @@ def db_status(db: Path) -> dict:
         counts["sealed_portfolio_definitions"] = con.execute(
             "SELECT COUNT(DISTINCT portfolio_id) FROM portfolio_seals"
         ).fetchone()[0]
+        selection = catalog.list_selection(con, datetime.now(timezone.utc).isoformat())
+        counts["current_research_selection"] = selection["selection_state"]
+        counts["current_research_portfolios"] = len(selection["portfolios"])
         qualified = qualification_contract.status(con)
         counts["scientifically_qualified"] = qualified["scientifically_qualified"]
         counts["trading_authorized"] = "NOT_ESTABLISHED"
@@ -917,15 +975,18 @@ def cli(argv: list[str] | None = None) -> int:
     lookup = wallet.add_mutually_exclusive_group(required=True)
     lookup.add_argument("--address")
     lookup.add_argument("--alias")
-    wallet.add_argument("--namespace", default="frozen_pm01", choices=("frozen_pm01",))
+    wallet.add_argument(
+        "--namespace", default="auto", choices=("auto", "frozen_pm01", "research_v2")
+    )
     wallet.add_argument("--asof", help="UTC as-known cutoff")
     cohort = sub.add_parser("cohort")
     cohort.add_argument("name", choices=tuple(RESEARCH))
     portfolio = sub.add_parser("portfolio")
-    portfolio.add_argument("name", nargs="?", choices=tuple(PORTFOLIOS))
+    portfolio.add_argument("name", nargs="?", help="canonical ID or unique alias")
+    portfolio.add_argument(
+        "--current", action="store_true", help="approved new-study research selection"
+    )
     portfolio.add_argument("--asof", help="UTC as-known cutoff")
-    priorities = sub.add_parser("priority", help="read-only new Gemini V2 research priorities")
-    priorities.add_argument("--asof", help="UTC as-known cutoff")
     paper = sub.add_parser("paper")
     paper.add_argument("--run-dir", type=Path, help="private paper-run directory")
     paper.add_argument(
@@ -1011,6 +1072,10 @@ def cli(argv: list[str] | None = None) -> int:
         )
         print(f"\nFreshness: {stored['freshness']}")
         print(
+            f"\nNew-study research selection: {c['current_research_selection']}; "
+            f"registered definitions: {c['sealed_portfolio_definitions']}."
+        )
+        print(
             "\nRuntime admitted: UNKNOWN. Paper/demo running: UNKNOWN. "
             "Scientific qualification: NOT ESTABLISHED. Trading authorization: NOT ESTABLISHED."
         )
@@ -1027,14 +1092,18 @@ def cli(argv: list[str] | None = None) -> int:
                     (normalize(args.address),),
                 ).fetchone()
             else:
-                matches = con.execute(
-                    "SELECT DISTINCT wallet_id FROM wallet_aliases "
-                    "WHERE namespace=? AND alias=? AND known_at<=?",
-                    (args.namespace, args.alias, cutoff),
-                ).fetchall()
-                if len(matches) > 1:
-                    raise ValueError("ambiguous alias, fail closed")
-                row = matches[0] if matches else None
+                if args.namespace == "auto":
+                    wallet_id = catalog.resolve_alias(con, args.alias, cutoff)
+                else:
+                    matches = con.execute(
+                        "SELECT DISTINCT wallet_id FROM wallet_aliases "
+                        "WHERE namespace=? AND alias=? AND known_at<=?",
+                        (args.namespace, args.alias, cutoff),
+                    ).fetchall()
+                    if len(matches) > 1:
+                        raise ValueError("ambiguous alias, fail closed")
+                    wallet_id = matches[0][0] if matches else None
+                row = (wallet_id,) if wallet_id is not None else None
             if not row:
                 print(json.dumps({"found": False}))
             else:
@@ -1052,12 +1121,24 @@ def cli(argv: list[str] | None = None) -> int:
                     "SELECT EXISTS(SELECT 1 FROM exclusions WHERE wallet_id=? AND known_at<=?)",
                     (*row, cutoff),
                 ).fetchone()[0]
+                memberships = con.execute(
+                    "SELECT DISTINCT pm.portfolio_id,pm.version FROM portfolio_memberships pm "
+                    "JOIN portfolio_seals ps USING(portfolio_id,version) "
+                    "WHERE pm.wallet_id=? AND ps.selection_known_at<=? "
+                    "ORDER BY pm.portfolio_id LIMIT 100",
+                    (row[0], cutoff),
+                ).fetchall()
                 print(
                     json.dumps(
                         {
                             "found": True,
                             "cohorts": cohorts,
                             "excluded": bool(excluded),
+                            "portfolio_memberships": [
+                                {"portfolio_id": pid, "version": version}
+                                for pid, version in memberships
+                            ],
+                            "canonical_alias_resolution": "EVIDENCE_BOUND",
                             "authorized": False,
                         }
                     )
@@ -1155,30 +1236,35 @@ def cli(argv: list[str] | None = None) -> int:
             else:
                 result["stored"] = False
             print(json.dumps(result, sort_keys=True))
-    elif args.command == "priority":
-        print(
-            json.dumps(
-                priority_contract.priority_v2(
-                    args.decision_repo,
-                    as_of=asof_cutoff(args.asof),
-                ),
-                sort_keys=True,
-            )
-        )
     elif args.command == "portfolio":
-        names = [args.name] if args.name else list(PORTFOLIOS)
+        if args.current and args.name:
+            raise ValueError("choose portfolio name or --current, not both")
         cutoff = asof_cutoff(args.asof)
-        try:
-            priority = priority_contract.priority_v2(args.decision_repo, as_of=cutoff)
-        except ValueError as exc:
-            if str(exc) != "PRIORITY_V2_SOURCE_FILE_UNAVAILABLE":
-                raise
-            # The registry can be installed as a pinned standalone package
-            # without the *newer* research document. Do not break frozen
-            # P1/P14 read-only queries or invent a current priority.
-            priority = {"state": "PRIORITY_V2_SOURCE_NOT_INSTALLED", "portfolios": {}}
         with closing(connect(args.db, False)) as con:
+            if args.current:
+                print(json.dumps(catalog.list_selection(con, cutoff), sort_keys=True))
+                return 0
+            if args.name:
+                match = catalog.resolve_portfolio(con, args.name, cutoff)
+                names = [match] if match else []
+            else:
+                names = [
+                    row[0]
+                    for row in con.execute(
+                        "SELECT DISTINCT portfolio_id FROM portfolio_versions "
+                        "WHERE known_at<=? ORDER BY portfolio_id",
+                        (cutoff,),
+                    )
+                ]
             result = {}
+            if args.name and not names:
+                result[args.name] = {
+                    "state": "UNKNOWN_AT_ASOF",
+                    "status": "UNKNOWN_AT_ASOF",
+                    "portfolio_id": args.name,
+                    "paper_running": "UNKNOWN",
+                    "trading_authorized": False,
+                }
             for name in names:
                 selected = portfolio_contract.select_asof(con, name, cutoff)
                 if selected["state"] == "UNKNOWN_AT_ASOF":
@@ -1206,22 +1292,6 @@ def cli(argv: list[str] | None = None) -> int:
                 else:
                     selected["source_sealed"] = True
                 selected["status"] = selected["state"]
-                # Source-sealed WR-06 status is historic; the later Gemini V2
-                # new-study priority is a distinct SHA-pinned projection.
-                # It never edits/updates the underlying sealed selection.
-                if name in priority.get("portfolios", {}):
-                    selected["new_research_priority_v2"] = priority["portfolios"][name][
-                        "research_disposition"
-                    ]
-                    selected["new_research_rank_v2"] = priority["portfolios"][name][
-                        "new_research_rank"
-                    ]
-                else:
-                    selected["new_research_priority_v2"] = "NOT_SELECTED_OR_UNKNOWN"
-                    selected["new_research_rank_v2"] = None
-                selected["new_research_priority_source_sha256"] = priority.get("source_sha256")
-                selected["research_priority_is_not_paper_admission"] = True
-                selected["new_research_priority_view_status"] = priority["state"]
                 selected["actual_run"] = "UNKNOWN"
                 selected["authorized"] = False
                 result[name] = selected

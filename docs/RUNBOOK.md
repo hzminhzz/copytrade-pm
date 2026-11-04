@@ -2,40 +2,23 @@
 
 **Scope:** the installed `copytrade-pm/main` commands checked against source/`--help` on 2026-10-31. Operations are offline by default; explicitly flagged acquisition commands can call paid/rate-limited vendors. **No live trading authority.** Begin with [INDEX](INDEX.md); for wallet fill acquisition and exact market sources read [DATA-ACQUISITION](DATA-ACQUISITION.md).
 
-## Current research portfolio selection (2026-11-04)
+## Research portfolio selection and private registry (2026-11-04)
 
-For **new** forward-paper selection, the owner-approved [Gemini Phase 6A Portfolio Freeze V2](decisions/2026-11-04-gemini-phase6-portfolio-freeze-v2.md) and its [JSON roster](decisions/2026-11-04-gemini-phase6-portfolio-freeze-v2.json) prioritize E6 (five wallets) and E2 (three wallets), both on an equal $600 *nominal* model risk budget and a $10,000 virtual reference. P1 remains the baseline; P14 is preserved, but no longer the selected new five-pod challenger. Those reference Gemini fixed `k` values **are not executable sizing**. Actual source-equity-relative whole-book sizing, PIT receipts and PM03/PM04 authority remain mandatory.
+New **research selection** follows [Gemini Phase 6 Portfolio Freeze V2](decisions/2026-11-04-gemini-phase6-portfolio-freeze-v2.md) and [V2 JSON](decisions/2026-11-04-gemini-phase6-portfolio-freeze-v2.json): E6 primary five-pod, E2 three-pod challenger, P1 baseline and P14 archived from new selections. All share $600 *nominal* model risk budget and a $10,000 virtual comparison basis. Gemini fixed `k` values are **not** executable follower sizing. Original P1/P14 FP paper experiments, PM01 frozen cohort and production runtime remain untouched; new studies require prospective registration and independent safeguards.
 
-The new *read-only* registry CLI `copytrade-wallet-registry priority` exposes E6/E2; legacy sealed `portfolio P1` and `portfolio P14` queries separately expose `new_research_priority_v2` without changing the underlying WR selection or FP portfolio SHA. The preexisting P1/P14 FP-09 worker scope, Trader Intelligence proposed study, private WR-06 records, PM-01/Phase 5 frozen cohorts, Combo 2 and running services **must not be silently reconfigured**. Start E6/E2 only via a separately versioned future observation/paper campaign after wallet identity/parent/subaccount verification, genuine P2_flatten safety acceptance, and independent ledger registration. No live orders, Propr terms mutation or funded activation is authorized by the V2 research preference.
-
-## Owner-private wallet registry (partial WR release, 2026-11-04)
-
-Use the [dated canonical wallet status](WALLET-STATUS.md) and [registry checkpoint](WALLET-REGISTRY-STATUS-20261104.md)
-and [paper boundary](WALLET-REGISTRY-PAPER-CONTRACT-20261104.md) for dated
-research/config/subscriber counts and sealed P1/P14/A/B/C/Combo2 definitions.
-This inventory is **not** a source-account book, broker, scientific signoff,
-or runtime subscription authority. From the registry feature worktree:
+For the private SQLite read-only metadata registry (not execution/equity/qualification authority), from repository root:
 
 ```bash
-uv run --group dev copytrade-wallet-registry doctor
-uv run --group dev copytrade-wallet-registry status
-uv run --group dev copytrade-wallet-registry portfolio P1
-uv run --group dev copytrade-wallet-registry paper
-# Mutates ONLY the new private inventory after explicit backup/review:
-uv run --group dev copytrade-wallet-registry sync --dry-run
+uv run --frozen --group dev copytrade-wallet-registry status
+uv run --frozen --group dev copytrade-wallet-registry doctor
+uv run --frozen --group dev copytrade-wallet-registry portfolio
+uv run --frozen --group dev copytrade-wallet-registry portfolio E6
+uv run --frozen --group dev copytrade-wallet-registry wallet --alias W083
+uv run --frozen --group dev copytrade-wallet-registry paper
+uv run --frozen --group dev copytrade-wallet-registry sync --dry-run
 ```
 
-The `paper` command reads independently owned FP `PaperJournal` SQLite WAL
-in `mode=ro` with `query_only`, checks FP's own portfolio SHA against the explicitly bound **separate** WR sealed selection SHA and frozen aliases/risk,
-manifest/snapshot hashes and bounded recent chain, and refuses unsupported
-legacy JSONL v1 projections. It **cannot** certify worker PID, transport
-heartbeat or quote freshness until FP publishes these independently. A zero
-registered-run count does not prove no independent paper worker exists. P1/P14
-selections are *research-only* until independently verified account-run files
-are published. Do not register fake paper runs or restart tracker/ensemble
-to make a count nonzero. A verified SQLite backup and controlled private
-`sync --apply` are reversible; there is no registry timer installed.
-Owner-private scientific review records have a [negative-only Ed25519 + evidence SHA import](WALLET-REGISTRY-SIGNED-NEGATIVE-EVIDENCE-20261104.md), which never qualifies a wallet or authorizes trading. A signature does not prove auditor independence. The pinned [read-only registry release and rollback runbook](WALLET-REGISTRY-RELEASE-RUNBOOK.md) documents owner-approved, Git-SHA-pinned on-demand activation, preflight and recovery without touching existing services. The registry draft PR #57 is not final cross-program scientific/paper acceptance.
+The canonical [wallet status](WALLET-STATUS.md), [registry checkpoint](WALLET-REGISTRY-STATUS-20261104.md), [paper boundary](WALLET-REGISTRY-PAPER-CONTRACT-20261104.md), [negative-only evidence contract](WALLET-REGISTRY-SIGNED-NEGATIVE-EVIDENCE-20261104.md) and [release runbook](WALLET-REGISTRY-RELEASE-RUNBOOK.md) describe read-only source collection and reversible private sync. `paper` reads independently owned FP SQLite in `mode=ro` and rejects unsupported legacy JSONL; without genuine PID/transport/quote and journal evidence, RUNNING is UNKNOWN. No raw addresses, broker orders, trading authorization, automatic source subscription, independent science signoff or forced paper activation is implied.
 
 ## 0. Preflight, source of truth, safe worktree
 

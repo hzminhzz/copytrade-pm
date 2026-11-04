@@ -1,21 +1,25 @@
 # Wallet registry to paper-runtime boundary — engineering contract
 
-**2026-11-04 status: implemented as an optional PRIVATE read-only observer and tested against synthetic fixtures only. No registered live P1/P14 paper worker was found at inspection.** This is not production activation, not a live/demo broker integration and not scientific qualification. FP-10 issue #67 remains a separate cross-program integration gate.
+**2026-11-04 status:** standalone read-only metadata registry at `5d7b4d7` is active and verified; the registry's *paper-runtime observer* is still a private, synthetic-tested read-only journal adapter. **No protected P1/P14 paper worker is installed or registered.** This is not a paper-worker activation, live/demo broker integration or scientific qualification. FP-10 issue #67 remains open.
 
-## New V2 research priority versus frozen WR/FP trial identity (2026-11-04)
+## Mainline V2 catalog and frozen P1/P14 boundary (2026-11-04)
 
-The newer user-approved [Gemini V2 decision](decisions/2026-11-04-gemini-phase6-portfolio-freeze-v2.md) prioritizes **E6 (five-pod)** and **E2 (three-pod)** for *new* research. It labels P1 an incumbent historical baseline and P14 an archived former challenger. This **does not replace** WR-06's existing seven versioned SQLite selection records, does not modify immutable P1/P14 `wallet_portfolio_definition_v1` hashes, does not change FP-09's P1/P14 `frozen_paper_portfolio_v1` hashes, and does not authorize E6/E2 workers. E6/E2 have **no registered FP worker or verified source identity**, and their historical Gemini `k` values are not an execution authority.
+The newer mainline `wallet_registry_catalog` (SQLite v7, merged by `5d7b4d7`, PR #79) supersedes the older draft PR #57 CLI overlay. Its only canonical new-study query is `copytrade-wallet-registry portfolio --current`; it exposes **E6 primary, E2 challenger, P1 incumbent and P14 archived** with separate SHA-sealed versioned research IDs. It does **not** promote a new paper worker, replace P1/P14 frozen run hashes, or authorize trading. Live registry `doctor` now matches 264 configured/264 subscribed, 158 research, 22 excluded and 11 sealed portfolio definitions at source manifest `e2836aab...`; the on-demand registry-only pinned read-only release is verified at `5d7b4d7`. Do not confuse this with an installed protected FP worker.
 
-The new `copytrade-wallet-registry priority` read-only command validates the exact SHA-pinned V2 JSON (`21f4e9406370...`) against its reviewed commit (`a87e587`), with **first-known no earlier than 2026-11-04T09:06:33+00:00**. It independently checks that V2's P1/P14 members and the $600 reference budget match frozen WR baseline aliases. `copytrade-wallet-registry portfolio P1` and `portfolio P14` retain original source-sealed `state`, `definition_sha256`, `version`, and `selection_known_at`, and now separately expose `new_research_priority_v2`, `new_research_rank_v2`, and `new_research_priority_view_status`. For old as-of queries, the newer priority is `UNKNOWN_AT_ASOF`. If a standalone pinned registry release has no V2 document, original sealed queries remain usable with `PRIORITY_V2_SOURCE_NOT_INSTALLED`; they do **not** guess which newer campaign is selected. Any changed V2 source bytes fail closed. No private registry/FP journal/network writes occur for either query.
+**Version-2 integrity warning:** the current mainline importer has a retroactive NULL-`wallet_id` assignment path in historical frozen portfolio membership. It has already executed during the newer private registry generation. Although matching native addresses exist, later Phase-4 alias evidence cannot be reclassified as known on the original historical seal date. FP PR #73 repairs this path *in its integration branch* and checks true first-known alias chronology against the original seal: **P1 3/3, P14 5/5 are post-seal bindings**, not proof of frozen PIT identity. The read-only FP registry audit therefore reports `BLOCKED` and no paper admission; it never rewrites the live registry to pretend otherwise. A separate reviewed source-of-truth migration is required before any protected paper cutover.
+
+Read-only cross-program contract:
 
 ```bash
-uv run --group dev copytrade-wallet-registry priority
-uv run --group dev copytrade-wallet-registry portfolio P1
-uv run --group dev copytrade-wallet-registry portfolio P14
-uv run --group dev copytrade-wallet-registry priority --asof 2026-11-03T00:00:00+00:00
+uv run --group dev copytrade-wallet-registry portfolio --current
+uv run --group dev python scripts/verify_wr_fp_journal_contract.py \
+  --fp-worktree /home/quant/.devspace/worktrees/copytrade-pm-569e8bef \
+  --audit-native-source --portfolio P1 \
+  --primary-dir /home/quant/dev/copytrade-pm/data/wallet_fills_90d \
+  --secondary-dir /home/quant/dev/copytrade-pm/data/nansen_smart_money_fills_90d
 ```
 
-The *existing* standalone private release at `e9951b7` is not automatically upgraded by this PR edit. Newly added priority overlay code is engineering-only until a separate approved pinned release activation. `portfolio P1` on the old release may not yet contain the overlay fields.
+This live private census checks roster/selection SHA/version and side-effect absence, **not** future-first-known full account NAV or trading capacity. No private source material is committed.
 
 ## WR-06 — versioned research portfolio selections
 
@@ -78,7 +82,7 @@ research: the six journal/status contract modules were checked unchanged
 relative to its current HEAD, but this is still a local smoke, not a
 deployed independent worker publisher.
 
-Reproduce this cross-branch contract (requires an FP branch checkout). The optional native read-only source check also verifies the actual WR seal/version/document SHA/selection clock against FP's five-wallet identity census without ever inferring whole-wallet NAV:
+Reproduce this cross-branch contract (requires an FP branch checkout):
 
 ```bash
 uv run --group dev python scripts/verify_wr_fp_journal_contract.py \
@@ -87,13 +91,6 @@ uv run --group dev python scripts/verify_wr_fp_journal_contract.py \
 uv run --group dev python scripts/verify_wr_fp_journal_contract.py \
   --fp-worktree /home/quant/.devspace/worktrees/copytrade-pm-569e8bef \
   --portfolio P14
-
-# Additional real, read-only WR-private source identity census for both:
-uv run --group dev python scripts/verify_wr_fp_journal_contract.py \
-  --fp-worktree /home/quant/.devspace/worktrees/copytrade-pm-569e8bef \
-  --portfolio P14 --audit-native-source \
-  --primary-dir /home/quant/dev/copytrade-pm/data/wallet_fills_90d \
-  --secondary-dir /home/quant/dev/copytrade-pm/data/nansen_smart_money_fills_90d
 ```
 
 ```bash

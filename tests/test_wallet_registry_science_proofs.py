@@ -81,7 +81,7 @@ def test_source_sha_and_independent_ed25519_negative_are_immutable(
     db = _db(tmp_path)
     signed, evidence, public, data = _files(tmp_path)
     with closing(registry.connect(db, False)) as con:
-        assert con.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == 6
+        assert con.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == 7
     args = [
         "--db",
         str(db),
@@ -214,14 +214,14 @@ def test_schema_v6_upgrade_is_additive_and_idempotent(tmp_path: Path) -> None:
             DROP TRIGGER qualification_proof_no_update;
             DROP TRIGGER qualification_proof_no_delete;
             DROP TABLE qualification_proofs;
-            DELETE FROM schema_migrations WHERE version=6;
+            DELETE FROM schema_migrations WHERE version IN (6,7);
         """)
     with closing(registry.connect(db, False)) as con:
         assert con.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == 5
     result = registry.apply(db, snapshot, datetime.now(timezone.utc).isoformat())
     assert result["unchanged"] is True
     with closing(registry.connect(db, False)) as con:
-        assert con.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == 6
+        assert con.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == 7
         assert con.execute("SELECT COUNT(*) FROM qualification_proofs").fetchone()[0] == 0
         assert con.execute("PRAGMA foreign_key_check").fetchall() == []
     after = registry.db_status(db)

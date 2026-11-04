@@ -1,10 +1,27 @@
 # SQLite wallet registry — 2026-11-04 engineering checkpoint
 
+**Later live release verification (2026-11-04):** standalone read-only registry release `5d7b4d7` is **ACTIVE_READ_ONLY_VERIFIED** (no timer or paper worker). Live SQLite generation `e2836aab...` reports 264 desired, 264 subscribed, 158 research, 22 excluded, 11 source-sealed portfolio definitions, `doctor counts_match=true`, 0 indexed paper runs and no trading authorization. The historical 215/150 and seven-definition observations below are explicitly earlier source cuts. This live generation populated historical P1/P14 version-2 NULL membership wallet IDs using Phase-4 aliases observed after their initial seal. That is a retroactive freeze mutation, not authorized PIT source identity proof. FP PR #73 protects future imports by requiring immutable prior versions and independently detects these later alias bindings; all P1/P14 frozen membership IDs are **BLOCKED_AS_OF_ORIGINAL_SEAL**, despite matching current addresses. Do not restore/patch the private database without reviewed versioned migration and verified rollback evidence.
+
+## P0 research-catalog integration (Gemini Portfolio Freeze V2)
+
+On `main`, the registry CLI supports `portfolio --current` for the owner-approved **new forward-paper research priority** and `portfolio E6`, `portfolio gemini.phase4/E2`, `portfolio q3/B`, `portfolio gemini.phase5/B` for disambiguated definitions. `wallet --alias W083` uses explicit owner-private, SHA-verified Phase 4 identities; `W083` and `S053-HYPE` resolve to the same wallet when the source is available. Missing alias evidence yields `alias_resolution_complete=false`, not a constructed address. Identical display names such as `HL Perps Whale` are never accepted as standalone canonical identifiers. Historical `portfolio P1 --asof ...` remains queryable without overriding its SHA-sealed definition. The implementation uses SQLite **v7** additive schema and the `research_selections` table; prior v6 records and financial journals remain unchanged.
+
+For new priority selection only, the reviewed [V2 JSON decision](decisions/2026-11-04-gemini-phase6-portfolio-freeze-v2.json) has SHA-256 `21f4e9406370fefcb0e38719c2a07bb57b68b073d70b3530034f7f5944c240fc` and first-known merged commit `a87e587` on 2026-11-04 09:06:33 UTC. Exact Gemini `k` values remain hypothetical, never executable. `copytrade-wallet-registry doctor` verifies all independently SHA-bound input sources, including the V2 decision and optional private Phase 4 identity source. If the V2 source is newer than the SQLite import, a doctor mismatch is expected and must be resolved by reviewed private backup/sync, not by guessing current state.
+
+```bash
+uv run --frozen --group dev copytrade-wallet-registry portfolio --current
+uv run --frozen --group dev copytrade-wallet-registry portfolio E6
+uv run --frozen --group dev copytrade-wallet-registry portfolio q3/B
+uv run --frozen --group dev copytrade-wallet-registry portfolio gemini.phase5/B
+uv run --frozen --group dev copytrade-wallet-registry wallet --alias W083
+uv run --frozen --group dev copytrade-wallet-registry doctor
+```
+
+The earlier seven-portfolio and 158/215/150 snapshot below is a historical cut, not a claim about later imports or running paper accounts. Controlled release remains on-demand and research-only.
+
 For a short entrypoint consult [the dated canonical wallet status](WALLET-STATUS.md) and [the WR acceptance matrix](WALLET-REGISTRY-ACCEPTANCE-20261104.md). This checkpoint records engineering details; none substitute for live source checks.
 
 **State: PARTIAL IMPLEMENTATION. Do not claim all WR-01–WR-12 acceptance is complete.**
-
-**2026-11-04 integration update:** New user-approved [Gemini V2 priorities](decisions/2026-11-04-gemini-phase6-portfolio-freeze-v2.md) are **E6 primary, E2 challenger**, with P1 baseline and P14 archived from new priority. The seven originally SHA-sealed WR-06 portfolio versions, and FP-09 frozen P1/P14 trial, remain unchanged. New read-only `copytrade-wallet-registry priority` and separate `new_research_priority_v2` query fields make this distinction explicit. No private registry migration or active standalone release update was performed. A cross-branch read-only FP/WR native identity smoke verified both version-2 seals, current P1/P14 aliases, and zero certified source NAV; private runtime admission remains BLOCKED/UNKNOWN. See [WR/FP paper contract](WALLET-REGISTRY-PAPER-CONTRACT-20261104.md).
 
 This checkpoint describes the initial implementation of the owner-private registry, not a source-account book, trading service, qualified wallet roster, or production adoption signoff. [Approved design](WALLET-REGISTRY-SQLITE-ADOPTION-PLAN-20261104.md), GitHub issues #44–#55.
 

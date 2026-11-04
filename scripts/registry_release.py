@@ -49,6 +49,8 @@ GIT_SHA = re.compile(r"^[0-9a-f]{40}$")
 VERIFY_FILES = (
     "src/copytrade_pm/wallet_registry.py",
     "src/copytrade_pm/wallet_registry_portfolios.py",
+    "src/copytrade_pm/wallet_registry_catalog.py",
+    "docs/decisions/2026-11-04-gemini-phase6-portfolio-freeze-v2.json",
     "src/copytrade_pm/wallet_registry_fp_journal.py",
     "src/copytrade_pm/wallet_registry_runs.py",
     "src/copytrade_pm/wallet_registry_qualification.py",

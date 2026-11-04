@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 from contextlib import closing
+from datetime import datetime
 from hashlib import sha256
 import json
 from pathlib import Path
@@ -84,6 +85,9 @@ def audit_frozen_member_resolution(
         ).fetchone()
         if seal is None:
             raise ValueError("FROZEN_PORTFOLIO_REGISTRY_SEAL_MISSING")
+        sealed_at = datetime.fromisoformat(seal[2])
+        if sealed_at.tzinfo is None:
+            raise ValueError("FROZEN_PORTFOLIO_SELECTION_CLOCK_UNTRUSTED")
         manifest = []
         for alias, assigned_id in members:
             _path, addr, file_sha = _private_locator(
@@ -99,15 +103,32 @@ def audit_frozen_member_resolution(
             matched_id = found[0][0] if found else None
             if assigned_id is not None and matched_id != assigned_id:
                 raise ValueError("FROZEN_WALLET_ID_CONFLICT")
+            bound_by_seal = False
+            if assigned_id is not None:
+                records = conn.execute(
+                    "SELECT known_at FROM wallet_aliases WHERE alias=? AND wallet_id=? LIMIT 129",
+                    (alias, assigned_id),
+                ).fetchall()
+                if len(records) > 128:
+                    raise ValueError("FROZEN_ALIAS_PROVENANCE_TOO_MANY_RECORDS")
+                for (at,) in records:
+                    known = datetime.fromisoformat(at)
+                    if known.tzinfo is None:
+                        raise ValueError("FROZEN_ALIAS_PROVENANCE_CLOCK_UNTRUSTED")
+                    if known <= sealed_at:
+                        bound_by_seal = True
             manifest.append(
                 {
                     "alias": alias,
                     "address_sha256": sha256(addr.encode()).hexdigest(),
                     "historical_locator_sha256": file_sha,
                     "matched_registry_wallet": matched_id is not None,
-                    "frozen_wallet_id_resolved": assigned_id is not None,
+                    "frozen_wallet_id_resolved": bound_by_seal,
+                    "binding_known_by_original_seal": bound_by_seal,
                     "status": (
-                        "RESOLVED_NATIVE_ID"
+                        "REGISTRY_BINDING_PIT_COMPATIBLE_ONLY"
+                        if bound_by_seal
+                        else "BLOCKED_POST_SEAL_BINDING"
                         if assigned_id is not None
                         else "BLOCKED_UNSEALED_WALLET_IDENTITY"
                     ),
@@ -115,6 +136,7 @@ def audit_frozen_member_resolution(
                 }
             )
     unresolved = [row["alias"] for row in manifest if not row["frozen_wallet_id_resolved"]]
+    post_seal = [row["alias"] for row in manifest if row["status"] == "BLOCKED_POST_SEAL_BINDING"]
     return {
         "schema": "paper_portfolio_identity_resolution_audit_v1",
         "portfolio_id": portfolio_id,
@@ -125,6 +147,7 @@ def audit_frozen_member_resolution(
         "member_count": len(manifest),
         "members": manifest,
         "unresolved_aliases": unresolved,
+        "post_seal_binding_aliases": post_seal,
         "status": "BLOCKED" if unresolved else "PIT_IDENTITY_RESOLVED_ONLY",
         "source_wallet_equity_attested": False,
         "registry_mutated": False,

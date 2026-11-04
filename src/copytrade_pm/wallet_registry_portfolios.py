@@ -164,6 +164,16 @@ def select_asof(con, portfolio_id: str, cutoff: str) -> dict:
         "WHERE portfolio_id=? AND version=? ORDER BY member_alias",
         (portfolio_id, version),
     ).fetchall()
+    from . import wallet_registry_catalog as catalog
+
+    resolved = []
+    for alias, frozen_wallet_id in members:
+        # A new research alias may be first-known *after* a sealed portfolio
+        # version. Join it as-of rather than editing that immutable version.
+        seen_id = catalog.resolve_alias(con, alias, cutoff)
+        if frozen_wallet_id is not None and seen_id is not None and frozen_wallet_id != seen_id:
+            raise ValueError("frozen membership conflicts with later identity evidence")
+        resolved.append(frozen_wallet_id is not None or seen_id is not None)
     return {
         "portfolio_id": portfolio_id,
         "version": version,
@@ -174,7 +184,7 @@ def select_asof(con, portfolio_id: str, cutoff: str) -> dict:
         "selection_known_at": known_at,
         "sizing_contract": sizing,
         "members": [row[0] for row in members],
-        "alias_resolution_complete": bool(members) and all(row[1] is not None for row in members),
+        "alias_resolution_complete": bool(members) and all(resolved),
         "source_identity_proven": False,
         "paper_running": "UNKNOWN",
         "trading_authorized": False,

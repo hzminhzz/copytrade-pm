@@ -95,7 +95,7 @@ def main() -> int:
     parser.add_argument(
         "--audit-native-source",
         action="store_true",
-        help="also compare FP source identity census to actual WR sealed registry (read only)",
+        help="check actual private registry seal and native alias census read-only",
     )
     parser.add_argument("--primary-dir", type=Path)
     parser.add_argument("--secondary-dir", type=Path)
@@ -122,10 +122,11 @@ def main() -> int:
     fp_sha = fp.fp_portfolio_sha(selected)
     if fp_sha is None:
         raise SystemExit("FP aliases/risk do not match the WR sealed decision")
+
     native_identity = None
     if args.audit_native_source:
         if args.primary_dir is None or args.secondary_dir is None:
-            raise SystemExit("source census requires both private locator directories")
+            raise SystemExit("native census requires both private source directories")
         before_registry = sha256(args.registry_db.read_bytes()).hexdigest()
         process = subprocess.run(
             [
@@ -164,9 +165,13 @@ def main() -> int:
             or native_identity.get("registry_mutated") is not False
             or native_identity.get("paper_admitted") is not False
             or native_identity.get("order_route") != "NONE"
+            or (
+                bool(native_identity.get("post_seal_binding_aliases"))
+                and native_identity.get("status") != "BLOCKED"
+            )
             or sha256(args.registry_db.read_bytes()).hexdigest() != before_registry
         ):
-            raise SystemExit("FP/WR native identity or sealed selection drift")
+            raise SystemExit("FP/WR source registry identity or seal drift")
 
     with tempfile.TemporaryDirectory(prefix="wr-fp-contract-") as directory:
         fp_run_dir = Path(directory) / "fp-owned-state"
@@ -231,6 +236,11 @@ def main() -> int:
                         len(native_identity["unresolved_aliases"]) if native_identity else None
                     ),
                     "native_source_wallet_equity_attested": False,
+                    "post_seal_bindings_blocked": (
+                        len(native_identity["post_seal_binding_aliases"])
+                        if native_identity
+                        else None
+                    ),
                     "fp_operator_before": child["operator_before"],
                     "fp_operator_after": child["operator_after"],
                     "financial_replay_verified": False,
