@@ -94,6 +94,13 @@ def fixtures(days=6):
             control_net_r="-0.1",
             source_sha256=SHA,
             outcome_known_at=(now + timedelta(minutes=21)).isoformat(),
+            instrument=MARKET,
+            direction="LONG",
+            decision_at=cuts[-1].decision_at,
+            entry_at=labels[-1].hypothetical_entry_at,
+            exit_at=labels[-1].hypothetical_exit_at,
+            horizon_minutes=15,
+            modeled_cost_r="0.1",
         )
     return cuts, labels, controls
 
@@ -129,6 +136,7 @@ def test_frozen_same_universe_matched_negative_economics_with_block_uncertainty(
     assert float(incumbent.day_block_lcb_r) == pytest.approx(-0.4)
     assert incumbent.day_count == 6
     assert result.qualification == "NOT_SCIENTIFICALLY_QUALIFIED"
+    assert result.schema == "ti_matched_walkforward_diagnostic_v2"
     assert result == run(cuts, labels, controls)
 
 

@@ -91,6 +91,13 @@ def example(*, all_clones=False):
         control_net_r="-0.1",
         source_sha256=SHA,
         outcome_known_at=(NOW + timedelta(minutes=20)).isoformat(),
+        instrument=MARKET,
+        direction="LONG",
+        decision_at=cut.decision_at,
+        entry_at=episode.hypothetical_entry_at,
+        exit_at=episode.hypothetical_exit_at,
+        horizon_minutes=episode.horizon_minutes,
+        modeled_cost_r=episode.cost_r,
     )
     return cut, episode, market
 
@@ -105,6 +112,7 @@ def test_matched_follower_net_r_worse_than_market_but_not_qualified():
         market_controls={SHA: control},
     )
     assert report.qualification == "NOT_QUALIFIED"
+    assert report.schema == "ti_matched_benchmark_v2"
     assert len(report.rows) == 5
     equal_addresses = report.rows[0]
     independent = report.rows[1]
@@ -179,7 +187,7 @@ def test_control_identity_and_maturity_must_match_selected_episode():
             tail_probability_z="1.96",
             market_controls={SHA: replace(control, candidate_episode_id="wrong")},
         )
-    with pytest.raises(ValueError, match="CONTROL_OUTCOME_BEFORE_CANDIDATE"):
+    with pytest.raises(ValueError, match="INVALID_CONTROL_CLOCK_ORDER"):
         matched_benchmark(
             (cut,),
             (episode,),
@@ -202,6 +210,42 @@ def test_missing_follower_economics_are_counted_not_dropped_as_wins():
     )
     assert all(row.selected == 0 and row.missing_outcomes == 1 for row in report.rows)
     assert all(row.net_r_mean is None for row in report.rows)
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        {"instrument": "hyperliquid/mainnet:perp:default/ETH"},
+        {"direction": "SHORT"},
+        {"horizon_minutes": 60},
+        {"modeled_cost_r": "0"},
+        {"entry_at": (NOW + timedelta(minutes=6)).isoformat()},
+        {"exit_at": (NOW + timedelta(minutes=19)).isoformat()},
+        {"decision_at": (NOW + timedelta(minutes=2)).isoformat()},
+    ],
+)
+def test_market_control_must_match_all_economic_dimensions(changed):
+    cut, episode, control = example()
+    with pytest.raises(ValueError, match="CONTROL_INSTRUMENT_CLOCK_HORIZON_OR_COST_MISMATCH"):
+        matched_benchmark(
+            (cut,),
+            (episode,),
+            prior_strength=5,
+            tail_probability_z="1.96",
+            market_controls={SHA: replace(control, **changed)},
+        )
+
+
+def test_repeated_candidate_cannot_inflate_evaluation_denominator():
+    cut, episode, control = example()
+    with pytest.raises(ValueError, match="REUSED_BENCHMARK_CANDIDATE"):
+        matched_benchmark(
+            (cut, cut),
+            (episode,),
+            prior_strength=5,
+            tail_probability_z="1.96",
+            market_controls={SHA: control},
+        )
 
 
 def test_policy_mismatch_fail_closed_and_missing_controls_nullable():

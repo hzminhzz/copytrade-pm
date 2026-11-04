@@ -157,7 +157,7 @@ def _sorted_bars(bars: Iterable[MinuteBar]) -> dict[str, list[MinuteBar]]:
         grouped[b.instrument].append(b)
     for instrument, series in grouped.items():
         series.sort(key=lambda b: utc(b.start_at))
-        if len({x.start_at for x in series}) != len(series):
+        if len({utc(x.start_at) for x in series}) != len(series):
             raise ValueError(f"DUPLICATE_MINUTE_BAR:{instrument}")
     return grouped
 
@@ -248,8 +248,12 @@ def follower_replay(
                 else:
                     b = series[candidate_idx]
                     prior = series[candidate_idx - 1]
+                    # Do not convert a missing first actionable minute into
+                    # a much later entry after a market or feed outage.
+                    if utc(b.start_at) - earliest >= timedelta(minutes=1):
+                        status = "STALE_FOLLOWER_ENTRY"
                     # Prior bar must be immediately contiguous and complete.
-                    if utc(prior.start_at) + timedelta(minutes=1) != utc(b.start_at):
+                    elif utc(prior.start_at) + timedelta(minutes=1) != utc(b.start_at):
                         status = "STALE_PRE_ENTRY_VOLUME"
                     else:
                         notional_capacity = (
@@ -470,23 +474,77 @@ class CandidateCut:
 
 @dataclass(frozen=True)
 class MatchedMarketControl:
-    """Independent matched market-only outcome, never inferred from source PnL."""
+    """Bound independent market-control economics to an exact comparable cut.
+
+    No control without exact instrument, direction, cut, execution times, cost,
+    and declared horizon may contribute to paired follower skill. The immutable
+    SHA identifies input data, not proof that the control was independently
+    observed or executable.
+    """
 
     candidate_episode_id: str
     policy_sha256: str
     control_net_r: str
     outcome_known_at: str
     source_sha256: str
+    instrument: str
+    direction: str
+    decision_at: str
+    entry_at: str
+    exit_at: str
+    horizon_minutes: int
+    modeled_cost_r: str
 
     def __post_init__(self) -> None:
-        from .trader_intelligence import _sha
+        from .trader_intelligence import _instrument, _sha
 
         _sha(self.policy_sha256)
         _sha(self.source_sha256)
+        _instrument(self.instrument)
         decimal(self.control_net_r)
-        utc(self.outcome_known_at)
+        decimal(self.modeled_cost_r)
         if not self.candidate_episode_id:
             raise ValueError("MISSING_CONTROL_MATCHED_CANDIDATE")
+        if self.direction not in ("LONG", "SHORT") or self.horizon_minutes <= 0:
+            raise ValueError("INVALID_CONTROL_DIRECTION_OR_HORIZON")
+        if not (
+            utc(self.decision_at)
+            <= utc(self.entry_at)
+            <= utc(self.exit_at)
+            <= utc(self.outcome_known_at)
+        ):
+            raise ValueError("INVALID_CONTROL_CLOCK_ORDER")
+
+
+def require_matched_market_control(
+    cut: CandidateCut, episode: FollowerEpisode, control: MatchedMarketControl
+) -> None:
+    """Reject even signed-looking controls with different timing or economics.
+
+    This proves only internal label comparability. It does not attest an
+    independent provider or that either outcome is an actual executable fill.
+    """
+    if control.candidate_episode_id != episode.episode_id:
+        raise ValueError("CONTROL_EPISODE_IDENTITY_MISMATCH")
+    if control.policy_sha256 != episode.policy_sha256:
+        raise ValueError("CONTROL_EXECUTION_POLICY_MISMATCH")
+    if (
+        control.instrument != cut.instrument
+        or control.direction != cut.direction
+        or control.instrument != episode.instrument
+        or control.direction != episode.direction
+        or utc(control.decision_at) != utc(cut.decision_at)
+        or control.horizon_minutes != episode.horizon_minutes
+        or episode.hypothetical_entry_at is None
+        or episode.hypothetical_exit_at is None
+        or utc(control.entry_at) != utc(episode.hypothetical_entry_at)
+        or utc(control.exit_at) != utc(episode.hypothetical_exit_at)
+        or episode.cost_r is None
+        or decimal(control.modeled_cost_r) != decimal(episode.cost_r)
+    ):
+        raise ValueError("CONTROL_INSTRUMENT_CLOCK_HORIZON_OR_COST_MISMATCH")
+    if utc(control.outcome_known_at) < utc(episode.hypothetical_exit_at):
+        raise ValueError("CONTROL_OUTCOME_BEFORE_CANDIDATE")
 
 
 @dataclass(frozen=True)
@@ -538,6 +596,11 @@ def matched_benchmark(
     """
     candidates = sorted(cuts, key=lambda c: (utc(c.decision_at), c.instrument, c.direction))
     history = list(outcomes)
+    cuts_by_episode: dict[str, CandidateCut] = {}
+    for cut in candidates:
+        if cut.outcome_episode_id in cuts_by_episode:
+            raise ValueError("REUSED_BENCHMARK_CANDIDATE")
+        cuts_by_episode[cut.outcome_episode_id] = cut
     by_id: dict[str, FollowerEpisode] = {}
     for episode in history:
         previous = by_id.get(episode.episode_id)
@@ -648,17 +711,8 @@ def matched_benchmark(
             if control is None:
                 missing_controls += 1
                 continue
-            if control.candidate_episode_id != value.episode_id:
-                raise ValueError("CONTROL_EPISODE_IDENTITY_MISMATCH")
-            if control.policy_sha256 != value.policy_sha256:
-                raise ValueError("CONTROL_EXECUTION_POLICY_MISMATCH")
-            if utc(control.outcome_known_at) <= utc(value.observation_at) or (
-                value.hypothetical_exit_at is not None
-                and utc(control.outcome_known_at) < utc(value.hypothetical_exit_at)
-            ):
-                raise ValueError("CONTROL_OUTCOME_BEFORE_CANDIDATE")
-            if value.net_r is not None:
-                matched.append(decimal(value.net_r) - decimal(control.control_net_r))
+            require_matched_market_control(cuts_by_episode[value.episode_id], value, control)
+            matched.append(decimal(value.net_r) - decimal(control.control_net_r))
         rows.append(
             BenchmarkRow(
                 policy=policy,
@@ -675,7 +729,7 @@ def matched_benchmark(
             )
         )
     return BenchmarkReport(
-        schema="ti_matched_benchmark_v1",
+        schema="ti_matched_benchmark_v2",
         qualification="NOT_QUALIFIED",
         reason=(
             "NO_UNBIASED_HOLDOUT_OR_MATCHED_MARKET_CONTROL"
