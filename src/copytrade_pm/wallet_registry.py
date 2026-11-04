@@ -30,6 +30,8 @@ RESEARCH = {
 }
 EXCLUSIONS = "OWNER_REJECTED_22_WALLET_RESEARCH_20261103.csv"
 NEW50 = "new50_hyperx_90d_full_vendor_v2/NEW50_FULL_VENDOR_FILL_AUDIT_20261103.json"
+INTEGRITY = "new50_hyperx_90d_full_vendor_v2/INDEPENDENT_INTEGRITY_50_20261103.json"
+MANIFEST = "new50_hyperx_90d_full_vendor_v2/manifest.json"
 ROSTER = "new50_hyperx_90d_full_vendor_v2/NEW50_FULL_VENDOR_FILL_ROSTER_20261103.csv"
 PORTFOLIOS = {
     "P1": ("S035-ENA", "S051-BTC", "S053-HYPE"),
@@ -302,6 +304,28 @@ def collect(root: Path, env_path: Path | None) -> dict:
     audit = json.loads(audit_path.read_text(encoding="utf-8"))
     sources["new50_audit"] = digest(audit_path)
     source_paths["new50_audit"] = audit_path
+    independent_path = root / INTEGRITY
+    independent = json.loads(independent_path.read_text(encoding="utf-8"))
+    sources["new50_independent_integrity"] = digest(independent_path)
+    source_paths["new50_independent_integrity"] = independent_path
+    sources["new50_manifest"] = digest(root / MANIFEST)
+    source_paths["new50_manifest"] = root / MANIFEST
+    if (
+        independent.get("schema") != "hyperx_new50_final_independent_full_vendor_integrity_v1"
+        or independent.get("wallet_count") != 50
+        or independent.get("source_fill_records") != 113273
+        or independent.get("verified_source_pairs") != 1196
+        or independent.get("source_pages") != 1197
+        or independent.get("missing_source_pages") != 0
+        or independent.get("missing_fee_records") != 0
+        or independent.get("missing_position_before_records") != 0
+        or independent.get("duplicate_per_coin_tids") != 0
+        or independent.get("scientifically_qualified") is not False
+        or independent.get("qualified_whole_hyperliquid_account_books") is not False
+        or independent.get("final_roster_sha256") != sources["new50_roster"]
+        or independent.get("final_manifest_sha256") != sources["new50_manifest"]
+    ):
+        raise ValueError("independent vendor audit provenance or fail-closed status drift")
     if (
         len(roster) != 50
         or set(roster) != cohorts["nansen-20"] | cohorts["hyperx-30"]
@@ -436,6 +460,8 @@ def apply(db: Path, snapshot: dict, when: str) -> dict:
                             "exclusions": EXCLUSIONS,
                             "new50_roster": ROSTER,
                             "new50_audit": NEW50,
+                            "new50_independent_integrity": INTEGRITY,
+                            "new50_manifest": MANIFEST,
                         }.get(key, "redacted-aggregate"),
                     )
                     con.execute(
