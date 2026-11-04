@@ -144,6 +144,65 @@ async def bounded_source_scope_capture(
     return results
 
 
+async def read_public_collateral_scope(
+    *,
+    address: str,
+    info: Callable = _guarded_info,
+    now: Callable[[], str] = lambda: datetime.now(UTC).isoformat(),
+) -> dict:
+    """Read hashed spot/vault scope, with no common provider NAV event clock."""
+    if ADDRESS.fullmatch(address) is None:
+        raise ValueError("SOURCE_PUBLIC_WALLET_ADDRESS_INVALID")
+    observations = []
+    for request_type in ("spotClearinghouseState", "userVaultEquities"):
+        try:
+            payload, _, response_sha = await asyncio.to_thread(
+                info, {"type": request_type, "user": address}
+            )
+            first_known_at = now()
+            if request_type == "spotClearinghouseState":
+                if not isinstance(payload, dict) or not isinstance(payload.get("balances"), list):
+                    raise ValueError("SOURCE_SPOT_SCOPE_RESPONSE_INVALID")
+                count = len(payload["balances"])
+            else:
+                if not isinstance(payload, list):
+                    raise ValueError("SOURCE_VAULT_SCOPE_RESPONSE_INVALID")
+                count = len(payload)
+            observations.append(
+                {
+                    "scope": request_type,
+                    "status": "PARTIAL_PUBLIC_OBSERVATION",
+                    "first_known_at": first_known_at,
+                    "source_event_at": None,
+                    "response_sha256": response_sha,
+                    "row_count": count,
+                }
+            )
+        except (ValueError, TypeError, KeyError, OSError) as exc:
+            observations.append(
+                {
+                    "scope": request_type,
+                    "status": "BLOCKED_SCOPE_ACQUISITION",
+                    "first_known_at": None,
+                    "source_event_at": None,
+                    "response_sha256": None,
+                    "row_count": None,
+                    "reason": type(exc).__name__ + ":" + str(exc)[:100],
+                }
+            )
+    return {
+        "schema": "paper_public_collateral_scope_v1",
+        "account_address_sha256": sha256(address.lower().encode()).hexdigest(),
+        "observations": observations,
+        "provider_atomic_nav_available": False,
+        "source_equity": None,
+        "collateral_reconciled": False,
+        "status": "BLOCKED_COLLATERAL_AND_VAULT_RECONCILIATION",
+        "paper_observed": False,
+        "order_route": "NONE",
+    }
+
+
 async def bounded_source_family_capture(
     *,
     alias: str,
@@ -151,6 +210,7 @@ async def bounded_source_family_capture(
     journal: PaperJournal,
     seconds_per_account: float = 5,
     max_frames: int = 10,
+    include_collateral: bool = False,
     info: Callable = _guarded_info,
     connect: Callable[..., Any] | None = None,
     now: Callable[[], str] = lambda: datetime.now(UTC).isoformat(),
@@ -202,8 +262,15 @@ async def bounded_source_family_capture(
                     "errors": [type(exc).__name__ + ":" + str(exc)[:130]],
                 }
             )
+    collateral = []
+    if include_collateral:
+        for address in addresses:
+            collateral.append(
+                await read_public_collateral_scope(address=address, info=info, now=now)
+            )
     return {
         "schema": "paper_public_family_bounded_capture_v1",
+        "collateral_diagnostics": collateral,
         "wallet_alias": alias,
         "parent_address_sha256": sha256(parent_address.lower().encode()).hexdigest(),
         "subaccount_discovery_sha256": roster_sha,

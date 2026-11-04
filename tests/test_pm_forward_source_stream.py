@@ -8,6 +8,7 @@ from copytrade_pm.pm_forward_journal import PaperJournal
 from copytrade_pm.pm_forward_source_stream import (
     bounded_source_family_capture,
     bounded_source_scope_capture,
+    read_public_collateral_scope,
 )
 from test_pm_e4_prospective import SUB, WALLET, sample_state
 
@@ -90,6 +91,48 @@ def test_public_scope_stream_records_only_unadmitted_account_frames(tmp_path):
         ]
         assert sock.closed
         assert j.source_status("S035")["status"] == "CAPTURED_ONLY"
+
+    asyncio.run(run())
+
+
+def test_public_spot_and_vault_receipts_have_distinct_known_clocks_no_equity():
+    calls = []
+
+    def info(request):
+        calls.append(request["type"])
+        if request["type"] == "spotClearinghouseState":
+            return {"balances": [{"coin": "USDC", "total": "11"}]}, b"spot", "a" * 64
+        return [{"vaultAddress": "redacted", "equity": "4"}], b"vault", "b" * 64
+
+    async def run():
+        result = await read_public_collateral_scope(
+            address=WALLET, info=info, now=lambda: T.isoformat()
+        )
+        assert calls == ["spotClearinghouseState", "userVaultEquities"]
+        assert [r["row_count"] for r in result["observations"]] == [1, 1]
+        assert all(r["source_event_at"] is None for r in result["observations"])
+        assert all(r["first_known_at"] == T.isoformat() for r in result["observations"])
+        assert result["source_equity"] is None
+        assert result["collateral_reconciled"] is False
+        assert result["status"] == "BLOCKED_COLLATERAL_AND_VAULT_RECONCILIATION"
+        assert "0x" not in json.dumps(result)
+
+    asyncio.run(run())
+
+
+def test_invalid_spot_does_not_promote_vault_or_assume_zero():
+    def info(request):
+        if request["type"] == "spotClearinghouseState":
+            return None, b"null", "a" * 64
+        return [], b"[]", "b" * 64
+
+    async def run():
+        result = await read_public_collateral_scope(address=WALLET, info=info)
+        assert result["observations"][0]["status"] == "BLOCKED_SCOPE_ACQUISITION"
+        assert result["observations"][0]["row_count"] is None
+        assert result["observations"][1]["row_count"] == 0
+        assert result["source_equity"] is None
+        assert not result["provider_atomic_nav_available"]
 
     asyncio.run(run())
 

@@ -47,6 +47,7 @@ async def observe_frozen_portfolio_readonly(
     seconds_per_wallet: float = 8,
     max_frames: int = 10,
     include_subaccounts: bool = False,
+    include_collateral: bool = False,
     info: Callable = _guarded_info,
     connect: Callable[..., Any] | None = None,
     now: Callable[[], str] = lambda: datetime.now(UTC).isoformat(),
@@ -67,13 +68,14 @@ async def observe_frozen_portfolio_readonly(
         )
         alias = _ALIAS[member]
         try:
-            if include_subaccounts:
+            if include_subaccounts or include_collateral:
                 capture = await bounded_source_family_capture(
                     alias=alias,
                     parent_address=address,
                     journal=journal,
                     seconds_per_account=seconds_per_wallet,
                     max_frames=max_frames,
+                    include_collateral=include_collateral,
                     info=info,
                     connect=connect,
                     now=now,
@@ -82,6 +84,7 @@ async def observe_frozen_portfolio_readonly(
                     {
                         "member": member,
                         "status": capture["status"],
+                        "collateral_diagnostics": capture["collateral_diagnostics"],
                         "account_observations": capture["accounts"],
                         "expected_account_count": capture["expected_account_count"],
                         "observed_account_count": capture["observed_account_count"],
@@ -156,6 +159,7 @@ def main() -> None:
     parser.add_argument("--seconds-per-wallet", type=float, default=8)
     parser.add_argument("--max-frames", type=int, default=10)
     parser.add_argument("--include-subaccounts", action="store_true")
+    parser.add_argument("--include-collateral", action="store_true")
     args = parser.parse_args()
     if not args.state_root.is_absolute() or any(
         name in (".git", ".devspace") for name in args.state_root.resolve().parts
@@ -171,6 +175,7 @@ def main() -> None:
             seconds_per_wallet=args.seconds_per_wallet,
             max_frames=args.max_frames,
             include_subaccounts=args.include_subaccounts,
+            include_collateral=args.include_collateral,
         )
     )
     print(json.dumps(result, indent=2, sort_keys=True))

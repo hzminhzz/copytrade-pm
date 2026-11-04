@@ -31,6 +31,10 @@ def test_p1_opt_in_family_capture_preserves_missing_child_scope(tmp_path):
         def info(payload):
             if payload["type"] == "perpDexs":
                 return [None, {"name": "xyz"}], b"cat", "a" * 64
+            if payload["type"] == "spotClearinghouseState":
+                return {"balances": []}, b"spot", "d" * 64
+            if payload["type"] == "userVaultEquities":
+                return [], b"vault", "e" * 64
             if payload["user"].lower() == addresses[0].lower():
                 return [{"master": addresses[0], "subAccountUser": child}], b"subs", "b" * 64
             return None, b"none", "c" * 64
@@ -44,6 +48,7 @@ def test_p1_opt_in_family_capture_preserves_missing_child_scope(tmp_path):
             seconds_per_wallet=2,
             max_frames=1,
             include_subaccounts=True,
+            include_collateral=True,
             info=info,
             connect=lambda *_args, **_kwargs: sockets.pop(0),
             now=lambda: (
@@ -56,6 +61,13 @@ def test_p1_opt_in_family_capture_preserves_missing_child_scope(tmp_path):
         assert report["partial_account_observations"][0]["expected_account_count"] == 2
         assert report["partial_account_observations"][0]["observed_account_count"] == 2
         assert report["partial_account_observations"][0]["partial_receipts"] == 2
+        first_collateral = report["partial_account_observations"][0]["collateral_diagnostics"]
+        assert len(first_collateral) == 2
+        assert all(item["source_equity"] is None for item in first_collateral)
+        assert all(
+            item["status"] == "BLOCKED_COLLATERAL_AND_VAULT_RECONCILIATION"
+            for item in first_collateral
+        )
         assert journal.source_status("S035")["cursor"] == 2
         assert journal.source_status("S035")["paper_admitted"] is False
         assert not sockets
