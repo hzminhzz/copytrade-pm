@@ -183,7 +183,9 @@ Private SHA result: `/home/quant/.local/share/copytrade/reports/phase7_secondary
 
 ## VI. Additional candidate investigation and exclusions
 
-The existing bounded 13-wallet *Stage 1* source-turnover screen evaluated **285 three-wallet** and **1,242 five-wallet** combinations with top-ten tables in [the Phase 7 stage report](PHASE7-NATIVE-MINUTE-EXPOSURE-20261104.md). Those rankings measure **gross traded coin composition**, not holding risk, source-equity fitness, matched losses or actual available liquidity. The first-ranked three-wallet screen was `C021-NEAR + ACT34 + ACT39`; the first five-wallet screen was `C021-NEAR + VS030 + ACT34 + N19 + ACT39`. **No selection from these lists is promoted to a recommended alternative.** In particular, a wallet trading one asset with little overlap may *appear* diversified just because its coin is different; that is insufficient to establish economic independence.
+**Corrected Stage-1 V5, superseding V4:** An eligibility audit found the old 13-wallet turnover screen unintentionally favored CSV-only wallets lacking any source-position anchors while over-excluding wallets with small HIP-3 side activity. The corrected screen requires source-fill `startPosition` evidence, ≥80% default-perp fill rows, ≥60% supported default-perp traded notional, and exact private exclusions. It normalizes *only supported main-perp turnover*, evaluates **118 three-wallet** and **210 five-wallet** new exploratory combinations from **10 provisional wallets**, and retains the older 285/1,242 attempts in the historical multiple-testing count. The top V5 three-wallet combination by this **nonfinancial turnover diversity heuristic** is `W030 + S053-HYPE + ACT33`; the top five-wallet candidate is `N059-BNB + W030 + S053-HYPE + C021-NEAR + ACT33`. Neither earns a financial qualification. See [the stage report](PHASE7-NATIVE-MINUTE-EXPOSURE-20261104.md) for all 10+10 aliases and source hashes.
+
+**Independent stricter native-minute check:** The SHA-verified full-minute position-chain audit covers **8 unique wallets** appearing in the V5 top-10 lists. At a five-coin budget, lower-bound verified coverage of *all reconstructed main-perp position-chain minutes* ranges from **100% ACT33** and **93.97% S053-HYPE** to **22.88% S035-ENA** and **26% W017**. W030 is **69.96%**, C021-NEAR **47.22%**, N059-BNB **47.77%**, ACT40 **60.59%**. **None of the 10 three-wallet or 10 five-wallet combinations has every member above an illustrative 80% verified-chain-minute threshold.** This is a diagnostic reference, not a new promotion policy. Source chains are not complete wallet books, so even 100% of known-chain minutes cannot certify economic follower coverage. No alternative is established as materially stronger than E6/E2.
 
 Phase 5 B is worth an **independent five-pod paper comparison**, but the Phase 6B source/instrument coverage and conditional shock results make its Gemini 0.46% trailing DD **not independently testable**. P14 remains archived, particularly because the HIP-3 BRENTOIL leg is not in this main-perp-only analysis. Keep previously owner-rejected 22 and currently prop-firm-disallowed additional 25 excluded from allocation.
 
@@ -212,6 +214,7 @@ uv run --extra market --group dev python scripts/phase7_native_open_screen.py
 uv run --extra market --group dev python scripts/phase7_secondary_cm002_screen.py
 uv run --extra market --group dev python scripts/phase7_universe_screen.py
 uv run --extra market --group dev python scripts/phase7_candidate_screen.py /home/quant/.local/share/copytrade/reports/phase7_universe_20261104_v2.json
+uv run --extra market --group dev python scripts/phase7_shortlist_native_audit.py /home/quant/.local/share/copytrade/reports/phase7_candidate_screen_20261104_v5.json --max-coins 5
 ```
 
 All scripts are read-only except explicit new, non-overwriting research `--output` files. Private alias-to-address binding is now exact-match against the separate Gemini identity evidence (especially the ambiguously named whale), with missing evidence failing closed. Dataset SHA, privacy and source-alias mappings remain owner-private. This report contains **no raw on-chain address map**.
@@ -219,7 +222,9 @@ All scripts are read-only except explicit new, non-overwriting research `--outpu
 | Owner-private artifact | SHA-256 |
 |---|---|
 | `phase7_universe_20261104_v2.json` | `2cef0d3a2c28de70a1991043a58de45fc226d6a8ec56b22960c5133909da45ff` |
-| `phase7_candidate_screen_20261104_v4.json` | `f36d0fa4ac807d8d570cffb76387e990a6bb62073541fbd5dd3cce1190e3547f` |
+| `phase7_candidate_screen_20261104_v4.json` (**SUPERSEDED**) | `f36d0fa4ac807d8d570cffb76387e990a6bb62073541fbd5dd3cce1190e3547f` |
+| `phase7_candidate_screen_20261104_v5.json` (**corrected current candidate screen**) | `3c6d144d358fc3bca140e6fe8e008245915f11f549840ec610dfa26bc2a8732a` |
+| `phase7_shortlist_native_chain_20261104_v2.json` (**5-coin source-chain audit**) | `2854c61019bee26a0a11c5d6ff00dcee89e7291ea4cdf49b12ba3b04941b847e` |
 | `phase7_native_exposure_20261104_v1.json` | `28acb92b37936888339304109963d6c14911055b0492ad65c07bca7ca7379713` |
 | `phase7_conditional_stress_20261104_v3.json` | `e6a38c47dac15ba249f076d7831b470590670285af3da35922b68f45f0dacf9a` |
 | `phase7_delay_cost_20261104_v1.json` | `ba778e6094e9b69186fc1a2617cde3b3c8f221ace3c4915d602933c9ee16299b` |

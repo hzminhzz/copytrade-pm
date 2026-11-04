@@ -72,24 +72,41 @@ Private SHA-sealed inventory: `/home/quant/.local/share/copytrade/reports/phase7
 
 ## Bounded Stage 1 — 10 + 10 screen-only combination candidates
 
-The bounded screen selects 13 of the provisional candidates for low-same-coin **gross traded notional composition**; removes rejected wallets, any unsupported HIP-3/spot namespace and hardcoded retrospective frozen benchmark overrides; and enumerates 285 three-wallet + 1,242 five-wallet combinations (fixed 90-day history, known from Gemini: **not OOS**). `score_screen_only` is a transparent heuristic favoring heterogeneous traded coins and manageable churn; **do not interpret the numbers as portfolio downside risk, effective independent bets, alpha or follower economics.** In particular source **fill turnover does not equal actual simultaneously held exposure** and may reward missing inventory or market-risk correlation. The exact frozen E2/E6/P1/E3/P14 are evaluated separately as mandatory controls, regardless of the screen result.
+**Corrected Stage 1 V5 (supersedes V4):** An audit found that V4 excluded any wallet with even small HIP-3 activity, yet admitted CSV-only wallets without any source `startPosition`. V5 requires **at least some fill-position anchors**, at least **80% main-perp source fill rows**, at least **60% supported main-perp gross traded notional**, an eligible main-perp primary coin, and no address on the private owner/prop-firm exclusion policies. HIP-3/spot turnover is removed and the **remaining supported default-perp composition renormalized**; unsupported DEX activity remains UNKNOWN, never a diversification benefit. This produces **10 provisional source-anchored wallets**, and **118 three-wallet + 210 five-wallet** retrospective exploratory combinations. The original V4's 285/1,242 tests still count as selection attempts: at least **1,875 (1,547 + 328)** exploratory portfolio combinations from the same 90-day history, **not an independent holdout** (and excluding earlier Gemini searches). Frozen E2/E6/P1/E3/P14 controls stay outside the new-selection pool. A source fill's `startPosition` does **not** establish a complete initial whole-account book; these are still **screen-only** combinations, not risk-normalized return rankings.
 
-| Rank (screen only) | 3-wallet aliases | 5-wallet aliases |
+| V5 rank (screen only) | 3-wallet aliases | 5-wallet aliases |
 | --- | --- | --- |
-| 1 | C021-NEAR, ACT34, ACT39 | C021-NEAR, VS030, ACT34, N19, ACT39 |
-| 2 | ACT34, N19, ACT39 | C021-NEAR, ACT34, N001-HYPE, N19, ACT39 |
-| 3 | ACT34, N001-HYPE, ACT39 | C021-NEAR, VS035, ACT34, N19, ACT39 |
-| 4 | C021-NEAR, ACT34, W031 | C021-NEAR, ACT34, H23, N19, ACT39 |
-| 5 | C021-NEAR, VS035, ACT34 | C021-NEAR, VS030, ACT34, N001-HYPE, ACT39 |
-| 6 | VS030, ACT34, ACT39 | C021-NEAR, ACT34, H23, N001-HYPE, ACT39 |
-| 7 | ACT34, H23, ACT39 | C021-NEAR, VS035, ACT34, N001-HYPE, ACT39 |
-| 8 | C021-NEAR, VS030, ACT34 | ACT34, H23, N001-HYPE, N19, ACT39 |
-| 9 | VS035, ACT34, N19 | C021-NEAR, ACT34, N19, ACT39, W031 |
-| 10 | C021-NEAR, ACT34, N19 | VS030, ACT34, N001-HYPE, N19, ACT39 |
+| 1 | W030, S053-HYPE, ACT33 | N059-BNB, W030, S053-HYPE, C021-NEAR, ACT33 |
+| 2 | N059-BNB, C021-NEAR, ACT33 | S035-ENA, W030, S053-HYPE, C021-NEAR, ACT33 |
+| 3 | S035-ENA, S053-HYPE, ACT33 | N059-BNB, S035-ENA, W030, S053-HYPE, ACT33 |
+| 4 | N059-BNB, W030, C021-NEAR | N059-BNB, S035-ENA, S053-HYPE, C021-NEAR, ACT33 |
+| 5 | N059-BNB, W030, ACT33 | N059-BNB, S035-ENA, W030, C021-NEAR, ACT33 |
+| 6 | W030, C021-NEAR, ACT33 | N059-BNB, ACT40, W030, C021-NEAR, ACT33 |
+| 7 | ACT40, W030, C021-NEAR | N059-BNB, W030, S053-HYPE, C021-NEAR, W017 |
+| 8 | S053-HYPE, C021-NEAR, ACT33 | ACT40, W030, S053-HYPE, C021-NEAR, ACT33 |
+| 9 | W030, C021-NEAR, W017 | N059-BNB, ACT40, S035-ENA, W030, C021-NEAR |
+| 10 | W030, S053-HYPE, W017 | S035-ENA, W030, S053-HYPE, C021-NEAR, W017 |
 
-Private immutable candidate result: `/home/quant/.local/share/copytrade/reports/phase7_candidate_screen_20261104_v4.json`, SHA256 `f36d0fa4ac807d8d570cffb76387e990a6bb62073541fbd5dd3cce1190e3547f`.
+Private immutable **V5** screened candidate result: `/home/quant/.local/share/copytrade/reports/phase7_candidate_screen_20261104_v5.json`, SHA256 `3c6d144d358fc3bca140e6fe8e008245915f11f549840ec610dfa26bc2a8732a`. Preserve **V4** source SHA `f36d0fa4ac807d8d570cffb76387e990a6bb62073541fbd5dd3cce1190e3547f` as audit history, but its rankings are **SUPERSEDED / DO NOT USE**. The corrected *main-perp-only* mean pair gross fill-turnover overlap controls are **E2 0.2777** and **E6 0.2841** (previous V4 0.2445/0.2487 included unsupported scope). These are not risk-adjusted expected-loss comparisons or grounds for changing frozen selections.
 
-Existing frozen controls from this same cheap screen: E2 mean pair gross fill-turnover overlap 0.2445; E6 0.2487. **These near-equal retrospective fill-turnover scores do not overturn either portfolio or establish a better alternative**. Missing historical source-equity, risk-budget scaling, mark-to-market comparison for shortlisted candidates, costs, and stop conditions are still gating.
+### Independent native-minute evidence audit on corrected V5 shortlist
+
+A separate SHA-verified, *full-minute-inside-source-position-chain* audit inspected the top-five main-perp source chains of the eight unique wallets appearing in the 10+10 combinations. These are source intervals from adjacent consistent fill `startPosition`, not fully reconciled source account positions. Exact one-minute OHLCV source day SHA was checked; missing instruments or uncovered coins are not zeroed.
+
+| Shortlisted wallet | Native-verified fraction of ALL reconstructed main-perp chain-minutes, lower bound |
+| --- | ---: |
+| ACT33 | 100.00% |
+| S053-HYPE | 93.97% |
+| W030 | 69.96% |
+| ACT40 | 60.59% |
+| N059-BNB | 47.77% |
+| C021-NEAR | 47.22% |
+| W017 | 26.00% |
+| S035-ENA | 22.88% |
+
+**None of the 10 three-wallet or 10 five-wallet preliminary combinations has every member over an illustrative 80% verified chain-minute lower-bound.** The 80% value is a diagnostic completeness benchmark, **not** a newly authorized scientific qualification rule. These figures do not measure unknown initial books, intra-minute fills, HIP-3, collateral, funding, realized follower PnL or full 90-day coverage. Most importantly, 100% of **the audited source chain** does not mean 100% coverage of the true source's risk.
+
+Private SHA-bound native-chain audit (max five coins per wallet): `/home/quant/.local/share/copytrade/reports/phase7_shortlist_native_chain_20261104_v2.json`, SHA256 `2854c61019bee26a0a11c5d6ff00dcee89e7291ea4cdf49b12ba3b04941b847e`. No alternative qualifies to displace E6/E2; cost/portfolio DD/alpha/true holdout comparison remains UNKNOWN.
 
 Reproduce first-stage inventory and cheap combination shortlists:
 
@@ -98,4 +115,4 @@ uv run --extra market --group dev python scripts/phase7_universe_screen.py --out
 uv run --extra market --group dev python scripts/phase7_candidate_screen.py /home/quant/.local/share/copytrade/reports/phase7_universe_YOUR_NEW_VERSION.json --output /home/quant/.local/share/copytrade/reports/phase7_candidates_YOUR_NEW_VERSION.json
 ```
 
-Use fresh, nonexisting output paths; both entrypoints refuse immutable report overwrites. No owner-private rows or address mappings are added to the PR.
+SHA reproducibility: the private V5 and V6 candidate screen reports are byte-identical (`3c6d144d358fc3bca140e6fe8e008245915f11f549840ec610dfa26bc2a8732a`); the 5-coin native-chain V2 and V3 audits are byte-identical (`2854c61019bee26a0a11c5d6ff00dcee89e7291ea4cdf49b12ba3b04941b847e`). Use fresh, nonexisting output paths; both entrypoints refuse immutable report overwrites. No owner-private rows or address mappings are added to the PR.
