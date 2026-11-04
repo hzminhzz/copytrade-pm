@@ -19,6 +19,12 @@ health`. The research listing is NOT a global all-study catalog. See
 [the acceptance record](AGENT-OPERATIONS-P1-ACCEPTANCE-20261105.md) and
 [operator guide](AGENT-NATIVE-OPERATIONS.md).
 
+For agent behavior measurement (not financial qualification), list the 13
+fixed model tool-choice tasks with `copytrade-pm-agent-eval --list-tasks` and
+inspect only independently captured host event traces. See
+[the P2 evidence contract](AGENT-TRACE-EVAL-20261105.md); synthetic/self
+transcribed traces cannot qualify as empirical agent performance.
+
 
 ## Offline Polars 2.x Milestone #2 public job (owner-approved engineering Option A, 2026-11-04)
 

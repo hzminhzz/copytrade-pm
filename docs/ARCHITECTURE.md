@@ -15,6 +15,12 @@ job reports within an explicitly scoped cache root, and delegates installed
 release/observer validation to their owners. Systemd unit inspection is
 OS evidence only, never protected worker admission.
 
+The [P2 agent trace evaluation seam](AGENT-TRACE-EVAL-20261105.md) is an
+isolated read-only scorer for externally captured host tool events. It is
+not a replacement agent, a production event interceptor or a writer. An
+independently pinned Ed25519-signed host capture is required for an empirical
+pass; tests and assistant-authored transcripts cannot satisfy that boundary.
+
 
 ## Offline milestone #2 complete engineering vs independent science (2026-11-04)
 

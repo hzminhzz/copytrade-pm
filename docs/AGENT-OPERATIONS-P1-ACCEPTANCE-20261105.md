@@ -14,9 +14,15 @@ release returned `ACTIVE_READ_ONLY_VERIFIED`, source SHA was unchanged, and
 tracker/ensemble/Source-ABC PIDs stayed `2050126`, `2050137`, `2180745`
 at the cutover. This is a dated checkpoint, not a perpetual liveness claim.
 
-The P1 implementation on `feat/ops-wallet-research-health-20261105` is
-a **separate code change** and is not installed by the above P0 cutover unless
-a new reviewed SHA is activated and independently verified.
+**Follow-up verified P1 cutover:** PR #99 was squash-merged into `main` at
+`00a6b1e260ad9983b8497dcc35922a288f87d09b` and separately activated
+through the same pinned read-only registry release controller. Post-merge
+GitHub CI passed. A verified backup and release check returned
+`ACTIVE_READ_ONLY_VERIFIED`, source SHA stayed unchanged and all three
+legacy services retained their original PIDs. The installed pinned release
+was smoke-tested for W083 lookup, excluded wallet count, one verified
+historical-oracle job, E6 and independent runtime status. This did **not**
+authorize or activate protected paper workers.
 
 ## Authoritative extensions
 
@@ -58,7 +64,9 @@ OS-unit-only degradation and 12 scripted agent discovery tasks. The scripted
 cases exercise the real CLI parser and owner lookup, **not a live LLM choosing
 tools**. Real LLM behaviour (redundant calls, invented commands, attempted
 unsafe mutations, tool availability) remains unmeasured without independently
-captured traces.
+captured traces. The subsequent [P2 trace evaluation contract](AGENT-TRACE-EVAL-20261105.md)
+provides a 13-task read-only scorer and independent-signature requirement;
+it does not retroactively qualify the earlier synthetic benchmark.
 
 A GitHub merge or green tests neither deploys a package nor authorizes
 paper/demo/live trading. Scientific qualification, account sizing fidelity,

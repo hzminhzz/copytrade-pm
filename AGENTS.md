@@ -3,8 +3,13 @@
 Before implementing new functionality, query `copytrade-pm capabilities list`,
 `copytrade-pm capabilities show <id>` and `copytrade-pm capabilities validate`.
 Read the owning module/contracts before adding another implementation; reuse or
-extend the existing native interface. Do not recreate Wallet Registry, PM-03
-finance, research replay, evidence qualification or broker routes. Follow
+extend the existing native interface. For measuring **actual agent choices**,
+use [the host-trace evaluation contract](docs/AGENT-TRACE-EVAL-20261105.md):
+only independently exported and externally key-pinned host tool events may
+qualify. Synthetic, manual and transcript-reconstructed traces remain
+`UNVERIFIED_TOOL_TRACE`; do not assert an empirical agent pass from CLI tests.
+Do not recreate Wallet Registry, PM-03 finance, research replay, evidence
+qualification or broker routes. Follow
 [the agent-native operator guide](docs/AGENT-NATIVE-OPERATIONS.md), its
 mechanical catalog checks and the registry-first workflow for wallet/portfolio
 questions. A missing service must remain `UNKNOWN` or `NOT_RUNNING`, never

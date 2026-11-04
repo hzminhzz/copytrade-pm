@@ -28,7 +28,9 @@ Use `copytrade-pm research list --cache-root PRIVATE_CACHE` only for
 SHA-verified canonical Polars job reports; this is not a general research
 ledger. The `copytrade-pm health` adapter now delegates installed release
 verification and OS unit queries but does not establish protected trading
-readiness.
+readiness. For agent performance claims, see the independently captured
+[host trace benchmark](AGENT-TRACE-EVAL-20261105.md); normal CLI tests and
+ChatGPT-written transcripts are not empirical tool-choice evidence.
 
 
 From a clean checkout or an isolated worktree of `hzminhzz/copytrade-pm`, compare the actual Git revision with the remote before trusting code or a dated note:

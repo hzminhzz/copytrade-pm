@@ -135,6 +135,12 @@ classification.
 check capability routing, registry/PIT parity, immutable cache-integrity
 failure handling, read-only data behavior, and independent systemd/release
 contract failures. The 12 scripted agent-task cases execute the real CLI
-resolver, but do **not** test live LLM tool selection. Real agent trace-based
-evaluation still needs independent observed tool-call logs (redundant lookups,
-invented operations, incomplete answers and unsafe attempted mutations).
+resolver, but do **not** test live LLM tool selection.
+The [P2 trace scorer](AGENT-TRACE-EVAL-20261105.md) now accepts
+externally signed, independently captured host tool-event traces for 13
+fixed tasks. It measures correct native-first routing, redundant and
+off-target lookups, invented commands, unsafe attempts and structured final
+status consistency. Synthetic and manually transcribed traces always remain
+`UNVERIFIED_TOOL_TRACE`. In the absence of host-exported evidence the
+empirical agent-effectiveness gate is `BLOCKED_NO_INDEPENDENT_HOST_TRACE`;
+CLI parity tests alone do not demonstrate actual LLM tool selection.

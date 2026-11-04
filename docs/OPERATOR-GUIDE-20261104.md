@@ -18,9 +18,15 @@ uv run --project "$REG" --offline --frozen --no-dev copytrade-pm portfolios curr
 uv run --project "$REG" --offline --frozen --no-dev copytrade-pm health
 ```
 
-The later P1 wallet/research/runtime extensions are documented in
-[the agent-native operator contract](AGENT-NATIVE-OPERATIONS.md); only treat
-them as installed after their own reviewed release activation and verification.
+The P1 wallet/research/runtime extensions were **later** independently
+merged and activated at `00a6b1e260ad9983b8497dcc35922a288f87d09b`,
+with source SHA and original service PIDs unchanged (dated 2026-11-05
+checkpoint). Their owner and safety boundaries are documented in
+[the P1 acceptance guide](AGENT-OPERATIONS-P1-ACCEPTANCE-20261105.md).
+The separate [P2 agent-trace benchmark](AGENT-TRACE-EVAL-20261105.md)
+requires independently captured, signed host tool events before declaring
+real LLM tool-choice effectiveness. Reverify the current pinned release
+rather than treating either historical SHA as today's deployment.
 
 ## 1. One-minute read-only check
 
