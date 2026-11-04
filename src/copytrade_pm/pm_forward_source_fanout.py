@@ -103,6 +103,98 @@ def _verified_local_prefix(destination: PaperJournal, alias: str, canonical: lis
     return len(existing)
 
 
+def _sync_one_destination(
+    portfolio: str,
+    journal: PaperJournal,
+    canonical: dict,
+) -> dict:
+    """Only this destination's financial-state writer is ever required."""
+    members = ("P1", "P14")
+    if portfolio not in members:
+        raise ValueError("PAPER_SOURCE_FANOUT_PORTFOLIO_NOT_FROZEN")
+    expected = P1.members if portfolio == "P1" else P14.members
+    counts = {}
+    current = None
+    try:
+        for alias in expected:
+            current = alias
+            rows = canonical[alias]
+            prefix = _verified_local_prefix(journal, alias, rows)
+            for seq, receipt_id, receipt, _, _ in rows[prefix:]:
+                journal.append_source_receipt(alias, seq, receipt_id, receipt)
+            verified_after = _verified_local_prefix(journal, alias, rows)
+            if verified_after != len(rows):
+                raise ValueError("PAPER_SOURCE_FANOUT_RESULT_NOT_CONTIGUOUS")
+            counts[alias] = {
+                "source_receipts": len(rows),
+                "previous_import_cursor": prefix,
+                "imported_new": len(rows) - prefix,
+                "local_source_cursor": verified_after,
+                "source_head_sha": rows[-1][4] if rows else "0" * 64,
+            }
+        return {
+            "status": "COPIED_EVIDENCE_ONLY",
+            "source_cursors": counts,
+            "all_source_aliases_observed": all(
+                row["source_receipts"] > 0 for row in counts.values()
+            ),
+            "paper_admitted": False,
+            "paper_financial_events_committed": 0,
+        }
+    except (ValueError, OSError, sqlite3.Error) as exc:
+        return {
+            "status": "BLOCKED_SOURCE_FANOUT",
+            "blocked_source_alias": current,
+            "reason": type(exc).__name__ + ":" + str(exc)[:100],
+            "source_cursors_imported_before_failure": counts,
+            "paper_admitted": False,
+            "paper_financial_events_committed": 0,
+        }
+
+
+def fanout_one_portfolio_receipts(
+    *,
+    source_db: Path,
+    portfolio_id: str,
+    account_journal: PaperJournal,
+    max_source_receipts: int = 1000,
+) -> dict:
+    """Production-shaped per-identity relay: writes ONE account journal only.
+
+    The canonical source is a read-only immutable receipt lineage. The caller
+    must run as the destination account OS identity; it does not need any
+    access to the other portfolio's financial state. No account effect here.
+    """
+    if portfolio_id not in ("P1", "P14"):
+        raise ValueError("PAPER_SOURCE_FANOUT_PORTFOLIO_NOT_FROZEN")
+    if not 1 <= max_source_receipts <= 10_000:
+        raise ValueError("PAPER_SOURCE_FANOUT_BUDGET_INVALID")
+    if Path(source_db).resolve() == account_journal.path.resolve() or (
+        Path(source_db).resolve() == account_journal.root.resolve()
+    ):
+        raise ValueError("PAPER_SOURCE_FANOUT_FINANCIAL_SOURCE_ISOLATION_REQUIRED")
+    selected = P1.members if portfolio_id == "P1" else P14.members
+    canonical = _readonly_source_rows(source_db, selected)
+    if sum(len(rows) for rows in canonical.values()) > max_source_receipts:
+        raise ValueError("PAPER_SOURCE_FANOUT_BOUNDED_SOURCE_VOLUME_EXCEEDED")
+    output = _sync_one_destination(portfolio_id, account_journal, canonical)
+    return {
+        "schema": "paper_single_account_source_fanout_v1",
+        "portfolio_id": portfolio_id,
+        "canonical_source_tape_head_sha": digest(
+            {alias: rows[-1][4] if rows else "0" * 64 for alias, rows in canonical.items()}
+        ),
+        "unique_sources": len(selected),
+        "canonical_all_required_sources_observed": all(bool(rows) for rows in canonical.values()),
+        "result": output,
+        "other_portfolio_account_access_required": False,
+        "source_subscriptions_created": 0,
+        "paper_financial_events_committed": 0,
+        "paper_observed": False,
+        "order_route": "NONE",
+    }
+
+
 def fanout_frozen_source_receipts(
     *,
     source_db: Path,
@@ -110,11 +202,11 @@ def fanout_frozen_source_receipts(
     p14_journal: PaperJournal,
     max_source_receipts: int = 1000,
 ) -> dict:
-    """Copy a single source snapshot into two financially isolated journals.
+    """Offline coordination/test helper for two journals; not a live OS worker.
 
-    Progress is per destination. A process crash after one portfolio copies a
-    receipt but before the other does is safe: exact-prefix validation allows
-    idempotent retry, and no PM03 account effect occurs here.
+    Protected P1/P14 processes must use fanout_one_portfolio_receipts so a
+    single service identity never has write authority over both financial
+    account databases. This function exists for isolated integration tests.
     """
     if not 1 <= max_source_receipts <= 10_000:
         raise ValueError("PAPER_SOURCE_FANOUT_BUDGET_INVALID")
@@ -130,49 +222,10 @@ def fanout_frozen_source_receipts(
     total_receipts = sum(len(rows) for rows in canonical.values())
     if total_receipts > max_source_receipts:
         raise ValueError("PAPER_SOURCE_FANOUT_BOUNDED_SOURCE_VOLUME_EXCEEDED")
-    outputs = {}
-    for portfolio, members, journal in (
-        ("P1", P1.members, p1_journal),
-        ("P14", P14.members, p14_journal),
-    ):
-        counts = {}
-        current = None
-        try:
-            for member in members:
-                alias = member
-                current = alias
-                rows = canonical[alias]
-                prefix = _verified_local_prefix(journal, alias, rows)
-                for seq, receipt_id, receipt, _, _ in rows[prefix:]:
-                    journal.append_source_receipt(alias, seq, receipt_id, receipt)
-                verified_after = _verified_local_prefix(journal, alias, rows)
-                if verified_after != len(rows):
-                    raise ValueError("PAPER_SOURCE_FANOUT_RESULT_NOT_CONTIGUOUS")
-                counts[alias] = {
-                    "source_receipts": len(rows),
-                    "previous_import_cursor": prefix,
-                    "imported_new": len(rows) - prefix,
-                    "local_source_cursor": verified_after,
-                    "source_head_sha": rows[-1][4] if rows else "0" * 64,
-                }
-            outputs[portfolio] = {
-                "status": "COPIED_EVIDENCE_ONLY",
-                "source_cursors": counts,
-                "all_source_aliases_observed": all(
-                    row["source_receipts"] > 0 for row in counts.values()
-                ),
-                "paper_admitted": False,
-                "paper_financial_events_committed": 0,
-            }
-        except (ValueError, OSError, sqlite3.Error) as exc:
-            outputs[portfolio] = {
-                "status": "BLOCKED_SOURCE_FANOUT",
-                "blocked_source_alias": current,
-                "reason": type(exc).__name__ + ":" + str(exc)[:100],
-                "source_cursors_imported_before_failure": counts,
-                "paper_admitted": False,
-                "paper_financial_events_committed": 0,
-            }
+    outputs = {
+        "P1": _sync_one_destination("P1", p1_journal, canonical),
+        "P14": _sync_one_destination("P14", p14_journal, canonical),
+    }
     return {
         "schema": "paper_shared_source_isolated_account_fanout_v1",
         "canonical_source_tape_head_sha": digest(

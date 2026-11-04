@@ -18,7 +18,10 @@ from copytrade_pm.pm03_account import digest
 from copytrade_pm.pm_forward_fixture_worker import FixturePaperWorker
 from copytrade_pm.pm_forward_journal import PaperJournal
 from copytrade_pm.pm_forward_portfolios import P1, P14
-from copytrade_pm.pm_forward_source_fanout import fanout_frozen_source_receipts
+from copytrade_pm.pm_forward_source_fanout import (
+    fanout_frozen_source_receipts,
+    fanout_one_portfolio_receipts,
+)
 from copytrade_pm.pm_forward_source_observation import (
     append_public_scope,
     read_public_all_dex_scope,
@@ -48,6 +51,53 @@ def source_five(tmp_path):
         )
         append_public_scope(source, alias=alias, seq=1, receipt=result)
     return source
+
+
+def test_per_portfolio_relay_never_needs_other_financial_journal(tmp_path):
+    source = source_five(tmp_path)
+    p1 = PaperJournal(tmp_path / "P1")
+    p14 = PaperJournal(tmp_path / "P14")
+    first = fanout_one_portfolio_receipts(
+        source_db=source.path,
+        portfolio_id="P1",
+        account_journal=p1,
+    )
+    assert first["schema"] == "paper_single_account_source_fanout_v1"
+    assert first["unique_sources"] == 3
+    assert first["other_portfolio_account_access_required"] is False
+    assert first["result"]["status"] == "COPIED_EVIDENCE_ONLY"
+    assert first["canonical_all_required_sources_observed"] is True
+    assert p1.source_status("S035")["cursor"] == 1
+    assert p14.source_status("S035")["cursor"] == 0
+    assert first["paper_financial_events_committed"] == 0
+    second = fanout_one_portfolio_receipts(
+        source_db=source.path,
+        portfolio_id="P14",
+        account_journal=p14,
+    )
+    assert second["unique_sources"] == 5
+    assert p14.source_status("S035")["cursor"] == 1
+    assert p14.source_status("S064")["cursor"] == 1
+    replay = fanout_one_portfolio_receipts(
+        source_db=source.path,
+        portfolio_id="P1",
+        account_journal=PaperJournal(p1.root),
+    )
+    assert all(item["imported_new"] == 0 for item in replay["result"]["source_cursors"].values())
+    assert replay["order_route"] == "NONE"
+    assert replay["paper_observed"] is False
+    with pytest.raises(ValueError, match="PAPER_SOURCE_FANOUT_FINANCIAL_SOURCE_ISOLATION_REQUIRED"):
+        fanout_one_portfolio_receipts(
+            source_db=source.path,
+            portfolio_id="P1",
+            account_journal=source,
+        )
+    with pytest.raises(ValueError, match="PAPER_SOURCE_FANOUT_PORTFOLIO_NOT_FROZEN"):
+        fanout_one_portfolio_receipts(
+            source_db=source.path,
+            portfolio_id="unknown",
+            account_journal=p1,
+        )
 
 
 def test_public_receipts_fanout_into_two_isolated_private_accounts_no_effect(tmp_path):
