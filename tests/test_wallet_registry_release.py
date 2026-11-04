@@ -174,6 +174,204 @@ def test_recovering_verified_backup_does_not_edit_live_inventory(tmp_path: Path)
     assert stat.S_IMODE(backup.stat().st_mode) == 0o600
 
 
+def test_release_pointer_and_metadata_recover_after_failing_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    control = tmp_path / "owner" / "release-control"
+    control.parent.mkdir(mode=0o700)
+    control.mkdir(mode=0o700)
+    (control / "releases").mkdir(mode=0o700)
+    old, new = "a" * 40, "b" * 40
+    release.atomic_current(old, control=control)
+    metadata = control / "release-state.json"
+    previous = {"current": old, "previous": None, "mode": "ON_DEMAND_READ_ONLY_NO_TIMER"}
+    metadata.write_text(json.dumps(previous))
+    metadata.chmod(0o600)
+    monkeypatch.setattr(release, "CONTROL", control)
+    monkeypatch.setattr(release, "STATE", metadata)
+    pointer = release.atomic_current
+    active = release.active_revision
+    monkeypatch.setattr(release, "atomic_current", lambda rev: pointer(rev, control=control))
+    monkeypatch.setattr(release, "active_revision", lambda: active(control))
+    writer = release._write_json_atomic
+    attempts = []
+
+    def fail_first(path: Path, contents: dict) -> None:
+        attempts.append(contents)
+        if len(attempts) == 1:
+            raise OSError("injected metadata disk write failure")
+        writer(path, contents)
+
+    monkeypatch.setattr(release, "_write_json_atomic", fail_first)
+    with pytest.raises(OSError, match="injected"):
+        release.commit_release(new, {"current": new})
+    assert active(control) == old
+    assert json.loads(metadata.read_text()) == previous
+    assert len(attempts) == 2
+
+
+def test_release_pointer_and_metadata_recover_after_post_switch_exception(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    control = tmp_path / "owner" / "release-control"
+    control.parent.mkdir(mode=0o700)
+    control.mkdir(mode=0o700)
+    (control / "releases").mkdir(mode=0o700)
+    old, new = "c" * 40, "d" * 40
+    release.atomic_current(old, control=control)
+    metadata = control / "release-state.json"
+    previous = {"current": old, "previous": None}
+    metadata.write_text(json.dumps(previous))
+    metadata.chmod(0o600)
+    pointer = release.atomic_current
+    active = release.active_revision
+    monkeypatch.setattr(release, "STATE", metadata)
+    monkeypatch.setattr(release, "atomic_current", lambda rev: pointer(rev, control=control))
+    monkeypatch.setattr(release, "active_revision", lambda: active(control))
+
+    def fail_doctor() -> None:
+        raise RuntimeError("injected installed doctor failure")
+
+    with pytest.raises(RuntimeError, match="injected"):
+        release.commit_release(new, {"current": new}, after_switch=fail_doctor)
+    assert active(control) == old
+    assert json.loads(metadata.read_text()) == previous
+
+
+def test_release_rejects_diverged_pointer_and_metadata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    control = tmp_path / "owner" / "release-control"
+    control.parent.mkdir(mode=0o700)
+    control.mkdir(mode=0o700)
+    pointer = release.atomic_current
+    active = release.active_revision
+    release.atomic_current("b" * 40, control=control)
+    metadata = control / "release-state.json"
+    metadata.write_text(json.dumps({"current": "a" * 40}))
+    metadata.chmod(0o600)
+    monkeypatch.setattr(release, "STATE", metadata)
+    monkeypatch.setattr(release, "atomic_current", lambda rev: pointer(rev, control=control))
+    monkeypatch.setattr(release, "active_revision", lambda: active(control))
+    with pytest.raises(ValueError, match="diverged"):
+        release.commit_release("c" * 40, {"current": "c" * 40})
+    assert active(control) == "b" * 40
+
+
+def test_operator_release_lock_rejects_concurrent_mutator(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    control = tmp_path / "owner" / "release-control"
+    control.parent.mkdir(mode=0o700)
+    monkeypatch.setattr(release, "CONTROL", control)
+    with release.release_lock():
+        with pytest.raises(RuntimeError, match="already in progress"):
+            with release.release_lock():
+                pass
+
+
+def test_release_lock_rejects_symlink_and_nonprivate_lock_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    control = tmp_path / "owner" / "release-control"
+    control.parent.mkdir(mode=0o700)
+    control.mkdir(mode=0o700)
+    (control / "releases").mkdir(mode=0o700)
+    monkeypatch.setattr(release, "CONTROL", control)
+    lock = control / "operator.lock"
+    lock.symlink_to(tmp_path / "out-of-scope")
+    with pytest.raises(OSError):
+        with release.release_lock():
+            pass
+    lock.unlink()
+    lock.write_text("owner")
+    lock.chmod(0o644)
+    with pytest.raises(PermissionError, match="owner-private"):
+        with release.release_lock():
+            pass
+
+
+def test_crash_after_pointer_swap_can_repair_to_last_committed_release(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    control = tmp_path / "owner" / "release-control"
+    control.parent.mkdir(mode=0o700)
+    control.mkdir(mode=0o700)
+    (control / "releases").mkdir(mode=0o700)
+    committed, uncommitted = "a" * 40, "b" * 40
+    pinned = control / "releases" / committed
+    pinned.mkdir(mode=0o700)
+    (pinned / "registry.py").write_bytes(b"pinned source")
+    fingerprint = {"registry.py": sha256(b"pinned source").hexdigest()}
+    (control / "releases" / uncommitted).mkdir(mode=0o700)
+    release.atomic_current(uncommitted, control=control)
+    metadata = control / "release-state.json"
+    metadata.write_text(
+        json.dumps(
+            {
+                "current": committed,
+                "files": fingerprint,
+                "previous": None,
+            }
+        )
+    )
+    metadata.chmod(0o600)
+    pointer = release.atomic_current
+    active = release.active_revision
+    monkeypatch.setattr(release, "CONTROL", control)
+    monkeypatch.setattr(release, "STATE", metadata)
+    monkeypatch.setattr(release, "RELEASES", control / "releases")
+    monkeypatch.setattr(release, "atomic_current", lambda rev: pointer(rev, control=control))
+    monkeypatch.setattr(release, "active_revision", lambda: active(control))
+    monkeypatch.setattr(release, "_installed_doctor", lambda _: None)
+    monkeypatch.setattr(release, "readonly_source_health", lambda: {"source": "unchanged"})
+    monkeypatch.setattr(release, "services", lambda: {"tracker": {"pid": "100"}})
+
+    with pytest.raises(ValueError, match="mismatch"):
+        release.verify()
+    assert release.repair()["result"] == "LAST_COMMITTED_POINTER_RESTORED"
+    assert active(control) == committed
+    assert release.verify()["result"] == "ACTIVE_READ_ONLY_VERIFIED"
+    # This repairs only the release pointer, without deleting the next
+    # staged revision or modifying the authoritative inventory.
+    assert (control / "releases" / uncommitted).is_dir()
+
+
+def test_pointer_repair_rejects_tampered_committed_release(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    control = tmp_path / "owner" / "release-control"
+    control.parent.mkdir(mode=0o700)
+    control.mkdir(mode=0o700)
+    (control / "releases").mkdir(mode=0o700)
+    a, b = "a" * 40, "b" * 40
+    pinned = control / "releases" / a
+    pinned.mkdir(mode=0o700)
+    (pinned / "registry.py").write_bytes(b"tampered")
+    release.atomic_current(b, control=control)
+    metadata = control / "release-state.json"
+    metadata.write_text(
+        json.dumps(
+            {
+                "current": a,
+                "files": {"registry.py": sha256(b"trusted").hexdigest()},
+            }
+        )
+    )
+    metadata.chmod(0o600)
+    pointer = release.atomic_current
+    active = release.active_revision
+    monkeypatch.setattr(release, "CONTROL", control)
+    monkeypatch.setattr(release, "STATE", metadata)
+    monkeypatch.setattr(release, "RELEASES", control / "releases")
+    monkeypatch.setattr(release, "atomic_current", lambda rev: pointer(rev, control=control))
+    monkeypatch.setattr(release, "active_revision", lambda: active(control))
+    monkeypatch.setattr(release, "services", lambda: {"tracker": {"pid": "100"}})
+    with pytest.raises(ValueError, match="source SHA mismatch"):
+        release.repair()
+    assert active(control) == b
+
+
 def test_preview_does_not_require_clean_worktree() -> None:
     repo = Path(__file__).resolve().parents[1]
     state = release.snapshot_state(repo, enforce_clean=False)

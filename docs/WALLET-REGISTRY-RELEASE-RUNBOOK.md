@@ -33,14 +33,21 @@ uv run --group dev copytrade-wallet-registry paper
   preactivation-*.sqlite     # 0600 ONLINE backup of registry inventory only
 ```
 
-Every root directory is `0700`, the inventory and backup are `0600`. The controller verifies the tracked source fingerprints and the **installed pinned release** with `uv run --offline --frozen --no-dev`. It checks restored backup SQLite integrity and foreign keys before changing the `current` pointer. No network install is authorized; unavailable offline dependencies fail the release. No existing service unit, timer, release, source or broker database is replaced.
+Every root directory is `0700`, the inventory and backup are `0600`. Activation, verification, rollback and repair use a shared owner-private `operator.lock` with nonblocking filesystem locks; a concurrent operator must retry rather than race the pointer. File and directory metadata changes are fsynced. Activation and rollback restore **both** the original pointer and committed state on ordinary post-switch exceptions. The controller verifies the tracked source fingerprints and the **installed pinned release** with `uv run --offline --frozen --no-dev`. It checks restored backup SQLite integrity and foreign keys before changing the `current` pointer. No network install is authorized; unavailable offline dependencies fail the release. No existing service unit, timer, release, source or broker database is replaced.
 
 To reverse **only the pointer**:
 
 ```bash
 uv run --group dev python scripts/registry_release.py rollback
 uv run --group dev python scripts/registry_release.py verify
+
+# Crash recovery ONLY if verify reports a pointer/state mismatch.
+# This returns to the last committed state, never guessing an uncommitted SHA.
+uv run --group dev python scripts/registry_release.py repair
+uv run --group dev python scripts/registry_release.py verify
 ```
+
+`repair` is deliberately narrower than `rollback`: if a process was killed between the two atomic pointer/state renames, the normal `verify` fails closed. With an intact committed state and matching prior source hashes, repair restores only the pointer recorded in that last committed state. Missing metadata or a tampered pinned release stops repair for manual inspection; it never chooses a new release from an uncommitted symlink. Crash recovery and same-process error recovery are independently fault-tested.
 
 Rollback never modifies the inventory database or other service. With no previously active release, `verify` returns `NO_RELEASE_POINTER`. Source generation and registry backups are preserved for independent recovery; a previous release remains under `releases/<sha>`. To restore an actual damaged registry SQLite database requires a **separate reviewed offline recovery**, not the pointer rollback. Do not overwrite a healthy current inventory with an older backup simply to satisfy an acceptance checkbox.
 

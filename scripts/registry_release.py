@@ -9,6 +9,8 @@ Usage from the reviewed clean WR worktree:
     uv run --group dev python scripts/registry_release.py activate
     uv run --group dev python scripts/registry_release.py verify
     uv run --group dev python scripts/registry_release.py rollback
+    # Only if verify reports an interrupted pointer/metadata switch:
+    uv run --group dev python scripts/registry_release.py repair
 
 Activation stages an immutable-by-Git snapshot in an owner-private release
 directory, verifies the *deployed* CLI/source hashes, backs up only the WR
@@ -19,7 +21,8 @@ No timer is deployed: on-demand only until a separate review approves cadence.
 from __future__ import annotations
 
 import argparse
-from contextlib import closing
+from contextlib import closing, contextmanager
+import fcntl
 from datetime import datetime, timezone
 from hashlib import sha256
 import io
@@ -79,13 +82,50 @@ def _mode(path: Path, expected: int) -> None:
         raise PermissionError("insecure private release path")
 
 
-def _private_dirs(control: Path = CONTROL) -> None:
+def _private_dirs(control: Path | None = None) -> None:
+    control = CONTROL if control is None else control
     control.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     _mode(control.parent, 0o700)
     control.mkdir(mode=0o700, exist_ok=True)
     _mode(control, 0o700)
     (control / "releases").mkdir(mode=0o700, exist_ok=True)
     _mode(control / "releases", 0o700)
+
+
+@contextmanager
+def release_lock(*, shared: bool = False):
+    """One owner-private lock serializes activation, rollback and verification.
+
+    Fail fast rather than let a second operator overwrite another operator's
+    release pointer or source manifest while validation is in progress.
+    """
+    _private_dirs()
+    lock = CONTROL / "operator.lock"
+    fd = os.open(lock, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o600:
+            raise PermissionError("registry release lock must be owner-private")
+        flags = (fcntl.LOCK_SH if shared else fcntl.LOCK_EX) | fcntl.LOCK_NB
+        try:
+            fcntl.flock(fd, flags)
+        except BlockingIOError as exc:
+            raise RuntimeError("registry release operation already in progress") from exc
+        try:
+            yield
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
+
+
+def sync_directory(path: Path) -> None:
+    """Persist metadata renames/unlinks across a host crash on local filesystems."""
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
 
 
 def sha(path: Path) -> str:
@@ -251,6 +291,7 @@ def _write_json_atomic(path: Path, value: dict) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temp, path)
+        sync_directory(path.parent)
     finally:
         temp.unlink(missing_ok=True)
 
@@ -269,6 +310,7 @@ def atomic_current(target: str | None, *, control: Path = CONTROL) -> None:
         else:
             os.symlink(f"releases/{target}", candidate)
             os.replace(candidate, current)
+        sync_directory(control)
     finally:
         candidate.unlink(missing_ok=True)
 
@@ -317,13 +359,54 @@ def _installed_doctor(release: Path) -> None:
         raise ValueError("paper status was promoted from research metadata")
 
 
+def commit_release(target: str | None, next_state: dict, *, after_switch=None) -> None:
+    """Update the release pointer and metadata as a recoverable unit.
+
+    A crash between two filesystem atomic renames remains fail-closed under
+    verify(); ordinary exceptions restore BOTH the prior pointer and metadata.
+    Caller must hold release_lock() while using this operation.
+    """
+    previous_revision = active_revision()
+    previous_state = _json(STATE)
+    expected_current = previous_state.get("current")
+    if previous_revision != expected_current:
+        raise ValueError("release pointer and metadata diverged; manual recovery required")
+    if next_state.get("current") != target:
+        raise ValueError("next release metadata does not match target pointer")
+    try:
+        atomic_current(target)
+        if after_switch is not None:
+            after_switch()
+        _write_json_atomic(STATE, next_state)
+    except BaseException:
+        try:
+            atomic_current(previous_revision)
+            if previous_state:
+                _write_json_atomic(STATE, previous_state)
+            elif STATE.exists():
+                STATE.unlink()
+                sync_directory(STATE.parent)
+        except BaseException as rollback_error:
+            raise RuntimeError(
+                "release recovery failed; pointer/metadata require manual inspection"
+            ) from rollback_error
+        raise
+
+
 def activate(repo: Path) -> dict:
+    with release_lock():
+        return _activate_locked(repo)
+
+
+def _activate_locked(repo: Path) -> dict:
     before_services = services()
     baseline = readonly_source_health()
     pin = snapshot_state(repo)
     _private_dirs()
     prior = active_revision()
     if prior == pin["revision"]:
+        if _json(STATE).get("current") != prior:
+            raise ValueError("active release pointer and metadata diverged")
         check_release(RELEASES / pin["revision"], pin)
         _installed_doctor(RELEASES / pin["revision"])
         service_parity(before_services, services())
@@ -350,27 +433,22 @@ def activate(repo: Path) -> dict:
     if prior and old_state.get("current") == prior and old_state.get("files"):
         history[prior] = old_state["files"]
     history[pin["revision"]] = pin["files"]
-    try:
-        atomic_current(pin["revision"])
-        _installed_doctor(stage)
-        service_parity(before_services, services())
-        _write_json_atomic(
-            STATE,
-            {
-                "current": pin["revision"],
-                "previous": prior,
-                "installed_at": datetime.now(timezone.utc).isoformat(),
-                "source_manifest_sha256": baseline["source_manifest_sha256"],
-                "files": pin["files"],
-                "release_files": history,
-                "mode": "ON_DEMAND_READ_ONLY_NO_TIMER",
-            },
-        )
-    except BaseException:
-        # Restore only the pointer owned by the new read-only registry.
-        # Never restart, stop or modify any external service or source DB.
-        atomic_current(prior)
-        raise
+    commit_release(
+        pin["revision"],
+        {
+            "current": pin["revision"],
+            "previous": prior,
+            "installed_at": datetime.now(timezone.utc).isoformat(),
+            "source_manifest_sha256": baseline["source_manifest_sha256"],
+            "files": pin["files"],
+            "release_files": history,
+            "mode": "ON_DEMAND_READ_ONLY_NO_TIMER",
+        },
+        after_switch=lambda: (
+            _installed_doctor(stage),
+            service_parity(before_services, services()),
+        ),
+    )
     return {
         "result": "READ_ONLY_RELEASE_ACTIVE",
         "revision": pin["revision"],
@@ -382,6 +460,13 @@ def activate(repo: Path) -> dict:
 
 
 def verify() -> dict:
+    if not CONTROL.exists() and not CONTROL.is_symlink():
+        return {"result": "NO_RELEASE_POINTER"}
+    with release_lock(shared=True):
+        return _verify_locked()
+
+
+def _verify_locked() -> dict:
     rev = active_revision()
     if rev is None:
         return {"result": "NO_RELEASE_POINTER"}
@@ -399,7 +484,11 @@ def verify() -> dict:
 
 
 def rollback() -> dict:
-    _private_dirs()
+    with release_lock():
+        return _rollback_locked()
+
+
+def _rollback_locked() -> dict:
     before_services = services()
     state = _json(STATE)
     current = active_revision()
@@ -418,9 +507,8 @@ def rollback() -> dict:
         # The old source may be stale; an old pointer is never a promise of
         # source health or qualification. No registry DB restore is performed.
     service_parity(before_services, services())
-    atomic_current(prior)
-    _write_json_atomic(
-        STATE,
+    commit_release(
+        prior,
         {
             "current": prior,
             "previous": None,
@@ -430,8 +518,8 @@ def rollback() -> dict:
             "rolled_back_at": datetime.now(timezone.utc).isoformat(),
             "mode": "ON_DEMAND_READ_ONLY_NO_TIMER",
         },
+        after_switch=lambda: service_parity(before_services, services()),
     )
-    service_parity(before_services, services())
     return {
         "result": "POINTER_ROLLED_BACK",
         "previous_active": current,
@@ -441,9 +529,45 @@ def rollback() -> dict:
     }
 
 
+def repair() -> dict:
+    """Restore the last COMMITTED pointer after an interrupted atomic switch.
+
+    If a process dies after changing the symlink but before committing
+    release-state.json, the two disagree and normal verify must fail closed.
+    This explicit command only restores the pointer recorded in the last
+    committed metadata. It never guesses a newer release or alters SQLite.
+    """
+    with release_lock():
+        state = _json(STATE)
+        if not state or "current" not in state:
+            raise ValueError("missing committed release state; manual review required")
+        committed = state["current"]
+        active = active_revision()
+        if committed == active:
+            return {"result": "NO_POINTER_DIVERGENCE", "revision": committed}
+        if committed is not None:
+            if not isinstance(committed, str) or not GIT_SHA.fullmatch(committed):
+                raise ValueError("invalid committed revision")
+            files = state.get("files")
+            if not isinstance(files, dict) or not files:
+                raise ValueError("committed release hashes missing")
+            check_release(RELEASES / committed, {"files": files})
+        before_services = services()
+        atomic_current(committed)
+        service_parity(before_services, services())
+        return {
+            "result": "LAST_COMMITTED_POINTER_RESTORED",
+            "active_before": active,
+            "now_active": committed,
+            "metadata_modified": False,
+            "registry_db_untouched": True,
+            "legacy_services_unchanged": True,
+        }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("preview", "activate", "verify", "rollback"))
+    parser.add_argument("action", choices=("preview", "activate", "verify", "rollback", "repair"))
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[1]
     if args.action == "preview":
@@ -459,8 +583,10 @@ def main() -> int:
         result = activate(repo)
     elif args.action == "verify":
         result = verify()
-    else:
+    elif args.action == "rollback":
         result = rollback()
+    else:
+        result = repair()
     print(json.dumps(result, sort_keys=True))
     return 0
 
