@@ -49,6 +49,17 @@ class PaperJournal:
                     last_event_at TEXT NOT NULL,
                     cursor INTEGER NOT NULL DEFAULT 0
                 );
+                CREATE TABLE IF NOT EXISTS source_receipts (
+                    source_id TEXT NOT NULL,
+                    seq INTEGER NOT NULL,
+                    receipt_id TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    receipt_sha TEXT NOT NULL,
+                    prior_sha TEXT NOT NULL,
+                    chain_sha TEXT NOT NULL,
+                    PRIMARY KEY (source_id, seq),
+                    UNIQUE (source_id, receipt_id)
+                );
                 CREATE TABLE IF NOT EXISTS events (
                     run_id TEXT NOT NULL REFERENCES runs(run_id),
                     seq INTEGER NOT NULL,
@@ -362,6 +373,104 @@ class PaperJournal:
             "account": account.snapshot(),
             "journal_head_sha": rows[-1][-1] if rows else "0" * 64,
             "last_event_result": last_result,
+        }
+
+    def append_source_receipt(
+        self, source_id: str, sequence: int, receipt_id: str, receipt: dict
+    ) -> dict:
+        """Import one already-captured receipt, never create a subscription."""
+        if (
+            not source_id
+            or not receipt_id
+            or not isinstance(sequence, int)
+            or sequence <= 0
+            or len(source_id) > 128
+            or len(receipt_id) > 128
+        ):
+            raise ValueError("INVALID_SOURCE_RECEIPT_IDENTITY")
+        if receipt.get("schema") != "paper_first_known_source_v1":
+            raise ValueError("UNKNOWN_SOURCE_RECEIPT_SCHEMA")
+        if receipt.get("source_id") != source_id:
+            raise ValueError("SOURCE_RECEIPT_ID_MISMATCH")
+        try:
+            if not (
+                clock(receipt["source_event_at"])
+                <= clock(receipt["first_known_at"])
+                <= clock(receipt["captured_at"])
+            ):
+                raise ValueError
+        except (ValueError, KeyError, TypeError) as exc:
+            raise ValueError("SOURCE_RECEIPT_CAUSAL_CLOCK_FAILURE") from exc
+        receipt_sha = digest(receipt)
+        with self._writer() as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                old = db.execute(
+                    "SELECT receipt_sha FROM source_receipts WHERE source_id=? AND receipt_id=?",
+                    (source_id, receipt_id),
+                ).fetchone()
+                if old is not None:
+                    if old[0] != receipt_sha:
+                        raise ValueError("CONFLICTING_SOURCE_RECEIPT")
+                    db.execute("COMMIT")
+                    return {
+                        "source_id": source_id,
+                        "status": "DUPLICATE_RECEIPT",
+                        "stream_live": False,
+                        "paper_admitted": False,
+                    }
+                last = db.execute(
+                    "SELECT seq,chain_sha FROM source_receipts "
+                    "WHERE source_id=? ORDER BY seq DESC LIMIT 1",
+                    (source_id,),
+                ).fetchone()
+                expected = last[0] + 1 if last else 1
+                if sequence != expected:
+                    raise ValueError("SOURCE_SEQUENCE_GAP_OR_CONFLICT")
+                previous = last[1] if last else "0" * 64
+                chained = digest([source_id, sequence, receipt_id, previous, receipt_sha])
+                db.execute(
+                    "INSERT INTO source_receipts VALUES (?,?,?,?,?,?,?)",
+                    (
+                        source_id,
+                        sequence,
+                        receipt_id,
+                        _json(receipt),
+                        receipt_sha,
+                        previous,
+                        chained,
+                    ),
+                )
+                db.execute("COMMIT")
+            except Exception:
+                db.execute("ROLLBACK")
+                raise
+        return self.source_status(source_id)
+
+    def source_status(self, source_id: str) -> dict:
+        with self._writer() as db:
+            rows = db.execute(
+                "SELECT seq,receipt_id,payload,receipt_sha,prior_sha,chain_sha "
+                "FROM source_receipts WHERE source_id=? ORDER BY seq",
+                (source_id,),
+            ).fetchall()
+        previous = "0" * 64
+        for expected, (seq, receipt_id, payload, sha, prior, head) in enumerate(rows, 1):
+            if (
+                seq != expected
+                or prior != previous
+                or digest(json.loads(payload)) != sha
+                or head != digest([source_id, seq, receipt_id, previous, sha])
+            ):
+                raise ValueError("SOURCE_TAPE_DIVERGENCE")
+            previous = head
+        return {
+            "source_id": source_id,
+            "cursor": len(rows),
+            "head_sha": previous,
+            "status": "CAPTURED_ONLY" if rows else "NO_SOURCE_RECEIPTS",
+            "stream_live": False,
+            "paper_admitted": False,
         }
 
     def restore(self, run_id: str) -> dict:
