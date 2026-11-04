@@ -35,11 +35,11 @@ uv run --group dev copytrade-wallet-registry report --redacted
 
 ## Initial implementation and required work
 
-Current module: `src/copytrade_pm/wallet_registry.py` with core identity normalization, cohort overlap checks, vendor-audit count reconciliation, owner rejected exclusions, privacy-safe source digests, SQLite migrations, WAL/FULL, writer locking, transactional replay, read-only subscriber access, portfolio proposal metadata, unknown admission/qualification and CLI.
+Current module: `src/copytrade_pm/wallet_registry.py` with core identity normalization, cohort overlap checks, vendor-audit count reconciliation, owner rejected exclusions, privacy-safe source digests, two schema migration records, WAL/FULL, writer locking, read-only subscriber access, portfolio proposal metadata, unknown admission/qualification and CLI. Subsequent source generations use **non-destructive transactional import**: canonical wallet IDs remain stable, historical cohort and evidence SHA versions survive, monitoring generation metadata is retained, and existing external run/qualification index entries are not erased. Source drift and frozen alias collisions fail closed.
 
 **Not complete:** complete P1 private alias resolution and independently versioned portfolio selection timestamps (the CLI's current as-of queries conservatively use the registry import knowledge time); all 28 exclusion decisions; independently verified PM-01 consumer output SHA parity (frozen 36 identities and source SHA pointers are checked); independently established runtime admission and receipt health (bounded outbox observation is implemented but insufficient for either); independent paper/demo run manifest/heartbeat validation; independent scientific evidence ingestion; archive and stale status hygiene; comprehensive concurrency, crash/restart, backup/restore and out-of-disk fault matrix (synthetic online backup/restore smoke now passes); refreshed-source atomic generation semantics; release timer; production activation signoff.
 
-The initial import deliberately blocks replacing a database that contains run/qualification records; a non-destructive versioned import is required before those can be safely indexed. Do not treat a successful `sync --apply` as completion of WR-11.
+The importer preserves existing run/qualification rows even across source generation changes, but still lacks verified adapters to ingest independently produced run/qualification evidence. Do not treat a successful `sync --apply` as completion of WR-11.
 
 No live services were restarted or subscription/broker configurations modified by the registry implementation. Keep the registry as an isolated owner-private inventory until the remaining gates pass.
 

@@ -79,6 +79,10 @@ CREATE TABLE IF NOT EXISTS evidence_artifacts(
     source_key TEXT PRIMARY KEY, sha256 TEXT NOT NULL, source_path TEXT NOT NULL,
     observed_at TEXT NOT NULL, interpretation TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS evidence_versions(
+    source_key TEXT NOT NULL, sha256 TEXT NOT NULL, first_known_at TEXT NOT NULL,
+    PRIMARY KEY(source_key,sha256)
+);
 CREATE TABLE IF NOT EXISTS exclusions(
     wallet_id INTEGER NOT NULL, reason TEXT NOT NULL, known_at TEXT NOT NULL,
     source_key TEXT NOT NULL, PRIMARY KEY(wallet_id,reason,source_key),
@@ -95,6 +99,12 @@ CREATE TABLE IF NOT EXISTS monitoring(
     wallet_id INTEGER PRIMARY KEY, configured INTEGER NOT NULL,
     subscribed INTEGER NOT NULL, admitted TEXT NOT NULL,
     receipt_health TEXT NOT NULL, known_at TEXT NOT NULL,
+    FOREIGN KEY(wallet_id) REFERENCES wallets(wallet_id)
+);
+CREATE TABLE IF NOT EXISTS monitoring_history(
+    generation_sha TEXT NOT NULL, wallet_id INTEGER NOT NULL,
+    configured INTEGER NOT NULL, subscribed INTEGER NOT NULL,
+    known_at TEXT NOT NULL, PRIMARY KEY(generation_sha,wallet_id),
     FOREIGN KEY(wallet_id) REFERENCES wallets(wallet_id)
 );
 CREATE TABLE IF NOT EXISTS portfolio_versions(
@@ -367,6 +377,9 @@ def apply(db: Path, snapshot: dict, when: str) -> dict:
         con = connect(db, True)
         try:
             con.executescript(DDL)
+            with con:
+                con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(1,?)", (when,))
+                con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(2,?)", (when,))
             previous = con.execute(
                 "SELECT value FROM snapshot_meta WHERE key='manifest_sha256'"
             ).fetchone()
@@ -376,38 +389,23 @@ def apply(db: Path, snapshot: dict, when: str) -> dict:
                     "research_wallets": len(all_cohort),
                     "unchanged": True,
                 }
-            if (
-                con.execute("SELECT COUNT(*) FROM portfolio_runs").fetchone()[0]
-                or con.execute("SELECT COUNT(*) FROM qualification_decisions").fetchone()[0]
-            ):
-                raise ValueError("run/qualification evidence requires a non-destructive upgrade")
             with con:
-                # executescript issues implicit COMMIT: migrate before snapshot transaction.
+                # Migrate before the snapshot transaction. Never delete identities,
+                # run observations, qualification evidence or historical cohorts.
                 con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(1,?)", (when,))
-                # Historical import runs remain, snapshot-owned rows are replaced atomically.
-                for table in (
-                    "portfolio_memberships",
-                    "portfolio_runs",
-                    "qualification_decisions",
-                    "portfolio_versions",
-                    "monitoring",
-                    "wallet_coverage",
-                    "exclusions",
-                    "wallet_aliases",
-                    "cohort_memberships",
-                    "cohorts",
-                    "evidence_artifacts",
-                    "wallets",
-                    "snapshot_meta",
-                ):
-                    con.execute(f"DELETE FROM {table}")
+                con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(2,?)", (when,))
                 ids = {}
                 for addr in sorted(all_addresses):
-                    cur = con.execute(
-                        "INSERT INTO wallets(venue,network,address) VALUES('hyperliquid','mainnet',?)",
+                    con.execute(
+                        "INSERT OR IGNORE INTO wallets(venue,network,address) "
+                        "VALUES('hyperliquid','mainnet',?)",
                         (addr,),
                     )
-                    ids[addr] = cur.lastrowid
+                    ids[addr] = con.execute(
+                        "SELECT wallet_id FROM wallets WHERE venue='hyperliquid' "
+                        "AND network='mainnet' AND address=?",
+                        (addr,),
+                    ).fetchone()[0]
                 for key, sha in sorted(snapshot["sources"].items()):
                     rel = RESEARCH.get(
                         key,
@@ -418,33 +416,67 @@ def apply(db: Path, snapshot: dict, when: str) -> dict:
                         }.get(key, "redacted-aggregate"),
                     )
                     con.execute(
-                        "INSERT INTO evidence_artifacts VALUES(?,?,?,?,?)",
+                        "INSERT INTO evidence_versions VALUES(?,?,?) "
+                        "ON CONFLICT(source_key,sha256) DO NOTHING",
+                        (key, sha, when),
+                    )
+                    con.execute(
+                        "INSERT INTO evidence_artifacts VALUES(?,?,?,?,?) "
+                        "ON CONFLICT(source_key) DO UPDATE SET "
+                        "sha256=excluded.sha256,source_path=excluded.source_path,"
+                        "observed_at=excluded.observed_at,"
+                        "interpretation=excluded.interpretation",
                         (key, sha, str(rel), when, "SOURCE_REFERENCE_ONLY"),
                     )
                 for cohort, addresses in snapshot["cohorts"].items():
-                    con.execute(
-                        "INSERT INTO cohorts VALUES(?,?,?)",
-                        (cohort, 1, snapshot["sources"][cohort]),
+                    prior = con.execute(
+                        "SELECT version,source_sha256 FROM cohorts "
+                        "WHERE cohort_id=? ORDER BY version DESC LIMIT 1",
+                        (cohort,),
+                    ).fetchone()
+                    version = (
+                        prior[0]
+                        if prior and prior[1] == snapshot["sources"][cohort]
+                        else (prior[0] + 1 if prior else 1)
                     )
-                    con.executemany(
-                        "INSERT INTO cohort_memberships VALUES(?,?,?,?)",
-                        ((cohort, 1, ids[a], when) for a in sorted(addresses)),
-                    )
+                    if not prior or prior[1] != snapshot["sources"][cohort]:
+                        con.execute(
+                            "INSERT INTO cohorts VALUES(?,?,?)",
+                            (cohort, version, snapshot["sources"][cohort]),
+                        )
+                        con.executemany(
+                            "INSERT INTO cohort_memberships VALUES(?,?,?,?)",
+                            ((cohort, version, ids[a], when) for a in sorted(addresses)),
+                        )
                 for alias, addr in sorted(snapshot.get("frozen_aliases", {}).items()):
-                    con.execute(
-                        "INSERT INTO wallet_aliases VALUES(?,?,?,?)",
-                        ("frozen_pm01", alias, ids[addr], when),
-                    )
+                    existing = con.execute(
+                        "SELECT DISTINCT wallet_id FROM wallet_aliases "
+                        "WHERE namespace='frozen_pm01' AND alias=?",
+                        (alias,),
+                    ).fetchall()
+                    if any(row[0] != ids[addr] for row in existing):
+                        raise ValueError("frozen PM-01 alias identity drift")
+                    if not existing:
+                        con.execute(
+                            "INSERT INTO wallet_aliases VALUES(?,?,?,?)",
+                            ("frozen_pm01", alias, ids[addr], when),
+                        )
                 for a, reason in snapshot["exclusions"].items():
                     con.execute(
-                        "INSERT INTO exclusions VALUES(?,?,?,?)",
+                        "INSERT OR IGNORE INTO exclusions VALUES(?,?,?,?)",
                         (ids[a], reason, when, "exclusions"),
                     )
                 for a in sorted(all_cohort):
                     new = snapshot["roster"].get(a)
                     old = snapshot["base_rows"].get(a)
                     con.execute(
-                        "INSERT INTO wallet_coverage VALUES(?,?,?,?,?,?)",
+                        "INSERT INTO wallet_coverage VALUES(?,?,?,?,?,?) "
+                        "ON CONFLICT(wallet_id) DO UPDATE SET "
+                        "vendor_fills=excluded.vendor_fills,"
+                        "vendor_pagination=excluded.vendor_pagination,"
+                        "account_book=excluded.account_book,"
+                        "first_known=excluded.first_known,"
+                        "source_key=excluded.source_key",
                         (
                             ids[a],
                             int(new["total_fills"])
@@ -460,21 +492,35 @@ def apply(db: Path, snapshot: dict, when: str) -> dict:
                             "new50_roster" if new else "research-108",
                         ),
                     )
+                con.execute(
+                    "UPDATE monitoring SET configured=0,subscribed=0,admitted='UNKNOWN',"
+                    "receipt_health='UNKNOWN',known_at=?",
+                    (when,),
+                )
                 for a in sorted(snapshot["desired"] | snapshot["subscribed"]):
+                    values = (
+                        ids[a],
+                        int(a in snapshot["desired"]),
+                        int(a in snapshot["subscribed"]),
+                        "UNKNOWN",
+                        "UNKNOWN",
+                        when,
+                    )
                     con.execute(
-                        "INSERT INTO monitoring VALUES(?,?,?,?,?,?)",
-                        (
-                            ids[a],
-                            int(a in snapshot["desired"]),
-                            int(a in snapshot["subscribed"]),
-                            "UNKNOWN",
-                            "UNKNOWN",
-                            when,
-                        ),
+                        "INSERT INTO monitoring VALUES(?,?,?,?,?,?) "
+                        "ON CONFLICT(wallet_id) DO UPDATE SET "
+                        "configured=excluded.configured,subscribed=excluded.subscribed,"
+                        "admitted=excluded.admitted,receipt_health=excluded.receipt_health,"
+                        "known_at=excluded.known_at",
+                        values,
+                    )
+                    con.execute(
+                        "INSERT INTO monitoring_history VALUES(?,?,?,?,?)",
+                        (manifest, ids[a], values[1], values[2], when),
                     )
                 for name, aliases in PORTFOLIOS.items():
                     con.execute(
-                        "INSERT INTO portfolio_versions VALUES(?,?,?,?,?,?)",
+                        "INSERT OR IGNORE INTO portfolio_versions VALUES(?,?,?,?,?,?)",
                         (
                             name,
                             1,
@@ -485,7 +531,7 @@ def apply(db: Path, snapshot: dict, when: str) -> dict:
                         ),
                     )
                     con.executemany(
-                        "INSERT INTO portfolio_memberships VALUES(?,?,?,?)",
+                        "INSERT OR IGNORE INTO portfolio_memberships VALUES(?,?,?,?)",
                         (
                             (
                                 name,
@@ -498,12 +544,16 @@ def apply(db: Path, snapshot: dict, when: str) -> dict:
                             for alias in aliases
                         ),
                     )
-                con.execute("INSERT INTO snapshot_meta VALUES('manifest_sha256',?)", (manifest,))
-                con.execute("INSERT INTO snapshot_meta VALUES('observed_at',?)", (when,))
-                con.execute(
-                    "INSERT INTO snapshot_meta VALUES('monitoring_status',?)",
-                    (snapshot["monitoring_status"],),
-                )
+                for key, value in (
+                    ("manifest_sha256", manifest),
+                    ("observed_at", when),
+                    ("monitoring_status", snapshot["monitoring_status"]),
+                ):
+                    con.execute(
+                        "INSERT INTO snapshot_meta VALUES(?,?) "
+                        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                        (key, value),
+                    )
                 con.execute(
                     "INSERT OR IGNORE INTO import_runs VALUES(?,?,?,?)",
                     (manifest, when, manifest, len(all_cohort)),
@@ -545,13 +595,17 @@ def db_status(db: Path) -> dict:
         counts = {
             r[0]: r[1]
             for r in con.execute(
-                "SELECT cohort_id, COUNT(*) FROM cohort_memberships GROUP BY cohort_id"
+                "SELECT m.cohort_id,COUNT(*) FROM cohort_memberships m "
+                "WHERE m.version=(SELECT MAX(c.version) FROM cohorts c "
+                "WHERE c.cohort_id=m.cohort_id) GROUP BY m.cohort_id"
             )
         }
         rows = con.execute("SELECT key,value FROM snapshot_meta")
         meta = dict(rows)
         counts["research_unique"] = con.execute(
-            "SELECT COUNT(DISTINCT wallet_id) FROM cohort_memberships"
+            "SELECT COUNT(DISTINCT m.wallet_id) FROM cohort_memberships m "
+            "WHERE m.version=(SELECT MAX(c.version) FROM cohorts c "
+            "WHERE c.cohort_id=m.cohort_id)"
         ).fetchone()[0]
         counts["desired"] = con.execute(
             "SELECT COUNT(*) FROM monitoring WHERE configured=1"
@@ -683,8 +737,11 @@ def cli(argv: list[str] | None = None) -> int:
                 cohorts = [
                     r[0]
                     for r in con.execute(
-                        "SELECT cohort_id FROM cohort_memberships WHERE wallet_id=? AND known_at<=?",
-                        (*row, cutoff),
+                        "SELECT m.cohort_id FROM cohort_memberships m "
+                        "WHERE m.wallet_id=? AND m.known_at<=? AND m.version=("
+                        "SELECT MAX(m2.version) FROM cohort_memberships m2 "
+                        "WHERE m2.cohort_id=m.cohort_id AND m2.known_at<=?)",
+                        (*row, cutoff, cutoff),
                     )
                 ]
                 excluded = con.execute(
@@ -704,7 +761,9 @@ def cli(argv: list[str] | None = None) -> int:
     elif args.command == "cohort":
         with closing(connect(args.db, False)) as con:
             count = con.execute(
-                "SELECT COUNT(*) FROM cohort_memberships WHERE cohort_id=?", (args.name,)
+                "SELECT COUNT(*) FROM cohort_memberships m WHERE m.cohort_id=? "
+                "AND m.version=(SELECT MAX(version) FROM cohorts WHERE cohort_id=?)",
+                (args.name, args.name),
             ).fetchone()[0]
         print(json.dumps({"cohort": args.name, "count": count}))
     elif args.command == "portfolio":

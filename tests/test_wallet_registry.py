@@ -111,6 +111,79 @@ def test_private_permissions(tmp_path: Path) -> None:
         registry.apply(db, snapshot, "2026-11-05T00:00:00+00:00")
 
 
+def test_alias_conflict_rolls_back_mid_transaction(tmp_path: Path) -> None:
+    _, snapshot = fixture(tmp_path)
+    db = tmp_path / "private" / "registry.sqlite"
+    initial = {**snapshot, "frozen_aliases": {"W001": address(1)}}
+    registry.apply(db, initial, "2026-11-04T00:00:00+00:00")
+    before = registry.db_status(db)
+    changed = {
+        **initial,
+        "frozen_aliases": {"W001": address(7)},
+        "sources": {**initial["sources"], "research-108": "8" * 64},
+    }
+    with pytest.raises(ValueError, match="identity drift"):
+        registry.apply(db, changed, "2026-11-05T00:00:00+00:00")
+    assert registry.db_status(db) == before
+    with closing(registry.connect(db, False)) as con:
+        assert (
+            con.execute("SELECT COUNT(*) FROM wallets WHERE address=?", (address(7),)).fetchone()[0]
+            == 0
+        )
+        assert con.execute("PRAGMA foreign_key_check").fetchall() == []
+        assert con.execute("PRAGMA quick_check").fetchone()[0] == "ok"
+
+
+def test_source_drift_preserves_prior_cohorts_and_run_evidence(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _, snapshot = fixture(tmp_path)
+    db = tmp_path / "private" / "registry.sqlite"
+    t0 = "2026-11-04T00:00:00+00:00"
+    t1 = "2026-11-05T00:00:00+00:00"
+    registry.apply(db, snapshot, t0)
+    with closing(registry.connect(db, True)) as con, con:
+        con.execute(
+            "INSERT INTO portfolio_runs VALUES(?,?,?,?,?,?,?)",
+            ("synthetic-run", "P1", 1, "test-account", "test-journal", None, t0),
+        )
+        con.execute(
+            "INSERT INTO qualification_decisions VALUES(?,?,?,?,?,?)",
+            ("synthetic-verdict", 1, "test-policy", "a" * 64, t0, "UNQUALIFIED"),
+        )
+    changed = {
+        **snapshot,
+        "cohorts": {**snapshot["cohorts"], "research-108": {address(4)}},
+        "sources": {**snapshot["sources"], "research-108": "9" * 64},
+        "desired": {address(1)},
+        "subscribed": set(),
+    }
+    registry.apply(db, changed, t1)
+    assert registry.db_status(db)["counts"]["research_unique"] == 3
+    assert registry.db_status(db)["counts"]["desired"] == 1
+    with closing(registry.connect(db, False)) as con:
+        assert con.execute("SELECT COUNT(*) FROM import_runs").fetchone()[0] == 2
+        assert (
+            con.execute("SELECT COUNT(*) FROM cohorts WHERE cohort_id='research-108'").fetchone()[0]
+            == 2
+        )
+        assert (
+            con.execute(
+                "SELECT COUNT(*) FROM evidence_versions WHERE source_key='research-108'"
+            ).fetchone()[0]
+            == 2
+        )
+        assert con.execute("SELECT COUNT(*) FROM portfolio_runs").fetchone()[0] == 1
+        assert con.execute("SELECT COUNT(*) FROM qualification_decisions").fetchone()[0] == 1
+        assert con.execute("PRAGMA foreign_key_check").fetchall() == []
+    import json
+
+    registry.cli(["--db", str(db), "wallet", "--address", address(1), "--asof", t0])
+    assert "research-108" in json.loads(capsys.readouterr().out)["cohorts"]
+    registry.cli(["--db", str(db), "wallet", "--address", address(1), "--asof", t1])
+    assert "research-108" not in json.loads(capsys.readouterr().out)["cohorts"]
+
+
 def test_indexed_ledger_observes_without_claiming_admission(tmp_path: Path) -> None:
     db = tmp_path / "ledger.sqlite"
     con = sqlite3.connect(db)
