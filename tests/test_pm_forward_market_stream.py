@@ -48,6 +48,8 @@ def test_bounded_public_dual_stream_is_durable_readonly_and_no_order(tmp_path: P
         )
         report = await capture.run(duration_seconds=1, max_updates_per_channel=2)
         assert report["schema"] == "paper_ccxt_public_bounded_capture_v1"
+        assert report["market_catalog"]["bounded_session_ended"] is True
+        assert report["market_catalog"]["connected"] is False
         assert report["receipt_counts"][BTC.key]["quote"] == 2
         assert report["receipt_counts"][BTC.key]["trade_baseline"] == 1
         assert report["receipt_counts"][BTC.key]["trade"] == 1

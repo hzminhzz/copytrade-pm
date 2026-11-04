@@ -118,11 +118,20 @@ class BoundedMarketCapture:
                 for task in tasks:
                     task.cancel()
                 await asyncio.gather(*tasks, return_exceptions=True)
+            observed_catalog = self.feed.status()
+            # A bounded CLI has already ended by the time its report is read.
+            # Never serialize a transient in-loop connection as RUNNING.
+            historical_catalog = {
+                **observed_catalog,
+                "connected": False,
+                "connected_during_capture": observed_catalog["connected"],
+                "bounded_session_ended": True,
+            }
             return {
                 "schema": "paper_ccxt_public_bounded_capture_v1",
                 "observed_at": self.now(),
                 "duration_budget_seconds": duration_seconds,
-                "market_catalog": self.feed.status(),
+                "market_catalog": historical_catalog,
                 "receipt_counts": dict(counters),
                 "stream_failures": dict(failures),
                 "market_quote_tapes": {

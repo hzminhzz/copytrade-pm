@@ -47,6 +47,38 @@ def test_two_portfolio_report_reconciles_account_and_no_alpha(tmp_path) -> None:
         assert row["coverage"]["source_cursors"] == {"S035": 1}
 
 
+def test_opt_in_2x_3x_cost_stress_replays_same_sealed_events_readonly(tmp_path) -> None:
+    journal, campaign, policies, book, receipt = _setup(tmp_path)
+    event = paper_signal("P1", 60, digest(policies["P1"]), book, "0.3")
+    event["source_ref"] = {
+        "source_id": "S035",
+        "sequence": 1,
+        "receipt_sha": digest(receipt),
+    }
+    campaign.record_source_decision("P1", "signal", event)
+    campaign.record_event("P1", "due", paper_tick("P1", 360, digest(policies["P1"])))
+    before = sha256(journal.path.read_bytes()).hexdigest()
+    report = build_report(
+        journal.path,
+        ("P1",),
+        as_of="2026-11-04T04:08:00+00:00",
+        cost_stress=True,
+    )
+    assert sha256(journal.path.read_bytes()).hexdigest() == before
+    row = report["runs"][0]
+    higher = row["cost_sensitivity_2x"]
+    highest = row["cost_sensitivity_3x"]
+    assert report["cost_sensitivity_status"] == "SYNTHETIC_REPLAY_ONLY_NO_ALPHA"
+    assert higher["status"] == highest["status"] == "SYNTHETIC_COST_STRESS_REPLAY_ONLY"
+    assert higher["multiplier"] == 2
+    assert highest["multiplier"] == 3
+    assert D(row["net_modeled_pnl"]) >= D(higher["net_modeled_pnl"])
+    assert D(higher["net_modeled_pnl"]) >= D(highest["net_modeled_pnl"])
+    assert D(highest["total_fees"]) >= D(higher["total_fees"])
+    assert not higher["paper_observed"] and not highest["scientifically_qualified"]
+    assert report["alpha_claim"] is False
+
+
 def test_report_refuses_future_event_from_past_asof(tmp_path) -> None:
     journal, campaign, policies, _, _ = _setup(tmp_path)
     campaign.record_event("P1", "tick", paper_tick("P1", 10, digest(policies["P1"])))

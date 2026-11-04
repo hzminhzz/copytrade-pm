@@ -46,7 +46,9 @@ def _values(account: Account) -> dict:
     }
 
 
-def report_one(db: sqlite3.Connection, run_id: str, report_at: str) -> dict:
+def report_one(
+    db: sqlite3.Connection, run_id: str, report_at: str, *, cost_stress: bool = False
+) -> dict:
     verified = PaperJournal._verify(db, run_id)
     if clock(verified["last_event_at"]) > clock(report_at):
         raise ValueError("PAPER_REPORT_ASOF_PRECEDES_COMMITTED_STATE")
@@ -107,6 +109,20 @@ def report_one(db: sqlite3.Connection, run_id: str, report_at: str) -> dict:
         )
     if account.snapshot() != verified["account"]:
         raise ValueError("PAPER_REPORT_REPLAY_DIVERGENCE")
+    stresses = {2: "NOT_COMPUTED", 3: "NOT_COMPUTED"}
+    if cost_stress:
+        from .pm_forward_cost_sensitivity import replay_cost_sensitivity
+
+        parsed_events = [json.loads(item[0]) for item in event_rows]
+        stresses = {
+            factor: replay_cost_sensitivity(
+                rulebook,
+                started_at=manifest["started_at"],
+                events=parsed_events,
+                factor=factor,
+            )
+            for factor in (2, 3)
+        }
     status = _values(account)
     account_end = account.equity - rulebook.initial_balance
     coverage = {
@@ -144,13 +160,15 @@ def report_one(db: sqlite3.Connection, run_id: str, report_at: str) -> dict:
         "modeled_external_fill_count": simulated_fills,
         "financial_state": status,
         "coverage": coverage,
-        "cost_sensitivity_2x": "NOT_COMPUTED",
-        "cost_sensitivity_3x": "NOT_COMPUTED",
+        "cost_sensitivity_2x": stresses[2],
+        "cost_sensitivity_3x": stresses[3],
         "timeline": timeline,
     }
 
 
-def build_report(db_path: Path, run_ids: tuple[str, ...], *, as_of: str) -> dict:
+def build_report(
+    db_path: Path, run_ids: tuple[str, ...], *, as_of: str, cost_stress: bool = False
+) -> dict:
     if not run_ids or len(set(run_ids)) != len(run_ids):
         raise ValueError("PAPER_REPORT_RUNS_REQUIRED_UNIQUE")
     clock(as_of)
@@ -158,14 +176,16 @@ def build_report(db_path: Path, run_ids: tuple[str, ...], *, as_of: str) -> dict
     uri = "file:" + str(db_path.resolve()) + "?mode=ro"
     with closing(sqlite3.connect(uri, uri=True, timeout=0)) as db:
         db.execute("PRAGMA query_only=ON")
-        rows = [report_one(db, run_id, as_of) for run_id in run_ids]
+        rows = [report_one(db, run_id, as_of, cost_stress=cost_stress) for run_id in run_ids]
     return {
         "schema": "paper_campaign_report_v1",
         "as_of": as_of,
         "run_count": len(rows),
         "runs": rows,
         "matched_p1_p14": "NOT_QUALIFIED_NO_INDEPENDENT_PROSPECTIVE_COVERAGE",
-        "cost_sensitivity_status": "NOT_COMPUTED",
+        "cost_sensitivity_status": (
+            "SYNTHETIC_REPLAY_ONLY_NO_ALPHA" if cost_stress else "NOT_COMPUTED"
+        ),
         "alpha_claim": False,
         "challenge_pass_probability_claim": False,
     }
@@ -175,11 +195,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Read-only virtual paper economics")
     parser.add_argument("--db", type=Path, required=True)
     parser.add_argument("--run-id", action="append", required=True)
+    parser.add_argument("--cost-stress", action="store_true")
     parser.add_argument("--as-of", default=datetime.now(UTC).isoformat())
     args = parser.parse_args()
     print(
         json.dumps(
-            build_report(args.db, tuple(args.run_id), as_of=args.as_of),
+            build_report(
+                args.db, tuple(args.run_id), as_of=args.as_of, cost_stress=args.cost_stress
+            ),
             sort_keys=True,
             indent=2,
         )
