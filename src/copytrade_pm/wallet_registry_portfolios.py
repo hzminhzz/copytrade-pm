@@ -168,12 +168,14 @@ def select_asof(con, portfolio_id: str, cutoff: str) -> dict:
 
     resolved = []
     for alias, frozen_wallet_id in members:
-        # A new research alias may be first-known *after* a sealed portfolio
-        # version. Join it as-of rather than editing that immutable version.
-        seen_id = catalog.resolve_alias(con, alias, cutoff)
-        if frozen_wallet_id is not None and seen_id is not None and frozen_wallet_id != seen_id:
-            raise ValueError("frozen membership conflicts with later identity evidence")
-        resolved.append(frozen_wallet_id is not None or seen_id is not None)
+        # Match later first-known alias evidence as-of without rewriting
+        # any frozen membership or backdating its source-known timestamp.
+        known_id = catalog.resolve_alias(con, alias, cutoff)
+        if frozen_wallet_id is not None and known_id is not None and frozen_wallet_id != known_id:
+            raise ValueError("frozen portfolio member identity conflicts with observed alias")
+        # Even an already-populated frozen ID is not sufficient if the
+        # registry cannot establish its alias mapping at this as-of cutoff.
+        resolved.append(known_id is not None)
     return {
         "portfolio_id": portfolio_id,
         "version": version,

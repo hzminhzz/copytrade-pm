@@ -140,12 +140,10 @@ def test_new_portfolios_are_queryable_without_overwriting_legacy_versions(
     assert reg.apply(db, snap, AFTER)["unchanged"] is True
 
 
-def test_late_private_alias_evidence_must_not_rewrite_immutable_p1_p14_v2_membership(
-    tmp_path: Path,
-) -> None:
-    """V7 alias discovery is a later-time join, never a retroactive frozen v2 edit."""
-    db, snap = _v2_snapshot(tmp_path)
-    baseline = deepcopy(snap)
+def test_late_alias_import_preserves_frozen_p1_p14_membership_and_asof(tmp_path: Path) -> None:
+    """V7 aliases are later first-known evidence, not a retroactive v2 source seal."""
+    db, snapshot = _v2_snapshot(tmp_path)
+    baseline = deepcopy(snapshot)
     baseline.pop("portfolio_contracts")
     baseline.pop("catalog_v2")
     baseline.pop("catalog_aliases")
@@ -153,23 +151,20 @@ def test_late_private_alias_evidence_must_not_rewrite_immutable_p1_p14_v2_member
         baseline["sources"].pop(key, None)
         baseline["source_paths"].pop(key, None)
     reg.apply(db, baseline, BEFORE)
-    reg.apply(db, snap, AFTER)
+    reg.apply(db, snapshot, AFTER)
     with closing(reg.connect(db, False)) as con:
-        for name, expected in (("P1", 3), ("P14", 5)):
-            prior = con.execute(
+        for name, size in (("P1", 3), ("P14", 5)):
+            frozen = con.execute(
                 "SELECT wallet_id FROM portfolio_memberships WHERE portfolio_id=? AND version=2",
                 (name,),
             ).fetchall()
-            assert len(prior) == expected
-            assert all(wallet_id is None for (wallet_id,) in prior), (
-                "later research aliases must never mutate frozen v2 membership"
-            )
-            current = contracts.select_asof(con, name, AFTER)
-            assert current["alias_resolution_complete"] is True
-            assert current["source_identity_proven"] is False
-            early = contracts.select_asof(con, name, BEFORE)
-            assert early["alias_resolution_complete"] is False
-    reg.apply(db, snap, AFTER)
+            assert len(frozen) == size
+            assert all(row[0] is None for row in frozen)
+            selected = contracts.select_asof(con, name, AFTER)
+            assert selected["alias_resolution_complete"] is True
+            assert selected["source_identity_proven"] is False
+            assert contracts.select_asof(con, name, BEFORE)["alias_resolution_complete"] is False
+    assert reg.apply(db, snapshot, AFTER)["unchanged"] is True
     with closing(reg.connect(db, False)) as con:
         assert (
             con.execute(
@@ -178,6 +173,42 @@ def test_late_private_alias_evidence_must_not_rewrite_immutable_p1_p14_v2_member
             ).fetchone()[0]
             == 0
         )
+
+
+def test_already_retrofilled_membership_never_backdates_alias_first_known(tmp_path: Path) -> None:
+    """Existing v7 mutations in a database cannot become retrospective PIT evidence."""
+    db, snapshot = _v2_snapshot(tmp_path)
+    baseline = deepcopy(snapshot)
+    baseline.pop("portfolio_contracts")
+    baseline.pop("catalog_v2")
+    baseline.pop("catalog_aliases")
+    for key in ("portfolio_doc:gemini_v2", "phase4_private_aliases"):
+        baseline["sources"].pop(key, None)
+        baseline["source_paths"].pop(key, None)
+    reg.apply(db, baseline, BEFORE)
+    reg.apply(db, snapshot, AFTER)
+    with closing(reg.connect(db, True)) as con, con:
+        for name in ("P1", "P14"):
+            aliases = con.execute(
+                "SELECT member_alias FROM portfolio_memberships WHERE portfolio_id=? AND version=2",
+                (name,),
+            ).fetchall()
+            for (alias,) in aliases:
+                ident = cat.resolve_alias(con, alias, AFTER)
+                assert ident is not None
+                # Simulate a database modified by the old v7 importer.
+                con.execute(
+                    "UPDATE portfolio_memberships SET wallet_id=? "
+                    "WHERE portfolio_id=? AND version=2 AND member_alias=?",
+                    (ident, name, alias),
+                )
+    with closing(reg.connect(db, False)) as con:
+        for name in ("P1", "P14"):
+            assert contracts.select_asof(con, name, BEFORE)["alias_resolution_complete"] is False
+            current = contracts.select_asof(con, name, AFTER)
+            assert current["alias_resolution_complete"] is True
+            assert current["source_identity_proven"] is False
+            assert current["trading_authorized"] is False
 
 
 def test_missing_private_alias_evidence_is_explicit_unknown(tmp_path: Path) -> None:

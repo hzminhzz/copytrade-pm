@@ -743,10 +743,10 @@ def apply(db: Path, snapshot: dict, when: str) -> dict:
                         alias: ids[address]
                         for alias, address in snapshot.get("catalog_aliases", {}).items()
                     }
-                    # Later alias evidence must not rewrite frozen P1/P14 v2
-                    # membership rows, even when their wallet_id is NULL.
-                    # Resolve such evidence as-of from wallet_aliases at read
-                    # time. New versioned V2 definitions are stored separately.
+                    # Subsequent alias evidence is not a retroactive identity
+                    # fact at the original source-selection time. Preserve
+                    # historical membership rows, including NULL wallet_id;
+                    # resolve aliases as-of at read time instead.
                     catalog.store_selection(con, snapshot["catalog_v2"], alias_ids, when)
                 for key, value in (
                     ("manifest_sha256", manifest),
