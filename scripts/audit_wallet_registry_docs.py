@@ -20,6 +20,7 @@ DOCS = (
     "docs/DATA-ACQUISITION.md",
     "docs/RUNBOOK.md",
     "docs/WALLET-STATUS.md",
+    "docs/WALLET-REGISTRY-AGENT-WORKFLOW.md",
     "docs/WALLET-REGISTRY-STATUS-20261104.md",
     "docs/WALLET-REGISTRY-ACCEPTANCE-20261104.md",
     "docs/WALLET-REGISTRY-PAPER-CONTRACT-20261104.md",
@@ -28,6 +29,7 @@ DOCS = (
     "docs/WALLET-REGISTRY-SIGNED-NEGATIVE-EVIDENCE-20261104.md",
 )
 REQUIRED_LINKS = (
+    "docs/WALLET-REGISTRY-AGENT-WORKFLOW.md",
     "docs/WALLET-STATUS.md",
     "docs/WALLET-REGISTRY-STATUS-20261104.md",
     "docs/WALLET-REGISTRY-ACCEPTANCE-20261104.md",
@@ -66,6 +68,10 @@ def check(repo: Path, *, current: dict | None = None) -> dict:
         raise ValueError("current wallet registry documents missing from INDEX")
     if "WALLET-STATUS.md" not in agents:
         raise ValueError("AGENTS.md omits canonical wallet status")
+    if "WALLET-REGISTRY-AGENT-WORKFLOW.md" not in agents:
+        raise ValueError("AGENTS.md omits mandatory registry-first workflow")
+    if "MANDATORY REGISTRY-FIRST" not in agents:
+        raise ValueError("AGENTS.md must require registry-first discovery")
     status = (repo / "docs/WALLET-STATUS.md").read_text(encoding="utf-8")
     if (
         "RUNTIME_ADMITTED" not in status

@@ -4,8 +4,11 @@
 
 ## Read in this order
 
+**Agent requirement:** any live wallet, evaluation, exclusion, portfolio, paper status or deployment question must first follow [the mandatory registry-first workflow](WALLET-REGISTRY-AGENT-WORKFLOW.md), including `doctor` source SHA/as-of and installed release verification. OptMem and dated narrative reports only point to sources; they do not authorize live status.
+
 | Goal | Authoritative guide | Contains |
 | --- | --- | --- |
+| **Mandatory registry-first agent workflow** | [Registry lookup and evidence contract](WALLET-REGISTRY-AGENT-WORKFLOW.md) | Required commands, source generation, namespace/as-of, release vs paper vs scientific/trading authority; incident and OptMem discipline |
 | **Current portfolio selections and wallet/evaluation queries** | [Research catalog interface](WALLET-REGISTRY-STATUS-20261104.md), [Gemini Portfolio Freeze V2](decisions/2026-11-04-gemini-phase6-portfolio-freeze-v2.md), [V2 JSON roster](decisions/2026-11-04-gemini-phase6-portfolio-freeze-v2.json) | **E6 new primary, E2 challenger, P1 baseline, P14 archived from new priority**; no running roster/service changes; distinguish saved research from active paper |
 | Operate private SQLite inventory (standalone research read; WR/FP acceptance partial) | [wallet status](WALLET-STATUS.md), [acceptance matrix](WALLET-REGISTRY-ACCEPTANCE-20261104.md), [registry checkpoint](WALLET-REGISTRY-STATUS-20261104.md), [paper boundary](WALLET-REGISTRY-PAPER-CONTRACT-20261104.md), [negative evidence](WALLET-REGISTRY-SIGNED-NEGATIVE-EVIDENCE-20261104.md), [release/rollback](WALLET-REGISTRY-RELEASE-RUNBOOK.md) | SHA-bound metadata, 158 research wallets in dated snapshot, 22 exclusions, read-only runtime adapters; **NOT** trading authority |
 | **Run approved Polars milestone #2 engineering tests and check scientific blockers** | [Milestone #2 two-track acceptance](OFFLINE-MILESTONE2-ENGINEERING-ACCEPTANCE-20261104.md), [engineering verification matrix](OFFLINE-MILESTONE2-ENGINEERING-VERIFICATION-20261104.md), [sealed 90-day historical-oracle research job](OFFLINE-HL94-ORACLE-JOB-20261104.json), [operator runbook](RUNBOOK.md) | Single manifest-driven CLI yields immutable PM-03 synthetic fixture report or SHA-sealed real historical-oracle SCREEN_ONLY report; no genuine first-known, real contractual PASS or trading authorization |
