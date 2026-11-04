@@ -51,6 +51,6 @@ The `paper` list command re-checks files and PID state on **each read**, not jus
 ## Boundaries still open
 
 - FP-10 (#67) must verify the actual independently built forward-paper publisher writes this exact schema, hashes the same definition and remains operational if the inventory is unavailable. There is no paper runtime or demo provider deployment from this change.
-- WR-08 (#51) requires independently verified scientific attestation; no prospective matched outcome is imported, and `SCIENTIFICALLY_QUALIFIED` remains NOT_ESTABLISHED.
+- WR-08 (#51) requires independently verified scientific attestation; no prospective matched outcome is imported, and `SCIENTIFICALLY_QUALIFIED` remains NOT_ESTABLISHED. SQLite v5 triggers now restrict research verdict writes to `UNQUALIFIED`, `BLOCKED` or `NOT_ESTABLISHED`, preventing any unreviewed positive/authorized promotion through this inventory. A verified signoff producer is still unavailable.
 - WR-10/11 require full independent fault matrix, backup/restore and controlled activation signoff. A successful fixture/mock status is **engineering** evidence only.
 - Any production order route is out of scope and rejected by this paper-only contract.

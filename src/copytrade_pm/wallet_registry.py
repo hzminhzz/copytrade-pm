@@ -20,6 +20,7 @@ from contextlib import closing, contextmanager
 import fcntl
 
 from . import wallet_registry_portfolios as portfolio_contract
+from . import wallet_registry_qualification as qualification_contract
 from . import wallet_registry_runs as paper_contract
 
 ADDRESS = re.compile(r"0x[0-9a-fA-F]{40}\Z")
@@ -469,12 +470,18 @@ def apply(db: Path, snapshot: dict, when: str) -> dict:
             os.close(fd)
         con = connect(db, True)
         try:
-            con.executescript(DDL + portfolio_contract.SEALED_DDL + paper_contract.RUN_DDL)
+            con.executescript(
+                DDL
+                + portfolio_contract.SEALED_DDL
+                + paper_contract.RUN_DDL
+                + qualification_contract.DDL
+            )
             with con:
                 con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(1,?)", (when,))
                 con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(2,?)", (when,))
                 con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(3,?)", (when,))
                 con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(4,?)", (when,))
+                con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(5,?)", (when,))
             previous = con.execute(
                 "SELECT value FROM snapshot_meta WHERE key='manifest_sha256'"
             ).fetchone()
@@ -491,6 +498,7 @@ def apply(db: Path, snapshot: dict, when: str) -> dict:
                 con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(2,?)", (when,))
                 con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(3,?)", (when,))
                 con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(4,?)", (when,))
+                con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(5,?)", (when,))
                 ids = {}
                 for addr in sorted(all_addresses):
                     con.execute(
@@ -793,8 +801,10 @@ def db_status(db: Path) -> dict:
         counts["sealed_portfolio_definitions"] = con.execute(
             "SELECT COUNT(DISTINCT portfolio_id) FROM portfolio_seals"
         ).fetchone()[0]
-        counts["scientifically_qualified"] = "NOT_ESTABLISHED"
+        qualified = qualification_contract.status(con)
+        counts["scientifically_qualified"] = qualified["scientifically_qualified"]
         counts["trading_authorized"] = "NOT_ESTABLISHED"
+        counts["qualification_integrity"] = qualified["registry_science_integrity"]
         observed = meta.get("observed_at")
         try:
             age = (datetime.now(timezone.utc) - datetime.fromisoformat(observed)).total_seconds()

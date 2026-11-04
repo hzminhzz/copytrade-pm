@@ -93,6 +93,40 @@ def test_modified_source_after_snapshot_is_rejected_without_side_effects(tmp_pat
     assert registry.db_status(db) == baseline
 
 
+def test_sqlite_full_rollback_preserves_prior_inventory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, snapshot = fixture(tmp_path)
+    db = tmp_path / "private" / "registry.sqlite"
+    registry.apply(db, snapshot, "2026-11-04T00:00:00+00:00")
+    with closing(registry.connect(db, False)) as con:
+        existing_pages = con.execute("PRAGMA page_count").fetchone()[0]
+    before = registry.db_status(db)
+    original_connect = registry.connect
+
+    def page_limited(path: Path, writable: bool):
+        con = original_connect(path, writable)
+        if writable:
+            assert (
+                con.execute(f"PRAGMA max_page_count={existing_pages}").fetchone()[0]
+                == existing_pages
+            )
+        return con
+
+    monkeypatch.setattr(registry, "connect", page_limited)
+    oversized = {
+        **snapshot,
+        "desired": {address(i + 10_000) for i in range(5_000)},
+        "sources": {**snapshot["sources"], "desired_wallets": "8" * 64},
+    }
+    with pytest.raises(sqlite3.OperationalError, match="full"):
+        registry.apply(db, oversized, "2026-11-05T00:00:00+00:00")
+    assert registry.db_status(db) == before
+    with closing(registry.connect(db, False)) as con:
+        assert con.execute("PRAGMA quick_check").fetchone()[0] == "ok"
+        assert con.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
 def test_untrusted_paper_run_cannot_mutate_registry_or_reuse_an_account(tmp_path: Path) -> None:
     _, snapshot = fixture(tmp_path)
     db = tmp_path / "private" / "registry.sqlite"
@@ -114,6 +148,7 @@ def test_docs_guide_links_exist() -> None:
     root = Path(__file__).resolve().parents[1]
     for rel in (
         "docs/WALLET-STATUS.md",
+        "docs/WALLET-REGISTRY-ACCEPTANCE-20261104.md",
         "docs/WALLET-REGISTRY-STATUS-20261104.md",
         "docs/WALLET-REGISTRY-PAPER-CONTRACT-20261104.md",
         "docs/WALLET-REGISTRY-SQLITE-ADOPTION-PLAN-20261104.md",

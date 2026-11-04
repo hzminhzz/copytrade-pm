@@ -18,7 +18,7 @@ The authoritative files remain private under `/home/quant/.local/share/copytrade
 | SHA-SEALED PORTFOLIO DEFINITIONS | **7** (P1, P14, P16, A, B, C, Combo2) | Verified Git-source-backed selections, not running workers |
 | REGISTERED PAPER RUNS | **0** at source inspection | No registered publisher; absence does **not** mean no external paper program runs |
 | GLOBAL PAPER/DEMO RUNNING | **UNKNOWN** | Needs independently produced current manifest, worker, journal and heartbeats |
-| SCIENTIFICALLY_QUALIFIED | **NOT ESTABLISHED** | No independently signed follower/control economics qualification |
+| SCIENTIFICALLY_QUALIFIED | **NOT ESTABLISHED** | No independently signed follower/control economics qualification; v5 database guards reject positive verdict writes |
 | TRADING_AUTHORIZED | **NOT ESTABLISHED** | Neither registry status nor test passes grant trading risk |
 
 Private source-manifest hash at this cut: `562750974cc7f3746483c9bbaab38c1294c87f970acea2584f6c59ca88684202`.
@@ -38,4 +38,4 @@ uv run --group dev copytrade-wallet-registry sync --dry-run
 
 An explicit `sync --apply` affects **only** the new private SQLite inventory; it requires a private backup and reviewed source drift. The paper observer never writes to a publisher's journal or any connector. No additional tracker subscriptions, production source changes, broker order routes, qualified managers or active paper workers are established by these commands.
 
-Reference: [registry operational checkpoint](WALLET-REGISTRY-STATUS-20261104.md), [portfolio/run contract](WALLET-REGISTRY-PAPER-CONTRACT-20261104.md), [adoption plan](WALLET-REGISTRY-SQLITE-ADOPTION-PLAN-20261104.md). Current implementation is staged in **draft PR #57**, tickets #44–#55 remain subject to their actual acceptance and scientific authorization gates.
+Reference: [WR-01–WR-12 acceptance matrix](WALLET-REGISTRY-ACCEPTANCE-20261104.md), [registry operational checkpoint](WALLET-REGISTRY-STATUS-20261104.md), [portfolio/run contract](WALLET-REGISTRY-PAPER-CONTRACT-20261104.md), [adoption plan](WALLET-REGISTRY-SQLITE-ADOPTION-PLAN-20261104.md). Current implementation is staged in **draft PR #57**, tickets #44–#55 remain subject to their actual acceptance and scientific authorization gates.
