@@ -197,6 +197,24 @@ def observe_monitoring(path: Path) -> tuple[set[str], set[str], dict[str, str]]:
     return desired, subscribed, cfg
 
 
+def read_exclusions(path: Path) -> dict[str, str]:
+    """Load owner rejection evidence; never deduplicate conflicting source rows."""
+    decisions: dict[str, str] = {}
+    for row in csv_rows(path):
+        address = normalize(row["address"])
+        reason = (row.get("exclusion_reason") or "").strip()
+        if (
+            not reason
+            or row.get("status") != "OWNER_REJECT_EXCLUDE_FROM_RESEARCH"
+            or not (row.get("source_file_cohort") or "").strip()
+        ):
+            raise ValueError("owner exclusion lacks decision or source lineage (redacted)")
+        if address in decisions:
+            raise ValueError("duplicate owner exclusion identity (redacted)")
+        decisions[address] = reason
+    return decisions
+
+
 def observation_ledger_identity(path: Path) -> str:
     """Fingerprint only the committed ledger identity, not its moving event cursor."""
     with closing(readonly_sqlite(path)) as con:
@@ -291,10 +309,7 @@ def collect(root: Path, env_path: Path | None) -> dict:
             base_rows = {normalize(row["address"]): row for row in rows}
     if len(set.union(*cohorts.values())) != sum(map(len, cohorts.values())):
         raise ValueError("overlapping cohort identities")
-    exclusions = {}
-    for row in csv_rows(root / EXCLUSIONS):
-        addr = normalize(row["address"])
-        exclusions[addr] = row["exclusion_reason"]
+    exclusions = read_exclusions(root / EXCLUSIONS)
     sources["exclusions"] = digest(root / EXCLUSIONS)
     source_paths["exclusions"] = root / EXCLUSIONS
     roster = {normalize(row["address"]): row for row in csv_rows(root / ROSTER)}
@@ -624,6 +639,8 @@ def status(snapshot: dict) -> dict:
     return {
         "cohorts": {k: len(v) for k, v in snapshot["cohorts"].items()},
         "research_unique": len(research),
+        "owner_excluded": len(snapshot["exclusions"]),
+        "research_owner_excluded_overlap": len(research & snapshot["exclusions"].keys()),
         "desired": len(snapshot["desired"]),
         "subscribed": len(snapshot["subscribed"]),
         "research_desired_overlap": len(research & snapshot["desired"]),
@@ -661,6 +678,15 @@ def db_status(db: Path) -> dict:
         ).fetchone()[0]
         counts["subscribed"] = con.execute(
             "SELECT COUNT(*) FROM monitoring WHERE subscribed=1"
+        ).fetchone()[0]
+        counts["owner_excluded"] = con.execute(
+            "SELECT COUNT(DISTINCT wallet_id) FROM exclusions"
+        ).fetchone()[0]
+        counts["research_owner_excluded_overlap"] = con.execute(
+            "SELECT COUNT(DISTINCT e.wallet_id) FROM exclusions e "
+            "JOIN cohort_memberships m ON m.wallet_id=e.wallet_id "
+            "WHERE m.version=(SELECT MAX(c.version) FROM cohorts c "
+            "WHERE c.cohort_id=m.cohort_id)"
         ).fetchone()[0]
         counts["runtime_admitted"] = "UNKNOWN"
         sources = {
@@ -752,7 +778,13 @@ def cli(argv: list[str] | None = None) -> int:
         matched = (
             all(
                 stored["counts"].get(k) == live[k]
-                for k in ("research_unique", "desired", "subscribed")
+                for k in (
+                    "research_unique",
+                    "desired",
+                    "subscribed",
+                    "owner_excluded",
+                    "research_owner_excluded_overlap",
+                )
             )
             and stored["source_shas"] == live["source_shas"]
             and stored["freshness"] == "CURRENT"
@@ -793,6 +825,10 @@ def cli(argv: list[str] | None = None) -> int:
         print(
             f"\nResearch: {c['research_unique']} ({cohort_str}); "
             f"configured: {c['desired']}; subscribed: {c['subscribed']}."
+        )
+        print(
+            f"\nOwner-excluded identities: {c['owner_excluded']} "
+            f"(research overlap: {c['research_owner_excluded_overlap']})."
         )
         print(f"\nFreshness: {stored['freshness']}")
         print(

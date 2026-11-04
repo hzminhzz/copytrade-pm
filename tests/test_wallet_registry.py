@@ -56,6 +56,76 @@ def fixture(tmp_path: Path) -> tuple[Path, dict]:
     return root, snapshot
 
 
+def test_owner_rejected_22_source_is_complete_but_not_a_permanent_limit(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "owner-rejections.csv"
+    groups = (
+        [("TRUNCATED_SHORT_SPAN_NANSEN", "nansen_smart_money_fills_90d")] * 14
+        + [("UNDERWATER_BAGHOLDER", "wallet_fills_90d")] * 5
+        + [("PASSIVE_MAKER_SCALPER", "nansen_smart_money_fills_90d")] * 3
+    )
+    with source.open("w", newline="") as stream:
+        writer = csv.DictWriter(
+            stream,
+            fieldnames=("address", "exclusion_reason", "status", "source_file_cohort"),
+        )
+        writer.writeheader()
+        for i, (reason, cohort) in enumerate(groups, start=1):
+            writer.writerow(
+                {
+                    "address": address(i),
+                    "exclusion_reason": reason,
+                    "status": "OWNER_REJECT_EXCLUDE_FROM_RESEARCH",
+                    "source_file_cohort": cohort,
+                }
+            )
+    decisions = registry.read_exclusions(source)
+    assert len(decisions) == 22
+    assert len(set(decisions)) == 22
+    _, snapshot = fixture(tmp_path)
+    snapshot["exclusions"] = decisions
+    assert registry.status(snapshot)["owner_excluded"] == 22
+    assert registry.status(snapshot)["research_owner_excluded_overlap"] == 3
+    db = tmp_path / "private" / "registry.sqlite"
+    registry.apply(db, snapshot, "2026-11-04T00:00:00+00:00")
+    with closing(registry.connect(db, False)) as con:
+        assert con.execute("SELECT COUNT(*) FROM exclusions").fetchone()[0] == 22
+    assert registry.db_status(db)["counts"]["owner_excluded"] == 22
+    assert registry.db_status(db)["counts"]["research_owner_excluded_overlap"] == 3
+    # The dated source count is a fixture, not a permanent cap on future decisions.
+    decisions_next = {**decisions, address(23): "NEW_OWNER_REJECTION"}
+    registry.apply(
+        db,
+        {
+            **snapshot,
+            "exclusions": decisions_next,
+            "sources": {**snapshot["sources"], "exclusions": "8" * 64},
+        },
+        "2026-11-05T00:00:00+00:00",
+    )
+    with closing(registry.connect(db, False)) as con:
+        assert con.execute("SELECT COUNT(*) FROM exclusions").fetchone()[0] == 23
+    assert registry.db_status(db)["counts"]["owner_excluded"] == 23
+
+
+def test_duplicate_or_untraceable_owner_exclusions_fail_closed(tmp_path: Path) -> None:
+    source = tmp_path / "rejected.csv"
+    header = "address,exclusion_reason,status,source_file_cohort\n"
+    first = (
+        f"{address(1)},UNDERWATER_BAGHOLDER,OWNER_REJECT_EXCLUDE_FROM_RESEARCH,wallet_fills_90d\n"
+    )
+    source.write_text(header + first + first)
+    with pytest.raises(ValueError, match="duplicate owner exclusion"):
+        registry.read_exclusions(source)
+    source.write_text(header + first.replace("wallet_fills_90d", ""))
+    with pytest.raises(ValueError, match="source lineage"):
+        registry.read_exclusions(source)
+    source.write_text(header + first.replace("OWNER_REJECT_EXCLUDE_FROM_RESEARCH", "PROSPECT"))
+    with pytest.raises(ValueError, match="source lineage"):
+        registry.read_exclusions(source)
+
+
 def test_normalize_rejects_bad_or_injected_address() -> None:
     assert registry.normalize(address(1).upper().replace("0X", "0x")) == address(1)
     for value in ("not-a-wallet", address(1) + "' OR 1=1", "0x" + "a" * 39, ""):

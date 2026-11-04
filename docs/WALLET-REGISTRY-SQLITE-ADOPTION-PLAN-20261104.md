@@ -100,7 +100,7 @@ Do not store per-fill trades, full order books, OHLCV, Telegram message contents
 - Link the 50 new wallets to the independent raw-source audit; record 113,273 fill records and 1,196 vendor-listed instrument pairs as aggregate evidence, not reinsert all fills.
 - For older 108, preserve per-wallet unknown/partial coverage; do not claim the same uniform pagination audit as new 50.
 - Do not auto-enroll 158 in the fixed 36-wallet PM-01 API. A new versioned research consumer is a separate future task with independent tests.
-- Import the 28 current user-exclusion decisions and related owner rejected addresses with explicit lineage. An excluded identity may exist in the global inventory while remaining excluded from eligible research queries.
+- Import the **22 owner-rejected wallet identities** in the current private `OWNER_REJECTED_22_WALLET_RESEARCH_20261103.csv` (14 short-span Nansen, five underwater bagholders, three passive maker scalpers), retaining exclusion reason, source lineage, and source SHA. The previous **28** count was an unsupported planning assumption, not evidence of six omitted decisions; the owner confirmed these 22 exclusions on 2026-11-04. This 22-count is a dated baseline, not a permanent database limit. New owner exclusions require explicit source records and a new audited generation. An excluded identity may remain indexed in global inventory but is never silently eligible for research.
 
 ### Monitoring (read-only)
 
