@@ -4,7 +4,9 @@
 **Prepared:** 2026-11-04 UTC. **Repository:** `hzminhzz/copytrade-pm`.
 **Report classification:** **FINAL AVAILABLE-EVIDENCE / CONDITIONAL**, not a certified whole-account historical replay.
 **Decision state:** RESEARCH ONLY; existing Gemini-V2 E6/E2 freeze **PRESERVED**, no worker activation, no broker orders and no scientific qualification.
-**2026-11-05 addendum:** The Stage-1 native-chain completeness figures were corrected after a strict mixed-schema reader repair and native market backfill. The [dated correction](PHASE7-NATIVE-COVERAGE-REPAIR-20261105.md) supersedes earlier *data-coverage* claims (not the original conditional market-shock snapshots, which are versioned historical outputs).
+**2026-11-05 exploratory portfolio simulation addendum:** [The 328-combination, 10-proposal conditional mark study](PHASE7-328-COMBO-PORTFOLIO-STUDY-20261105.md) normalizes *observed known-leg gross notional* to $6,000, not source wallet equity, and applies retrospective 5m/next-minute marks plus 10/20/30bps hypothetical weight-change costs. Of 328 previously screened combinations, 157 meet the coverage/day gate; 5 pass **illustrative** 20bps minute-level $450 daily/$850 trailing loss references, 1 passes at 30bps but has negative mark proxy. **None is economically/scientifically qualified, and no E6/E2/P1 freeze is changed.** These scores are not comparable to historical Gemini full-account P&L.
+
+**2026-11-05 native-data addendum:** The Stage-1 native-chain completeness figures were corrected after a strict mixed-schema reader repair and native market backfill. The [dated correction](PHASE7-NATIVE-COVERAGE-REPAIR-20261105.md) supersedes earlier *data-coverage* claims (not the original conditional market-shock snapshots, which are versioned historical outputs).
 
 ## Executive decision
 
