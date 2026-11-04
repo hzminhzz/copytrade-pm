@@ -21,6 +21,7 @@ import fcntl
 
 from . import wallet_registry_portfolios as portfolio_contract
 from . import wallet_registry_catalog as catalog
+from . import wallet_registry_signed_catalog as signed_catalog
 from . import wallet_registry_qualification as qualification_contract
 from . import wallet_registry_science_proofs as scientific_proofs
 from . import wallet_registry_runs as paper_contract
@@ -504,6 +505,7 @@ def apply(db: Path, snapshot: dict, when: str) -> dict:
                 DDL
                 + portfolio_contract.SEALED_DDL
                 + catalog.DDL
+                + signed_catalog.DDL
                 + paper_contract.RUN_DDL
                 + qualification_contract.DDL
                 + scientific_proofs.DDL
@@ -516,6 +518,7 @@ def apply(db: Path, snapshot: dict, when: str) -> dict:
                 con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(5,?)", (when,))
                 con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(6,?)", (when,))
                 con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(7,?)", (when,))
+                con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(8,?)", (when,))
             previous = con.execute(
                 "SELECT value FROM snapshot_meta WHERE key='manifest_sha256'"
             ).fetchone()
@@ -535,6 +538,7 @@ def apply(db: Path, snapshot: dict, when: str) -> dict:
                 con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(5,?)", (when,))
                 con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(6,?)", (when,))
                 con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(7,?)", (when,))
+                con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(8,?)", (when,))
                 ids = {}
                 for addr in sorted(all_addresses):
                     con.execute(
@@ -987,6 +991,14 @@ def cli(argv: list[str] | None = None) -> int:
         "--current", action="store_true", help="approved new-study research selection"
     )
     portfolio.add_argument("--asof", help="UTC as-known cutoff")
+    signed_selection = sub.add_parser(
+        "signed-selection", help="verify or import a privately signed research-only selection"
+    )
+    signed_selection.add_argument("--manifest", type=Path, required=True)
+    signed_selection.add_argument("--signature", type=Path, required=True)
+    signed_selection.add_argument("--trusted-public-key", type=Path, required=True)
+    signed_selection.add_argument("--trusted-key-sha256", required=True)
+    signed_selection.add_argument("--apply", action="store_true")
     paper = sub.add_parser("paper")
     paper.add_argument("--run-dir", type=Path, help="private paper-run directory")
     paper.add_argument(
@@ -1236,6 +1248,60 @@ def cli(argv: list[str] | None = None) -> int:
             else:
                 result["stored"] = False
             print(json.dumps(result, sort_keys=True))
+    elif args.command == "signed-selection":
+        now = datetime.now(timezone.utc).isoformat()
+        files = (args.manifest, args.signature, args.trusted_public_key)
+        record = signed_catalog.inspect(
+            *files,
+            expected_public_key_sha256=args.trusted_key_sha256,
+            first_known_at=now,
+        )
+        result = {
+            "source_sha256": record["source_sha256"],
+            "signature_verified": True,
+            "definitions": len(record["document"]["definitions"]),
+            "trading_authorized": False,
+            "paper_running": "UNKNOWN",
+            "stored": False,
+        }
+        if args.apply:
+            with private_lock(args.db):
+                # Validate all private inputs again while holding the single
+                # writer lock; never trust the earlier preview's file bytes.
+                again = signed_catalog.inspect(
+                    *files,
+                    expected_public_key_sha256=args.trusted_key_sha256,
+                    first_known_at=now,
+                )
+                if again != record:
+                    raise ValueError("signed research selection changed before import")
+                # Restore-verified database backup before any schema or data write.
+                before = (
+                    args.db.parent
+                    / "backups"
+                    / (
+                        "pre-signed-selection-"
+                        + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+                        + "-"
+                        + record["source_sha256"][:16]
+                        + ".sqlite"
+                    )
+                )
+                backup(args.db, before)
+                with closing(connect(before, False)) as saved:
+                    if saved.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                        raise ValueError("signed selection backup integrity failure")
+                    if saved.execute("PRAGMA foreign_key_check").fetchall():
+                        raise ValueError("signed selection backup FK failure")
+                with closing(connect(args.db, True)) as con:
+                    con.executescript(signed_catalog.DDL)
+                    with con:
+                        result.update(signed_catalog.store(con, record))
+                        if con.execute("PRAGMA foreign_key_check").fetchall():
+                            raise ValueError("signed selection import FK failure")
+                result["stored"] = True
+                result["backup_verified"] = True
+        print(json.dumps(result, sort_keys=True))
     elif args.command == "portfolio":
         if args.current and args.name:
             raise ValueError("choose portfolio name or --current, not both")

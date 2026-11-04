@@ -20,6 +20,9 @@ V2_FILE = "docs/decisions/2026-11-04-gemini-phase6-portfolio-freeze-v2.json"
 V2_SHA256 = "21f4e9406370fefcb0e38719c2a07bb57b68b073d70b3530034f7f5944c240fc"
 V2_COMMIT = "a87e587700282517d68524997486d5f2fa3efd57"
 V2_KNOWN_AT = "2026-11-04T09:06:33+00:00"
+# Pin the complete private wallet address by its SHA, never a display prefix.
+WHALE_ADDRESS_SHA256 = "d505878b68a81d92889946d1fc5a04d06e7d0d5f877fa7fc8f947797f950be03"
+PRIVATE_PHASE4_SOURCE_SHA256 = "0391836ead6b264a1d9e89d6bc7bf8cb989e330b9104d40d6b7065378049897e"
 PRIVATE_PHASE4_SOURCE = Path(
     "/home/quant/dev/copytrade-pm/docs/PHASE4_PROPR_SIMULATION_RESULTS_108_WALLETS_20261103.csv"
 )
@@ -57,6 +60,21 @@ CREATE INDEX IF NOT EXISTS idx_portfolio_membership_wallet
     ON portfolio_memberships(wallet_id,portfolio_id,version);
 CREATE INDEX IF NOT EXISTS idx_wallet_alias_lookup
     ON wallet_aliases(alias,known_at,wallet_id);
+CREATE TRIGGER IF NOT EXISTS guard_sealed_membership_update
+BEFORE UPDATE ON portfolio_memberships
+WHEN EXISTS (SELECT 1 FROM portfolio_seals s WHERE s.portfolio_id=OLD.portfolio_id
+             AND s.version=OLD.version)
+BEGIN SELECT RAISE(ABORT, 'sealed portfolio membership is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS guard_sealed_membership_delete
+BEFORE DELETE ON portfolio_memberships
+WHEN EXISTS (SELECT 1 FROM portfolio_seals s WHERE s.portfolio_id=OLD.portfolio_id
+             AND s.version=OLD.version)
+BEGIN SELECT RAISE(ABORT, 'sealed portfolio membership is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS guard_sealed_membership_insert
+BEFORE INSERT ON portfolio_memberships
+WHEN EXISTS (SELECT 1 FROM portfolio_seals s WHERE s.portfolio_id=NEW.portfolio_id
+             AND s.version=NEW.version)
+BEGIN SELECT RAISE(ABORT, 'sealed portfolio membership is immutable'); END;
 """
 
 
@@ -155,6 +173,8 @@ def read_private_identities(path: Path | None, v2: dict) -> dict[str, str]:
         return {}
     if path.is_symlink():
         raise ValueError("private Phase 4 identity source is a symlink")
+    if path.resolve() == PRIVATE_PHASE4_SOURCE and _sha(path) != PRIVATE_PHASE4_SOURCE_SHA256:
+        raise ValueError("unreviewed private Phase 4 source SHA drift")
     mapped: dict[str, str] = {}
     with path.open(newline="", encoding="utf-8") as stream:
         for row in csv.DictReader(stream):
@@ -176,8 +196,11 @@ def read_private_identities(path: Path | None, v2: dict) -> dict[str, str]:
                 raise ValueError("missing required Phase 4 wallet identity")
             if addr is None:
                 continue
-            if canonical == "Whale_0x5f94" and not addr.startswith("0x5f94"):
-                raise ValueError("noncanonical whale identity conflict")
+            if (
+                canonical == "Whale_0x5f94"
+                and sha256(addr.encode()).hexdigest() != WHALE_ADDRESS_SHA256
+            ):
+                raise ValueError("full-address whale digest mismatch")
             if raw == "HL Perps Whale" and not canonical.startswith("Whale_0x"):
                 raise ValueError("ambiguous whale display name")
             for alias in (raw, canonical):
@@ -326,8 +349,29 @@ def list_selection(con: sqlite3.Connection, cutoff: str) -> dict:
             "trading_authorized": False,
         }
     sha, at = sources
-    if sha != V2_SHA256 or at != V2_KNOWN_AT:
-        raise ValueError("unknown unreviewed research selection provenance")
+    from . import wallet_registry_signed_catalog as signed
+
+    if sha == V2_SHA256:
+        if at != V2_KNOWN_AT:
+            raise ValueError("reviewed V2 research selection known-at drift")
+        expected = {
+            "gemini.phase4/E6": (ROLE["E6"], 1),
+            "gemini.phase4/E2": (ROLE["E2"], 2),
+            "P1": (ROLE["P1"], 3),
+            "P14": (ROLE["P14"], None),
+            "gemini.phase4/E3": (ROLE["E3"], 4),
+            "gemini.phase5/B": (ROLE["B_phase5"], 5),
+        }
+        source_status = "OWNER_APPROVED_RESEARCH_ONLY"
+    else:
+        verified = signed.load(con, sha)
+        if at != verified["first_known_at"]:
+            raise ValueError("signed research selection known-at drift")
+        expected = {
+            item["portfolio_id"]: (item["role"], item["priority"])
+            for item in verified["document"]["selections"]
+        }
+        source_status = "SIGNATURE_CHECKED_RESEARCH_ONLY"
     rows = con.execute(
         "SELECT portfolio_id,portfolio_version,role,priority FROM research_selections "
         "WHERE source_sha256=? AND scope='NEW_FORWARD_PAPER_RESEARCH' "
@@ -336,25 +380,22 @@ def list_selection(con: sqlite3.Connection, cutoff: str) -> dict:
     ).fetchall()
     from .wallet_registry_portfolios import select_asof
 
-    expected = {
-        "gemini.phase4/E6": (ROLE["E6"], 1),
-        "gemini.phase4/E2": (ROLE["E2"], 2),
-        "P1": (ROLE["P1"], 3),
-        "P14": (ROLE["P14"], None),
-        "gemini.phase4/E3": (ROLE["E3"], 4),
-        "gemini.phase5/B": (ROLE["B_phase5"], 5),
-    }
     if len(rows) != len(expected) or any(
         pid not in expected or expected[pid] != (role, priority) for pid, _, role, priority in rows
     ):
         raise ValueError("immutable research selection history drift")
     result = []
     for pid, version, role, priority in rows:
-        source = select_asof(con, pid, cutoff)
+        source = select_asof(con, pid, cutoff, version=version)
         if source.get("version") != version or not source.get("definition_sha256"):
             raise ValueError("selection refers to stale/unsealed portfolio")
-        if pid in NAMES.values() and source.get("source_doc_sha256") != V2_SHA256:
+        if (
+            source.get("source_doc_sha256") != (V2_SHA256 if sha == V2_SHA256 else sha)
+            and pid in NAMES.values()
+        ):
             raise ValueError("research portfolio source seal drift")
+        if sha != V2_SHA256 and source.get("source_doc_sha256") != sha:
+            raise ValueError("signed research portfolio source seal drift")
         result.append(
             {
                 "portfolio_id": pid,
@@ -369,7 +410,7 @@ def list_selection(con: sqlite3.Connection, cutoff: str) -> dict:
             }
         )
     return {
-        "selection_state": "OWNER_APPROVED_RESEARCH_ONLY",
+        "selection_state": source_status,
         "selection_sha256": sha,
         "selection_known_at": at,
         "portfolios": result,
