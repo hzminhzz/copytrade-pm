@@ -55,6 +55,10 @@ The **source account's** realized PnL, a **historical modeled follower's** PnL, 
 
 `pm_forward_release.read_only_user_service_inventory` inspects a fixed, validated user-systemd allowlist using property-only `systemctl --user show`; there is no start/stop/restart/deploy interface. The current VPS production tracker, source observer and ensemble are active; no P1, P14 or paper watchdog unit exists. The protected release preflight remains `BLOCKED` because both release and state are coder-writable, the generic reports root is mode 775 and separate OS/service authority has not been verified. The code does not modify permissions or silently start services. See [read-only service inventory](FORWARD-PAPER-PROTECTED-SERVICE-20261104.md).
 
+## Bounded frozen P1/P14 source-observation campaign
+
+`pm_forward_source_campaign.observe_frozen_portfolio_readonly` uses the owner-private P1/P14 alias-address map and read-only wallet-registry audit to issue sequential, bounded **public** all-DEX per-parent subscriptions for each frozen member. The receipts inherit the E4 native DEX and first-known validation, while each result is labeled `BLOCKED_OBSERVATION_ONLY_NO_TRADE`. A missing parent, incomplete subaccount, unsealed membership ID, stale snapshot or unknown NAV must never result in a PM04 order or financial-account activation. This command does not install a service or alter the historical-fills registry. See [source-campaign command and limits](FORWARD-PAPER-BOUNDED-SOURCE-CAMPAIGN-20261104.md).
+
 ## PM-01 historical path
 
 `pm_sources.load_cohort(root)` is deliberately fixed to **6 original + 10 Wave1 + 20 Wave2** and references multiple authoritative private manifests. It reconciles alias/address collisions and vendor pagination; it does **not** accept an arbitrary fresh wallet address. `pm_source_audit.audit()` validates raw page hashes and selected market defects.
