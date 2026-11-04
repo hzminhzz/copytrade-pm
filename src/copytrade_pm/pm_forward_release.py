@@ -12,6 +12,75 @@ import json
 import os
 from pathlib import Path
 import stat
+import subprocess
+
+
+_SERVICE_ALLOWLIST = (
+    "copytrade-tracker.service",
+    "copytrade-source-abc.service",
+    "copytrade-ensemble.service",
+    "copytrade-paper-p1.service",
+    "copytrade-paper-p14.service",
+    "copytrade-paper-watchdog.service",
+)
+
+
+def read_only_user_service_inventory(*, runner=subprocess.run) -> dict:
+    """Retrieve allowlisted systemd properties, NEVER invoke service changes."""
+    records = []
+    unavailable = []
+    for unit in _SERVICE_ALLOWLIST:
+        args = [
+            "systemctl",
+            "--user",
+            "show",
+            unit,
+            "-p",
+            "Id",
+            "-p",
+            "LoadState",
+            "-p",
+            "ActiveState",
+            "-p",
+            "MainPID",
+            "-p",
+            "FragmentPath",
+            "--no-pager",
+        ]
+        try:
+            completed = runner(
+                args,
+                capture_output=True,
+                text=True,
+                timeout=8,
+                check=False,
+            )
+            if completed.returncode != 0:
+                raise ValueError("SYSTEMD_READONLY_QUERY_FAILED")
+            properties = dict(
+                line.split("=", 1) for line in completed.stdout.splitlines() if "=" in line
+            )
+            if properties.get("Id") != unit:
+                raise ValueError("SYSTEMD_IDENTITY_MISMATCH")
+            records.append(
+                {
+                    "unit": unit,
+                    "load_state": properties.get("LoadState", "UNKNOWN"),
+                    "active_state": properties.get("ActiveState", "UNKNOWN"),
+                    "main_pid": properties.get("MainPID", "UNKNOWN"),
+                    "fragment_path": properties.get("FragmentPath", ""),
+                }
+            )
+        except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+            unavailable.append({"unit": unit, "reason": type(exc).__name__})
+    return {
+        "schema": "paper_service_readonly_inventory_v1",
+        "status": "READ_ONLY_PARTIAL" if unavailable else "READ_ONLY_SNAPSHOT",
+        "units": records,
+        "unavailable": unavailable,
+        "service_mutations": 0,
+        "protected_system_services_verified": False,
+    }
 
 
 def protected_paper_preflight(
@@ -21,6 +90,7 @@ def protected_paper_preflight(
     deployment_uid: int,
     state_uid: int,
     allow_cutover: bool = False,
+    inspect_services: bool = False,
 ) -> dict:
     """Audit paths, ownership and coding identity without changing anything."""
     reasons: list[str] = []
@@ -76,6 +146,9 @@ def protected_paper_preflight(
     # permit bypassing these filesystem boundaries.
     reasons.append("SUDO_DOCKER_PRIVILEGE_SEPARATION_UNVERIFIED")
     reasons.append("PROTECTED_SERVICE_START_STOP_RIGHTS_UNVERIFIED")
+    inventory = read_only_user_service_inventory() if inspect_services else None
+    if inventory is not None and inventory["unavailable"]:
+        reasons.append("SERVICE_INVENTORY_INCOMPLETE")
     return {
         "schema": "paper_release_preflight_v1",
         "status": "BLOCKED",
@@ -85,6 +158,7 @@ def protected_paper_preflight(
         "systemd_units_mutated": False,
         "order_route": "NONE",
         "cutover_performed": False,
+        "read_only_service_inventory": inventory,
     }
 
 
@@ -94,11 +168,13 @@ def main() -> None:
     parser.add_argument("--state-root", required=True, type=Path)
     parser.add_argument("--deployment-uid", required=True, type=int)
     parser.add_argument("--state-uid", required=True, type=int)
+    parser.add_argument("--inspect-services", action="store_true")
     args = parser.parse_args()
     result = protected_paper_preflight(
         release_root=args.release_root,
         state_root=args.state_root,
         deployment_uid=args.deployment_uid,
         state_uid=args.state_uid,
+        inspect_services=args.inspect_services,
     )
     print(json.dumps(result, indent=2, sort_keys=True))

@@ -3,7 +3,10 @@
 import os
 from pathlib import Path
 
-from copytrade_pm.pm_forward_release import protected_paper_preflight
+from copytrade_pm.pm_forward_release import (
+    protected_paper_preflight,
+    read_only_user_service_inventory,
+)
 
 
 def test_coding_identity_cannot_assert_release_permissions(tmp_path: Path) -> None:
@@ -26,6 +29,33 @@ def test_coding_identity_cannot_assert_release_permissions(tmp_path: Path) -> No
     assert "RELEASE_AND_FINANCIAL_STATE_SAME_OS_IDENTITY" in result["reasons"]
     assert "SUDO_DOCKER_PRIVILEGE_SEPARATION_UNVERIFIED" in result["reasons"]
     assert list(release.iterdir()) == list(state.iterdir()) == []
+
+
+def test_service_inventory_uses_show_only_and_no_systemd_mutation() -> None:
+    calls = []
+
+    def fake_runner(args, **kwargs):
+        calls.append(args)
+        assert args[:3] == ["systemctl", "--user", "show"]
+        assert kwargs["check"] is False
+        assert kwargs["timeout"] <= 8
+        assert not any(x in args for x in ("restart", "stop", "start", "daemon-reload"))
+
+        class Result:
+            returncode = 0
+            stdout = (
+                "Id=" + args[3] + "\n"
+                "LoadState=loaded\nActiveState=active\nMainPID=100\nFragmentPath=/test/unit\n"
+            )
+
+        return Result()
+
+    inventory = read_only_user_service_inventory(runner=fake_runner)
+    assert inventory["status"] == "READ_ONLY_SNAPSHOT"
+    assert inventory["service_mutations"] == 0
+    assert inventory["protected_system_services_verified"] is False
+    assert len(inventory["units"]) == len(calls) == 6
+    assert inventory["units"][0]["unit"] == "copytrade-tracker.service"
 
 
 def test_preflight_rejects_worktree_nested_and_symlink_paths(tmp_path: Path) -> None:
