@@ -21,6 +21,10 @@
 
 The **source account's** realized PnL, a **historical modeled follower's** PnL, a **prospective matched follower's** net R, and a **consolidated prop shadow account's** PnL are different objects. Never add or relabel one as another.
 
+## Forward-paper campaign boundary (FP-01, Issue #58)
+
+`pm_forward_paper.PaperCampaign` is the initial **in-memory, non-running** admission facade. It seals `paper_run_manifest_v1` using canonical SHA-256 and creates separate PM-03 `Account.start` projections with exactly $10,000 each. `paper_run_status_v1` explicitly reports `NOT_RUNNING`, `BLOCKED`, `order_route=NONE` and `FORWARD_PAPER_SIMULATED_v1`. There are no fill or broker methods and no persistent state, scheduler, source admission or paper results yet. FP-02 owns the future separate durable SQLite journal. Neither this class nor this status authorizes production activation, a paper fill, or scientific qualification. Historical PM-03 modes and the no-fill prospective safeguard remain unchanged.
+
 ## PM-01 historical path
 
 `pm_sources.load_cohort(root)` is deliberately fixed to **6 original + 10 Wave1 + 20 Wave2** and references multiple authoritative private manifests. It reconciles alias/address collisions and vendor pagination; it does **not** accept an arbitrary fresh wallet address. `pm_source_audit.audit()` validates raw page hashes and selected market defects.
