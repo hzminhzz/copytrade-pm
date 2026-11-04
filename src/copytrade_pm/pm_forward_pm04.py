@@ -45,9 +45,28 @@ def _check_source_target(account: Account, event: dict) -> dict | None:
     current = account.pm04_state["pod_targets"].get(source_id)
     if current is None:
         raise ValueError("PM04_SOURCE_NOT_IN_FROZEN_PODS")
-    expected = {
-        key: q * allocation / admission.source_equity for key, q in admission.positions.items()
-    }
+    # The native exposure contract uses source signed NOTIONAL / source
+    # equity and converts it at a causally known FOLLOWER quote. Quantity
+    # ratios alone are only valid when both market marks happen to match.
+    from .pm_exposure_sizing import calculate_weights, target_from_weights
+
+    quotes = {}
+    for observation in event["input"]["observations"]:
+        instrument = Instrument.parse(observation["instrument"])
+        if instrument.key in quotes:
+            raise ValueError("PM04_DUPLICATE_FOLLOWER_MARK")
+        if clock(observation["first_known_at"]) > clock(event["event_at"]):
+            raise ValueError("PM04_FUTURE_FOLLOWER_MARK")
+        quotes[instrument.key] = number(observation["mark"])
+    weights = calculate_weights(
+        source_quantities={key.key: qty for key, qty in admission.positions.items()},
+        source_equity_usd=admission.source_equity,
+        source_marks={key.key: mark for key, mark in admission.source_marks.items()},
+    )
+    _, target_quantities = target_from_weights(
+        weights=weights, pod_capital_usd=allocation, follower_marks=quotes
+    )
+    expected = {Instrument.parse(key): qty for key, qty in target_quantities.items()}
     # A verified complete book permits zero targets for a leg the source exited.
     for key in current:
         expected.setdefault(Instrument.parse(key), Decimal("0"))

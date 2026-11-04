@@ -20,6 +20,7 @@ class Admission:
     snapshot_sha: str | None
     source_equity: Decimal | None
     positions: dict[Instrument, Decimal]
+    source_marks: dict[Instrument, Decimal]
 
 
 def admit_source_book(
@@ -27,7 +28,7 @@ def admit_source_book(
 ) -> Admission:
     """Fail closed unless native whole-book and collateral scope are attested."""
     if source is None or not isinstance(source, dict):
-        return Admission(False, ("MISSING_SOURCE_BOOK",), None, None, {})
+        return Admission(False, ("MISSING_SOURCE_BOOK",), None, None, {}, {})
     reasons: list[str] = []
     sha = source.get("snapshot_sha")
     body = {key: value for key, value in source.items() if key != "snapshot_sha"}
@@ -115,9 +116,23 @@ def admit_source_book(
         except ValueError, TypeError:
             reasons.append("SOURCE_NATIVE_POSITIONS_INVALID")
             positions = {}
+    source_marks: dict[Instrument, Decimal] = {}
+    raw_marks = source.get("source_marks")
+    if not isinstance(raw_marks, dict):
+        reasons.append("SOURCE_POSITION_MARKS_UNKNOWN")
+    else:
+        try:
+            source_marks = {Instrument.parse(key): number(mark) for key, mark in raw_marks.items()}
+            if any(mark <= 0 for mark in source_marks.values()):
+                raise ValueError
+            if set(positions) - set(source_marks):
+                raise ValueError
+        except ValueError, TypeError:
+            reasons.append("SOURCE_POSITION_MARKS_INVALID")
+            source_marks = {}
     # No reader may turn an arbitrary JSON boolean into live source attestation.
     if source.get("synthetic_fixture") is not True:
         reasons.append("INDEPENDENT_REAL_BOOK_ATTESTATION_UNAVAILABLE")
     if reasons:
-        return Admission(False, tuple(sorted(set(reasons))), sha, None, {})
-    return Admission(True, (), sha, equity, positions)
+        return Admission(False, tuple(sorted(set(reasons))), sha, None, {}, {})
+    return Admission(True, (), sha, equity, positions, source_marks)

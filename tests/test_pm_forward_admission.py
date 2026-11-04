@@ -43,6 +43,8 @@ def test_full_fixture_admits_but_retro_rest_sequential_does_not() -> None:
     ("change", "reason"),
     [
         ({"source_equity": None}, "SOURCE_EQUITY_OR_COLLATERAL_UNKNOWN"),
+        ({"source_marks": None}, "SOURCE_POSITION_MARKS_UNKNOWN"),
+        ({"source_marks": {}}, "SOURCE_POSITION_MARKS_INVALID"),
         (
             {"dex_census": ["mainnet:perp:default", "mainnet:perp:xyz"]},
             "SOURCE_DEX_CENSUS_INCOMPLETE",

@@ -176,8 +176,19 @@ class FixturePaperWorker:
             )
             if not admission.admitted or admission.source_equity is None:
                 raise ValueError("PAPER_SOURCE_ADMISSION_LOST")
-            scale = number(self.policy["follower_allocations"][alias]) / admission.source_equity
-            quantities = {k.key: quantity * scale for k, quantity in admission.positions.items()}
+            from .pm_exposure_sizing import calculate_weights, target_from_weights
+
+            weights = calculate_weights(
+                source_quantities={k.key: quantity for k, quantity in admission.positions.items()},
+                source_equity_usd=admission.source_equity,
+                source_marks={k.key: mark for k, mark in admission.source_marks.items()},
+            )
+            follower_marks = {row["instrument"]: number(row["mark"]) for row in observations}
+            _, quantities = target_from_weights(
+                weights=weights,
+                pod_capital_usd=number(self.policy["follower_allocations"][alias]),
+                follower_marks=follower_marks,
+            )
             stored = self.journal.restore(self.manifest.run_id)["account"]["pm04"]
             prev_targets = stored["pod_targets"].get(alias, {})
             for key in prev_targets:

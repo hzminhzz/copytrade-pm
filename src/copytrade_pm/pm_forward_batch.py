@@ -47,7 +47,9 @@ class ForwardBatch:
         self.events_seen += 1
         return {"status": "QUEUED", "due_at": self.due_at, "events_seen": self.events_seen}
 
-    def preview_due(self, *, decision_at: str) -> dict:
+    def preview_due(
+        self, *, decision_at: str, follower_marks: dict[Instrument, Decimal] | None = None
+    ) -> dict:
         if not self.due_at or not self.latest:
             return {"status": "BLOCKED", "reasons": ["NO_ADMITTED_SOURCE"]}
         if self.dispatched:
@@ -58,17 +60,36 @@ class ForwardBatch:
             raise ValueError("FUTURE_SOURCE_AT_DUE")
         if self.latest.source_equity is None or self.latest.source_equity <= 0:
             return {"status": "BLOCKED", "reasons": ["SOURCE_EQUITY_UNKNOWN"]}
-        ratio = self.follower_allocated_equity / self.latest.source_equity
-        targets: dict[Instrument, Decimal] = {
-            instrument: quantity * ratio for instrument, quantity in self.latest.positions.items()
-        }
+        from .pm_exposure_sizing import calculate_weights, target_from_weights
+
+        weights = calculate_weights(
+            source_quantities={key.key: qty for key, qty in self.latest.positions.items()},
+            source_equity_usd=self.latest.source_equity,
+            source_marks={key.key: mark for key, mark in self.latest.source_marks.items()},
+        )
+        if follower_marks is None:
+            return {
+                "status": "BLOCKED",
+                "reasons": ["FOLLOWER_MARKS_REQUIRED_FOR_NOTIONAL_SIZING"],
+                "due_at": self.due_at,
+                "source_weights": {key: str(value) for key, value in weights.items()},
+            }
+        notionals, quantities = target_from_weights(
+            weights=weights,
+            pod_capital_usd=self.follower_allocated_equity,
+            follower_marks={key.key: mark for key, mark in follower_marks.items()},
+        )
         return {
             "status": "DUE",
-            "target_quantities": {key.key: str(value) for key, value in sorted(targets.items())},
+            "target_quantities": {key: str(value) for key, value in sorted(quantities.items())},
+            "source_signed_weights": {key: str(value) for key, value in sorted(weights.items())},
+            "follower_target_notionals": {
+                key: str(value) for key, value in sorted(notionals.items())
+            },
             "source_sha": self.latest.snapshot_sha,
             "source_equity": str(self.latest.source_equity),
             "follower_allocated_equity": str(self.follower_allocated_equity),
             "due_at": self.due_at,
             "decision_at": decision_at,
-            "unexecuted_notional": "UNKNOWN_UNTIL_PRICED",
+            "unexecuted_notional": "UNKNOWN_UNTIL_EXECUTION",
         }

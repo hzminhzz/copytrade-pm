@@ -5,6 +5,7 @@ These are model-contract tests. No live wallet attestation, broker, or service.
 
 from dataclasses import replace
 from datetime import datetime, timedelta
+from decimal import Decimal
 
 import pytest
 
@@ -150,7 +151,7 @@ def paper_tick(run_id, second, policy_sha) -> dict:
     return raw
 
 
-def _setup(tmp_path):
+def _setup(tmp_path, *, source_mark="100"):
     journal = PaperJournal(tmp_path / "paper")
     campaign = PaperCampaign(journal=journal)
     policies = {"P1": policy(P1.members, "3000"), "P14": policy(P14.members, "1600")}
@@ -182,6 +183,7 @@ def _setup(tmp_path):
         first_known_at=at(60),
         source_equity="20000",
         positions={BTC.key: "2"},
+        source_marks={BTC.key: source_mark},
     )
     receipt = {
         "schema": "paper_first_known_source_v1",
@@ -288,6 +290,23 @@ def test_unfillable_reduction_preserves_signed_inventory(tmp_path) -> None:
     assert state["account"]["quantities"][BTC.key] == "0.3"
     assert state["source_cursors"] == {"S035": 2}
     assert journal.restore("P1")["account"] == state["account"]
+
+
+def test_source_notional_vs_different_follower_price_uses_native_weight_contract(tmp_path) -> None:
+    journal, campaign, policies, book, receipt = _setup(tmp_path, source_mark="110")
+    target = paper_signal("P1", 60, digest(policies["P1"]), book, "0.33")
+    target["source_ref"] = {
+        "source_id": "S035",
+        "sequence": 1,
+        "receipt_sha": digest(receipt),
+    }
+    before = campaign.record_source_decision("P1", "source_mark_110", target)
+    assert before["account"]["quantities"] == {}
+    result = campaign.record_event("P1", "due", paper_tick("P1", 360, digest(policies["P1"])))
+    assert Decimal(result["account"]["quantities"][BTC.key]) == Decimal("0.33")
+    # Incorrect quantity-only scaling would have requested 0.30 BTC.
+    assert Decimal(result["account"]["quantities"][BTC.key]) != Decimal("0.30")
+    assert journal.restore("P1")["account"] == result["account"]
 
 
 def test_source_target_override_rejected_before_account_effect(tmp_path) -> None:

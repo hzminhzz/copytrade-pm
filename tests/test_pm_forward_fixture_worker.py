@@ -26,7 +26,7 @@ def create_worker(tmp_path, portfolio=P1, *, journal=None):
     return journal, FixturePaperWorker(journal, portfolio, sealed, frozen_policy)
 
 
-def whole_book(alias, *, qty="0"):
+def whole_book(alias, *, qty="0", source_mark="100"):
     return _alter(
         _source_book(),
         wallet_id=alias,
@@ -35,6 +35,7 @@ def whole_book(alias, *, qty="0"):
         first_known_at=at(60),
         positions={BTC.key: qty} if Decimal(qty) else {},
         source_equity="20000",
+        source_marks={BTC.key: source_mark},
     )
 
 
@@ -78,6 +79,20 @@ def test_missing_book_blocks_every_position_then_replays_from_wal(tmp_path) -> N
     assert due["state"]["source_cursors"] == {"S035": 1, "S051": 1, "S053": 1}
     replay = PaperJournal(journal.root).restore("P1")
     assert replay["account"] == due["state"]["account"]
+
+
+def test_worker_source_mark_110_follower_100_requires_0_33_btc(tmp_path) -> None:
+    _, worker = create_worker(tmp_path)
+    for alias in ("S035", "S051", "S053"):
+        book = whole_book(
+            alias,
+            qty="2" if alias == "S035" else "0",
+            source_mark="110" if alias == "S035" else "100",
+        )
+        worker.record_source_book(alias, 1, f"r-{alias}", book, captured_at=at(60))
+    assert drive(worker, 60)["status"] == "SYNTHETIC_EVENT_COMMITTED"
+    result = drive(worker, 360)
+    assert Decimal(result["state"]["account"]["quantities"][BTC.key]) == Decimal("0.33")
 
 
 def test_shared_p1_p14_source_does_not_override_p14_missing_leg(tmp_path) -> None:

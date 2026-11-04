@@ -34,6 +34,7 @@ def _source_book() -> dict:
         "collateral_denominator": "account_equity",
         "collateral_value": "10000",
         "positions": {BTC.key: "2"},
+        "source_marks": {BTC.key: "100"},
         "synthetic_fixture": True,
     }
     return {**book, "snapshot_sha": digest(book)}
