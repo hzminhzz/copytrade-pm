@@ -1,5 +1,26 @@
 # Evidence and qualification gates
 
+## Polars offline milestone #2 two independent result dimensions (2026-11-04)
+
+Read [two-track engineering acceptance](OFFLINE-MILESTONE2-ENGINEERING-ACCEPTANCE-20261104.md)
+before interpreting draft [PR #92](https://github.com/hzminhzz/copytrade-pm/pull/92).
+`ENGINEERING VERIFIED` requires a positive complete-evidence fixture and
+adversarial negative evidence tests through one sealed public job, exact
+PM-03 Decimal and compatible frozen code contracts. A correctly
+`BLOCKED` real historical-oracle study is **not** a failing engineering
+test when source facts are genuinely absent.
+
+`SCIENTIFICALLY QUALIFIED` instead needs independently authenticated
+prospective first-known events, historical source NAV/full account-book,
+funding, matched executable follower and control outcomes, OOS/holdouts,
+uncertainty, actual account terms and risk authorization. The public
+90-day oracle-only job retains `financial_certified_real=false` and
+`scientifically_qualified=false` despite correctly matching native 1m
+context. Synthetic simulated `PASS`/`BREACH` cannot be promoted.
+`pm_offline_receipts` ties a sealed local file's IDs/clocks to fixture
+events; a SHA hash does **not** independently prove capture authenticity.
+
+
 **Read this before interpreting wallet rankings, a “pass,” an equity curve, or risk R.** Dated as of 2026-10-31 (repo `main` SHA `c3e9ccf`). The live source, actual GitHub issues and external Propr rules may evolve. Current research work is **not a trading system**.
 
 ## Separate the four statuses

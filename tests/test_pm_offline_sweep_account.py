@@ -1,5 +1,6 @@
 """PM-03 Decimal account remains the sole financial authority."""
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal as D
 
@@ -78,6 +79,8 @@ def test_exact_equity_sizing_and_minute_marks():
     assert D(result["ledger"]["equity"]) == D("10010")
     assert result["status"] == "SYNTHETIC_PM03_OPEN"
     assert result["scientifically_qualified"] is False
+    assert result["contractual_real_verdict"] == "UNKNOWN"
+    assert result["certification"]["verdict"] == "UNKNOWN"
 
 
 def test_breach_halt_persists_across_recovery_mark():
@@ -234,6 +237,101 @@ def test_exact_target_first_time_is_recorded():
     )
     assert result["ledger"]["first_target_at"] == (T + timedelta(minutes=1)).isoformat()
     assert result["ledger"]["first_breach_at"] is None
+
+
+def test_exact_synthetic_target_with_confirmed_terms_is_fixture_only():
+    rule = replace(rules(), account_terms_confirmed=True)
+    result = replay_fixture(
+        rulebook=rule,
+        minutes=[
+            minute(0, updates=[update()]),
+            minute(1, price="1200"),
+        ],
+        costs=costs(),
+        k_by_manager={"a": D("1")},
+    )
+    assert result["ledger"]["stage_passed"] is True
+    assert result["certification"]["verdict"] == "PASS"
+    assert result["certification"]["certified"] is True
+    assert result["certification"]["synthetic_fixture_only"] is True
+    assert result["contractual_real_verdict"] == "UNKNOWN"
+
+
+def test_synthetic_right_censor_prevents_fixture_target_pass():
+    rule = replace(rules(), account_terms_confirmed=True)
+    result = replay_fixture(
+        rulebook=rule,
+        minutes=[minute(0, updates=[update()]), minute(1, price="1200")],
+        costs=costs(),
+        k_by_manager={"a": D("1")},
+        right_censored_source=True,
+    )
+    assert result["ledger"]["stage_passed"] is True
+    assert result["certification"]["verdict"] == "UNKNOWN"
+    assert result["certification"]["reason"] == "OPEN_RISK_OR_UNMATURED_EVENTS"
+
+
+def test_screen_only_never_produces_certified_contract_result():
+    rule = replace(rules(), account_terms_confirmed=True)
+    result = replay_fixture(
+        rulebook=rule,
+        minutes=[minute(0, updates=[update()]), minute(1, price="1200")],
+        costs=costs(),
+        k_by_manager={"a": D("1")},
+        mode="SCREEN_ONLY",
+    )
+    assert result["certification"]["verdict"] == "UNKNOWN"
+    assert result["certification"]["certified"] is False
+
+
+def test_daily_reset_uses_realized_balance_not_unrealized_equity():
+    first = minute(0, updates=[update()])
+    first["at"] = T.replace(hour=23, minute=59)
+    second = minute(1, price="110")
+    second["at"] = first["at"] + timedelta(minutes=1)
+    result = replay_fixture(
+        rulebook=rules(),
+        minutes=[first, second],
+        costs=costs(),
+        k_by_manager={"a": D("0.1")},
+    )
+    assert result["ledger"]["daily_key"] == "2026-10-21"
+    assert D(result["ledger"]["equity"]) == D("10010")
+    assert D(result["ledger"]["daily_start_balance"]) == D("10000")
+
+
+def test_source_known_clock_after_simulated_decision_fails_closed():
+    late = update()
+    late["source_known_at"] = (T + timedelta(minutes=1)).isoformat()
+    with pytest.raises(ManifestBlocked, match="FUTURE_KNOWN_SOURCE_BOOK"):
+        replay_fixture(
+            rulebook=rules(),
+            minutes=[minute(0, updates=[late])],
+            costs=costs(),
+            k_by_manager={"a": D("0.1")},
+        )
+
+
+def test_pm03_snapshot_resume_equity_and_halt_parity():
+    from copytrade_pm.pm03_account import Account, Instrument
+
+    rule = rules()
+    inst = Instrument("hyperliquid", "perp", "BTC")
+    account = Account.start(rule, T.isoformat())
+    account.mark({inst: D("100")}, T.isoformat())
+    account.simulate_fill(inst, D("10"), D("100"), D("1"), accepted=True, allocated={"a": D("10")})
+    snap = account.snapshot()
+    restored = Account.from_snapshot(rule, snap)
+    assert restored.snapshot() == snap
+    later = (T + timedelta(minutes=1)).isoformat()
+    account.mark({inst: D("40")}, later)
+    restored.mark({inst: D("40")}, later)
+    assert account.breached and restored.breached
+    assert account.snapshot() == restored.snapshot()
+    with pytest.raises(ValueError, match="CONTRACTUAL_BREACH_PERMANENT"):
+        restored.simulate_fill(
+            inst, D("1"), D("40"), D("0"), accepted=True, allocated={"a": D("1")}
+        )
 
 
 def test_unknown_capacity_causes_unfilled_residual():

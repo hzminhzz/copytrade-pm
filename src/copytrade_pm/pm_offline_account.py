@@ -16,6 +16,7 @@ import json
 from .pm03_account import Account, Instrument, RiskState, Rulebook, number
 from .pm03_execution import CostModel, MarketObservation, execute_targets
 from .pm03_risk import RiskEvidence, RiskPolicy, classify
+from .pm_offline_certification import certify_account_fixture
 from .pm_offline_manifest import ManifestBlocked, ManifestInvalid
 
 ZERO = Decimal("0")
@@ -28,6 +29,16 @@ def _minute(when: datetime) -> datetime:
     if when.second or when.microsecond:
         raise ManifestInvalid("NON_MINUTE_ACCOUNT_CLOCK")
     return when
+
+
+def _minute_or_before(value: str) -> datetime:
+    try:
+        value_at = datetime.fromisoformat(value)
+    except (ValueError, TypeError) as exc:
+        raise ManifestInvalid("INVALID_SOURCE_RECEIPT_CLOCK") from exc
+    if value_at.tzinfo is None or value_at.utcoffset() is None:
+        raise ManifestInvalid("NAIVE_SOURCE_RECEIPT_CLOCK")
+    return value_at.astimezone(UTC)
 
 
 def _instrument(native: str) -> Instrument:
@@ -46,7 +57,14 @@ def _instrument(native: str) -> Instrument:
     return Instrument("hyperliquid", f"hip3:{dex}", symbol)
 
 
-def _report(account: Account, clock: datetime, events: list[dict], mode: str) -> dict:
+def _report(
+    account: Account,
+    clock: datetime,
+    events: list[dict],
+    mode: str,
+    *,
+    right_censored_source: bool = False,
+) -> dict:
     account.verify()
     ledger = {
         "as_of": clock.isoformat(),
@@ -76,6 +94,21 @@ def _report(account: Account, clock: datetime, events: list[dict], mode: str) ->
         ).hexdigest(),
     }
     encoded = json.dumps(ledger, sort_keys=True, separators=(",", ":")).encode()
+    unfilled = any(
+        Decimal(str(value)) != ZERO
+        for event in events
+        for value in event.get("execution", {}).get("remaining", {}).values()
+    )
+    verdict = certify_account_fixture(
+        account,
+        mode=mode,
+        full_minute_coverage=True,
+        complete_source_book=True,
+        complete_equity=True,
+        complete_funding=True,
+        intrabar_order_known=True,
+        right_censored=right_censored_source or unfilled,
+    )
     return {
         "schema": "pm_offline_pm03_fixture_v1",
         "status": "SYNTHETIC_PM03_"
@@ -84,6 +117,8 @@ def _report(account: Account, clock: datetime, events: list[dict], mode: str) ->
         "sha256": sha256(encoded).hexdigest(),
         "ledger": ledger,
         "financial_authority": "PM03_ACCOUNT_DECIMAL",
+        "certification": {**verdict, "synthetic_fixture_only": True},
+        "contractual_real_verdict": "UNKNOWN",
         "prospective_verified": False,
         "scientifically_qualified": False,
     }
@@ -100,6 +135,7 @@ def replay_fixture(
     scenario_shocks: tuple[dict[str, Decimal], ...] = (),
     hedge_break_loss: Decimal = ZERO,
     stressed_liquidity_loss: Decimal = ZERO,
+    right_censored_source: bool = False,
 ) -> dict:
     """Replay synthetic fixture minutes and optional source-book intent updates.
 
@@ -210,8 +246,20 @@ def replay_fixture(
                 leader = update.get("leader_prices")
                 if not isinstance(book, dict) or not isinstance(leader, dict):
                     raise ManifestBlocked("INCOMPLETE_SOURCE_BOOK")
-                if not book or book.keys() != leader.keys():
+                if (
+                    not book
+                    or not set(leader) <= set(book)
+                    or any(number(qty) != ZERO and inst not in leader for inst, qty in book.items())
+                ):
                     raise ManifestBlocked("INCOMPLETE_SOURCE_HEDGE_MARKS")
+                if update.get("source_known_at") is not None and (
+                    _minute_or_before(update["source_known_at"]) > when
+                ):
+                    raise ManifestBlocked("FUTURE_KNOWN_SOURCE_BOOK")
+                if update.get("source_equity_known_at") is not None and (
+                    _minute_or_before(update["source_equity_known_at"]) > when
+                ):
+                    raise ManifestBlocked("FUTURE_KNOWN_SOURCE_EQUITY")
                 if any(_instrument(inst) not in prices for inst in book):
                     raise ManifestBlocked("UNKNOWN_FOLLOWER_MARK_FOR_HEDGE")
                 # Create a new follower intent ONLY for the manager whose
@@ -221,6 +269,10 @@ def replay_fixture(
                 current_leader = {_instrument(inst): number(px) for inst, px in leader.items()}
                 manager_target: dict[Instrument, Decimal] = {}
                 for inst, qty in sorted(current_book.items()):
+                    if qty == ZERO:
+                        # Verified flat hedges need no invented source mark.
+                        manager_target[inst] = ZERO
+                        continue
                     source_mark = current_leader[inst]
                     if source_mark <= ZERO:
                         raise ManifestBlocked("INVALID_LEADER_PRICE")
@@ -326,4 +378,10 @@ def replay_fixture(
         item["stage_passed_after"] = account.stage_passed
         item["risk_after"] = account.risk.value
         journal.append(item)
-    return _report(account, times[-1], journal, mode)
+    return _report(
+        account,
+        times[-1],
+        journal,
+        mode,
+        right_censored_source=right_censored_source,
+    )

@@ -308,6 +308,46 @@ def test_crash_mid_sweep_resumes_immutable_completed_scenarios(tmp_path, monkeyp
     assert resumed["requested_scenarios"] == 15
 
 
+def test_one_unadmitted_wallet_blocks_only_affected_scenarios(tmp_path):
+    path, root, cache, doc = sample(tmp_path)
+    book_file = root / "W005/book.json"
+    equity_file = root / "W005/equity.json"
+    book = json.loads(book_file.read_text())
+    equity = json.loads(equity_file.read_text())
+    known = START + timedelta(minutes=20)
+    fill = known + timedelta(minutes=1)
+    book["initial_books"][0]["first_known_at"] = known.isoformat()
+    book["fills"][0]["source_event_at"] = fill.isoformat()
+    book["fills"][0]["first_known_at"] = fill.isoformat()
+    equity["snapshots"][0]["first_known_at"] = known.isoformat()
+    for file, data, part in (
+        (book_file, book, "book"),
+        (equity_file, equity, "equity"),
+    ):
+        payload = json.dumps(data).encode()
+        file.write_bytes(payload)
+        doc["sources"][4][f"{part}_sha256"] = sha256(payload).hexdigest()
+    path.write_text(json.dumps(doc))
+    first = run_synthetic_fixture_study(path, input_root=root, market_root=root, cache_root=cache)
+    second = run_synthetic_fixture_study(
+        path, input_root=root, market_root=root, cache_root=cache, workers=2
+    )
+    assert first["status"] == "PARTIAL_SYNTHETIC_FIXTURE_WITH_BLOCKERS"
+    assert first["requested_scenarios"] == 15
+    assert first["completed_scenarios"] == 5
+    assert first["blocked_scenarios"] == 10
+    assert second["cache_hits"] == 5
+    assert first["logical_sha256"] == second["logical_sha256"]
+    assert all(
+        x["reason"] == "MISSING_COMPLETE_MANAGER_BOOK_WITHIN_WINDOW"
+        for x in first["scenarios"]
+        if x["status"] == "BLOCKED"
+    )
+    assert all(
+        x["scenario"] == "three-wallet" for x in first["scenarios"] if x["status"] != "BLOCKED"
+    )
+
+
 def test_cross_dex_same_manager_fails_closed(tmp_path):
     path, root, cache, doc = sample(tmp_path)
     duplicate = dict(doc["sources"][0])
@@ -338,9 +378,86 @@ def test_nonflat_initial_book_fails_without_first_target_evidence(tmp_path):
     file.write_bytes(data)
     doc["sources"][0]["book_sha256"] = sha256(data).hexdigest()
     path.write_text(json.dumps(doc))
-    with pytest.raises(
-        ManifestBlocked, match="NONFLAT_INITIAL_BOOK_REQUIRES_VERIFIED_ADMISSION_TARGET"
-    ):
+    with pytest.raises(ManifestBlocked, match="MISSING_NONZERO_HEDGE_LEADER_PRICE"):
+        run_synthetic_fixture_study(path, input_root=root, market_root=root, cache_root=cache)
+
+
+def test_nonflat_initial_book_with_independent_marks_is_admitted(tmp_path):
+    path, root, cache, doc = sample(tmp_path)
+    file = root / "W001/book.json"
+    contents = json.loads(file.read_text())
+    contents["initial_books"][0]["positions"]["BTC"] = "1"
+    contents["initial_books"][0]["leader_prices"] = {"BTC": "100"}
+    contents["fills"][0]["position_before"] = "1"
+    contents["fills"][0]["position_after"] = "2"
+    raw = json.dumps(contents).encode()
+    file.write_bytes(raw)
+    doc["sources"][0]["book_sha256"] = sha256(raw).hexdigest()
+    path.write_text(json.dumps(doc))
+    out = run_synthetic_fixture_study(path, input_root=root, market_root=root, cache_root=cache)
+    assert out["status"] == "COMPLETE_SYNTHETIC_FIXTURE_ONLY"
+    assert out["requested_scenarios"] == 15
+    assert all(x["status"] == "SYNTHETIC_PM03_OPEN" for x in out["scenarios"])
+
+
+def test_prospective_synthetic_receipts_are_joined_to_actual_fill_ids(tmp_path):
+    path, root, cache, doc = sample(tmp_path)
+    doc["clock_basis"] = "PROSPECTIVE_FIRST_KNOWN"
+    for item in doc["sources"]:
+        manager = item["account"]
+        book_file = root / item["book_path"]
+        book = json.loads(book_file.read_text())
+        anchor = book["initial_books"][0]
+        anchor["source_event_at"] = (START - timedelta(minutes=2)).isoformat()
+        fill = book["fills"][0]
+        fill["first_known_at"] = (START + timedelta(seconds=5)).isoformat()
+        raw = json.dumps(book).encode()
+        book_file.write_bytes(raw)
+        item["book_sha256"] = sha256(raw).hexdigest()
+        observations = [
+            {
+                "account": manager,
+                "dex": "default",
+                "instrument": "*",
+                "event_id": "__opening__",
+                "source_event_at": anchor["source_event_at"],
+                "first_known_at": anchor["first_known_at"],
+            },
+            {
+                "account": manager,
+                "dex": "default",
+                "instrument": "BTC",
+                "event_id": "1",
+                "source_event_at": fill["source_event_at"],
+                "first_known_at": fill["first_known_at"],
+            },
+        ]
+        receipts = root / manager / "receipts.json"
+        payload = {
+            "schema": "pm_offline_receipt_bundle_v1",
+            "producer": "synthetic-receipt-fixture",
+            "capture_method": "PERSISTED_LOCAL_RECEIPT",
+            "observations": observations,
+        }
+        receipts.write_text(json.dumps(payload))
+        item.update(
+            first_known_basis="PROSPECTIVE_FIRST_KNOWN",
+            receipt_path=str(receipts.relative_to(root)),
+            receipt_sha256=sha256(receipts.read_bytes()).hexdigest(),
+        )
+    path.write_text(json.dumps(doc))
+    result = run_synthetic_fixture_study(path, input_root=root, market_root=root, cache_root=cache)
+    assert result["status"] == "COMPLETE_SYNTHETIC_FIXTURE_ONLY"
+    assert result["financial_certified_real"] is False
+    # A changed receipt file that still hashes correctly cannot backdate a
+    # source fill without changing its independently matched source clock.
+    receipts = root / "W001" / "receipts.json"
+    tampered = json.loads(receipts.read_text())
+    tampered["observations"][1]["first_known_at"] = (START + timedelta(minutes=1)).isoformat()
+    receipts.write_text(json.dumps(tampered))
+    doc["sources"][0]["receipt_sha256"] = sha256(receipts.read_bytes()).hexdigest()
+    path.write_text(json.dumps(doc))
+    with pytest.raises(ManifestBlocked, match="SOURCE_AND_RECEIPT_CLOCK_MISMATCH"):
         run_synthetic_fixture_study(path, input_root=root, market_root=root, cache_root=cache)
 
 

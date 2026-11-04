@@ -15,7 +15,9 @@ certificate. See [baseline](OFFLINE-PIT-BASELINE-20261104.md) and
 | `pm_offline_market` | Native day Parquet SHA; exact namespace + minute join; prior completed bar volume; ex-post volume separate | Source market-day manifest reconciliation; resource-bounded hot partitions; full minute MTM; source calendar/session |
 | `pm_offline_cache` | Owner-private immutable SHA object keys, fsync hardlink sealed metadata, error on corruption, content-sensitive dependencies and size/disk floor | Actual compiled tape/market worker integration, restart process fault/memory benchmark |
 | `pm_offline_account` | Fixture-only sequential PM-03 Decimal Account, PM-03 classifier/execute_targets, source-equity sizing, frozen per-manager intents, funding, minute marks, gross-before-net veto, exact first target/breach times and PM03 snapshot SHA | Real source/native bars/funding/contract receipts and multi-day persistent account/restart audit |
-| `pm_offline_certification` | Synthetic-only PM-03 Decimal floor/target probe with inclusive equality and SCREEN_ONLY prevention, UNKNOWN/AMBIGUOUS for missing sources/marks/funding or nonconfirmed terms | Real qualified source and exact-price/funding path before any real financial verdict |
+| `pm_offline_certification` | Synthetic PM-03 Decimal exact inclusive floor/target verdict; SCREEN_ONLY never PASS; censor/unfilled residual and missing source/rulebook evidence UNKNOWN/AMBIGUOUS | Real qualified source and executable cost/funding paths before any real financial verdict |
+| `pm_offline_intents`, `pm_offline_receipts` | Causal whole-account opening and per-fill eligible last-book intent, true as-of source equity at execution, source-ID/clock-matched SHA-local prospective fixture receipts | Receipt presence alone is not an external attestation; real 94-wallet inputs lack signed independent NAV/receipt evidence |
+| `pm_offline_job` | Single manifest-to-report CLI for sealed complete synthetic PM-03 fixtures or real historical oracle SCREEN_ONLY; immutable report SHA and typed scenario-level BLOCKED/PARTIAL | No REAL financial PASS/BREACH/alpha path from historical vendor fills |
 
 The PM-03 fixture adapter uses `Account`, `evaluate`, `mark`, `verify`, and
 `execute_targets` from the existing PM-03 modules; it is not a competing
@@ -25,9 +27,7 @@ and its source fixture completeness flag is not an independent attestation.
 The new `pm_offline_sweep` CLI runs only explicitly marked synthetic
 fixture studies, with read-only SHA-pinned native data and sealed scenario
 cache, versioned source/risk/cost manifests, 3-/5-wallet stress, five delays,
-and bounded 1-/2-worker replay. It refuses nonflat initial source books and
-cross-DEX same-manager books without independently verified consolidated
-admission evidence. It is **not** a 90-day real-data replay runner.
+and bounded 1-/2-worker replay. It accepts nonflat **independently specified** opening books only with complete leader marks and source-equity as-of at the actual execution minute; cross-DEX same-manager books remain blocked without a consolidated admission contract. One unadmitted manager blocks only the affected scenario, not unrelated completed work. The separate `pm_offline_job` manifest-driven facade also runs the sealed 90-day real-source oracle-only screening pipeline and never certifies real follower P&L.
 
 All files are new offline-only modules. Frozen PM-01 v2, PM-03,
 PM-04, wallet registry and forward-paper modules are unmodified.

@@ -1,5 +1,33 @@
 # Architecture: evidence, manager governance, shadow account
 
+## Offline milestone #2 complete engineering vs independent science (2026-11-04)
+
+[Owner-approved engineering acceptance](OFFLINE-MILESTONE2-ENGINEERING-ACCEPTANCE-20261104.md)
+adds a single `pm_offline_job` manifest-to-report seam. It dispatches only
+(a) a sealed synthetic PM-03 Decimal scenario with exact opening whole-book
+and source-equity-as-of admission or (b) SHA-pinned real historical-oracle
+source/market alignment, which is SCREEN_ONLY.
+
+The `pm_offline_intents` compiler selects the latest *eligible entire
+source book* across instruments, not lexicographic instrument order;
+admits separately priced nonflat opening positions; enforces an equity
+observation known at the **execution** instant; and right-censors unseen
+fills. `pm_offline_receipts` checks local synthetic prospective bundle
+source identity/time equality but does **not** independently attest a
+real producer. PM-03 remains the **only** sequential cash, NAV, position,
+fee, funding, drawdown and HALT authority.
+
+One failing portfolio scenario returns `PARTIAL` with typed BLOCKED reason
+and does not poison unrelated completed scenarios. Report and input SHA
+are stable across worker counts and separate process restarts.
+A complete 90-day read-only real-data run produced report SHA
+`3141e4acb2df842025f880403d9dd4be2702c6811917bcb7949546dbdc6cbd1a`
+with `financial_status=BLOCKED_MISSING_ATOMIC_BOOK_ASOF_NAV_AND_REAL_FIRST_KNOWN`.
+This is a successful engineering SCREEN_ONLY outcome, **not** historical
+follower economics or science. Offline per-fill delay remains separate
+from Forward-Paper first-event non-resetting T+300s.
+
+
 **Scope:** the mainline research architecture, updated during the 2026-11-01 PR17 recovery; see [the dated disposition](RECOVERY-DISPOSITION-2026-11-01.md) for exact commits and verification. This repository was history-filtered from `hyperliquid-expert-ensemble` (see [PROVENANCE](PROVENANCE.md)). It is **not** the production wallet tracker or Telegram consensus engine. Its research code must never import a live broker/order gateway. Read [INDEX](INDEX.md) first.
 
 ## Private registry boundary (2026-11-04, partial implementation)

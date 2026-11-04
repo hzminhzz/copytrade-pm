@@ -23,9 +23,10 @@ from .pm03_execution import CostModel
 from .pm03_risk import RiskPolicy
 from .pm_offline_account import replay_fixture
 from .pm_offline_cache import ImmutableCache
-from .pm_offline_eligibility import compile_eligible
+from .pm_offline_intents import compile_whole_book_intents
 from .pm_offline_manifest import ManifestBlocked, ManifestInvalid, Study
 from .pm_offline_market import _verified_day
+from .pm_offline_receipts import validate_receipt_bundle
 from .pm_offline_source import reconstruct_whole_books
 from .pm_shadow import VerifiedHyperliquidMinuteSource
 
@@ -61,6 +62,8 @@ def _software_sha() -> str:
         "pm_offline_manifest.py",
         "pm_offline_source.py",
         "pm_offline_eligibility.py",
+        "pm_offline_intents.py",
+        "pm_offline_receipts.py",
         "pm_offline_market.py",
         "pm_offline_account.py",
         "pm_offline_cache.py",
@@ -79,6 +82,7 @@ def _source_tape(
 ) -> tuple[dict, dict, dict]:
     expected: dict[tuple[str, str], set[str]] = {}
     account_paths: dict[tuple[str, str], tuple[str, str]] = {}
+    receipt_paths: dict[tuple[str, str], str] = {}
     for item in doc["sources"]:
         key = (item["account"], item["dex"])
         expected.setdefault(key, set()).add(item["instrument"])
@@ -86,6 +90,11 @@ def _source_tape(
         if key in account_paths and account_paths[key] != paths:
             raise ManifestBlocked("CONFLICTING_WHOLE_BOOK_PROVENANCE")
         account_paths[key] = paths
+        if clock_basis == "PROSPECTIVE_FIRST_KNOWN":
+            receipt = item["receipt_path"]
+            if key in receipt_paths and receipt_paths[key] != receipt:
+                raise ManifestBlocked("CONFLICTING_SOURCE_RECEIPT_PROVENANCE")
+            receipt_paths[key] = receipt
     by_account: dict[str, set[str]] = {}
     for account, dex in expected:
         by_account.setdefault(account, set()).add(dex)
@@ -115,6 +124,20 @@ def _source_tape(
         for field in ("first_known_at", "source_event_at"):
             if field in record:
                 record[field] = _clock(record[field])
+    for key, receipt in sorted(receipt_paths.items()):
+        anchors = [row for row in initial if (row["account"], row["dex"]) == key]
+        members = [row for row in fills if (row["account"], row["dex"]) == key]
+        if len(anchors) != 1:
+            raise ManifestBlocked("MISSING_ATOMIC_RECEIPT_OPENING_BOOK")
+        digest = validate_receipt_bundle(
+            root / receipt,
+            expected_account=key[0],
+            expected_dex=key[1],
+            initial_book=anchors[0],
+            fills=members,
+        )
+        for row in (*anchors, *members):
+            row["receipt_sha256"] = digest
     source = reconstruct_whole_books(
         fills=fills,
         initial_books=initial,
@@ -126,7 +149,30 @@ def _source_tape(
     original = {
         (row["account"], row["dex"], row["instrument"], row["event_id"]): row for row in fills
     }
-    return source, {(row["account"], row["dex"]): row["positions"] for row in initial}, original
+    opening = {}
+    for anchor in initial:
+        key = (anchor["account"], anchor["dex"])
+        known = anchor["first_known_at"]
+        available = sorted(
+            (
+                (snapshot["first_known_at"], Decimal(str(snapshot["equity"])))
+                for snapshot in equity
+                if (snapshot["account"], snapshot["dex"]) == key
+                and snapshot["first_known_at"] <= known
+            ),
+        )
+        if not available:
+            raise ManifestBlocked("INITIAL_BOOK_EQUITY_UNKNOWN_ASOF")
+        equity_known, nav = available[-1]
+        if known - equity_known > timedelta(minutes=max_age_minutes):
+            raise ManifestBlocked("STALE_INITIAL_SOURCE_EQUITY")
+        opening[key] = {
+            **anchor,
+            "first_known_basis": clock_basis,
+            "source_equity": str(nav),
+            "source_equity_known_at": equity_known,
+        }
+    return source, opening, original
 
 
 def _minute_market(
@@ -242,8 +288,6 @@ def run_synthetic_fixture_study(
         study.clock_basis,
         max_age_minutes=doc["source_equity_max_age_minutes"],
     )
-    if any(Decimal(str(q)) != 0 for book in initial.values() for q in book.values()):
-        raise ManifestBlocked("NONFLAT_INITIAL_BOOK_REQUIRES_VERIFIED_ADMISSION_TARGET")
     market, market_shas = _minute_market(doc, market_root, start=start, end=end)
     for account, dex in initial:
         expected_symbols = {
@@ -251,7 +295,7 @@ def run_synthetic_fixture_study(
             for item in doc["sources"]
             if item["account"] == account and item["dex"] == dex
         }
-        if set(initial[(account, dex)]) != expected_symbols:
+        if set(initial[(account, dex)]["positions"]) != expected_symbols:
             raise ManifestBlocked("INCOMPLETE_INITIAL_BOOK_IN_RUNNER")
     if len(scenarios) * len(study.delay_minutes) * len(market) > MAX_SCENARIO_MINUTES:
         raise ManifestBlocked("TOO_MANY_FIXTURE_SCENARIO_MINUTES")
@@ -270,8 +314,15 @@ def run_synthetic_fixture_study(
             identity = (event["account"], event["dex"], event["instrument"], event["event_id"])
             original = originals[identity]
             leader = original.get("leader_prices")
-            source_scope = initial[(event["account"], event["dex"])]
-            if not isinstance(leader, dict) or leader.keys() != source_scope.keys():
+            source_scope = initial[(event["account"], event["dex"])]["positions"]
+            if (
+                not isinstance(leader, dict)
+                or not set(leader) <= set(source_scope)
+                or any(
+                    Decimal(str(qty)) != 0 and key not in leader
+                    for key, qty in event["whole_book_after"].items()
+                )
+            ):
                 raise ManifestBlocked("MISSING_WHOLE_BOOK_LEADER_MARKS")
             source_events.append(
                 {
@@ -284,6 +335,8 @@ def run_synthetic_fixture_study(
                     "position_after": event["position_after"],
                     "leader_prices": leader,
                     "source_equity": event["source_equity"],
+                    "source_equity_known_at": event["source_equity_known_at"],
+                    "receipt_sha256": original.get("receipt_sha256"),
                     "whole_book_after": event["whole_book_after"],
                 }
             )
@@ -298,11 +351,14 @@ def run_synthetic_fixture_study(
             tape = json.loads(cached_tape)
             tape_cache_hits += 1
         else:
-            tape = compile_eligible(
+            tape = compile_whole_book_intents(
                 source_events,
+                initial,
                 delay_minutes=delay,
                 clock_basis=study.clock_basis,
-                cutoff=end - timedelta(minutes=1),
+                start=start,
+                end=end,
+                max_equity_age_minutes=doc["source_equity_max_age_minutes"],
             )
             store.publish(
                 "eligible_tape",
@@ -310,34 +366,7 @@ def run_synthetic_fixture_study(
                 version=SCHEMA,
                 content=json.dumps(tape, sort_keys=True, separators=(",", ":")).encode(),
             )
-        position: dict[tuple[str, str], dict] = {k: dict(v) for k, v in initial.items()}
-        last_leader: dict[tuple[str, str], dict] = {}
-        updates: dict[str, list] = {}
-        by_identity = {
-            (event["account"], event["dex"], event["instrument"], event["event_id"]): event
-            for event in source_events
-        }
-        for event in tape["events"]:
-            key = (event["account"], event["dex"])
-            identity = (*key, event["instrument"], event["event_id"])
-            original = by_identity[identity]
-            position[key][event["instrument"]] = event["position_after"]
-            last_leader[key] = original["leader_prices"]
-            updates.setdefault(event["execute_open_at"], []).append(
-                {
-                    "manager": event["account"],
-                    "book": {
-                        f"hyperliquid:mainnet:perp:{key[1]}:{sym}": qty
-                        for sym, qty in position[key].items()
-                    },
-                    "leader_prices": {
-                        f"hyperliquid:mainnet:perp:{key[1]}:{sym}": px
-                        for sym, px in last_leader[key].items()
-                    },
-                    "source_equity": original["source_equity"],
-                    "verified_whole_book": True,
-                }
-            )
+        updates = tape["updates"]
 
         def _run_scenario(scenario: dict) -> tuple[dict, bool]:
             # Scenario-local copies: no financial/event state shared across runs.
@@ -370,7 +399,19 @@ def run_synthetic_fixture_study(
                     }
                 )
             if not admitted:
-                raise ManifestBlocked("MISSING_COMPLETE_MANAGER_BOOK_WITHIN_WINDOW")
+                return (
+                    {
+                        "delay_minutes": delay,
+                        "scenario": scenario["id"],
+                        "status": "BLOCKED",
+                        "reason": "MISSING_COMPLETE_MANAGER_BOOK_WITHIN_WINDOW",
+                        "account_sha256": None,
+                        "equity": None,
+                        "fees": None,
+                        "breached": None,
+                    },
+                    False,
+                )
             dependencies = {
                 "manifest": study.manifest_sha256,
                 "software": software,
@@ -393,19 +434,38 @@ def run_synthetic_fixture_study(
                         costs.impact_bps_at_full_participation * multiple
                     ),
                 )
-                report = replay_fixture(
-                    rulebook=rulebook,
-                    minutes=rows,
-                    costs=stressed_costs,
-                    k_by_manager={
-                        pm: Decimal(str(k)) for pm, k in scenario["k_by_account"].items()
-                    },
-                    mode=study.mode,
-                    risk_policy=risk_policy,
-                    scenario_shocks=tuple(scenario["stress_shocks"]),
-                    hedge_break_loss=Decimal(str(scenario["hedge_break_loss"])),
-                    stressed_liquidity_loss=Decimal(str(scenario["stressed_liquidity_loss"])),
-                )
+                try:
+                    report = replay_fixture(
+                        rulebook=rulebook,
+                        minutes=rows,
+                        costs=stressed_costs,
+                        k_by_manager={
+                            pm: Decimal(str(k)) for pm, k in scenario["k_by_account"].items()
+                        },
+                        mode=study.mode,
+                        risk_policy=risk_policy,
+                        scenario_shocks=tuple(scenario["stress_shocks"]),
+                        hedge_break_loss=Decimal(str(scenario["hedge_break_loss"])),
+                        stressed_liquidity_loss=Decimal(str(scenario["stressed_liquidity_loss"])),
+                        right_censored_source=any(
+                            tape["source_right_censored_by_manager"].get(pm, 0) > 0
+                            for pm in scenario["k_by_account"]
+                        ),
+                    )
+                except ManifestBlocked as exc:
+                    return (
+                        {
+                            "delay_minutes": delay,
+                            "scenario": scenario["id"],
+                            "status": "BLOCKED",
+                            "reason": exc.code,
+                            "account_sha256": None,
+                            "equity": None,
+                            "fees": None,
+                            "breached": None,
+                        },
+                        False,
+                    )
                 store.publish(
                     "scenario",
                     dependencies,
@@ -421,6 +481,8 @@ def run_synthetic_fixture_study(
                     "equity": report["ledger"]["equity"],
                     "fees": report["ledger"]["fees"],
                     "breached": report["ledger"]["breached"],
+                    "fixture_contract_verdict": report["certification"]["verdict"],
+                    "real_contract_verdict": report["contractual_real_verdict"],
                 },
                 hit,
             )
@@ -434,9 +496,19 @@ def run_synthetic_fixture_study(
         for item, hit in evaluations:
             results.append(item)
             cache_hits += int(hit)
+    blocked = sum(row["status"] == "BLOCKED" for row in results)
+    expected = len(scenarios) * len(study.delay_minutes)
+    if len(results) != expected:
+        raise ManifestBlocked("INCOMPLETE_SCENARIO_EXECUTION_SET")
     output = {
         "schema": SCHEMA,
-        "status": "COMPLETE_SYNTHETIC_FIXTURE_ONLY",
+        "status": (
+            "PARTIAL_SYNTHETIC_FIXTURE_WITH_BLOCKERS"
+            if blocked
+            else "COMPLETE_SYNTHETIC_FIXTURE_ONLY"
+        ),
+        "completed_scenarios": expected - blocked,
+        "blocked_scenarios": blocked,
         "manifest_sha256": study.manifest_sha256,
         "source_tape_sha256": source["sha256"],
         "market_day_shas": market_shas,
@@ -445,7 +517,7 @@ def run_synthetic_fixture_study(
         "cache_hits": cache_hits,
         "tape_cache_hits": tape_cache_hits,
         "workers_used": workers,
-        "requested_scenarios": len(scenarios) * len(study.delay_minutes),
+        "requested_scenarios": expected,
         "financial_certified_real": False,
         "scientifically_qualified": False,
         "broker_authorized": False,

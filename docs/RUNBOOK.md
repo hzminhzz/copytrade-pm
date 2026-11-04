@@ -1,5 +1,56 @@
 # Research operator runbook — verified CLI sequence
 
+## Offline Polars 2.x Milestone #2 public job (owner-approved engineering Option A, 2026-11-04)
+
+[Two-track engineering vs science acceptance](OFFLINE-MILESTONE2-ENGINEERING-ACCEPTANCE-20261104.md)
+is authoritative for the draft [PR #92](https://github.com/hzminhzz/copytrade-pm/pull/92).
+The new **single manifest-to-results** CLI is:
+
+```bash
+uv run --extra market --group dev python -m copytrade_pm.pm_offline_job \
+  docs/OFFLINE-HL94-ORACLE-JOB-20261104.json \
+  --input-root docs \
+  --source-root /home/quant/dev/copytrade-pm/data \
+  --market-root /home/quant/dev/quant/ml4t-data/.data/store \
+  --cache-root /home/quant/.cache/copytrade-polars-oracle-dev-20261104
+```
+
+The above concrete 90-day **real local source** invocation was run, not just documented:
+450,172 supported historical fills, 377,130 five-delay batch observations,
+322,970 SHA-native 1m prior-volume matches, and immutable report
+`3141e4acb2df842025f880403d9dd4be2702c6811917bcb7949546dbdc6cbd1a`.
+It intentionally returns `COMPLETE_HISTORICAL_ORACLE_SCREEN_ONLY`,
+`financial_status=BLOCKED_MISSING_ATOMIC_BOOK_ASOF_NAV_AND_REAL_FIRST_KNOWN`,
+`scientifically_qualified=false`. It **never** asserts actual historical
+follower P&L or prospective first-known event clocks.
+
+For account finance, use a **sealed synthetic fixture** as the nested manifest
+with `kind=SEALED_SYNTHETIC_PM03` plus exact `study_manifest_sha256`,
+`delays_minutes=[0,1,2,5,10]`, `clock_basis` and a stable `study_id`.
+The nested study must pin book/equity/receipt (if prospective fixture),
+rulebook/cost/risk and native-day `data.parquet` and `source.json` hashes.
+Valid independently specified *non-flat* opening books are accepted if fully
+priced and source NAV is actually as-of; unpriced hedge legs are **BLOCKED**.
+One manager without admission blocks only its scenario; independent scenarios
+return their separate completed hashes. The CLI report's `financial_status`
+remains `SYNTHETIC_PM03_FIXTURE_ONLY`; a fixture contract PASS/BREACH is not
+real prop performance. Both routes use a single immutable, private cache.
+
+Run the full suite before issue closure:
+
+```bash
+uv run --group dev python -m pytest -q tests
+uv run --extra market --group dev python -m pytest -q tests
+uv run --group dev ruff check src tests
+uv run --group dev ruff format --check src tests
+uv build --offline
+```
+
+All original wallet files, market lake partitions, frozen PM-01 36 wallets and
+Forward-Paper T+300s scheduler remain unmodified. No orders, merges,
+protected service restarts or deployments are authorized.
+
+
 **Scope:** the installed `copytrade-pm/main` commands checked against source/`--help` on 2026-10-31. Operations are offline by default; explicitly flagged acquisition commands can call paid/rate-limited vendors. **No live trading authority.** Begin with [INDEX](INDEX.md); for wallet fill acquisition and exact market sources read [DATA-ACQUISITION](DATA-ACQUISITION.md).
 
 ## Research portfolio selection and private registry (2026-11-04)
