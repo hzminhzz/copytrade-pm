@@ -11,6 +11,14 @@ CLI provides read-only wallet, portfolio, paper and aggregate status adapters;
 research enumeration remains explicitly unknown without an authoritative run
 catalog. Original commands remain the owners.
 
+The 5 November extension supports *scoped* research discovery using the actual
+immutable job cache, plus private wallet inventory and independent release/
+paper-unit inspection; use `copytrade-pm wallets list --cohort research-108`,
+`copytrade-pm research list --cache-root PRIVATE_CACHE` and `copytrade-pm
+health`. The research listing is NOT a global all-study catalog. See
+[the acceptance record](AGENT-OPERATIONS-P1-ACCEPTANCE-20261105.md) and
+[operator guide](AGENT-NATIVE-OPERATIONS.md).
+
 
 ## Offline Polars 2.x Milestone #2 public job (owner-approved engineering Option A, 2026-11-04)
 

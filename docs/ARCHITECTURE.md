@@ -9,6 +9,11 @@ PM-03 for finance, prospective journal/heartbeat for paper, Polars job for
 research, and installed Git/release tooling for respective observations.
 No new database or financial authority is introduced. Unavailable runtime
 sources are explicitly `UNKNOWN`; a research selection is never worker state.
+The 5 November extension implements a private address-redacted wallet listing
+in the existing registry catalog, SHA-verifies canonical immutable Polars
+job reports within an explicitly scoped cache root, and delegates installed
+release/observer validation to their owners. Systemd unit inspection is
+OS evidence only, never protected worker admission.
 
 
 ## Offline milestone #2 complete engineering vs independent science (2026-11-04)

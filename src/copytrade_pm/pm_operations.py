@@ -8,7 +8,7 @@ writer or obtains broker access. Missing authorities are explicit UNKNOWN.
 from __future__ import annotations
 
 import argparse
-from contextlib import redirect_stdout
+from contextlib import closing, redirect_stdout
 from datetime import UTC, datetime
 import io
 import json
@@ -17,7 +17,10 @@ import subprocess
 import sqlite3
 
 from . import pm_capabilities as capabilities
+from . import pm_runtime_readonly as runtime
 from . import wallet_registry as registry
+from . import wallet_registry_catalog as catalog
+from .pm_offline_job_catalog import list_reports
 
 SCHEMA = "copytrade_read_result_v1"
 ROOT = Path(__file__).resolve().parents[2]
@@ -180,17 +183,18 @@ def _git(root: Path) -> dict:
     return {"revision": proc.stdout.strip()}
 
 
-def _release() -> dict:
-    """Only the existing pinned-release verification is authoritative."""
-    # Existing release verifier uses owner-private lock management; do not
-    # cause a lock file write from an operational query. Report unknown here
-    # until a truly non-mutating installed-state reader is available.
+def _release(root: Path) -> dict:
+    checked = runtime.installed_release(root)
     return result(
         "release.installed",
-        "UNKNOWN",
-        authority="registry_release",
-        error_code="RELEASE_VERIFY_IS_SEPARATE_OPERATION",
-        limitations=["Run the existing scripts/registry_release.py verify explicitly"],
+        checked["state"],
+        checked,
+        authority="registry_release_verifier",
+        version=checked.get("release_revision"),
+        error_code=checked.get("error_code"),
+        limitations=[
+            "Only the pinned owner-private registry, not paper or broker services, was verified"
+        ],
     )
 
 
@@ -217,23 +221,92 @@ def _paper(db: Path) -> dict:
     return observed
 
 
-def _research(capability: str, run_id: str | None = None) -> dict:
-    # No canonical enumerated research-run read API is registered yet;
-    # scanning arbitrary files would synthesize a second untrusted catalog.
-    return result(
-        capability,
-        "UNKNOWN",
-        authority="immutable_research_artifacts",
-        error_code="RESEARCH_RUN_CATALOG_NOT_AVAILABLE",
-        limitations=[
-            "No owner-backed run enumeration; do not confuse offline job manifests with executed runs",
-            "Use the existing pm_offline_job interface for an explicitly provided sealed job",
-        ],
-        data={"run_id": run_id, "native_interface": "python -m copytrade_pm.pm_offline_job --help"},
-    )
+def _wallets(db: Path, args: argparse.Namespace) -> dict:
+    try:
+        generation = _generation(db)
+        cutoff = registry.asof_cutoff(args.asof)
+        with closing(registry.connect(db, False)) as con:
+            payload = catalog.list_wallets(
+                con,
+                cutoff,
+                query=args.query,
+                cohort=args.cohort,
+                excluded=args.excluded,
+                subscribed=args.subscribed,
+                limit=args.limit,
+                offset=args.offset,
+            )
+        return result(
+            "wallet.list",
+            "VERIFIED" if generation["status"] == "CURRENT" else "STALE",
+            payload,
+            authority="wallet_registry",
+            version="sqlite_v8",
+            sha256=generation["sha"],
+            source_observed_at=generation["observed_at"],
+            limitations=[
+                "Indexed wallet attributes are source snapshots, not real-time equity or first-known trade receipts",
+                "Run registry doctor separately for live source parity",
+            ],
+        )
+    except (ValueError, OSError, RuntimeError, sqlite3.Error, KeyError, TypeError) as exc:
+        return result(
+            "wallet.list",
+            "UNKNOWN",
+            authority="wallet_registry",
+            error_code="WALLET_INVENTORY_READ_FAILED",
+            limitations=[type(exc).__name__],
+        )
 
 
-def _health(db: Path, root: Path) -> dict:
+def _research(
+    capability: str,
+    run_id: str | None = None,
+    *,
+    cache_root: Path | None = None,
+    cache_key: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> dict:
+    if cache_root is None:
+        return result(
+            capability,
+            "UNKNOWN",
+            authority="immutable_offline_job_cache",
+            error_code="EXPLICIT_RESEARCH_CACHE_ROOT_REQUIRED",
+            limitations=["No canonical global research index; supply the exact private cache root"],
+            data={"native_interface": "python -m copytrade_pm.pm_offline_job --help"},
+        )
+    try:
+        payload = list_reports(
+            cache_root,
+            job_id=run_id,
+            cache_key=cache_key,
+            limit=limit,
+            offset=offset,
+        )
+        state = "VERIFIED" if payload["status"] == "VERIFIED" else "UNKNOWN"
+        return result(
+            capability,
+            state,
+            payload,
+            authority="sha_verified_immutable_offline_job_cache",
+            error_code=None if state == "VERIFIED" else "NO_MATCHING_CANONICAL_JOB_REPORT",
+            limitations=[
+                "Scoped to one explicitly provided cache; other research sources are not inventoried"
+            ],
+        )
+    except (ValueError, OSError, TypeError, KeyError) as exc:
+        return result(
+            capability,
+            "BLOCKED",
+            authority="sha_verified_immutable_offline_job_cache",
+            error_code="RESEARCH_CACHE_INTEGRITY_OR_SCOPE_FAILURE",
+            limitations=[str(exc) if isinstance(exc, ValueError) else type(exc).__name__],
+        )
+
+
+def _health(db: Path, root: Path, observer_root: Path | None = None) -> dict:
     parts: dict[str, dict] = {}
     try:
         parts["repository"] = result(
@@ -255,12 +328,26 @@ def _health(db: Path, root: Path) -> dict:
     parts["selection"] = _read_registry(db, ["portfolio", "--current"], "portfolio.current")
     parts["paper"] = _paper(db)
     parts["research"] = _research("research.list")
-    parts["installed_release"] = _release()
+    parts["installed_release"] = _release(root)
+    paper_os = runtime.paper_unit_inventory()
+    parts["paper_units"] = result(
+        "paper.os_units",
+        paper_os["state"],
+        paper_os,
+        authority="systemd_user_service_manager",
+        error_code=paper_os.get("error_code"),
+        limitations=["Unit activity is not protected journal/heartbeat attestation"],
+    )
+    observed_market = runtime.observer_market_health(observer_root)
     parts["market_provider"] = result(
-        "market.health",
-        "UNKNOWN",
-        authority="native_market_provider",
-        error_code="NO_INDEPENDENT_MARKET_HEALTH_OBSERVATION",
+        "market.observer_tapes",
+        observed_market["state"],
+        observed_market,
+        authority="independent_public_observer",
+        error_code=observed_market.get("error_code"),
+        limitations=[
+            "Observer quote receipts never establish live provider health or executable capacity"
+        ],
     )
     parts["scientific_qualification"] = result(
         "qualification.science",
@@ -300,13 +387,7 @@ def dispatch(args: argparse.Namespace) -> dict:
     if args.group == "wallets":
         if args.verb == "show":
             return _read_registry(db, ["wallet", "--alias", args.id], "wallet.lookup", args.asof)
-        return result(
-            "wallet.list",
-            "UNKNOWN",
-            authority="wallet_registry",
-            error_code="NO_UNREDACTED_WALLET_LIST_SURFACE",
-            limitations=["Use the registry's cohort and alias operations"],
-        )
+        return _wallets(db, args)
     if args.group == "portfolios":
         if args.verb == "list":
             return _read_registry(db, ["portfolio"], "portfolio.list", args.asof)
@@ -314,10 +395,17 @@ def dispatch(args: argparse.Namespace) -> dict:
             return _read_registry(db, ["portfolio", "--current"], "portfolio.current", args.asof)
         return _read_registry(db, ["portfolio", args.id], "portfolio.show", args.asof)
     if args.group == "research":
-        return _research("research." + args.verb, getattr(args, "id", None))
+        return _research(
+            "research." + args.verb,
+            getattr(args, "id", None),
+            cache_root=args.cache_root,
+            cache_key=args.cache_key,
+            limit=args.limit,
+            offset=args.offset,
+        )
     if args.group == "paper":
         return _paper(db)
-    return _health(db, args.root)
+    return _health(db, args.root, args.observer_state_root)
 
 
 def parser() -> argparse.ArgumentParser:
@@ -327,6 +415,7 @@ def parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--db", type=Path, default=registry.DB)
     p.add_argument("--root", type=Path, default=ROOT)
+    p.add_argument("--observer-state-root", type=Path)
     top = p.add_subparsers(dest="group", required=True)
     cap = top.add_parser("capabilities")
     sub = cap.add_subparsers(dest="verb", required=True)
@@ -351,6 +440,18 @@ def parser() -> argparse.ArgumentParser:
                 operation.add_argument("id")
             if domain in ("wallets", "portfolios"):
                 operation.add_argument("--asof")
+            if domain == "wallets" and op == "list":
+                operation.add_argument("--query")
+                operation.add_argument("--cohort")
+                operation.add_argument("--excluded", action=argparse.BooleanOptionalAction)
+                operation.add_argument("--subscribed", action=argparse.BooleanOptionalAction)
+                operation.add_argument("--limit", type=int, default=100)
+                operation.add_argument("--offset", type=int, default=0)
+            if domain == "research":
+                operation.add_argument("--cache-root", type=Path)
+                operation.add_argument("--cache-key")
+                operation.add_argument("--limit", type=int, default=100)
+                operation.add_argument("--offset", type=int, default=0)
     top.add_parser("status")
     top.add_parser("health")
     return p

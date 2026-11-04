@@ -12,6 +12,7 @@ import pytest
 
 from copytrade_pm import pm_capabilities as cap
 from copytrade_pm import pm_operations as ops
+from copytrade_pm import pm_runtime_readonly as runtime
 from copytrade_pm import wallet_registry as reg
 from copytrade_pm import wallet_registry_catalog as catalog
 from test_wallet_registry_catalog import _v2_snapshot, AFTER, BEFORE
@@ -104,7 +105,11 @@ def test_asof_wallet_and_unknown_vs_error(tmp_path: Path) -> None:
     assert absent["data"] is None
 
 
-def test_aggregate_partial_failure_preserves_known_revision(tmp_path: Path) -> None:
+def test_aggregate_partial_failure_preserves_known_revision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(runtime, "installed_release", lambda _root: {"state": "UNKNOWN"})
+    monkeypatch.setattr(runtime, "paper_unit_inventory", lambda: {"state": "UNKNOWN"})
     state = ops._health(tmp_path / "missing.sqlite", ROOT)
     components = state["data"]["components"]
     assert state["status"] == "DEGRADED"
