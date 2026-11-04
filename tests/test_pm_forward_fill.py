@@ -5,7 +5,7 @@ from decimal import Decimal as D
 
 import pytest
 
-from copytrade_pm.pm03_account import Instrument
+from copytrade_pm.pm03_account import Instrument, digest
 from copytrade_pm.pm_forward_journal import PaperJournal
 from copytrade_pm.pm_forward_paper import PaperCampaign
 from test_pm_forward_journal import T, manifest
@@ -13,8 +13,35 @@ from test_pm_forward_journal import T, manifest
 BTC = Instrument("hyperliquid", "mainnet:perp:default", "BTC")
 
 
+def _source_book() -> dict:
+    book = {
+        "schema": "paper_source_book_v1",
+        "wallet_id": "fixture_wallet",
+        "account_id": "fixture_account",
+        "snapshot_kind": "ATOMIC_WHOLE_ACCOUNT",
+        "account_scope_complete": True,
+        "hedges_complete": True,
+        "spot_scope_known": True,
+        "vault_scope_known": True,
+        "margin_mode": "CROSS",
+        "dex_census": ["mainnet:perp:default"],
+        "observed_dexes": ["mainnet:perp:default"],
+        "subaccounts": [],
+        "observed_subaccounts": [],
+        "source_event_at": T,
+        "first_known_at": T,
+        "source_equity": "20000",
+        "collateral_denominator": "account_equity",
+        "collateral_value": "10000",
+        "positions": {BTC.key: "2"},
+        "synthetic_fixture": True,
+    }
+    return {**book, "snapshot_sha": digest(book)}
+
+
 def _decision() -> dict:
     return {
+        "source_book": _source_book(),
         "kind": "SIMULATED_DECISION",
         "event_at": T,
         "hypothetical_fill_at": "2026-11-04T04:00:02+00:00",

@@ -6,7 +6,7 @@ no exchange transport or shared registry database.
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
 import fcntl
 import json
@@ -114,6 +114,20 @@ class PaperJournal:
                 raise ValueError("PAPER_WRONG_EVIDENCE_CLASS")
             if event.get("order_route") != "NONE":
                 raise ValueError("PAPER_ORDER_ROUTE_FORBIDDEN")
+            from .pm_forward_admission import admit_source_book
+
+            admission = admit_source_book(
+                event.get("source_book"),
+                decision_at=event["event_at"],
+                fill_at=event["hypothetical_fill_at"],
+            )
+            if not admission.admitted:
+                account.risk = RiskState.RED
+                account.risk_reasons = admission.reason_codes
+                return {
+                    "status": "BLOCKED_SOURCE",
+                    "reason_codes": list(admission.reason_codes),
+                }
             if event.get("fixture_attested") is not True:
                 raise ValueError("PAPER_SOURCE_ADMISSION_MISSING")
             if not account.rulebook.confirmed:
@@ -353,3 +367,24 @@ class PaperJournal:
     def restore(self, run_id: str) -> dict:
         with self._writer() as db:
             return self._verify(db, run_id)
+
+    def backup(self, destination: Path) -> dict[str, str]:
+        """Create one exclusive private SQLite online backup; never overwrite."""
+        destination = Path(destination)
+        if destination.resolve() == self.root.resolve():
+            raise ValueError("PAPER_BACKUP_SELF_OVERWRITE")
+        destination.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if destination.is_symlink() or destination.stat().st_mode & 0o077:
+            raise ValueError("PAPER_BACKUP_DIRECTORY_NOT_PRIVATE")
+        target = destination / "paper-events.sqlite3"
+        fd = os.open(target, os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_WRONLY, 0o600)
+        os.close(fd)
+        with self._writer() as source:
+            with closing(sqlite3.connect(target)) as copied:
+                source.backup(copied)
+                if copied.execute("PRAGMA integrity_check").fetchone() != ("ok",):
+                    raise ValueError("PAPER_BACKUP_INTEGRITY_FAILED")
+        recovered = PaperJournal(destination)
+        with self._writer() as source:
+            run_ids = [row[0] for row in source.execute("SELECT run_id FROM runs")]
+        return {run_id: recovered.restore(run_id)["journal_head_sha"] for run_id in run_ids}

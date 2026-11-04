@@ -78,6 +78,21 @@ def test_refused_event_does_not_commit_and_late_event_refused(tmp_path) -> None:
     assert j.restore("run_1")["cursor"] == 1
 
 
+def test_verified_online_backup_restore_and_exclusive_destination(tmp_path) -> None:
+    original = PaperJournal(tmp_path / "paper")
+    original.register(manifest("run_1", "acct_1"))
+    event = {"kind": "HALT", "event_at": LATER, "reason": "backup"}
+    original.append("run_1", "halt", event)
+    heads = original.backup(tmp_path / "backup")
+    copied = PaperJournal(tmp_path / "backup")
+    assert heads["run_1"] == original.restore("run_1")["journal_head_sha"]
+    assert copied.restore("run_1") == original.restore("run_1")
+    with pytest.raises(FileExistsError):
+        original.backup(tmp_path / "backup")
+    with pytest.raises(ValueError, match="PAPER_BACKUP_SELF_OVERWRITE"):
+        original.backup(original.root)
+
+
 def test_tampering_detected_and_dir_private(tmp_path) -> None:
     j = PaperJournal(tmp_path / "paper")
     j.register(manifest("run_1", "acct_1"))
