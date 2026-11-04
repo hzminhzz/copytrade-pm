@@ -29,6 +29,7 @@ def paper_operator_status(
     source_snapshot_at: str | None = None,
     market_quote_at: str | None = None,
     last_wallet_trade_at: str | None = None,
+    heartbeat_root: Path | None = None,
 ) -> dict:
     now = clock(as_of)
 
@@ -69,6 +70,34 @@ def paper_operator_status(
     if state["account"]["risk"] == "HALT":
         health = "HALT"
         reasons.append("PM03_HALT_LATCHED")
+    observer = None
+    if heartbeat_root is not None:
+        from .pm_forward_heartbeat import inspect_observer_heartbeat
+
+        class ReadOnlyJournalView:
+            path = Path(db_path)
+
+            def restore(self, selected_run: str) -> dict:
+                ro_uri = "file:" + str(self.path.resolve()) + "?mode=ro"
+                with closing(sqlite3.connect(ro_uri, uri=True, timeout=0)) as conn:
+                    conn.execute("PRAGMA query_only=ON")
+                    return PaperJournal._verify(conn, selected_run)
+
+        observer = inspect_observer_heartbeat(
+            heartbeat_root,
+            journal=ReadOnlyJournalView(),
+            run_id=run_id,
+            as_of=as_of,
+        )
+        if observer["health"] == "UNKNOWN" and health != "HALT":
+            health = "UNKNOWN"
+            reasons = list(dict.fromkeys(reasons + observer["reasons"]))
+        elif observer["health"] == "HALT":
+            health = "HALT"
+            reasons = list(dict.fromkeys(reasons + observer["reasons"]))
+        else:
+            health = "DEGRADED" if health != "HALT" else "HALT"
+            reasons = list(dict.fromkeys(reasons + observer["reasons"]))
     free = shutil.disk_usage(Path(db_path).parent).free
     return {
         "schema": "paper_operator_status_v1",
@@ -93,6 +122,7 @@ def paper_operator_status(
         "disk_free_bytes": free,
         "scientifically_qualified": False,
         "real_worker_evidence": False,
+        "independent_observer_evidence": observer,
     }
 
 
@@ -100,11 +130,17 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Read-only local paper status")
     parser.add_argument("--db", type=Path, required=True)
     parser.add_argument("--run-id", required=True)
+    parser.add_argument("--heartbeat-root", type=Path)
     parser.add_argument("--as-of", default=datetime.now().astimezone().isoformat())
     args = parser.parse_args()
     print(
         json.dumps(
-            paper_operator_status(args.db, run_id=args.run_id, as_of=args.as_of),
+            paper_operator_status(
+                args.db,
+                run_id=args.run_id,
+                as_of=args.as_of,
+                heartbeat_root=args.heartbeat_root,
+            ),
             sort_keys=True,
             indent=2,
         )
