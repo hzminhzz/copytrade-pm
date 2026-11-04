@@ -17,7 +17,7 @@ import re
 from time import monotonic
 from typing import Any, Callable
 
-from .pm_e4_prospective import MAX_BODY, WS_URL, _guarded_info
+from .pm_e4_prospective import MAX_BODY, WS_URL, _guarded_info, _subaccount_roster
 from .pm_forward_journal import PaperJournal
 from .pm_forward_source_observation import append_public_scope, read_public_all_dex_scope
 
@@ -142,6 +142,83 @@ async def bounded_source_scope_capture(
     )
     results["source_cursor"] = journal.source_status(alias)["cursor"]
     return results
+
+
+async def bounded_source_family_capture(
+    *,
+    alias: str,
+    parent_address: str,
+    journal: PaperJournal,
+    seconds_per_account: float = 5,
+    max_frames: int = 10,
+    info: Callable = _guarded_info,
+    connect: Callable[..., Any] | None = None,
+    now: Callable[[], str] = lambda: datetime.now(UTC).isoformat(),
+) -> dict:
+    """Inspect parent and discovered subaccounts sequentially, never claim atomic NAV.
+
+    A subaccount roster is point-in-time metadata, not an immutable guarantee
+    against newly created or removed accounts while this sweep is running.
+    Different account WS receipts have different receive clocks; combining
+    their collateral or hedge positions into a synthetic NAV is forbidden.
+    """
+    if ADDRESS.fullmatch(parent_address) is None:
+        raise ValueError("SOURCE_PUBLIC_WALLET_ADDRESS_INVALID")
+    roster_raw, _, roster_sha = await asyncio.to_thread(
+        info, {"type": "subAccounts", "user": parent_address}
+    )
+    subs = _subaccount_roster(roster_raw, parent_address)
+    addresses = [parent_address, *subs]
+    observations = []
+    for index, address in enumerate(addresses):
+        subject = "PARENT" if index == 0 else "SUBACCOUNT"
+        try:
+            result = await bounded_source_scope_capture(
+                alias=alias,
+                address=address,
+                journal=journal,
+                seconds=seconds_per_account,
+                max_frames=max_frames,
+                info=info,
+                connect=connect,
+                now=now,
+            )
+            observations.append(
+                {
+                    "subject": subject,
+                    "account_address_sha256": result["account_address_sha256"],
+                    "transport_status": result["transport_status"],
+                    "partial_receipts": result["per_account_receipts"],
+                    "errors": result["errors"],
+                }
+            )
+        except Exception as exc:
+            observations.append(
+                {
+                    "subject": subject,
+                    "account_address_sha256": sha256(address.lower().encode()).hexdigest(),
+                    "transport_status": "BLOCKED_SOURCE_ACQUISITION",
+                    "partial_receipts": 0,
+                    "errors": [type(exc).__name__ + ":" + str(exc)[:130]],
+                }
+            )
+    return {
+        "schema": "paper_public_family_bounded_capture_v1",
+        "wallet_alias": alias,
+        "parent_address_sha256": sha256(parent_address.lower().encode()).hexdigest(),
+        "subaccount_discovery_sha256": roster_sha,
+        "discovered_subaccount_count": len(subs),
+        "expected_account_count": len(addresses),
+        "observed_account_count": sum(x["partial_receipts"] > 0 for x in observations),
+        "accounts": observations,
+        "source_cursor": journal.source_status(alias)["cursor"],
+        "parent_subaccount_census_atomic": False,
+        "whole_wallet_equity_attested": False,
+        "spot_vault_collateral_reconciled": False,
+        "status": "BLOCKED_INCOMPLETE_WHOLE_WALLET",
+        "paper_observed": False,
+        "order_route": "NONE",
+    }
 
 
 def main() -> None:

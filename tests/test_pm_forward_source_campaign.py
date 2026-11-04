@@ -11,6 +11,58 @@ from test_pm_forward_registry_identity import prepare
 from test_pm_forward_source_stream import FakeSocket
 
 
+def test_p1_opt_in_family_capture_preserves_missing_child_scope(tmp_path):
+    async def run():
+        registry, primary, secondary = prepare(tmp_path)
+        journal = PaperJournal(tmp_path / "paper")
+        import json
+
+        addresses = [
+            json.loads(next(primary.glob(alias + "_0x*.json")).read_text())["address"]
+            for alias in ("S035-ENA", "S051-BTC", "S053-HYPE")
+        ]
+        child = "0x" + "f" * 40
+        sockets = []
+        for addr in (addresses[0], child, addresses[1], addresses[2]):
+            book = deepcopy(sample_state())
+            book["user"] = addr
+            sockets.append(FakeSocket([{"channel": "allDexsClearinghouseState", "data": book}]))
+
+        def info(payload):
+            if payload["type"] == "perpDexs":
+                return [None, {"name": "xyz"}], b"cat", "a" * 64
+            if payload["user"].lower() == addresses[0].lower():
+                return [{"master": addresses[0], "subAccountUser": child}], b"subs", "b" * 64
+            return None, b"none", "c" * 64
+
+        report = await observe_frozen_portfolio_readonly(
+            portfolio_id="P1",
+            registry_db=registry,
+            primary_dir=primary,
+            secondary_dir=secondary,
+            journal=journal,
+            seconds_per_wallet=2,
+            max_frames=1,
+            include_subaccounts=True,
+            info=info,
+            connect=lambda *_args, **_kwargs: sockets.pop(0),
+            now=lambda: (
+                datetime.fromtimestamp(1793294400, UTC) + timedelta(seconds=2)
+            ).isoformat(),
+        )
+        assert report["status"] == "BLOCKED_OBSERVATION_ONLY_NO_TRADE"
+        assert report["all_parent_books_complete"] is False
+        assert report["whole_wallet_equity_attested"] is False
+        assert report["partial_account_observations"][0]["expected_account_count"] == 2
+        assert report["partial_account_observations"][0]["observed_account_count"] == 2
+        assert report["partial_account_observations"][0]["partial_receipts"] == 2
+        assert journal.source_status("S035")["cursor"] == 2
+        assert journal.source_status("S035")["paper_admitted"] is False
+        assert not sockets
+
+    asyncio.run(run())
+
+
 def test_p1_observes_three_parent_accounts_without_membership_or_pnl_mutation(tmp_path):
     async def run():
         registry, primary, secondary = prepare(tmp_path)

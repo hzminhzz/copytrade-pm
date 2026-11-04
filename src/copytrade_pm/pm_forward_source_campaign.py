@@ -22,7 +22,10 @@ from .pm_forward_registry_identity import (
     _private_locator,
     audit_frozen_member_resolution,
 )
-from .pm_forward_source_stream import bounded_source_scope_capture
+from .pm_forward_source_stream import (
+    bounded_source_family_capture,
+    bounded_source_scope_capture,
+)
 from .pm_e4_prospective import _guarded_info
 
 _ALIAS = {
@@ -43,6 +46,7 @@ async def observe_frozen_portfolio_readonly(
     journal: PaperJournal,
     seconds_per_wallet: float = 8,
     max_frames: int = 10,
+    include_subaccounts: bool = False,
     info: Callable = _guarded_info,
     connect: Callable[..., Any] | None = None,
     now: Callable[[], str] = lambda: datetime.now(UTC).isoformat(),
@@ -63,27 +67,56 @@ async def observe_frozen_portfolio_readonly(
         )
         alias = _ALIAS[member]
         try:
-            capture = await bounded_source_scope_capture(
-                alias=alias,
-                address=address,
-                journal=journal,
-                seconds=seconds_per_wallet,
-                max_frames=max_frames,
-                info=info,
-                connect=connect,
-                now=now,
-            )
-            attempts.append(
-                {
-                    "member": member,
-                    "status": capture["transport_status"],
-                    "frames_received": capture["frames_received"],
-                    "partial_receipts": capture["per_account_receipts"],
-                    "source_cursor": capture["source_cursor"],
-                    "errors": capture["errors"],
-                    "whole_wallet_equity_attested": False,
-                }
-            )
+            if include_subaccounts:
+                capture = await bounded_source_family_capture(
+                    alias=alias,
+                    parent_address=address,
+                    journal=journal,
+                    seconds_per_account=seconds_per_wallet,
+                    max_frames=max_frames,
+                    info=info,
+                    connect=connect,
+                    now=now,
+                )
+                attempts.append(
+                    {
+                        "member": member,
+                        "status": capture["status"],
+                        "account_observations": capture["accounts"],
+                        "expected_account_count": capture["expected_account_count"],
+                        "observed_account_count": capture["observed_account_count"],
+                        "partial_receipts": sum(
+                            item["partial_receipts"] for item in capture["accounts"]
+                        ),
+                        "source_cursor": capture["source_cursor"],
+                        "errors": [
+                            error for item in capture["accounts"] for error in item["errors"]
+                        ],
+                        "whole_wallet_equity_attested": False,
+                    }
+                )
+            else:
+                capture = await bounded_source_scope_capture(
+                    alias=alias,
+                    address=address,
+                    journal=journal,
+                    seconds=seconds_per_wallet,
+                    max_frames=max_frames,
+                    info=info,
+                    connect=connect,
+                    now=now,
+                )
+                attempts.append(
+                    {
+                        "member": member,
+                        "status": capture["transport_status"],
+                        "frames_received": capture["frames_received"],
+                        "partial_receipts": capture["per_account_receipts"],
+                        "source_cursor": capture["source_cursor"],
+                        "errors": capture["errors"],
+                        "whole_wallet_equity_attested": False,
+                    }
+                )
         except Exception as exc:
             attempts.append(
                 {
@@ -122,6 +155,7 @@ def main() -> None:
     parser.add_argument("--state-root", required=True, type=Path)
     parser.add_argument("--seconds-per-wallet", type=float, default=8)
     parser.add_argument("--max-frames", type=int, default=10)
+    parser.add_argument("--include-subaccounts", action="store_true")
     args = parser.parse_args()
     if not args.state_root.is_absolute() or any(
         name in (".git", ".devspace") for name in args.state_root.resolve().parts
@@ -136,6 +170,7 @@ def main() -> None:
             journal=PaperJournal(args.state_root),
             seconds_per_wallet=args.seconds_per_wallet,
             max_frames=args.max_frames,
+            include_subaccounts=args.include_subaccounts,
         )
     )
     print(json.dumps(result, indent=2, sort_keys=True))
