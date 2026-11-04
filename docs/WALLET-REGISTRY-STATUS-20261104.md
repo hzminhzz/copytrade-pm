@@ -1,5 +1,7 @@
 # SQLite wallet registry — 2026-11-04 engineering checkpoint
 
+**Future agents:** read the [mandatory registry-first workflow](WALLET-REGISTRY-AGENT-WORKFLOW.md) before using counts or source identities from this dated checkpoint. Check the current source generation, as-of, CLI, Git `main`, pinned release, and actual worker evidence separately; never upgrade a status from OptMem or documentation alone.
+
 **Later live release verification (2026-11-04):** standalone read-only registry release `5d7b4d7` is **ACTIVE_READ_ONLY_VERIFIED** (no timer or paper worker). Live SQLite generation `e2836aab...` reports 264 desired, 264 subscribed, 158 research, 22 excluded, 11 source-sealed portfolio definitions, `doctor counts_match=true`, 0 indexed paper runs and no trading authorization. The historical 215/150 and seven-definition observations below are explicitly earlier source cuts. This live generation populated historical P1/P14 version-2 NULL membership wallet IDs using Phase-4 aliases observed after their initial seal. That is a retroactive freeze mutation, not authorized PIT source identity proof. FP PR #73 protects future imports by requiring immutable prior versions and independently detects these later alias bindings; all P1/P14 frozen membership IDs are **BLOCKED_AS_OF_ORIGINAL_SEAL**, despite matching current addresses. Do not restore/patch the private database without reviewed versioned migration and verified rollback evidence.
 
 ## P0 research-catalog integration (Gemini Portfolio Freeze V2)
