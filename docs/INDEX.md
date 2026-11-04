@@ -22,6 +22,8 @@
 | Handle independent review without per-turn judge overhead | [Governance decision boundaries](GOVERNANCE-GATES.md) | Routine exemptions, protected operations, signed review checks, fail-closed limitations |
 | Audit the independent signed receipt contract | [PM-01 prospective ledger](PM-01-prospective-ledger.md) | `RECEIPT → AUDIT → OUTCOME → PM-02`, signatures and CLI |
 | Audit the account model | [PM-03 shadow simulator](PM-03-shadow-account.md) | Frozen public rulebook, reconciliation, HALT, stress and no-order boundary |
+| Review current Phase 6A and 6B research | [Phase 6A/6B reconciliation and v19 disposition](PHASE6A-PHASE6B-RECONCILIATION-20261104.md) | Gemini PDF/CSV mismatch audit; 95 pure-perp markets, four ACT08 spot exclusions, SHA-bound v19 evidence and independent non-qualification |
+| Review previous Phase 6B evidence | [Phase 6B original recovery and stress audit](PHASE6B-RECOVERY-SCENARIOS-20261104.md) | Frozen v13 research snapshot: 96 symbols including unclassified spot and immutable earlier SHA generations |
 | Inspect optional PM-04 three-pod shadow hardening | [PM-04 contract](PM-04-shadow-hardening.md) | Versioned pod targets, batching, risk budgets, read-only external evidence and no-live-order gate; Issue #12 |
 | Reproduce PM-04 18-case engineering acceptance | [PM-04 acceptance matrix](PM-04-acceptance.md) | Fixed-input 18 scenarios, fault recovery, comparison and manual halt/reconciliation runbook |
 | Review integrated A/B/C intent and source operations | [Recovery integration](RECOVERY-INTEGRATION.md) | PR7/15/16 lineage, exact whole-book handoff, bounded durable source capture |

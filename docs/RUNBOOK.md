@@ -2,6 +2,10 @@
 
 **Scope:** the installed `copytrade-pm/main` commands checked against source/`--help` on 2026-10-31. Operations are offline by default; explicitly flagged acquisition commands can call paid/rate-limited vendors. **No live trading authority.** Begin with [INDEX](INDEX.md); for wallet fill acquisition and exact market sources read [DATA-ACQUISITION](DATA-ACQUISITION.md).
 
+## Gemini Phase 6B — 2026-11-04 evidence-only extension
+
+For the latest v19 pure-perp recovery and Gemini Phase 6A source conflicts, use [Phase 6A/6B reconciliation and final risk disposition](PHASE6A-PHASE6B-RECONCILIATION-20261104.md). The original [Phase 6B v13 recovery audit](PHASE6B-RECOVERY-SCENARIOS-20261104.md) remains immutable historical evidence. For the frozen six conditional portfolios and 90-day retrospective dataset, use its original source notes and CLI references. New native CLIs are `python -m copytrade_pm.pm_phase6b`, `pm_phase6b_portfolio_history` (bounded public read-only requests), `pm_phase6b_minute`, `pm_phase6b_activity`, `pm_phase6b_snapshot_stress`, `pm_phase6b_blocked`, and `pm_phase6b_finish`. Run their `--help` and the SHA-pinned source generation paths documented there. All historical account PnL/first-passage and scientific claims remain BLOCKED, even though conditional known-leg stress S1–S8 and PM03 negative-admission tests completed. Old dated PM-01 and Phase 6B v1 output generations stay immutable.
+
 ## 0. Preflight, source of truth, safe worktree
 
 Do not change a dirty branch or another session's feature worktree. The primary checkout at `/home/quant/dev/copytrade-pm` may lag behind `origin/main`, and draft PR #7 has separate changes. Choose a clean isolated worktree based on fetched `origin/main` before editing docs/code.
