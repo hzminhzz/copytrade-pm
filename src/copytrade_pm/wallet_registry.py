@@ -195,6 +195,20 @@ def observe_monitoring(path: Path) -> tuple[set[str], set[str], dict[str, str]]:
     return desired, subscribed, cfg
 
 
+def observation_ledger_identity(path: Path) -> str:
+    """Fingerprint only the committed ledger identity, not its moving event cursor."""
+    with closing(readonly_sqlite(path)) as con:
+        rows = con.execute(
+            "SELECT ledger_id,current_seq,retention_floor FROM ledger_meta LIMIT 2"
+        ).fetchall()
+    if len(rows) != 1 or not isinstance(rows[0][0], str):
+        raise ValueError("ledger identity missing or ambiguous")
+    ledger_id, seq, floor = rows[0]
+    if not (isinstance(seq, int) and isinstance(floor, int) and 0 <= floor <= seq):
+        raise ValueError("ledger retention/cursor inconsistency")
+    return sha256(ledger_id.encode()).hexdigest()
+
+
 def observe_ledger(path: Path, addresses: set[str], max_wallets: int = 500) -> dict:
     """Bounded, index-backed observational audit; NEVER claim admission."""
     if len(addresses) > max_wallets:
@@ -214,6 +228,12 @@ def observe_ledger(path: Path, addresses: set[str], max_wallets: int = 500) -> d
         if len(meta) != 1:
             raise ValueError("ledger identity or cursor ambiguous")
         ledger_id, max_seq, retention_floor = meta[0]
+        if not (
+            isinstance(max_seq, int)
+            and isinstance(retention_floor, int)
+            and 0 <= retention_floor <= max_seq
+        ):
+            raise ValueError("observation ledger cursor/retention inconsistency")
         recent = stale = never = 0
         for addr in sorted(addresses):
             row = con.execute(
@@ -311,6 +331,9 @@ def collect(root: Path, env_path: Path | None) -> dict:
         # Fingerprint only the desired set, never a credential-bearing env file.
         sources["desired_wallets"] = sha256("\n".join(sorted(desired)).encode()).hexdigest()
         sources["subscriptions"] = sha256("\n".join(sorted(subscribed)).encode()).hexdigest()
+        sources["observation_ledger_id"] = observation_ledger_identity(
+            Path(cfg["TRACKER_LEDGER_PATH"])
+        )
     return {
         "cohorts": cohorts,
         "frozen_aliases": frozen_aliases,
@@ -650,7 +673,7 @@ def backup(db: Path, target: Path) -> None:
     target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     if stat.S_IMODE(target.parent.stat().st_mode) != 0o700:
         raise PermissionError("backup parent directory must be private")
-    if target.exists():
+    if target.exists() or target.is_symlink():
         raise FileExistsError("backup already exists")
     with closing(connect(db, False)) as source:
         with closing(sqlite3.connect(target)) as dest:
@@ -673,6 +696,8 @@ def cli(argv: list[str] | None = None) -> int:
     sub.add_parser("status")
     sub.add_parser("doctor")
     sub.add_parser("runtime")
+    save = sub.add_parser("backup")
+    save.add_argument("--to", required=True, type=Path)
     report = sub.add_parser("report")
     report.add_argument("--redacted", action="store_true", required=True)
     wallet = sub.add_parser("wallet")
@@ -718,6 +743,16 @@ def cli(argv: list[str] | None = None) -> int:
             )
         )
         return 0 if matched else 2
+    elif args.command == "backup":
+        source = args.db.resolve()
+        destination = args.to.resolve()
+        if source.parent not in destination.parents:
+            raise ValueError("backup must remain within the private registry root")
+        backup(args.db, args.to)
+        with closing(connect(args.to, False)) as con:
+            if con.execute("PRAGMA quick_check").fetchone()[0] != "ok":
+                raise ValueError("backup integrity check failed")
+        print(json.dumps({"backup_verified": True, "bytes": args.to.stat().st_size}))
     elif args.command == "runtime":
         desired, subscribed, config = observe_monitoring(args.tracker_env)
         result = observe_ledger(Path(config["TRACKER_LEDGER_PATH"]), desired | subscribed)

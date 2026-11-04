@@ -111,6 +111,36 @@ def test_private_permissions(tmp_path: Path) -> None:
         registry.apply(db, snapshot, "2026-11-05T00:00:00+00:00")
 
 
+def test_wal_reader_snapshot_survives_atomic_generation_change(tmp_path: Path) -> None:
+    _, snapshot = fixture(tmp_path)
+    db = tmp_path / "private" / "registry.sqlite"
+    registry.apply(db, snapshot, "2026-11-04T00:00:00+00:00")
+    changed = {
+        **snapshot,
+        "cohorts": {**snapshot["cohorts"], "research-108": {address(4)}},
+        "sources": {**snapshot["sources"], "research-108": "f" * 64},
+    }
+    with closing(registry.connect(db, False)) as reader:
+        reader.execute("BEGIN")
+        old = reader.execute(
+            "SELECT value FROM snapshot_meta WHERE key='manifest_sha256'"
+        ).fetchone()[0]
+        registry.apply(db, changed, "2026-11-05T00:00:00+00:00")
+        assert (
+            reader.execute(
+                "SELECT value FROM snapshot_meta WHERE key='manifest_sha256'"
+            ).fetchone()[0]
+            == old
+        )
+        reader.rollback()
+        assert (
+            reader.execute(
+                "SELECT value FROM snapshot_meta WHERE key='manifest_sha256'"
+            ).fetchone()[0]
+            != old
+        )
+
+
 def test_wallet_alias_resolution_is_private_and_asof(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -240,6 +270,11 @@ def test_indexed_ledger_observes_without_claiming_admission(tmp_path: Path) -> N
     assert result["no_indexed_event"] == 1
     assert result["runtime_admitted"] == "UNKNOWN"
     assert result["receipt_health"] == "UNKNOWN"
+    prior = registry.observation_ledger_identity(db)
+    with closing(sqlite3.connect(db)) as connection:
+        connection.execute("UPDATE ledger_meta SET ledger_id='replacement'")
+        connection.commit()
+    assert registry.observation_ledger_identity(db) != prior
     with pytest.raises(ValueError, match="budget"):
         registry.observe_ledger(db, {address(1), address(2)}, max_wallets=1)
     with closing(sqlite3.connect(db)) as connection:
@@ -247,6 +282,11 @@ def test_indexed_ledger_observes_without_claiming_admission(tmp_path: Path) -> N
         connection.commit()
     with pytest.raises(ValueError, match="index"):
         registry.observe_ledger(db, {address(1)})
+    with closing(sqlite3.connect(db)) as connection:
+        connection.execute("UPDATE ledger_meta SET retention_floor=3")
+        connection.commit()
+    with pytest.raises(ValueError, match="cursor"):
+        registry.observation_ledger_identity(db)
 
 
 def test_asof_and_backup_restore(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -292,6 +332,11 @@ def test_asof_and_backup_restore(tmp_path: Path, capsys: pytest.CaptureFixture[s
     assert copy.stat().st_mode & 0o777 == 0o600
     with pytest.raises(FileExistsError):
         registry.backup(db, copy)
+    second = tmp_path / "private" / "backups" / "backup.sqlite"
+    assert registry.cli(["--db", str(db), "backup", "--to", str(second)]) == 0
+    assert registry.db_status(second) == registry.db_status(db)
+    with pytest.raises(ValueError, match="private"):
+        registry.cli(["--db", str(db), "backup", "--to", str(tmp_path / "outside.sqlite")])
 
 
 def test_portfolios_not_running_or_authorized(
