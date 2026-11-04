@@ -180,6 +180,10 @@ class PaperJournal:
                 "margin": margin,
                 "forced_exit_assumed": False,
             }
+        if kind in ("PM04_CONFIG", "PM04_SIGNAL", "PM04_TICK"):
+            from .pm_forward_pm04 import apply_forward_pm04
+
+            return apply_forward_pm04(account, event)
         if kind == "SIMULATED_DECISION":
             from .pm03_account import Instrument
             from .pm03_execution import CostModel, MarketObservation, execute_targets
@@ -377,6 +381,13 @@ class PaperJournal:
         if row is None:
             raise ValueError("UNKNOWN_PAPER_RUN")
         manifest, snapshot, last_at, cursor, prior_sha = row
+        if event.get("kind", "").startswith("PM04_"):
+            saved_manifest = json.loads(manifest)
+            if (
+                event.get("run_id") != run_id
+                or event.get("sealed_policy_sha") != saved_manifest["policy_sha"]
+            ):
+                raise ValueError("PM04_MANIFEST_POLICY_MISMATCH")
         if clock(event["event_at"]) < clock(last_at):
             raise ValueError("PAPER_EVENT_OUT_OF_ORDER")
         if event.get("kind") == "FUNDING":
@@ -441,7 +452,9 @@ class PaperJournal:
         """
         self._validate_event(event_id, event)
         ref = event.get("source_ref")
-        if event.get("kind") != "SIMULATED_DECISION" or not isinstance(ref, dict):
+        if event.get("kind") not in ("SIMULATED_DECISION", "PM04_SIGNAL") or not isinstance(
+            ref, dict
+        ):
             raise ValueError("SOURCE_EFFECT_EVENT_REQUIRED")
         source_id = ref.get("source_id")
         seq = ref.get("sequence")
@@ -538,7 +551,10 @@ class PaperJournal:
                 funding_events.append((event["instrument"], event["interval_id"], event_id))
             ref = event.get("source_ref")
             if ref is not None:
-                if not isinstance(ref, dict) or event.get("kind") != "SIMULATED_DECISION":
+                if not isinstance(ref, dict) or event.get("kind") not in (
+                    "SIMULATED_DECISION",
+                    "PM04_SIGNAL",
+                ):
                     raise ValueError("SOURCE_CURSOR_REPLAY_DIVERGENCE")
                 sid = ref.get("source_id")
                 source_seq = ref.get("sequence")
@@ -576,6 +592,11 @@ class PaperJournal:
                 or clock(at) < clock(prior_at)
             ):
                 raise ValueError("PAPER_JOURNAL_DIVERGENCE")
+            if event.get("kind", "").startswith("PM04_") and (
+                event.get("run_id") != run_id
+                or event.get("sealed_policy_sha") != manifest["policy_sha"]
+            ):
+                raise ValueError("PM04_MANIFEST_POLICY_MISMATCH")
             last_result = PaperJournal._apply(account, event)
             expected_post = digest(account.snapshot())
             if after != expected_post or chain_sha != digest(
