@@ -115,13 +115,11 @@ class ImmutableCache:
         namespace = self.root / kind
         if namespace.is_symlink():
             raise ManifestInvalid("SYMLINK_CACHE_NAMESPACE")
-        if not namespace.exists():
-            namespace.mkdir(mode=0o700)
+        namespace.mkdir(mode=0o700, exist_ok=True)
         if namespace.stat().st_mode & 0o077:
             raise ManifestInvalid("INSECURE_CACHE_NAMESPACE")
         folder = namespace / key[:2]
-        if not folder.exists():
-            folder.mkdir(mode=0o700)
+        folder.mkdir(mode=0o700, exist_ok=True)
         if folder.is_symlink() or folder.stat().st_mode & 0o077:
             raise ManifestInvalid("INSECURE_CACHE_FOLDER")
         return folder / f"{key}.data", folder / f"{key}.manifest.json"

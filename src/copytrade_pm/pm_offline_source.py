@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from hashlib import sha256
+from itertools import groupby
 import json
 from typing import Any
 
@@ -129,11 +130,30 @@ def reconstruct_whole_books(
             raise ManifestInvalid("HISTORICAL_ORACLE_CLOCK_MISMATCH")
         before, after = _decimal(row.get("position_before")), _decimal(row.get("position_after"))
         prepared.append((source_at, event_id, key, instrument, known_at, before, after))
-    prepared.sort(key=lambda x: (x[0], x[1], x[2], x[3]))
+    prepared.sort(key=lambda x: (x[0], x[2], x[3], x[1]))
+    # Exchange TIDs (and lexical IDs) need not follow fill order within a
+    # millisecond. Link from actual position_before/after, and block rather
+    # than guess when the source leaves multiple possible paths.
+    shadow = {key: dict(book) for key, book in state.items()}
+    ordered = []
+    for _, batch in groupby(prepared, key=lambda x: (x[0], x[2], x[3])):
+        remaining = list(batch)
+        while remaining:
+            item = remaining[0]
+            account_key, market = item[2], item[3]
+            candidates = [row for row in remaining if row[5] == shadow[account_key][market]]
+            if not candidates:
+                raise ManifestBlocked("SOURCE_POSITION_DISCONTINUITY")
+            if len(candidates) != 1:
+                raise ManifestBlocked("AMBIGUOUS_SAME_TIMESTAMP_SOURCE_CHAIN")
+            chosen = candidates[0]
+            remaining.remove(chosen)
+            ordered.append(chosen)
+            shadow[account_key][market] = chosen[6]
     output = []
     last_source: dict[tuple[str, str], datetime] = {}
     last_known: dict[tuple[str, str], datetime] = {}
-    for source_at, event_id, key, instrument, known_at, before, after in prepared:
+    for source_at, event_id, key, instrument, known_at, before, after in ordered:
         if source_at < last_source.get(key, source_at):
             raise ManifestInvalid("BACKWARD_SOURCE_CLOCK")
         last_source[key] = source_at

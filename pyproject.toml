@@ -7,7 +7,7 @@ requires-python = ">=3.14"
 dependencies = ["cryptography>=46.0"]
 
 [project.optional-dependencies]
-market = ["polars>=1.20", "pandas>=2.3"]
+market = ["polars>=2.0,<3", "pandas>=2.3"]
 source = ["websockets==15.0.1"]
 
 [dependency-groups]

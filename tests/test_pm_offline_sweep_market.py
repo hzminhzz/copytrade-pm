@@ -105,6 +105,16 @@ def test_invalid_ohlc_or_duplicate_minute_blocks(tmp_path):
         match_native_open(events=[candidate()], market_root=tmp_path)
 
 
+def test_quote_volume_cannot_be_passed_as_base_volume(tmp_path):
+    folder = fixture(tmp_path)
+    sidecar = folder / "source.json"
+    metadata = json.loads(sidecar.read_text())
+    metadata["volume_unit"] = "quote"
+    sidecar.write_text(json.dumps(metadata))
+    with pytest.raises(ManifestBlocked, match="UNSUPPORTED_VOLUME_UNIT"):
+        match_native_open(events=[candidate()], market_root=tmp_path)
+
+
 def test_wrong_namespace_and_nonminute_clock_block(tmp_path):
     fixture(tmp_path)
     event = candidate()

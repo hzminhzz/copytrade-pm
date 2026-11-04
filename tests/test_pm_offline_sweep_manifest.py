@@ -26,9 +26,11 @@ def fixture(tmp_path: Path):
 
     book = file("book.json", b'{"complete":true}')
     equity = file("equity.json", b'{"nav":"1000"}')
-    market = file("bar.parquet", b"synthetic-marker-only")
+    market = file("data.parquet", b"synthetic-marker-only")
+    market_meta = file("source.json", b'{"exchange":"hyperliquid_futures"}')
     rule = file("rule.json", b"frozen synthetic")
     cost = file("cost.json", b"frozen synthetic")
+    risk = file("risk.json", b"frozen risk assumptions")
     source = dict(
         account="W001",
         dex="default",
@@ -50,10 +52,21 @@ def fixture(tmp_path: Path):
         "delays_minutes": [10, 5, 2, 1, 0],
         "mode": "CERTIFIED",
         "sources": [source],
-        "market_days": [dict(dex="default", instrument="BTC", date="2026-10-20", **market)],
+        "market_days": [
+            dict(
+                dex="default",
+                instrument="BTC",
+                date="2026-10-20",
+                **market,
+                metadata_path=market_meta["path"],
+                metadata_sha256=market_meta["sha256"],
+            )
+        ],
         "rulebook": rule,
         "cost_model": cost,
+        "risk_policy": risk,
         "follower_initial_equity": "10000",
+        "source_equity_max_age_minutes": 1440,
     }
 
 
@@ -127,6 +140,15 @@ def test_escape_and_symlinked_inputs_rejected(tmp_path):
     (tmp_path / "alias.json").symlink_to(tmp_path / "book.json")
     data["sources"][0]["book_path"] = "alias.json"
     with pytest.raises(ManifestInvalid, match="SYMLINK_PATH"):
+        Study.validate(data, input_root=tmp_path)
+
+
+def test_sparse_oversized_source_rejected_before_hashing(tmp_path):
+    data = fixture(tmp_path)
+    book = tmp_path / "book.json"
+    with book.open("wb") as stream:
+        stream.truncate(256 * 1024 * 1024 + 1)
+    with pytest.raises(ManifestBlocked, match="OVERSIZED_BOOK_INPUT"):
         Study.validate(data, input_root=tmp_path)
 
 

@@ -128,3 +128,50 @@ The ensemble `copy_board.py`/`copy_digest.py` and opt-in C/X adapter are on `fea
 - Separate wallet accounts' summed closed PnL is not a pooled challenge equity curve.
 - The five-seat allocator is not the production consensus-signal engine in `hyperliquid-expert-ensemble`.
 - Draft [PM-36 PR #7](https://github.com/hzminhzz/copytrade-pm/pull/7) is separate research, **not** part of this `main` description.
+
+## Offline Polars 2.x PIT study foundations (2026-11-04; draft PR #92)
+
+This is an **additive, offline-only** research surface on the independent
+`feat/polars2-pit-offline-sweeps-20261104` branch. It is not the production
+paper worker, wallet registry, legacy 36-wallet replay, trading gateway,
+scientifically qualified signal or portfolio deployment.
+
+- `pm_offline_manifest.Study`: fail-closed clock/namespace/rule/cost/risk/
+  source-equity/market-day SHA manifest, explicit 0/1/2/5/10-minute policies
+  and scenario stress snapshots. Unknown, stale or partial evidence is blocked.
+- `pm_offline_source.reconstruct_whole_books`: independent account/DEX
+  all-leg initial-book continuity, exact same-timestamp position chain,
+  as-of positive source equity, no future-only snapshot/phantom flat hedge.
+- `pm_offline_eligibility.compile_eligible`: Polars lazy optimizer stage
+  using `eligible_at = first_known_at + delay`, followed by strictly later
+  native minute open; same-minute collapse only **after each event is eligible**.
+- `pm_offline_market`: native Hyperliquid 1m SHA and sidecar validated
+  exact timestamp joins. **Prior completed** minute volume is a conservative
+  proxy, not executable depth; current minute realized volume is ex-post only.
+- `pm_offline_cache`: private, immutable SHA + software-version keyed
+  cached outcomes; atomic fsync/sealed hardlinks, corruption checks and
+  explicit per-object size/free-disk budgets.
+- `pm_offline_account`: **synthetic fixture** adapter to the existing
+  PM-03 Decimal `Account`, `execute_targets` and `pm03_risk.classify`.
+  Portfolio net/gross/pod concentration and frozen stress exposures are
+  conservative pretrade gates; PM-03 remains the cash, PnL, fees, funding,
+  drawdown, margin and HALT authority.
+- `pm_offline_certification`: fixture-only inclusive exact-floor and
+  target checks; missing contractual/whole-book/equity/funding/mark inputs
+  return UNKNOWN, ambiguous timing AMBIGUOUS, screening cannot PASS.
+- `pm_offline_sweep`: **bounded synthetic fixture-only** deterministic
+  scenario runner, 1/2 worker parity, frozen 3/5-wallet and cost stresses,
+  crash/resume cache. Real vendor source-to-account execution is **not yet
+  certified or supported** by this runner.
+
+The offline **per-fill eligibility policy is distinct from Forward-Paper
+PR #73's first-event, non-resetting 300-second batch**. Neither modifies
+the other. Retrospective HyperX event timestamps are never relabeled as
+prospective first-known receipts. The fixture size envelope is deliberately
+small (up to 2,000 events, 32 markets, 1,440 minutes, 12,000
+scenario-minutes and 2 workers). It does not meet representative
+500k-fill / 13M-bar OOS performance or full economic qualification gates.
+
+See [baseline](OFFLINE-PIT-BASELINE-20261104.md),
+[partial engineering checkpoint](OFFLINE-PIT-PROCESSING-20261104.md),
+[operator runbook](RUNBOOK.md) and [qualification gates](QUALIFICATION.md).

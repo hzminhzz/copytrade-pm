@@ -223,3 +223,40 @@ When any operation fails or returns BLOCKED, execute [RECOVER](BLOCKER-RECOVERY.
 Routine research/CLI operation has **no per-turn judge call**. For material frozen-roster, policy or qualification decisions, follow the [protected governance boundary](GOVERNANCE-GATES.md) and run `copytrade-pm-review-gate --help` to inspect the read-only signature-check interface. An unavailable independent reviewer blocks only that protected decision; no current CLI confers scientific qualification or trading permission.
 
 Before merging any non-trivial code or data-contract change: preserve dirty work, read `AGENTS.md`, inspect GitHub and real VPS sources, write behavior tests at the consumer seam, run **both** CI-equivalent dependency variants, Ruff and build, inspect diff and evidence SHA, update handbook links if CLI or source boundaries changed, push and wait for actual required checks. Do **not** confuse successful engineering with scientific qualification or deployment. Protected `main` requires `verify (core)` and `verify (market)`, strict current-base checks; no force push. Never touch production `hyperliquid-expert-ensemble` as a side effect of this repository.
+
+## Offline Polars v2 synthetic fixture runner (2026-11-04; draft PR #92)
+
+From a **clean isolated** project worktree, run the unit/integration contracts:
+
+```bash
+uv run --group dev python -m pytest -q tests
+uv run --extra market --group dev python -m pytest -q tests
+uv run --group dev ruff check src tests
+uv run --group dev ruff format --check src tests
+uv run --extra market --group dev python -m copytrade_pm.pm_offline_baseline --fills 120 --iterations 2
+```
+
+Inspect an owner-provided **synthetic** manifest (it must be prepared with
+all source/equity/rule/risk/cost/market file SHA values):
+
+```bash
+uv run --extra market --group dev python -m copytrade_pm.pm_offline_manifest   /tmp/private-fixture/manifest.json --input-root /tmp/private-fixture/inputs
+
+uv run --extra market --group dev python -m copytrade_pm.pm_offline_sweep   /tmp/private-fixture/manifest.json   --input-root /tmp/private-fixture/inputs   --market-root /tmp/private-fixture/inputs   --cache-root /tmp/private-fixture/cache --workers 2
+```
+
+The CLI expects **explicit `synthetic_fixture: true`**. Files for real
+HyperX, forward receipts, account data or a source-only historical oracle
+study are deliberately blocked in this prototype. Source-book initial
+positions must be flat for this fixture harness, not guessed flat. All
+scenario managers must independently enter the known state before a follower
+target is admitted. Account financial results are labeled `SYNTHETIC_PM03_*`;
+no PASS, broker orders, subscription changes, service restarts, real
+PIT certification or copytrading permission follows from passing tests.
+
+Deterministic integration fixtures are implemented in
+`tests/test_pm_offline_sweep_pipeline.py`. Do not add private wallet
+addresses, account rules, paid vendor pages or a raw market lake to Git.
+The cache is private 0700/0600 with 8 MiB maximum fixture artifact,
+1 GiB minimum free scratch and up to 2 workers. A corrupted/partial cache
+entry is not a cache hit; a completed scenario resumes by its pinned SHA.

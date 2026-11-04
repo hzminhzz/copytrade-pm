@@ -59,12 +59,14 @@ def _verified_day(root: Path, instrument: str, date: datetime):
         raise ManifestBlocked("MALFORMED_NATIVE_MARKET_SIDECAR") from exc
     dex, symbol = instrument.split(":")[3:5]
     source_symbol = symbol if dex == "default" else f"{dex}:{symbol}"
-    if meta.get("exchange") != "hyperliquid_futures":
+    if meta.get("exchange") not in {"hyperliquid_futures", "hyperliquid", "HYPERLIQUID"}:
         raise ManifestBlocked("WRONG_NATIVE_EXCHANGE")
     if meta.get("source_symbol") != source_symbol:
         raise ManifestBlocked("WRONG_NATIVE_DEX_OR_SYMBOL")
     if meta.get("source_type") not in {"trades", "candles"}:
         raise ManifestBlocked("UNKNOWN_NATIVE_SOURCE_TYPE")
+    if meta.get("volume_unit", "base") not in {"base", "base_asset"}:
+        raise ManifestBlocked("UNSUPPORTED_VOLUME_UNIT")
     expected = meta.get("sha256")
     if not isinstance(expected, str) or len(expected) != 64:
         raise ManifestBlocked("MISSING_NATIVE_SOURCE_SHA")
@@ -103,7 +105,7 @@ def _verified_day(root: Path, instrument: str, date: datetime):
         | (pl.col("volume") < 0)
     ).height:
         raise ManifestBlocked("INVALID_NATIVE_OHLCV")
-    return frame, expected
+    return frame, expected, sha256(sidecar.read_bytes()).hexdigest()
 
 
 def match_native_open(
@@ -149,8 +151,11 @@ def match_native_open(
         frames = []
         for date in sorted(needed_days):
             dt = datetime.combine(date, datetime.min.time(), tzinfo=UTC)
-            frame, digest = _verified_day(root, instrument, dt)
-            day_shas[f"{instrument}@{date.isoformat()}"] = digest
+            frame, digest, metadata_digest = _verified_day(root, instrument, dt)
+            day_shas[f"{instrument}@{date.isoformat()}"] = {
+                "data_sha256": digest,
+                "metadata_sha256": metadata_digest,
+            }
             frames.append(frame)
         bars = pl.concat(frames).lazy()
         items = []

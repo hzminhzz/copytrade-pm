@@ -119,6 +119,39 @@ def test_dex_and_account_cannot_share_initial_state():
         reconstruct_whole_books(**data)
 
 
+def test_same_millisecond_position_chain_not_tid_order():
+    data = inputs()
+    first = dict(data["fills"][0])
+    first["source_event_at"] = T + timedelta(minutes=2)
+    first["first_known_at"] = T + timedelta(minutes=2)
+    first["event_id"] = "z-lower-chain-first"
+    first["position_before"] = "1"
+    first["position_after"] = "2"
+    second = dict(first)
+    second["event_id"] = "a-higher-chain-second"
+    second["position_before"] = "2"
+    second["position_after"] = "3"
+    data["fills"] = [second, first, data["fills"][1]]
+    out = reconstruct_whole_books(**data)
+    assert [row["event_id"] for row in out["events"]] == [
+        "z-lower-chain-first",
+        "a-higher-chain-second",
+        "b",
+    ]
+    assert out["events"][1]["whole_book_after"]["BTC"] == "3"
+
+
+def test_ambiguous_same_millisecond_chain_blocks():
+    data = inputs()
+    first = data["fills"][0]
+    duplicate_start = dict(first)
+    duplicate_start["event_id"] = "other-tid"
+    duplicate_start["position_after"] = "9"
+    data["fills"] = [first, duplicate_start, data["fills"][1]]
+    with pytest.raises(ManifestBlocked, match="AMBIGUOUS_SAME_TIMESTAMP_SOURCE_CHAIN"):
+        reconstruct_whole_books(**data)
+
+
 def test_duplicate_source_tid_rejected():
     data = inputs()
     data["fills"].append(dict(data["fills"][0]))

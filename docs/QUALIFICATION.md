@@ -77,3 +77,23 @@ A blocked scientific result stays blocked. For root-cause repair, bounded acquis
 Independent review is handled at protected [governance decision boundaries](GOVERNANCE-GATES.md), not on every research conversation or file inspection. The current read-only Trader Intelligence readiness report is always `NOT_SCIENTIFICALLY_QUALIFIED`; an external review cannot override that state. No scientific signoff/roster promotion writer exists in this repository.
 
 For actual commands: [RUNBOOK](RUNBOOK.md). For precise clock/audit signatures: [PM-01 prospective ledger](PM-01-prospective-ledger.md).
+
+## Offline Polars milestone #2 acceptance distinction (2026-11-04)
+
+The separate offline prototype under PR #92 has distinct verdict domains:
+
+| Result | Verified scope | What is **not** established |
+| --- | --- | --- |
+| `HISTORICAL_ORACLE` / `VALIDATED_INPUT_ONLY` | SHA/source/clock guard or retrospective compiler | True first-known, future tradability or source profitability |
+| `COMPLETE_SYNTHETIC_FIXTURE_ONLY` | Frozen 3/5-wallet, 5-delay, cost-stress scenario; PM-03 Decimal fixture | Real source replay, executable liquidity, contract PASS, scientific alpha |
+| `SYNTHETIC_PM03_OPEN/BREACH/TARGET` | Simulated account state from specified artificial events | Real challenge event or probability |
+| `UNKNOWN` / `AMBIGUOUS` | Missing funding, equity, source, minute mark, contract attestation, or unresolved intrabar order | Favorable assumption or zero loss |
+| `BLOCKED` / `INVALID` | Failed provenance, clock, complete-book, schema, cache or safety gate | Automatic retry with invented data |
+
+Only PM-03's sequential Decimal account may compute contractual cash/PnL
+and floor transitions. Polars Float64 price/volume projections are
+diagnostics until original exact prices or independently parity-verified
+fixed point is available. No contractual real PASS/BREACH is permitted
+from the current synthetic runner. A passing engineering suite is not an
+independent prospective causal study, scientifically qualified return,
+owner-approved risk, deployment or live order authorization.

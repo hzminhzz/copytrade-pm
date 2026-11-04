@@ -166,3 +166,29 @@ For a failed acquisition or incomplete source, follow [blocker recovery](BLOCKER
 - Do **not** promote a downloaded day, completed page, or synthetic follower replay to a real profit-challenge pass probability.
 
 **Next:** [RUNBOOK](RUNBOOK.md) for the exact read-only replay and PM-02/03 handoffs; [QUALIFICATION](QUALIFICATION.md) for approval gates.
+
+## Offline source/PIT manifest boundary (2026-11-04)
+
+No vendor acquisition was performed for Polars milestone #2 draft PR #92.
+The new `pm_offline_manifest` accepts SHA-sealed source-book and equity
+files, native Hyperliquid day Parquet, frozen cost/risk/contract files and an
+explicit clock basis. It hashes in bounded chunks rather than reading an
+entire large market day into memory. Same-millisecond position continuity,
+every declared hedge leg, positive fresh source equity and exact
+DEX-qualified native market identities are mandatory.
+
+A historical HyperX event's exchange timestamp is
+`HISTORICAL_ORACLE` **only**. It is not a follower decision-time receipt.
+`PROSPECTIVE_FIRST_KNOWN` cannot be derived from vendor history and
+requires separate immutable independently verified local receipts. Synthetic
+`atomic_source_verified` and `source_verified` fixture flags are
+**not independent source attestations**; the real importer and its
+per-snapshot lineage are still outstanding. The currently available fixture
+runner refuses all non-fixture studies, nonflat initial source books and
+cross-DEX accounts without a consolidated complete-book anchor.
+
+Native 1m open is a retrospective execution-price diagnostic; *same-bar*
+realized volume is not PIT-known. Only completed preceding volume may be
+used for conservative capacity estimates and even that is **not L2**,
+adverse-selection or achievable fill proof. Do not import Binance/Bybit
+prices as Hyperliquid native or create missing market days by interpolation.

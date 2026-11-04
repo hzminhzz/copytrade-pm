@@ -22,6 +22,16 @@ POLICY = "PER_FILL_ELIGIBILITY"
 DELAYS = frozenset({0, 1, 2, 5, 10})
 MODES = frozenset({"SCREEN_ONLY", "CERTIFIED"})
 SHA = re.compile(r"^[0-9a-f]{64}$")
+FILE_LIMITS = {
+    "book": 256 * 1024 * 1024,
+    "equity": 64 * 1024 * 1024,
+    "receipt": 64 * 1024 * 1024,
+    "market_day": 2 * 1024 * 1024 * 1024,
+    "market_metadata": 1024 * 1024,
+    "rulebook": 1024 * 1024,
+    "cost_model": 1024 * 1024,
+    "risk_policy": 1024 * 1024,
+}
 SYMBOL = re.compile(r"^[A-Za-z0-9_.-]+$")
 DEXES = frozenset({"default", "xyz", "io", "para"})
 
@@ -77,6 +87,16 @@ def _keys(data: Any, expected: set[str], optional: set[str] = frozenset()) -> di
     return data
 
 
+def _file_sha(path: Path, *, label: str) -> str:
+    if path.stat().st_size > FILE_LIMITS[label]:
+        raise ManifestBlocked(f"OVERSIZED_{label.upper()}_INPUT")
+    digest = sha256()
+    with path.open("rb") as reader:
+        while chunk := reader.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _safe_file(root: Path, item: Any) -> Path:
     if not isinstance(item, str) or not item or item.startswith("/") or "\\" in item:
         raise ManifestInvalid("UNSAFE_PATH")
@@ -128,8 +148,11 @@ class Study:
                 "market_days",
                 "rulebook",
                 "cost_model",
+                "risk_policy",
                 "follower_initial_equity",
+                "source_equity_max_age_minutes",
             },
+            {"scenarios", "synthetic_fixture"},
         )
         if doc["schema"] != SCHEMA or doc["policy"] != POLICY:
             raise ManifestInvalid("UNSUPPORTED_MANIFEST_OR_POLICY")
@@ -144,6 +167,8 @@ class Study:
             raise ManifestInvalid("UNKNOWN_CLOCK_BASIS")
         if doc["mode"] not in MODES:
             raise ManifestInvalid("UNKNOWN_RESULT_MODE")
+        if "synthetic_fixture" in doc and type(doc["synthetic_fixture"]) is not bool:
+            raise ManifestInvalid("INVALID_FIXTURE_DECLARATION")
         delays = doc["delays_minutes"]
         if (
             not isinstance(delays, list)
@@ -160,6 +185,9 @@ class Study:
             raise ManifestInvalid("INVALID_FOLLOWER_EQUITY") from exc
         if not equity.is_finite() or equity <= 0:
             raise ManifestInvalid("INVALID_FOLLOWER_EQUITY")
+        age_minutes = doc["source_equity_max_age_minutes"]
+        if type(age_minutes) is not int or not 1 <= age_minutes <= 1440:
+            raise ManifestInvalid("INVALID_EQUITY_ASOF_MAX_AGE")
         root = Path(input_root).resolve(strict=True)
         entries = doc["sources"]
         if not isinstance(entries, list) or not entries:
@@ -195,19 +223,30 @@ class Study:
                     raise ManifestBlocked("MISSING_INDEPENDENT_FIRST_KNOWN_RECEIPT")
                 _sha(source["receipt_sha256"], "RECEIPT")
                 receipt = _safe_file(root, source["receipt_path"])
-                if sha256(receipt.read_bytes()).hexdigest() != source["receipt_sha256"]:
+                if _file_sha(receipt, label="receipt") != source["receipt_sha256"]:
                     raise ManifestBlocked("RECEIPT_SHA_MISMATCH")
             for label in ("book", "equity"):
                 _sha(source[f"{label}_sha256"], label.upper())
                 path = _safe_file(root, source[f"{label}_path"])
-                if sha256(path.read_bytes()).hexdigest() != source[f"{label}_sha256"]:
+                if _file_sha(path, label=label) != source[f"{label}_sha256"]:
                     raise ManifestBlocked(f"{label.upper()}_SHA_MISMATCH")
         days = doc["market_days"]
         if not isinstance(days, list) or not days:
             raise ManifestBlocked("MISSING_NATIVE_MARKET_DAYS")
         ids = set()
         for row in days:
-            _keys(row, {"dex", "instrument", "date", "path", "sha256"})
+            _keys(
+                row,
+                {
+                    "dex",
+                    "instrument",
+                    "date",
+                    "path",
+                    "sha256",
+                    "metadata_path",
+                    "metadata_sha256",
+                },
+            )
             key = (row["dex"], row["instrument"], row["date"])
             if key in ids:
                 raise ManifestInvalid("DUPLICATE_MARKET_DAY")
@@ -223,12 +262,87 @@ class Study:
             except (TypeError, ValueError) as exc:
                 raise ManifestInvalid("INVALID_MARKET_DAY") from exc
             _sha(row["sha256"], "MARKET_DAY")
-            if sha256(_safe_file(root, row["path"]).read_bytes()).hexdigest() != row["sha256"]:
+            _sha(row["metadata_sha256"], "MARKET_METADATA")
+            if (
+                Path(row["metadata_path"]).name != "source.json"
+                or Path(row["metadata_path"]).parent != Path(row["path"]).parent
+            ):
+                raise ManifestInvalid("NONCANONICAL_MARKET_METADATA_PATH")
+            if (
+                _file_sha(_safe_file(root, row["metadata_path"]), label="market_metadata")
+                != row["metadata_sha256"]
+            ):
+                raise ManifestBlocked("MARKET_METADATA_SHA_MISMATCH")
+            if _file_sha(_safe_file(root, row["path"]), label="market_day") != row["sha256"]:
                 raise ManifestBlocked("MARKET_DAY_SHA_MISMATCH")
-        for label in ("rulebook", "cost_model"):
+        scenarios = doc.get("scenarios", [])
+        if not isinstance(scenarios, list) or len(scenarios) > 64:
+            raise ManifestInvalid("INVALID_SCENARIO_LIST")
+        seen_scenarios = set()
+        known_accounts = {x["account"] for x in entries}
+        for scenario in scenarios:
+            _keys(
+                scenario,
+                {
+                    "id",
+                    "k_by_account",
+                    "stress_shocks",
+                    "hedge_break_loss",
+                    "stressed_liquidity_loss",
+                },
+                {"cost_multiplier"},
+            )
+            if (
+                not isinstance(scenario["id"], str)
+                or not SYMBOL.fullmatch(scenario["id"])
+                or scenario["id"] in seen_scenarios
+            ):
+                raise ManifestInvalid("DUPLICATE_OR_INVALID_SCENARIO_ID")
+            seen_scenarios.add(scenario["id"])
+            scaling = scenario["k_by_account"]
+            if not isinstance(scaling, dict) or not scaling or set(scaling) - known_accounts:
+                raise ManifestInvalid("INVALID_SCENARIO_MEMBERS")
+            shocks = scenario["stress_shocks"]
+            if not isinstance(shocks, list) or not 1 <= len(shocks) <= 8:
+                raise ManifestInvalid("INVALID_STRESS_SHOCK_SET")
+            known_markets = {
+                f"hyperliquid:mainnet:perp:{item['dex']}:{item['instrument']}" for item in entries
+            }
+            for shock in shocks:
+                if not isinstance(shock, dict) or set(shock) != known_markets:
+                    raise ManifestInvalid("INCOMPLETE_STRESS_SHOCK_BOOK")
+                for move in shock.values():
+                    try:
+                        change = Decimal(str(move))
+                    except (InvalidOperation, ValueError) as exc:
+                        raise ManifestInvalid("INVALID_STRESS_SHOCK_MOVE") from exc
+                    if not change.is_finite() or not -1 <= change <= 1:
+                        raise ManifestInvalid("INVALID_STRESS_SHOCK_MOVE")
+            for cost_name in ("hedge_break_loss", "stressed_liquidity_loss"):
+                try:
+                    amount = Decimal(str(scenario[cost_name]))
+                except (InvalidOperation, ValueError) as exc:
+                    raise ManifestInvalid("INVALID_EXTRA_STRESS_LOSS") from exc
+                if not amount.is_finite() or amount < 0:
+                    raise ManifestInvalid("INVALID_EXTRA_STRESS_LOSS")
+            if "cost_multiplier" in scenario:
+                try:
+                    multiplier = Decimal(str(scenario["cost_multiplier"]))
+                except (InvalidOperation, ValueError) as exc:
+                    raise ManifestInvalid("INVALID_COST_STRESS") from exc
+                if not multiplier.is_finite() or multiplier <= 0 or multiplier > 100:
+                    raise ManifestInvalid("INVALID_COST_STRESS")
+            for value in scaling.values():
+                try:
+                    factor = Decimal(str(value))
+                except (InvalidOperation, ValueError) as exc:
+                    raise ManifestInvalid("INVALID_SCENARIO_K") from exc
+                if not factor.is_finite() or factor <= 0:
+                    raise ManifestInvalid("INVALID_SCENARIO_K")
+        for label in ("rulebook", "cost_model", "risk_policy"):
             row = _keys(doc[label], {"path", "sha256"})
             _sha(row["sha256"], label.upper())
-            if sha256(_safe_file(root, row["path"]).read_bytes()).hexdigest() != row["sha256"]:
+            if _file_sha(_safe_file(root, row["path"]), label=label) != row["sha256"]:
                 raise ManifestBlocked(f"{label.upper()}_SHA_MISMATCH")
         return cls(
             _digest(doc),

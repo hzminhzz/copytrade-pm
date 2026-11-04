@@ -16,6 +16,7 @@ import json
 from pathlib import Path
 import platform
 import resource
+import shutil
 import tempfile
 from time import perf_counter
 
@@ -74,6 +75,19 @@ def _fixture(folder: Path, payload: bytes) -> None:
     )
 
 
+def _proc_io() -> dict[str, int] | None:
+    """Linux counters; read_bytes is actual process physical I/O, not logical Parquet I/O."""
+    try:
+        values = {}
+        for line in Path("/proc/self/io").read_text().splitlines():
+            key, value = line.split(": ", 1)
+            if key in {"rchar", "read_bytes", "syscr"}:
+                values[key] = int(value)
+        return values if len(values) == 3 else None
+    except OSError, ValueError:
+        return None
+
+
 def benchmark(*, count: int = 120, iterations: int = 2) -> dict:
     if not 2 <= iterations <= 10:
         raise ValueError("ITERATIONS_OUT_OF_BOUNDS")
@@ -92,7 +106,14 @@ def benchmark(*, count: int = 120, iterations: int = 2) -> dict:
     with tempfile.TemporaryDirectory(prefix="copytrade-baseline-") as temp:
         root = Path(temp)
         _fixture(root, payload)
+        source_file = (
+            root / "slow_pod_data_v1/hyperx_fills_cache_v1/pages/W001/BTC/page-00001.json.gz"
+        )
+        compressed_bytes = source_file.stat().st_size
+        disk_free_bytes = shutil.disk_usage(root).free
         for run in range(iterations):
+            cpu_before = resource.getrusage(resource.RUSAGE_SELF)
+            io_before = _proc_io()
             start = perf_counter()
             fills, errors = _source_fills(root, "W001", ADDRESS, ["BTC"])
             parse_seconds = perf_counter() - start
@@ -106,6 +127,13 @@ def benchmark(*, count: int = 120, iterations: int = 2) -> dict:
                 prepared=(fills, errors, ["BTC"]),
             )
             elapsed = perf_counter() - start
+            io_after = _proc_io()
+            cpu_after = resource.getrusage(resource.RUSAGE_SELF)
+            logical_io = (
+                {key: io_after[key] - io_before[key] for key in io_before}
+                if io_before is not None and io_after is not None
+                else None
+            )
             # Runtime measurements are excluded from the logical digest.
             logical = {
                 "status": result["status"],
@@ -121,6 +149,9 @@ def benchmark(*, count: int = 120, iterations: int = 2) -> dict:
                     "cache_label": "cold_fixture" if run == 0 else "warm_os_cache",
                     "wall_seconds": round(elapsed, 6),
                     "parse_seconds": round(parse_seconds, 6),
+                    "cpu_user_seconds": round(cpu_after.ru_utime - cpu_before.ru_utime, 6),
+                    "cpu_system_seconds": round(cpu_after.ru_stime - cpu_before.ru_stime, 6),
+                    "process_io_counters_bytes": logical_io,
                     "maxrss_kib_process": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
                     "result_sha256": sha256(
                         json.dumps(logical, sort_keys=True, separators=(",", ":")).encode()
@@ -135,6 +166,9 @@ def benchmark(*, count: int = 120, iterations: int = 2) -> dict:
         "clock_basis": "HISTORICAL_ORACLE",
         "source_payload_sha256": source_sha,
         "source_fill_count": count,
+        "compressed_fixture_bytes": compressed_bytes,
+        "scratch_free_bytes_before": disk_free_bytes,
+        "persistent_cache_hit_count": 0,
         "synthetic_market": True,
         "python": platform.python_version(),
         "polars": _polars_version(),
@@ -143,6 +177,8 @@ def benchmark(*, count: int = 120, iterations: int = 2) -> dict:
             "Synthetic constant-price oracle, not native market Parquet or real venue capacity",
             "Warm label reflects OS cache only; replay constructs new in-memory state",
             "Peak RSS is process high-water, not per-iteration incremental memory",
+            "Process physical read_bytes is not a reliable cold-disk estimate without cache purge",
+            "No repeated full-market scanning or event-tape cache in this original PM01 fixture",
             "Not PM-03 accounting, not prospective first-known, not a performance speedup claim",
         ],
     }

@@ -7,6 +7,7 @@ import pytest
 
 from copytrade_pm.pm03_account import Instrument, Rulebook
 from copytrade_pm.pm03_execution import CostModel
+from copytrade_pm.pm03_risk import RiskPolicy
 from copytrade_pm.pm_offline_account import replay_fixture
 from copytrade_pm.pm_offline_manifest import ManifestBlocked
 
@@ -126,6 +127,113 @@ def test_equal_opposing_pods_do_not_fake_external_fill():
     assert result["ledger"]["positions"] == {}
     assert result["ledger"]["equity"] == "10000"
     assert len(result["ledger"]["events"][0]["execution"]["internal_crosses"]) == 1
+
+
+def test_unmodified_manager_target_is_not_repriced_on_other_manager_signal():
+    result = replay_fixture(
+        rulebook=rules(),
+        minutes=[
+            minute(0, updates=[update("a"), update("b")]),
+            minute(1, "110", updates=[update("b", price="110")]),
+        ],
+        costs=costs(),
+        k_by_manager={"a": D("0.1"), "b": D("0.1")},
+    )
+    books = result["ledger"]["pm_quantities"]
+    assert D(books["a"]["hyperliquid/perp/BTC"]) == D("1")
+    assert D(books["b"]["hyperliquid/perp/BTC"]) > D("1")
+
+
+def test_funding_posted_on_pm03_ledger_with_known_receipt():
+    at = T + timedelta(minutes=1)
+    second = minute(1)
+    second["funding"] = [
+        {
+            "amount": "-1.25",
+            "allocated": {"a": "-1.25"},
+            "first_known_at": at,
+        }
+    ]
+    result = replay_fixture(
+        rulebook=rules(),
+        minutes=[minute(0, updates=[update()]), second],
+        costs=costs(),
+        k_by_manager={"a": D("0.1")},
+    )
+    assert D(result["ledger"]["funding"]) == D("-1.25")
+    assert D(result["ledger"]["equity"]) == D("9998.75")
+    assert result["ledger"]["events"][1]["funding"][0]["amount"] == "-1.25"
+
+
+def test_future_known_funding_is_rejected():
+    at = T + timedelta(minutes=2)
+    second = minute(1)
+    second["funding"] = [
+        {
+            "amount": "1",
+            "allocated": {"a": "1"},
+            "first_known_at": at,
+        }
+    ]
+    with pytest.raises(ManifestBlocked, match="FUTURE_KNOWN_FUNDING"):
+        replay_fixture(
+            rulebook=rules(),
+            minutes=[minute(0, updates=[update()]), second],
+            costs=costs(),
+            k_by_manager={"a": D("0.1")},
+        )
+
+
+def test_leader_follower_price_difference_changes_quantity():
+    result = replay_fixture(
+        rulebook=rules(),
+        minutes=[minute(0, updates=[update(price="200")])],
+        costs=costs(),
+        k_by_manager={"a": D("0.1")},
+    )
+    assert D(result["ledger"]["positions"]["hyperliquid/perp/BTC"]) == D("2")
+
+
+def test_gross_before_net_cap_vetoes_opposing_pod_hedges():
+    # External net exposure is zero, but two separately allocated pods each
+    # carry 1000 gross notional. A net-only cap would incorrectly permit this.
+    result = replay_fixture(
+        rulebook=rules(),
+        minutes=[minute(0, updates=[update("a", qty="1"), update("b", qty="-1")])],
+        costs=costs(),
+        k_by_manager={"a": D("1"), "b": D("1")},
+        risk_policy=RiskPolicy(max_gross_leverage=D("0.1")),
+        scenario_shocks=({BTC: D("-0.02")}, {BTC: D("0.02")}),
+        hedge_break_loss=D("10"),
+        stressed_liquidity_loss=D("1"),
+    )
+    decision = result["ledger"]["events"][0]["pretrade"]
+    assert decision["allowed"] is False
+    assert "GROSS_BEFORE_NET_OR_POD_CONCENTRATION" in decision["reasons"]
+    assert result["ledger"]["positions"] == {}
+    assert result["ledger"]["risk"] == "RED"
+
+
+def test_portfolio_stress_requires_frozen_shocks():
+    with pytest.raises(ManifestBlocked, match="MISSING_FROZEN_PORTFOLIO_STRESS"):
+        replay_fixture(
+            rulebook=rules(),
+            minutes=[minute(0, updates=[update()])],
+            costs=costs(),
+            k_by_manager={"a": D("0.1")},
+            risk_policy=RiskPolicy(),
+        )
+
+
+def test_exact_target_first_time_is_recorded():
+    result = replay_fixture(
+        rulebook=rules(),
+        minutes=[minute(0, updates=[update(qty="1")]), minute(1, "200")],
+        costs=costs(),
+        k_by_manager={"a": D("1")},
+    )
+    assert result["ledger"]["first_target_at"] == (T + timedelta(minutes=1)).isoformat()
+    assert result["ledger"]["first_breach_at"] is None
 
 
 def test_unknown_capacity_causes_unfilled_residual():

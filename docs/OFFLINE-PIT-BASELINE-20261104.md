@@ -40,6 +40,24 @@ OS cache purge, streaming Parquet throughput, or stress footprint has been
 independently measured. The first trial is **not** a guaranteed cold-disk read.
 A numeric optimizer speedup target cannot be established from this alone.
 
+## Enhanced instrumentation rerun (same fixture SHA, no cache purge)
+
+New instrumentation records Linux process CPU, logical read counters,
+process physical read bytes, compressed input size and scratch free space.
+It does **not** claim that first trial is a physically cold disk read.
+This second measurement is from the same 120-fill SHA on the reference VPS.
+
+| Trial | Wall | CPU user | CPU system | Logical read (`rchar`) | Physical `read_bytes` | Peak RSS |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0 | 0.003853s | 0.003514s | 0.000895s | 1048 bytes | 0 bytes | 28760 KiB |
+| 1 | 0.003896s | 0.004020s | 0.000000s | 1048 bytes | 0 bytes | 28760 KiB |
+
+The gzip input is 816 bytes; `/tmp` had 9,466,241,024 bytes free
+at this run; no persistent cache was used. Identical source SHA and logical
+result hash were observed in separate invocations. Wall/CPU/physical
+read counters vary with OS caching and shared VPS load; no statistical
+speedup target has been inferred.
+
 ## Preserved contracts and independent boundaries
 
 | Surface | Unmodified contract |

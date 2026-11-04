@@ -9,17 +9,25 @@ certificate. See [baseline](OFFLINE-PIT-BASELINE-20261104.md) and
 
 | Component | Input contract / outputs | Remaining integration |
 | --- | --- | --- |
-| `pm_offline_manifest` | Manifest v1 SHA and source/market/rule/cost file checks, clock basis, 0/1/2/5/10m, typed INVALID/BLOCKED | Verify source-file semantic schemas and native day identities; one manifest-to-report facade |
-| `pm_offline_source` | Atomic verified initial book, position-before/after continuity, strict all-DEX/account identities and as-of positive equity, stable digest | Independent signed source/receipt producer; source/equity snapshot integration; same-ms continuity inference |
+| `pm_offline_manifest` | Manifest v1 bounded streaming SHA on source/market/rule/cost/risk files, explicit equity max-age, five delays, frozen stress/k/cost scenario IDs, typed INVALID/BLOCKED | Independently attested real source-file semantics, receipt lineage and real manifest-to-report facade |
+| `pm_offline_source` | Atomic verified initial book, exact same-millisecond chain or typed ambiguity, strict all-DEX/account identities and as-of positive equity, stable digest | Independent signed source/receipt producer and source/equity snapshot adapter |
 | `pm_offline_eligibility` | Polars 2.1 lazy strict next-bar, event-specific eligibility, stable streaming/in-memory hash, right-censor | Connect whole-book source tape; independently verified real receipt SHA and maturity |
 | `pm_offline_market` | Native day Parquet SHA; exact namespace + minute join; prior completed bar volume; ex-post volume separate | Source market-day manifest reconciliation; resource-bounded hot partitions; full minute MTM; source calendar/session |
 | `pm_offline_cache` | Owner-private immutable SHA object keys, fsync hardlink sealed metadata, error on corruption, content-sensitive dependencies and size/disk floor | Actual compiled tape/market worker integration, restart process fault/memory benchmark |
-| `pm_offline_account` | Fixture-only sequential PM-03 Decimal Account + PM-03 execute_targets, whole-source-equity target sizing and per-minute risk marks | Integrate only verified source/market tapes and funding/contract receipts; account-lifecycle SHA journal and exact certification |
+| `pm_offline_account` | Fixture-only sequential PM-03 Decimal Account, PM-03 classifier/execute_targets, source-equity sizing, frozen per-manager intents, funding, minute marks, gross-before-net veto, exact first target/breach times and PM03 snapshot SHA | Real source/native bars/funding/contract receipts and multi-day persistent account/restart audit |
+| `pm_offline_certification` | Synthetic-only PM-03 Decimal floor/target probe with inclusive equality and SCREEN_ONLY prevention, UNKNOWN/AMBIGUOUS for missing sources/marks/funding or nonconfirmed terms | Real qualified source and exact-price/funding path before any real financial verdict |
 
 The PM-03 fixture adapter uses `Account`, `evaluate`, `mark`, `verify`, and
 `execute_targets` from the existing PM-03 modules; it is not a competing
 ledger or a real-data runner. Its summary is always labeled `SYNTHETIC_PM03_*`
 and its source fixture completeness flag is not an independent attestation.
+
+The new `pm_offline_sweep` CLI runs only explicitly marked synthetic
+fixture studies, with read-only SHA-pinned native data and sealed scenario
+cache, versioned source/risk/cost manifests, 3-/5-wallet stress, five delays,
+and bounded 1-/2-worker replay. It refuses nonflat initial source books and
+cross-DEX same-manager books without independently verified consolidated
+admission evidence. It is **not** a 90-day real-data replay runner.
 
 All files are new offline-only modules. Frozen PM-01 v2, PM-03,
 PM-04, wallet registry and forward-paper modules are unmodified.
@@ -53,7 +61,31 @@ uv run --group dev ruff check src tests
 uv run --group dev ruff format --check src tests
 ```
 
-Until the verified-data account replay, exact financial certification, full manifest-to-report
-and end-to-end cold/warm private benchmarks are built and verified, Issues
-#81–#90 retain open or partial status. No new trades, external network source
+The synthetic manifest-to-PM03 fixture runner and first bounded cold/warm
+cache/worker timing now exist. Remaining: original real-data complete-source
+adapters, nonzero initial admission, portfolio alias/DEX joint books,
+independently verified first-local receipts and source NAV, real funding,
+real contract and exact execution prices, 90-day bounded chunked account
+replay, representative matched baseline, independent differential audit,
+and final review. Accordingly Issues #81–#90 remain partial/open. No new trades, external network source
 calls, protected service edits, private data commits or runtime restarts.
+
+## Final bounded synthetic benchmark checkpoint
+
+On the verified Python 3.14.6 / Polars 2.1.0 VPS, with 5 synthetic source
+managers, 3 portfolio/cost scenarios, all five delay policies, one synthetic
+minute market, 2 workers, an isolated private cache and no source acquisition:
+
+| Trial | Wall time | CPU user | CPU system | Process peak RSS high-water | Sealed tape hits | Scenario hits |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| cold private cache (OS page cache not purged) | 0.123106 s | 0.093407 s | 0.072921 s | 90,692 KiB | 0/5 | 0/15 |
+| warm private cache 1 | 0.033308 s | 0.014988 s | 0.025409 s | 91,076 KiB | 5/5 | 15/15 |
+| warm private cache 2 | 0.029599 s | 0.019520 s | 0.019483 s | 91,460 KiB | 5/5 | 15/15 |
+
+All scenarios have the same SHA
+`d47aae6d8e17f3f17eadc85c9115c183e193e9121537b1e5c9769a49cba88287`
+across trials. This is **not** a measured old-versus-new production speedup:
+the existing PM-01 benchmark has different oracle policy, workload and
+accounting. An independently comparable 90d/500k fills/13M 1m bar
+benchmark, memory/spill and p50/p95 are still BLOCKED by incomplete
+real-data source/equity/receipt and native sidecar evidence.
