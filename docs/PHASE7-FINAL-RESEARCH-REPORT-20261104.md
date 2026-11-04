@@ -177,7 +177,7 @@ All scripts are read-only except explicit new, non-overwriting research `--outpu
 | `phase7_candidate_screen_20261104_v4.json` | `f36d0fa4ac807d8d570cffb76387e990a6bb62073541fbd5dd3cce1190e3547f` |
 | `phase7_native_exposure_20261104_v1.json` | `28acb92b37936888339304109963d6c14911055b0492ad65c07bca7ca7379713` |
 | `phase7_conditional_stress_20261104_v3.json` | `e6a38c47dac15ba249f076d7831b470590670285af3da35922b68f45f0dacf9a` |
-| `phase7_delay_cost_20261104_v1.json` | Run `sha256sum` on private source |
+| `phase7_delay_cost_20261104_v1.json` | `ba778e6094e9b69186fc1a2617cde3b3c8f221ace3c4915d602933c9ee16299b` |
 
 **Missing for faithful PM03 account certification:** independent first-known source receipts, atomic initial whole books for every DEX/subaccount, a historical time-series source NAV/collateral/funding ledger, verified liquidity/quote-side and fill latency, user-approved broker rules and independent matured matched follower/control outcomes. None should be fabricated to make a prettier portfolio report.
 
