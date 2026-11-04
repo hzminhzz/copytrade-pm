@@ -2,6 +2,14 @@
 
 **2026-11-04 status: implemented as an optional PRIVATE read-only observer and tested against synthetic fixtures only. No registered live P1/P14 paper worker was found at inspection.** This is not production activation, not a live/demo broker integration and not scientific qualification. FP-10 issue #67 remains a separate cross-program integration gate.
 
+## Registry v7 frozen-member as-of correction (2026-11-04)
+
+After the mainline research-catalog integration at `5d7b4d7`, a code audit found that `wallet_registry.apply()` **retroactively replaced NULL `portfolio_memberships.wallet_id` values in existing P1/P14 v2 sealed selections** using Phase-4 aliases first known on 2026-11-04, after the original November 2 selection seal. A matching address is not proof the alias was known to the follower at that older selection time. The active private registry-only release was already observed with those retrofilled rows. No evidence is backdated, no historical fill is reinterpreted as prospective, and this change does **not** reverse a production DB mutation.
+
+The corrective patch removes the cross-version `UPDATE portfolio_memberships` entirely. The registry now resolves source wallet aliases through `wallet_aliases` at the *requested as-of cutoff* without rewriting any frozen membership. It rejects conflicting preassigned and observed IDs. New V2 portfolio versions continue to be created by the existing approved `research_selections` schema. A regression reproduces the old defect in a temporary v1->v2->v7 SQLite upgrade and verifies that all original frozen IDs remain NULL while new as-of alias lookups work, early as-of lookups remain unresolved, the same import is idempotent, and status/authorization remain research-only. This is an engineering fix, **not** a scientific wallet-identity attestation or permission to repair private v2 rows without a separate reviewed migration and rollback record.
+
+Current new-study priority is still E6 primary / E2 challenger via `copytrade-wallet-registry portfolio --current`. P1/P14 remain independently frozen FP-09 engineering baselines, not equivalent to prospective paper admission. Protected paper workers remain undeployed.
+
 ## WR-06 — versioned research portfolio selections
 
 A registry source migration imports seven **SHA-sealed** decision declarations from reviewed Git document versions:
