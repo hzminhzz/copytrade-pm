@@ -170,6 +170,70 @@ class BoundedMarketCapture:
             await self.feed.close()
 
 
+async def supervise_bounded_market_epochs(
+    *,
+    make_capture: Callable[[], BoundedMarketCapture],
+    epochs: int,
+    duration_seconds: float,
+    backoff_seconds: float = 0.1,
+    pause: Callable[[float], Any] = asyncio.sleep,
+) -> dict:
+    """Restart bounded read-only feeds; never bridge an unknown gap.
+
+    Each epoch must create a new CCXT client and trade-cache baseline.
+    The caller provides an existing journal-backed capture factory. This
+    is not a daemon, protected service or assertion of feed continuity.
+    """
+    if not 1 <= epochs <= 10 or not 0.5 <= duration_seconds <= 120:
+        raise ValueError("CCXT_SUPERVISOR_BOUNDS_INVALID")
+    if not 0 <= backoff_seconds <= 30:
+        raise ValueError("CCXT_SUPERVISOR_BACKOFF_INVALID")
+    attempts: list[dict] = []
+    for epoch in range(epochs):
+        try:
+            capture = make_capture()
+            result = await capture.run(duration_seconds=duration_seconds)
+            attempts.append(
+                {
+                    "epoch": epoch + 1,
+                    "status": (
+                        "DEGRADED_EPOCH"
+                        if result["missing_native_markets"] or result["stream_failures"]
+                        else "BOUNDED_SESSION_ENDED"
+                    ),
+                    "missing_native_markets": result["missing_native_markets"],
+                    "stream_failures": result["stream_failures"],
+                    "receipt_counts": result["receipt_counts"],
+                    "gap_before_epoch": epoch > 0,
+                }
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            attempts.append(
+                {
+                    "epoch": epoch + 1,
+                    "status": "BLOCKED_EPOCH_FAILURE",
+                    "reason": type(exc).__name__ + ":" + str(exc)[:120],
+                    "gap_before_epoch": epoch > 0,
+                }
+            )
+        if epoch + 1 < epochs:
+            await pause(backoff_seconds)
+    return {
+        "schema": "paper_readonly_market_epoch_supervision_v1",
+        "attempts": attempts,
+        "epoch_count": len(attempts),
+        "reconnect_gaps": max(0, len(attempts) - 1),
+        "transport_continuity_verified": False,
+        "complete_trade_volume_verified": False,
+        "executable_volume_base": None,
+        "protected_worker_attested": False,
+        "paper_observed": False,
+        "order_route": "NONE",
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Bounded read-only CCXT public quotes/trades; NO paper fills or broker"

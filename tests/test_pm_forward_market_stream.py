@@ -4,7 +4,10 @@ import asyncio
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from copytrade_pm.pm_forward_market_stream import BoundedMarketCapture
+from copytrade_pm.pm_forward_market_stream import (
+    BoundedMarketCapture,
+    supervise_bounded_market_epochs,
+)
 from copytrade_pm.pm_forward_journal import PaperJournal
 from test_pm_forward_ccxt_market import BTC, orderbook
 from test_pm_forward_ccxt_trades import FakeTrades, trade
@@ -30,6 +33,59 @@ class PublicClient(FakeTrades):
         if isinstance(answer, Exception):
             raise answer
         return answer
+
+
+def test_supervised_epochs_fail_closed_and_reconnect_with_fresh_clients(tmp_path):
+    async def run():
+        clients = []
+        sleeps = []
+        journal = PaperJournal(tmp_path / "private")
+        calls = 0
+
+        def make_capture():
+            nonlocal calls
+            calls += 1
+            client = PublicClient({})
+            if calls == 1:
+                client.trade_caches = [TimeoutError("lost feed")]
+            client.books = [orderbook(seconds=2), orderbook(seconds=3)]
+            clients.append(client)
+            return BoundedMarketCapture(
+                (BTC,),
+                journal=journal,
+                factory=lambda config: client,
+                now=lambda: (T + timedelta(seconds=6 + calls)).isoformat(),
+            )
+
+        async def pause(delay):
+            sleeps.append(delay)
+
+        report = await supervise_bounded_market_epochs(
+            make_capture=make_capture,
+            epochs=2,
+            duration_seconds=0.5,
+            backoff_seconds=0.01,
+            pause=pause,
+        )
+        assert report["epoch_count"] == 2
+        assert report["reconnect_gaps"] == 1
+        assert report["attempts"][0]["stream_failures"][BTC.key]
+        assert report["attempts"][0]["status"] == "DEGRADED_EPOCH"
+        assert report["attempts"][1]["gap_before_epoch"] is True
+        assert report["attempts"][1]["receipt_counts"][BTC.key]["trade_baseline"] == 1
+        assert report["transport_continuity_verified"] is False
+        assert report["complete_trade_volume_verified"] is False
+        assert report["executable_volume_base"] is None
+        assert report["order_route"] == "NONE"
+        assert sleeps == [0.01]
+        assert all(client.closed for client in clients)
+        assert not any(
+            call[0] in ("create_order", "cancel_order", "set_leverage")
+            for client in clients
+            for call in client.calls
+        )
+
+    asyncio.run(run())
 
 
 def test_bounded_public_dual_stream_is_durable_readonly_and_no_order(tmp_path: Path):
