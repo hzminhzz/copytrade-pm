@@ -1,5 +1,7 @@
 # Phase 6B — independent market-price audit (2026-11-04)
 
+**Historical v1 snapshot — superseded for further execution.** The source normalization and CLI changed in the independently versioned recovery generation. See [Phase 6B recovery, SHA-bound conditional S1–S8 experiments and final evidence](PHASE6B-RECOVERY-SCENARIOS-20261104.md). Preserve the frozen v1/v2/v3 SHA artifacts; the reproduction commands below describe the original version of the CLI and require the new `--phase4-source` argument on the current branch.
+
 **Status: ENGINEERING VERIFIED preflight; historical follower economics BLOCKED; NOT SCIENTIFICALLY QUALIFIED.** This is research-only. No orders, subscription mutations, data download, or service changes.
 
 ## Frozen scope

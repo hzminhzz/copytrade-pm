@@ -107,7 +107,7 @@ def inspect_fill_chain(fills: list[dict], address: str) -> dict:
                     pick = min(starts or remaining, key=lambda r: r[1])
                 remaining.remove(pick)
                 if first_before is None:
-                    first_before = str(pick[2])
+                    first_before = pick[2]
                 if prev is not None and not _same(prev, pick[2]):
                     breaks += 1
                 if pick[3] == 0 and anchor is None:
@@ -115,7 +115,7 @@ def inspect_fill_chain(fills: list[dict], address: str) -> dict:
                 prev = pick[3]
         if breaks:
             blockers["POSITION_CHAIN_BREAK"] += breaks
-        if first_before != "0":
+        if first_before != 0:
             blockers["UNKNOWN_PRE_ANCHOR_POSITION"] += 1
         if anchor is None:
             blockers["NO_OBSERVED_FLAT_ANCHOR"] += 1
@@ -123,7 +123,8 @@ def inspect_fill_chain(fills: list[dict], address: str) -> dict:
             {
                 "instrument": coin,
                 "fills_in_window": len(records),
-                "initial_source_position": first_before,
+                "initial_source_position": str(first_before),
+                "first_observed_event_at": records[0][0].isoformat(),
                 "last_source_position": str(prev),
                 "first_observed_flat_after_at": anchor,
                 "chain_breaks": breaks,
@@ -232,7 +233,52 @@ def safe_write_json(path: Path, value: dict | list) -> str:
     return sha256(raw).hexdigest()
 
 
-def preflight(*, phase5: Path, new50: Path, market_root: Path, out: Path) -> dict:
+def locate_phase4_wallet(root: Path, address: str) -> Path:
+    """Resolve one existing raw Phase4 wallet by signed address, not filename.
+
+    There is no API request and no rewrite. Require exactly one raw match; the
+    aggregated Gemini CSV loses position-before values and is NOT a substitute.
+    """
+    paths = sorted(root.glob("*.json"))
+    if not paths or len(paths) > 100:
+        raise ValueError("PHASE4_UNBOUNDED_OR_EMPTY_SOURCE_ROOT")
+    matches = []
+    for path in paths:
+        obj = json.loads(path.read_text())
+        if isinstance(obj, dict) and str(obj.get("address", "")).lower() == address.lower():
+            matches.append(path)
+    if len(matches) != 1:
+        raise ValueError("PHASE4_UNIQUE_RAW_WALLET_NOT_FOUND")
+    return matches[0]
+
+
+def normalize_phase4_wallet(source: dict, address: str) -> list[dict]:
+    """Unify actual native HL startPosition and HyperX start_position keys."""
+    if str(source.get("address", "")).lower() != address.lower():
+        raise ValueError("PHASE4_SOURCE_ACCOUNT_MISMATCH")
+    fills = source.get("fills")
+    if not isinstance(fills, list) or len(fills) != source.get("total_fills_90d"):
+        raise ValueError("PHASE4_SOURCE_FILL_COUNT_MISMATCH")
+    if (int(source.get("hl_fills_count", -1)) + int(source.get("hx_fills_count", -1))) != len(
+        fills
+    ):
+        raise ValueError("PHASE4_HL_HYPERX_COUNT_MISMATCH")
+    normalized = []
+    for f in fills:
+        if not isinstance(f, dict):
+            raise ValueError("PHASE4_FILL_NOT_OBJECT")
+        position = f.get("start_position", f.get("startPosition"))
+        if position is None or "startPosition" in f and "start_position" in f:
+            raise ValueError("PHASE4_MISSING_OR_AMBIGUOUS_START_POSITION")
+        if "user" in f and str(f["user"]).lower() != address.lower():
+            raise ValueError("PHASE4_FILL_DIFFERENT_OWNER")
+        normalized.append({**f, "user": address, "start_position": position})
+    return normalized
+
+
+def preflight(
+    *, phase5: Path, new50: Path, market_root: Path, out: Path, phase4_source: Path | None = None
+) -> dict:
     source = json.loads(phase5.read_text())
     require_same_frozen(source["portfolios"])
     mappings = {m["member_alias"]: m for p in source["portfolios"] for m in p["members"]}
@@ -245,14 +291,29 @@ def preflight(*, phase5: Path, new50: Path, market_root: Path, out: Path) -> dic
     for alias in sorted(unique):
         address = mappings[alias]["address"].lower()
         if alias == "ACT08":
+            if phase4_source is None:
+                raise ValueError("PHASE4_POSITION_AWARE_RAW_SOURCE_REQUIRED")
+            path = locate_phase4_wallet(Path(phase4_source), address)
+            checksum = fingerprint(path)
+            raw = json.loads(path.read_bytes())
+            normalized = normalize_phase4_wallet(raw, address)
+            if checksum != fingerprint(path):
+                raise ValueError("PHASE4_RAW_CHANGED_DURING_READ")
+            chain = inspect_fill_chain(normalized, address)
+            used_coins.update(x["instrument"] for x in chain["instruments"])
             wallets[alias] = {
                 "alias": alias,
-                "source_status": "BLOCKED_MISSING_IMMUTABLE_POSITION_AWARE_SOURCE",
-                "source_file_sha256": None,
+                "source_status": "VERIFIED_FILE_INCOMPLETE_ACCOUNT_BOOK",
+                "source_file_sha256": checksum,
+                "source_fills_total": len(normalized),
+                "source_position": chain,
                 "full_account_equity": "UNKNOWN",
                 "account_mode": mappings[alias]["account_mode"],
-                "reason": "Phase4 consolidated CSV lacks source start_position and trade IDs; cannot reconstruct a full book.",
+                "first_known_receipts": "UNKNOWN",
+                "full_account_book_qualified": False,
+                "reason": "HL public and HyperX historical raw fills normalized without rewriting original bytes.",
             }
+            provenance["fill_" + alias] = checksum
             continue
         record = roster.get(address)
         if record is None:
@@ -366,7 +427,7 @@ def preflight(*, phase5: Path, new50: Path, market_root: Path, out: Path) -> dic
             "Native market-day manifests are inventoried, **not** validated for continuous minute coverage or all SHA bytes.",
             "The market source can provide close-price proxies after exact-minute, sidecar and SHA verification.",
             "No continuous source-equity history, collateral/funding reconciliation or complete verified source books",
-            "were available as inputs to this preflight. ACT08's Phase 4 CSV has no position-before chain.",
+            "were available as inputs to this preflight. ACT08's original Phase4 raw source has start-position fields, but still lacks full account history.",
             "",
             "## Gemini DD verification",
             "",
@@ -421,7 +482,7 @@ def preflight(*, phase5: Path, new50: Path, market_root: Path, out: Path) -> dic
         "wallet_count": len(wallets),
         "instrument_count": len(market),
         "portfolios": len(portfolio_states),
-        "source_sha_verified_wallets": 6,
+        "source_sha_verified_wallets": sum(bool(x["source_file_sha256"]) for x in wallets.values()),
     }
 
 
@@ -431,11 +492,16 @@ def main() -> None:
     parser.add_argument("--new50", type=Path, required=True)
     parser.add_argument("--market-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--phase4-source", type=Path, required=True)
     args = parser.parse_args()
     print(
         json.dumps(
             preflight(
-                phase5=args.phase5, new50=args.new50, market_root=args.market_root, out=args.output
+                phase5=args.phase5,
+                new50=args.new50,
+                market_root=args.market_root,
+                out=args.output,
+                phase4_source=args.phase4_source,
             ),
             indent=2,
         )
