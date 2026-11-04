@@ -43,6 +43,10 @@ The **source account's** realized PnL, a **historical modeled follower's** PnL, 
 
 `pm_forward_heartbeat` seals a locally emitted observer-only heartbeat to the native Linux process PID/start-ticks/boot epoch, run+release/manifest hash and financial journal cursor/head. A read-only watchdog CLI compares those to `/proc`, times transport/source/market freshness independently, and fails closed on stale, forged, missing, restarted or financially diverged state. `pm_forward_status` can display the independent verdict via `--heartbeat-root`. This observation is intentionally **never PAPER_RUNNING**: the coder-writable path is not protected, the record is not independently signed, and the source/market production feed remains unqualified. No systemd unit, long-lived protected worker or broker transport has been activated. See [observer health contract](FORWARD-PAPER-OBSERVER-HEALTH-20261104.md).
 
+## Frozen P1/P14 identity-linkage audit — WR-06/FP-10
+
+`pm_forward_registry_identity` opens the existing wallet registry using SQLite read-only/query-only and compares WR-06 frozen P1/P14 membership rows to locally stored owner-private historical address locators. **All five addresses match registered Hyperliquid wallet identities, but current P1/P14 version-2 membership `wallet_id` values remain NULL** (3/3 P1 and 5/5 P14 links missing). The audit never mutates the wallet registry or imports private historical fills. Even an address match does not verify independent prospective source equity, so a roster can only graduate through a new verified registry seal. See [live identity audit](FORWARD-PAPER-REGISTRY-IDENTITY-20261104.md).
+
 ## PM-01 historical path
 
 `pm_sources.load_cohort(root)` is deliberately fixed to **6 original + 10 Wave1 + 20 Wave2** and references multiple authoritative private manifests. It reconciles alias/address collisions and vendor pagination; it does **not** accept an arbitrary fresh wallet address. `pm_source_audit.audit()` validates raw page hashes and selected market defects.

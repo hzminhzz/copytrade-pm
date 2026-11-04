@@ -35,6 +35,7 @@ copytrade-pm-market-ccxt = "copytrade_pm.pm_forward_ccxt_market:main"
 copytrade-pm-market-stream = "copytrade_pm.pm_forward_market_stream:main"
 copytrade-pm-source-scope = "copytrade_pm.pm_forward_source_stream:main"
 copytrade-pm-paper-watchdog = "copytrade_pm.pm_forward_heartbeat:main"
+copytrade-pm-paper-registry-audit = "copytrade_pm.pm_forward_registry_identity:main"
 
 [build-system]
 requires = ["hatchling"]
