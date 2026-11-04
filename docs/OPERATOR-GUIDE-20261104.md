@@ -2,6 +2,26 @@
 
 **Version:** 2026-11-04. **Verified deployment:** pinned on-demand registry at `29156de99cd2a670f48757fea283bc6a5aa109d5`. This is a dated checkpoint: always re-run live checks. For the detailed operational contract, read [the mandatory registry-first workflow](WALLET-REGISTRY-AGENT-WORKFLOW.md) and [registry release runbook](WALLET-REGISTRY-RELEASE-RUNBOOK.md). This guide adds no trading authority.
 
+## 2026-11-05 on-demand CLI upgrade checkpoint
+
+The agent-native read-only release controller activated main commit
+`8bdaf1e352193554c052167bc8e13e6a66033a95` from a clean detached
+worktree. Source generation `e2836aab5ef6ef79306e9dfe732d8768c3b1ca6af29efbda066b37f03646a18f`
+remained unchanged, preactivation backup was verified, and tracker/ensemble/
+Source-ABC retained their original PIDs. Current release must be reverified
+on every later session. Use this installed release's new CLI with:
+
+```bash
+REG="$HOME/.local/share/copytrade/registry/release-control/current"
+uv run --project "$REG" --offline --frozen --no-dev copytrade-pm capabilities validate --json
+uv run --project "$REG" --offline --frozen --no-dev copytrade-pm portfolios current
+uv run --project "$REG" --offline --frozen --no-dev copytrade-pm health
+```
+
+The later P1 wallet/research/runtime extensions are documented in
+[the agent-native operator contract](AGENT-NATIVE-OPERATIONS.md); only treat
+them as installed after their own reviewed release activation and verification.
+
 ## 1. One-minute read-only check
 
 Use the **installed pinned release**, not a possibly stale or dirty developer checkout:

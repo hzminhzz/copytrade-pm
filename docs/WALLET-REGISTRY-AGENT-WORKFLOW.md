@@ -21,6 +21,14 @@ First discover the matching owner with `copytrade-pm capabilities show
 portfolio.current` or `copytrade-pm capabilities show wallet.lookup` and
 [the agent-native guide](AGENT-NATIVE-OPERATIONS.md). Unified queries do not
 replace the independent registry `doctor`, release or paper-worker checks.
+Use `copytrade-pm wallets list --query W083 --asof <UTC>` for a bounded,
+address-redacted inventory query; its local wallet IDs are not durable
+identities, and monitored/subscribed flags are current-snapshot observations.
+Use `copytrade-pm research list --cache-root PRIVATE_CACHE` only for
+SHA-verified canonical Polars job reports; this is not a general research
+ledger. The `copytrade-pm health` adapter now delegates installed release
+verification and OS unit queries but does not establish protected trading
+readiness.
 
 
 From a clean checkout or an isolated worktree of `hzminhzz/copytrade-pm`, compare the actual Git revision with the remote before trusting code or a dated note:

@@ -417,3 +417,124 @@ def list_selection(con: sqlite3.Connection, cutoff: str) -> dict:
         "paper_running": "UNKNOWN",
         "trading_authorized": False,
     }
+
+
+def list_wallets(
+    con: sqlite3.Connection,
+    cutoff: str,
+    *,
+    query: str | None = None,
+    cohort: str | None = None,
+    excluded: bool | None = None,
+    subscribed: bool | None = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> dict:
+    """Private, bounded, address-redacted projection from the authoritative registry.
+
+    Addresses and exclusion reasons never leave this read interface. SQLite
+    row IDs are useful *within this generation only*, never durable wallet IDs.
+    A current monitoring snapshot is NOT a historical subscription timeline.
+    """
+    if not 1 <= limit <= 200 or not 0 <= offset <= 10000:
+        raise ValueError("INVALID_WALLET_LIST_WINDOW")
+    if query is not None and (not query or len(query) > 96):
+        raise ValueError("INVALID_ALIAS_SEARCH")
+    if cohort is not None and (not cohort or len(cohort) > 96):
+        raise ValueError("INVALID_COHORT_FILTER")
+    ids = [
+        row[0] for row in con.execute("SELECT wallet_id FROM wallets ORDER BY wallet_id LIMIT 5001")
+    ]
+    if len(ids) > 5000:
+        raise ValueError("WALLET_LIST_REVIEW_BUDGET_EXCEEDED")
+    aliases_by_id: dict[int, list[dict]] = {}
+    bindings: dict[str, set[int]] = {}
+    for namespace, alias, wallet_id, known_at in con.execute(
+        "SELECT namespace,alias,wallet_id,known_at FROM wallet_aliases "
+        "WHERE known_at<=? ORDER BY namespace,alias,known_at",
+        (cutoff,),
+    ):
+        bindings.setdefault(alias, set()).add(wallet_id)
+        aliases_by_id.setdefault(wallet_id, []).append(
+            {"namespace": namespace, "alias": alias, "known_at": known_at}
+        )
+    cohorts_by_id: dict[int, set[str]] = {}
+    for wid, cid in con.execute(
+        "SELECT m.wallet_id,m.cohort_id FROM cohort_memberships m "
+        "WHERE m.known_at<=? AND m.version=("
+        "SELECT MAX(m2.version) FROM cohort_memberships m2 "
+        "WHERE m2.cohort_id=m.cohort_id AND m2.known_at<=?)",
+        (cutoff, cutoff),
+    ):
+        cohorts_by_id.setdefault(wid, set()).add(cid)
+    excluded_ids = {
+        row[0]
+        for row in con.execute(
+            "SELECT DISTINCT wallet_id FROM exclusions WHERE known_at<=?", (cutoff,)
+        )
+    }
+    current_monitoring = {
+        row[0]: (bool(row[1]), bool(row[2]), row[3])
+        for row in con.execute(
+            "SELECT wallet_id,configured,subscribed,known_at FROM monitoring WHERE known_at<=?",
+            (cutoff,),
+        )
+    }
+    portfolios_by_id: dict[int, set[tuple[str, int]]] = {}
+    for wid, pid, version in con.execute(
+        "SELECT pm.wallet_id,pm.portfolio_id,pm.version FROM portfolio_memberships pm "
+        "JOIN portfolio_seals ps USING(portfolio_id,version) "
+        "WHERE pm.wallet_id IS NOT NULL AND ps.selection_known_at<=?",
+        (cutoff,),
+    ):
+        portfolios_by_id.setdefault(wid, set()).add((pid, version))
+    matched = []
+    for wid in ids:
+        aliases = aliases_by_id.get(wid, [])
+        safe = sorted({entry["alias"] for entry in aliases if len(bindings[entry["alias"]]) == 1})
+        bad = sorted({entry["alias"] for entry in aliases if len(bindings[entry["alias"]]) > 1})
+        groups = sorted(cohorts_by_id.get(wid, set()))
+        monitoring = current_monitoring.get(wid)
+        if query is not None and not any(query.casefold() in alias.casefold() for alias in safe):
+            continue
+        if cohort is not None and cohort not in groups:
+            continue
+        if excluded is not None and (wid in excluded_ids) != excluded:
+            continue
+        if subscribed is not None and (monitoring is None or monitoring[1] != subscribed):
+            continue
+        matched.append(
+            {
+                "registry_wallet_id": wid,
+                "alias": safe[0] if safe else None,
+                "aliases": [a for a in aliases if a["alias"] in safe],
+                "identity_state": "AMBIGUOUS" if bad else "EVIDENCE_BOUND" if safe else "UNALIASED",
+                "ambiguous_alias_count": len(bad),
+                "cohorts": groups,
+                "excluded": wid in excluded_ids,
+                "configured": monitoring[0] if monitoring is not None else None,
+                "subscribed": monitoring[1] if monitoring is not None else None,
+                "monitoring_snapshot_known_at": monitoring[2] if monitoring is not None else None,
+                "portfolio_memberships": [
+                    {"portfolio_id": pid, "version": version}
+                    for pid, version in sorted(portfolios_by_id.get(wid, set()))
+                ],
+                "runtime_admitted": "UNKNOWN",
+                "receipt_health": "UNKNOWN",
+                "trading_authorized": False,
+            }
+        )
+    return {
+        "schema": "wallet_registry_private_inventory_v1",
+        "status": "INDEXED_RESEARCH_AND_MONITORING_ONLY",
+        "asof": cutoff,
+        "total": len(matched),
+        "limit": limit,
+        "offset": offset,
+        "wallets": matched[offset : offset + limit],
+        "wallet_id_scope": "SQLITE_GENERATION_ONLY_NOT_STABLE_IDENTITY",
+        "monitoring_limit": "CURRENT_SNAPSHOT_ONLY_NOT_HISTORICAL_REPLAY",
+        "addresses_redacted": True,
+        "paper_running": "UNKNOWN",
+        "trading_authorized": False,
+    }

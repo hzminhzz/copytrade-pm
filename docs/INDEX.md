@@ -3,7 +3,10 @@
 **Agent-native entrypoint:** [capability discovery and read-only operator CLI](AGENT-NATIVE-OPERATIONS.md).
 Before implementing new features, use `copytrade-pm capabilities list`, `show`
 and `validate` to identify the authoritative native interface; wallet/portfolio
-queries additionally require the live registry-first workflow.
+queries additionally require the live registry-first workflow. For native
+wallet inventory use `wallets list --cohort ...`; for independently SHA-verified
+executed Polars jobs use `research list --cache-root PRIVATE_CACHE`.
+See [P1 operational discovery acceptance](AGENT-OPERATIONS-P1-ACCEPTANCE-20261105.md).
 
 
 **Audience:** an engineer/researcher taking over `hzminhzz/copytrade-pm`, or an operator tracing one wallet from HyperX evidence through PM-01, PM-02, and PM-03. **Canonical entry point for this repo.** Recovery inspection: **2026-11-01**, PR17 verified at `d3e0ce916c2f0b64ad36593f55b261607ec0cbdd`; E0/E4 recovery merged through PR18 at `7a8be42dbee374f7ce3d5702f98dadc638853f4a`. Recheck live Git and private source manifests before acting.

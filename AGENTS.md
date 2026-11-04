@@ -8,7 +8,13 @@ finance, research replay, evidence qualification or broker routes. Follow
 [the agent-native operator guide](docs/AGENT-NATIVE-OPERATIONS.md), its
 mechanical catalog checks and the registry-first workflow for wallet/portfolio
 questions. A missing service must remain `UNKNOWN` or `NOT_RUNNING`, never
-inferred as healthy from Git or tests.
+inferred as healthy from Git or tests. Native `wallets list` uses a private
+address-redacted registry view; `research list/show --cache-root` verifies
+only canonical SHA-sealed job reports from that explicit root. `health` verifies
+the installed registry release separately from Git and checks scoped protected
+paper OS units; a PID or public quote receipt never proves a healthy worker,
+whole-wallet economics, or market-provider readiness. See
+[the operator contract](docs/AGENT-NATIVE-OPERATIONS.md).
 
 ## Memory
 

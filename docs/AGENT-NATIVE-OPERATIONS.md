@@ -50,6 +50,11 @@ uv run --group dev copytrade-pm portfolios current
 uv run --group dev copytrade-pm portfolios show E6
 uv run --group dev copytrade-pm portfolios show q3/B
 uv run --group dev copytrade-pm wallets show W083
+uv run --group dev copytrade-pm wallets list --cohort research-108 --limit 50
+uv run --group dev copytrade-pm wallets list --query W083
+uv run --group dev copytrade-pm wallets list --excluded --limit 50
+uv run --group dev copytrade-pm research list --cache-root /home/quant/.cache/copytrade-polars-bench-20261104-verified-v1/cache
+uv run --group dev copytrade-pm research show hl94-90d-oracle-screen-20261104 --cache-root /home/quant/.cache/copytrade-polars-bench-20261104-verified-v1/cache
 uv run --group dev copytrade-pm paper status
 uv run --group dev copytrade-pm status
 uv run --group dev copytrade-pm health
@@ -68,17 +73,40 @@ available for wallet and portfolio lookup (UTC offset); do not backdate
 later-known aliases or mix portfolio namespaces. Source generations are
 separate from Git HEAD and the installed pinned release.
 
-`research list/show` returns `UNKNOWN` until a native source-owned run index
-is available, rather than inventing executions by scanning files.
-`wallets list` is similarly unavailable, while explicit alias lookup works.
-Installed-release status is `UNKNOWN` in the aggregator: the existing
-release verifier is a separate operator workflow. Market-provider health is
-`UNKNOWN` without independent observations. A saved selection or zero indexed
-paper runs never proves paper execution. Those are intentional, explicit
-gaps, not fabricated success. Native SQLite readers use `mode=ro` and do not
-change database tables or data bytes, though SQLite itself may create `-wal`
-or `-shm` coordination files; do not use unsafe immutable snapshots against a
-potentially active WAL writer.
+**Wallet inventory (5 November extension):** `wallets list` delegates to the
+native private registry catalog. It paginates at 200 rows, supports `--query`
+(alias substring only), `--cohort`, `--excluded` / `--no-excluded`,
+`--subscribed` / `--no-subscribed` and `--asof`. Addresses and exclusion reasons
+are redacted. `registry_wallet_id` is *SQLite-generation-local*, never a
+stable cross-import identity. An alias collision does not become a candidate
+identity. Monitoring comes from the current snapshot, not a reconstructed
+historical subscription series; missing fields stay `null` / `UNKNOWN`.
+
+**Executed research report discovery:** `research list/show` accepts an
+explicit owner-private `--cache-root` and verifies the canonical
+`pm_offline_job` `job_report` manifest, dependency key and payload SHA before
+listing it. Only that root and that report type are indexed; arbitrary JSON
+files, vendor fill pages and unpublished experiments are **not** completed
+research. Multiple reports with the same job ID require `--cache-key` to show
+one uniquely. All reports retain `financial_certified_real=false`,
+`scientifically_qualified=false` and `trading_authorized=false` unless a
+separate protected future workflow establishes authority. No cache directory
+is created by discovery. Missing explicit root returns `UNKNOWN`.
+
+**Health adapters:** aggregate `health` runs the original pinned-release
+`verify` method and shows *which registry release* was verified, independently
+of the worktree Git revision. Known protected P1/P14/watchdog systemd units
+are observed without starting or stopping them. An active OS unit is not
+independent journal, heartbeat or paper-economic qualification. Optional
+`--observer-state-root PRIVATE_DIR` verifies the native public observer source
+and quote receipts via the existing observer watchdog; provider freshness and
+executable market capacity remain `UNKNOWN`. Without observer evidence, market
+status stays `UNKNOWN`. A saved selection or zero indexed paper runs never
+proves paper execution.
+
+Native SQLite readers use `mode=ro` and do not change registry tables or
+data bytes, though SQLite may create `-wal` or `-shm` coordination files; do
+not use unsafe immutable snapshots against a potentially active WAL writer.
 
 For verified pinned-release diagnostics, continue to use
 `uv run --group dev python scripts/registry_release.py verify`. For a
@@ -103,8 +131,10 @@ classification.
 
 ## Benchmarks
 
-`tests/test_pm_agent_native.py` checks static capability routing, ownership,
-read-only behavior and fail-closed output semantics. This is a deterministic
-resolver/contract benchmark, **not** proof that an arbitrary LLM will select
-the proper operation. Real agent tool-use must be evaluated separately,
-including redundant searches, invented commands and unsafe mutations.
+`tests/test_pm_agent_native.py` and `tests/test_pm_operational_discovery.py`
+check capability routing, registry/PIT parity, immutable cache-integrity
+failure handling, read-only data behavior, and independent systemd/release
+contract failures. The 12 scripted agent-task cases execute the real CLI
+resolver, but do **not** test live LLM tool selection. Real agent trace-based
+evaluation still needs independent observed tool-call logs (redundant lookups,
+invented operations, incomplete answers and unsafe attempted mutations).

@@ -72,6 +72,41 @@ REGISTRY_OPERATIONS = {
     "signed-selection --apply": "PROTECTED_MUTATION",
 }
 NATIVE = {
+    "wallet.inventory": (
+        "copytrade_pm.wallet_registry_catalog",
+        "copytrade-pm wallets list --cohort research-108",
+        "registry",
+        "READ_ONLY",
+        "PRIVATE_VERSIONED_WALLET_REGISTRY",
+    ),
+    "research.report.catalog": (
+        "copytrade_pm.pm_offline_job_catalog",
+        "copytrade-pm research list --cache-root PRIVATE_CACHE",
+        "research",
+        "READ_ONLY",
+        "SHA_VERIFIED_OFFLINE_JOB_REPORT_CACHE",
+    ),
+    "runtime.pinned_release": (
+        "copytrade_pm.pm_runtime_readonly",
+        "copytrade-pm health",
+        "operations",
+        "READ_ONLY",
+        "PINNED_REGISTRY_RELEASE_VERIFIER",
+    ),
+    "runtime.paper_units": (
+        "copytrade_pm.pm_runtime_readonly",
+        "copytrade-pm health",
+        "paper",
+        "READ_ONLY",
+        "SYSTEMD_USER_UNIT_INVENTORY",
+    ),
+    "runtime.market_observer": (
+        "copytrade_pm.pm_runtime_readonly",
+        "copytrade-pm --observer-state-root STATE_ROOT health",
+        "market",
+        "READ_ONLY",
+        "PUBLIC_OBSERVER_RECEIPT_EVIDENCE",
+    ),
     "wallet.lookup": (
         "copytrade_pm.wallet_registry",
         "copytrade-pm wallets show W083",
@@ -257,6 +292,11 @@ REGISTRY_REQUIRED_ARGUMENTS = {
     ],
 }
 NATIVE_REQUIRED_ARGUMENTS = {
+    "wallet.inventory": [],
+    "research.report.catalog": ["--cache-root PATH"],
+    "runtime.pinned_release": [],
+    "runtime.paper_units": [],
+    "runtime.market_observer": ["--observer-state-root PATH"],
     "wallet.lookup": ["ALIAS"],
     "wallet.alias": ["ALIAS"],
     "portfolio.show": ["PORTFOLIO"],
