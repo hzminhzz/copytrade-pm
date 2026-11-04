@@ -2,6 +2,32 @@
 
 **Scope:** the installed `copytrade-pm/main` commands checked against source/`--help` on 2026-10-31. Operations are offline by default; explicitly flagged acquisition commands can call paid/rate-limited vendors. **No live trading authority.** Begin with [INDEX](INDEX.md); for wallet fill acquisition and exact market sources read [DATA-ACQUISITION](DATA-ACQUISITION.md).
 
+## Owner-private wallet registry (partial WR release, 2026-11-04)
+
+Use the [dated canonical wallet status](WALLET-STATUS.md) and [registry checkpoint](WALLET-REGISTRY-STATUS-20261104.md)
+and [paper boundary](WALLET-REGISTRY-PAPER-CONTRACT-20261104.md) for dated
+research/config/subscriber counts and sealed P1/P14/A/B/C/Combo2 definitions.
+This inventory is **not** a source-account book, broker, scientific signoff,
+or runtime subscription authority. From the registry feature worktree:
+
+```bash
+uv run --group dev copytrade-wallet-registry doctor
+uv run --group dev copytrade-wallet-registry status
+uv run --group dev copytrade-wallet-registry portfolio P1
+uv run --group dev copytrade-wallet-registry paper
+# Mutates ONLY the new private inventory after explicit backup/review:
+uv run --group dev copytrade-wallet-registry sync --dry-run
+```
+
+The `paper` command revalidates optional already-published private paper-run
+manifests, Linux worker PID/starttime, and transport/quote heartbeats. A zero
+registered-run count does not prove no independent paper worker exists. P1/P14
+selections are *research-only* until independently verified account-run files
+are published. Do not register fake paper runs or restart tracker/ensemble
+to make a count nonzero. A verified SQLite backup and controlled private
+`sync --apply` are reversible; there is no registry timer installed.
+The registry draft PR #57 is not final production acceptance.
+
 ## 0. Preflight, source of truth, safe worktree
 
 Do not change a dirty branch or another session's feature worktree. The primary checkout at `/home/quant/dev/copytrade-pm` may lag behind `origin/main`, and draft PR #7 has separate changes. Choose a clean isolated worktree based on fetched `origin/main` before editing docs/code.

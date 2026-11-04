@@ -176,6 +176,10 @@ def test_private_permissions(tmp_path: Path) -> None:
     registry.apply(db, snapshot, "2026-11-04T00:00:00+00:00")
     assert private.stat().st_mode & 0o777 == 0o700
     assert db.stat().st_mode & 0o777 == 0o600
+    alias = private / "symlink.sqlite"
+    alias.symlink_to(db)
+    with pytest.raises(PermissionError, match="symlink"):
+        registry.apply(alias, snapshot, "2026-11-05T00:00:00+00:00")
     private.chmod(0o755)
     with pytest.raises(PermissionError):
         registry.apply(db, snapshot, "2026-11-05T00:00:00+00:00")
@@ -405,6 +409,8 @@ def test_asof_and_backup_restore(tmp_path: Path, capsys: pytest.CaptureFixture[s
     second = tmp_path / "private" / "backups" / "backup.sqlite"
     assert registry.cli(["--db", str(db), "backup", "--to", str(second)]) == 0
     assert registry.db_status(second) == registry.db_status(db)
+    assert not list(second.parent.glob("*.partial"))
+    assert second.stat().st_mode & 0o777 == 0o600
     with pytest.raises(ValueError, match="private"):
         registry.cli(["--db", str(db), "backup", "--to", str(tmp_path / "outside.sqlite")])
 

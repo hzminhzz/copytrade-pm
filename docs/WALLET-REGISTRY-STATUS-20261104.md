@@ -1,5 +1,7 @@
 # SQLite wallet registry — 2026-11-04 engineering checkpoint
 
+For a short entrypoint consult [the dated canonical wallet status](WALLET-STATUS.md). This checkpoint records engineering details; neither page substitutes for live source checks.
+
 **State: PARTIAL IMPLEMENTATION. Do not claim all WR-01–WR-12 acceptance is complete.**
 
 This checkpoint describes the initial implementation of the owner-private registry, not a source-account book, trading service, qualified wallet roster, or production adoption signoff. [Approved design](WALLET-REGISTRY-SQLITE-ADOPTION-PLAN-20261104.md), GitHub issues #44–#55.
@@ -29,6 +31,7 @@ uv run --group dev copytrade-wallet-registry wallet --alias W028
 uv run --group dev copytrade-wallet-registry cohort research-108
 uv run --group dev copytrade-wallet-registry portfolio P1
 uv run --group dev copytrade-wallet-registry portfolio P1 --asof 2026-11-03T00:00:00+00:00
+uv run --group dev copytrade-wallet-registry paper
 uv run --group dev copytrade-wallet-registry report --redacted
 ```
 
@@ -36,11 +39,11 @@ uv run --group dev copytrade-wallet-registry report --redacted
 
 ## Initial implementation and required work
 
-Current module: `src/copytrade_pm/wallet_registry.py` with core identity normalization, cohort overlap checks, vendor-audit count reconciliation, owner rejected exclusions, privacy-safe source digests, two schema migration records, WAL/FULL, writer locking, read-only subscriber access, portfolio proposal metadata, unknown admission/qualification and CLI. Subsequent source generations use **non-destructive transactional import**: canonical wallet IDs remain stable, historical cohort and evidence SHA versions survive, monitoring generation metadata is retained, and existing external run/qualification index entries are not erased. Source drift and frozen alias collisions fail closed.
+Current modules: `wallet_registry.py`, `wallet_registry_portfolios.py`, and `wallet_registry_runs.py`: core identity normalization, vendor-audit count reconciliation, owner rejected exclusions, private SHA references, schema migrations v1–v4, WAL/FULL writer locking, read-only subscriber/ledger adapters, SHA-sealed portfolio declarations, conservative as-of selection, and a strictly read-only paper-status observer. The paper observer is tested against **synthetic** manifest/status fixtures and is not integrated with a verified live P1/P14 worker; its accepted status is an operational observation, never qualification. Subsequent source generations use **non-destructive transactional import**: canonical wallet IDs remain stable, historical cohort and evidence SHA versions survive, monitoring generation metadata is retained, and existing external run/qualification index entries are not erased. Source drift and frozen alias collisions fail closed.
 
-**Not complete:** complete P1 private alias resolution and independently versioned portfolio selection timestamps (the CLI's current as-of queries conservatively use the registry import knowledge time); future exclusion decision lineage and source-drift verification (all current 22 owner rejections imported); independently verified PM-01 consumer output SHA parity (frozen 36 identities and source SHA pointers are checked); independently established runtime admission and receipt health (bounded outbox observation is implemented but insufficient for either); independent paper/demo run manifest/heartbeat validation; independent scientific evidence ingestion; archive and stale status hygiene; comprehensive concurrency, crash/restart, backup/restore and out-of-disk fault matrix (synthetic online backup/restore smoke now passes); refreshed-source atomic generation semantics; release timer; production activation signoff.
+**Not complete:** complete P1 private alias and independent source-account identity proof (source-commit-backed selection timestamps and deterministic portfolio SHA are now implemented); future exclusion decision lineage and source-drift verification (all current 22 owner rejections imported); independently verified PM-01 consumer output SHA parity (frozen 36 identities and source SHA pointers are checked); independently established runtime admission and receipt health (bounded outbox observation is implemented but insufficient for either); independent paper/demo publisher integration (synthetic v1 manifest/status validation is implemented); independent scientific evidence ingestion; archive and stale status hygiene; comprehensive concurrency, crash/restart, backup/restore and out-of-disk fault matrix (synthetic online backup/restore smoke now passes); refreshed-source atomic generation semantics; release timer; production activation signoff.
 
-The importer preserves existing run/qualification rows even across source generation changes, but still lacks verified adapters to ingest independently produced run/qualification evidence. Do not treat a successful `sync --apply` as completion of WR-11.
+The importer preserves existing run/qualification rows even across source generation changes. Seven proposal selection declarations now have deterministic hashes and anchored public document revisions. Only an explicitly published paper run with fresh transport/quote heartbeats and process identity can be observed as running. There are **no actual forward-paper runs indexed in the current release**. No independently audited scientific or authorization decisions have been imported. Do not treat a successful `sync --apply` as completion of WR-11.
 
 No live services were restarted or subscription/broker configurations modified by the registry implementation. Keep the registry as an isolated owner-private inventory until the remaining gates pass.
 

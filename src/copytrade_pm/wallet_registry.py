@@ -19,6 +19,9 @@ import stat
 from contextlib import closing, contextmanager
 import fcntl
 
+from . import wallet_registry_portfolios as portfolio_contract
+from . import wallet_registry_runs as paper_contract
+
 ADDRESS = re.compile(r"0x[0-9a-fA-F]{40}\Z")
 ROOT = Path("/home/quant/.local/share/copytrade/reports/five-pod-20261029-research")
 DB = Path("/home/quant/.local/share/copytrade/registry/wallet_registry.sqlite")
@@ -291,7 +294,7 @@ def observe_ledger(path: Path, addresses: set[str], max_wallets: int = 500) -> d
     }
 
 
-def collect(root: Path, env_path: Path | None) -> dict:
+def collect(root: Path, env_path: Path | None, decision_repo: Path | None = None) -> dict:
     sources: dict[str, str] = {}
     source_paths: dict[str, Path] = {}
     cohorts: dict[str, set[str]] = {}
@@ -373,8 +376,19 @@ def collect(root: Path, env_path: Path | None) -> dict:
         sources["observation_ledger_id"] = observation_ledger_identity(
             Path(cfg["TRACKER_LEDGER_PATH"])
         )
+    decision_root = decision_repo or Path(__file__).resolve().parents[2]
+    decision_docs = portfolio_contract.read_decisions(
+        decision_root, PORTFOLIOS, observed_at=datetime.now(timezone.utc).isoformat()
+    )
+    for portfolio_name, pinned in decision_docs.items():
+        doc_path = decision_root / portfolio_contract.DECISIONS[portfolio_name]["path"]
+        key = f"portfolio_doc:{portfolio_name}"
+        sources[key] = pinned["payload"]["source_doc_sha256"]
+        source_paths[key] = doc_path
     return {
         "cohorts": cohorts,
+        "portfolio_contracts": decision_docs,
+        "decision_repo": decision_root,
         "frozen_aliases": frozen_aliases,
         "source_paths": source_paths,
         "base_rows": base_rows,
@@ -406,7 +420,7 @@ def private_lock(db: Path):
     if stat.S_IMODE(db.parent.stat().st_mode) != 0o700:
         raise PermissionError("registry directory must have mode 0700")
     lock = db.parent / ".writer.lock"
-    fd = os.open(lock, os.O_CREAT | os.O_RDWR, 0o600)
+    fd = os.open(lock, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)
         yield
@@ -416,6 +430,15 @@ def private_lock(db: Path):
 
 
 def apply(db: Path, snapshot: dict, when: str) -> dict:
+    # Validate the sealed decision payload independently of caller-provided SHAs.
+    if "portfolio_contracts" in snapshot:
+        observed = portfolio_contract.read_decisions(
+            snapshot.get("decision_repo", Path(__file__).resolve().parents[2]),
+            PORTFOLIOS,
+            observed_at=when,
+        )
+        if observed != snapshot["portfolio_contracts"]:
+            raise ValueError("portfolio source decision changed since staging")
     # Validate the staged payload even for a no-op, before trusting source digests.
     for key, path in snapshot.get("source_paths", {}).items():
         if digest(path) != snapshot["sources"][key]:
@@ -434,14 +457,24 @@ def apply(db: Path, snapshot: dict, when: str) -> dict:
     )
     manifest = sha256(json.dumps(snapshot["sources"], sort_keys=True).encode()).hexdigest()
     with private_lock(db):
-        if db.exists() and stat.S_IMODE(db.stat().st_mode) != 0o600:
-            raise PermissionError("registry database must have mode 0600")
+        if db.is_symlink():
+            raise PermissionError("registry database symlink is forbidden")
+        if db.exists():
+            if stat.S_IMODE(db.stat().st_mode) != 0o600:
+                raise PermissionError("registry database must have mode 0600")
+        else:
+            # SQLite would otherwise briefly create a new DB using umask 022.
+            # O_EXCL and O_NOFOLLOW avoid clobbering an unrelated path.
+            fd = os.open(db, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
+            os.close(fd)
         con = connect(db, True)
         try:
-            con.executescript(DDL)
+            con.executescript(DDL + portfolio_contract.SEALED_DDL + paper_contract.RUN_DDL)
             with con:
                 con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(1,?)", (when,))
                 con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(2,?)", (when,))
+                con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(3,?)", (when,))
+                con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(4,?)", (when,))
             previous = con.execute(
                 "SELECT value FROM snapshot_meta WHERE key='manifest_sha256'"
             ).fetchone()
@@ -456,6 +489,8 @@ def apply(db: Path, snapshot: dict, when: str) -> dict:
                 # run observations, qualification evidence or historical cohorts.
                 con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(1,?)", (when,))
                 con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(2,?)", (when,))
+                con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(3,?)", (when,))
+                con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(4,?)", (when,))
                 ids = {}
                 for addr in sorted(all_addresses):
                     con.execute(
@@ -583,23 +618,48 @@ def apply(db: Path, snapshot: dict, when: str) -> dict:
                         (manifest, ids[a], values[1], values[2], when),
                     )
                 for name, aliases in PORTFOLIOS.items():
+                    pinned = snapshot.get("portfolio_contracts", {}).get(name)
+                    if pinned:
+                        contract = pinned["payload"]
+                        expected = pinned["definition_sha256"]
+                        previous = con.execute(
+                            "SELECT pv.version,ps.definition_sha256 FROM portfolio_versions pv "
+                            "LEFT JOIN portfolio_seals ps USING(portfolio_id,version) "
+                            "WHERE pv.portfolio_id=? ORDER BY pv.version DESC LIMIT 1",
+                            (name,),
+                        ).fetchone()
+                        if previous and previous[1] == expected:
+                            continue
+                        latest_sealed = con.execute(
+                            "SELECT selection_known_at FROM portfolio_seals "
+                            "WHERE portfolio_id=? ORDER BY version DESC LIMIT 1",
+                            (name,),
+                        ).fetchone()
+                        if latest_sealed and contract["selection_known_at"] < latest_sealed[0]:
+                            raise ValueError("portfolio selection source known_at moved backwards")
+                        version = previous[0] + 1 if previous else 1
+                        status_name = contract["status"]
+                        source_doc = portfolio_contract.DECISIONS[name]["path"]
+                        known_at = contract["selection_known_at"]
+                        sizing = contract["sizing_contract"]
+                    else:
+                        # Synthetic/legacy fixtures remain unsealed, and cannot
+                        # authorize real paper account activation.
+                        version = 1
+                        status_name = "RESEARCH_ONLY"
+                        source_doc = PORTFOLIO_DOCS[name]
+                        known_at = when
+                        sizing = "SOURCE_EQUITY_WHOLE_BOOK_NOT_DEPLOYED"
                     con.execute(
                         "INSERT OR IGNORE INTO portfolio_versions VALUES(?,?,?,?,?,?)",
-                        (
-                            name,
-                            1,
-                            "RESEARCH_ONLY",
-                            PORTFOLIO_DOCS[name],
-                            when,
-                            "SOURCE_EQUITY_WHOLE_BOOK_NOT_DEPLOYED",
-                        ),
+                        (name, version, status_name, source_doc, known_at, sizing),
                     )
                     con.executemany(
                         "INSERT OR IGNORE INTO portfolio_memberships VALUES(?,?,?,?)",
                         (
                             (
                                 name,
-                                1,
+                                version,
                                 alias,
                                 ids[snapshot["frozen_aliases"][alias]]
                                 if alias in snapshot.get("frozen_aliases", {})
@@ -608,6 +668,18 @@ def apply(db: Path, snapshot: dict, when: str) -> dict:
                             for alias in aliases
                         ),
                     )
+                    if pinned:
+                        con.execute(
+                            "INSERT INTO portfolio_seals VALUES(?,?,?,?,?,?)",
+                            (
+                                name,
+                                version,
+                                expected,
+                                contract["source_doc_sha256"],
+                                contract["source_commit"],
+                                contract["selection_known_at"],
+                            ),
+                        )
                 for key, value in (
                     ("manifest_sha256", manifest),
                     ("observed_at", when),
@@ -656,6 +728,25 @@ def status(snapshot: dict) -> dict:
     }
 
 
+def registered_paper_status(con: sqlite3.Connection, *, now: datetime | None = None) -> list[dict]:
+    """Revalidate files and worker liveness; cached RUNNING is never authoritative."""
+    current = now or datetime.now(timezone.utc)
+    records = con.execute(
+        "SELECT run_id,run_root,portfolio_id FROM portfolio_run_evidence ORDER BY run_id LIMIT 501"
+    ).fetchall()
+    if len(records) > 500:
+        return [{"state": "UNKNOWN", "reason": "REGISTRY_RUN_BUDGET_EXCEEDED"}]
+    results = []
+    for run_id, path, portfolio_id in records:
+        selection = portfolio_contract.select_asof(
+            con, portfolio_id, current.astimezone(timezone.utc).isoformat()
+        )
+        observed = paper_contract.inspect_run(Path(path), selection, now=current)
+        observed["run_id"] = run_id
+        results.append(paper_contract.sanitized(observed))
+    return results
+
+
 def db_status(db: Path) -> dict:
     with closing(connect(db, False)) as con:
         counts = {
@@ -694,6 +785,14 @@ def db_status(db: Path) -> dict:
             for key, value in con.execute("SELECT source_key,sha256 FROM evidence_artifacts")
         }
         counts["paper_running"] = "UNKNOWN"
+        paper_reports = registered_paper_status(con)
+        counts["registered_paper_runs"] = len(paper_reports)
+        counts["paper_running_observed"] = sum(
+            entry.get("state") == "PAPER_RUNNING_OBSERVED" for entry in paper_reports
+        )
+        counts["sealed_portfolio_definitions"] = con.execute(
+            "SELECT COUNT(DISTINCT portfolio_id) FROM portfolio_seals"
+        ).fetchone()[0]
         counts["scientifically_qualified"] = "NOT_ESTABLISHED"
         counts["trading_authorized"] = "NOT_ESTABLISHED"
         observed = meta.get("observed_at")
@@ -727,10 +826,21 @@ def backup(db: Path, target: Path) -> None:
         raise PermissionError("backup parent directory must be private")
     if target.exists() or target.is_symlink():
         raise FileExistsError("backup already exists")
-    with closing(connect(db, False)) as source:
-        with closing(sqlite3.connect(target)) as dest:
-            source.backup(dest)
-    os.chmod(target, 0o600)
+    partial = target.parent / f".{target.name}.{os.getpid()}.partial"
+    fd = os.open(partial, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
+    os.close(fd)
+    try:
+        with closing(connect(db, False)) as source:
+            with closing(sqlite3.connect(partial)) as dest:
+                source.backup(dest)
+        with closing(connect(partial, False)) as verified:
+            if verified.execute("PRAGMA quick_check").fetchone()[0] != "ok":
+                raise ValueError("backup integrity failure")
+        # Final pathname appears only after verification. Link fails if the
+        # destination was created by a concurrent owner (never overwrite).
+        os.link(partial, target, follow_symlinks=False)
+    finally:
+        partial.unlink(missing_ok=True)
 
 
 def cli(argv: list[str] | None = None) -> int:
@@ -740,6 +850,7 @@ def cli(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", type=Path, default=ROOT)
     parser.add_argument("--db", type=Path, default=DB)
     parser.add_argument("--tracker-env", type=Path, default=ENV)
+    parser.add_argument("--decision-repo", type=Path, default=Path(__file__).resolve().parents[2])
     sub = parser.add_subparsers(dest="command", required=True)
     sync = sub.add_parser("sync")
     flags = sync.add_mutually_exclusive_group(required=True)
@@ -763,9 +874,12 @@ def cli(argv: list[str] | None = None) -> int:
     portfolio = sub.add_parser("portfolio")
     portfolio.add_argument("name", nargs="?", choices=tuple(PORTFOLIOS))
     portfolio.add_argument("--asof", help="UTC as-known cutoff")
+    paper = sub.add_parser("paper")
+    paper.add_argument("--run-dir", type=Path, help="private paper-run directory")
+    paper.add_argument("--apply", action="store_true", help="index in private registry only")
     args = parser.parse_args(argv)
     if args.command == "sync":
-        snapshot = collect(args.root, args.tracker_env)
+        snapshot = collect(args.root, args.tracker_env, args.decision_repo)
         result = status(snapshot)
         if args.apply:
             result.update(apply(args.db, snapshot, datetime.now(timezone.utc).isoformat()))
@@ -773,7 +887,7 @@ def cli(argv: list[str] | None = None) -> int:
     elif args.command == "status":
         print(json.dumps(db_status(args.db), sort_keys=True))
     elif args.command == "doctor":
-        live = status(collect(args.root, args.tracker_env))
+        live = status(collect(args.root, args.tracker_env, args.decision_repo))
         stored = db_status(args.db)
         matched = (
             all(
@@ -891,27 +1005,81 @@ def cli(argv: list[str] | None = None) -> int:
                 (args.name, args.name),
             ).fetchone()[0]
         print(json.dumps({"cohort": args.name, "count": count}))
+    elif args.command == "paper":
+        if not args.run_dir:
+            if args.apply:
+                raise ValueError("paper --apply requires an explicit private run directory")
+            with closing(connect(args.db, False)) as con:
+                observed = registered_paper_status(con)
+            print(
+                json.dumps(
+                    {
+                        "scope": "INDEXED_PAPER_RUNS_ONLY",
+                        "global_running_count": "UNKNOWN",
+                        "registered_run_count": len(observed),
+                        "observations": observed,
+                    },
+                    sort_keys=True,
+                )
+            )
+        else:
+            try:
+                manifest, _ = paper_contract._read_private_json(args.run_dir / "manifest.json")
+                selected_name = str(manifest.get("portfolio_id", ""))
+            except OSError, ValueError, UnicodeError, json.JSONDecodeError:
+                selected_name = ""
+            with closing(connect(args.db, False)) as con:
+                selected = portfolio_contract.select_asof(
+                    con, selected_name, datetime.now(timezone.utc).isoformat()
+                )
+            observed = paper_contract.inspect_run(args.run_dir, selected)
+            if args.apply:
+                if observed.get("state") == "UNKNOWN":
+                    print(json.dumps(paper_contract.sanitized(observed), sort_keys=True))
+                    return 2
+                with private_lock(args.db):
+                    with closing(connect(args.db, True)) as con, con:
+                        paper_contract.store_observation(
+                            con, observed, observed_at=datetime.now(timezone.utc).isoformat()
+                        )
+                        if con.execute("PRAGMA foreign_key_check").fetchall():
+                            raise ValueError("paper observation foreign-key error")
+            print(json.dumps(paper_contract.sanitized(observed), sort_keys=True))
     elif args.command == "portfolio":
         names = [args.name] if args.name else list(PORTFOLIOS)
         cutoff = asof_cutoff(args.asof)
         with closing(connect(args.db, False)) as con:
             result = {}
             for name in names:
-                members = [
-                    r[0]
-                    for r in con.execute(
-                        "SELECT pm.member_alias FROM portfolio_memberships pm "
-                        "JOIN portfolio_versions pv USING(portfolio_id,version) "
-                        "WHERE pm.portfolio_id=? AND pv.known_at<=?",
+                selected = portfolio_contract.select_asof(con, name, cutoff)
+                if selected["state"] == "UNKNOWN_AT_ASOF":
+                    legacy = con.execute(
+                        "SELECT pv.version FROM portfolio_versions pv "
+                        "LEFT JOIN portfolio_seals ps USING(portfolio_id,version) "
+                        "WHERE pv.portfolio_id=? AND pv.known_at<=? "
+                        "AND ps.definition_sha256 IS NULL "
+                        "ORDER BY pv.version DESC LIMIT 1",
                         (name, cutoff),
-                    )
-                ]
-                result[name] = {
-                    "members": members,
-                    "status": "RESEARCH_ONLY" if members else "UNKNOWN_AT_ASOF",
-                    "actual_run": "UNKNOWN",
-                    "authorized": False,
-                }
+                    ).fetchone()
+                    if legacy:
+                        members = [
+                            row[0]
+                            for row in con.execute(
+                                "SELECT member_alias FROM portfolio_memberships "
+                                "WHERE portfolio_id=? AND version=? ORDER BY member_alias",
+                                (name, legacy[0]),
+                            )
+                        ]
+                        selected["state"] = "RESEARCH_ONLY"
+                        selected["members"] = members
+                        selected["source_identity_proven"] = False
+                        selected["source_sealed"] = False
+                else:
+                    selected["source_sealed"] = True
+                selected["status"] = selected["state"]
+                selected["actual_run"] = "UNKNOWN"
+                selected["authorized"] = False
+                result[name] = selected
         print(json.dumps(result, sort_keys=True))
     return 0
 
