@@ -2,11 +2,23 @@
 
 **Scope:** the installed `copytrade-pm/main` commands checked against source/`--help` on 2026-10-31. Operations are offline by default; explicitly flagged acquisition commands can call paid/rate-limited vendors. **No live trading authority.** Begin with [INDEX](INDEX.md); for wallet fill acquisition and exact market sources read [DATA-ACQUISITION](DATA-ACQUISITION.md).
 
-## Current research portfolio selection (2026-11-04)
+## Research portfolio selection and private registry (2026-11-04)
 
-For **new** forward-paper selection, the owner-approved [Gemini Phase 6A Portfolio Freeze V2](decisions/2026-11-04-gemini-phase6-portfolio-freeze-v2.md) and its [JSON roster](decisions/2026-11-04-gemini-phase6-portfolio-freeze-v2.json) prioritize E6 (five wallets) and E2 (three wallets), both on an equal $600 *nominal* model risk budget and a $10,000 virtual reference. P1 remains the baseline; P14 is preserved, but no longer the selected new five-pod challenger. Those reference Gemini fixed `k` values **are not executable sizing**. Actual source-equity-relative whole-book sizing, PIT receipts and PM03/PM04 authority remain mandatory.
+New **research selection** follows [Gemini Phase 6 Portfolio Freeze V2](decisions/2026-11-04-gemini-phase6-portfolio-freeze-v2.md) and [V2 JSON](decisions/2026-11-04-gemini-phase6-portfolio-freeze-v2.json): E6 primary five-pod, E2 three-pod challenger, P1 baseline and P14 archived from new selections. All share $600 *nominal* model risk budget and a $10,000 virtual comparison basis. Gemini fixed `k` values are **not** executable follower sizing. Original P1/P14 FP paper experiments, PM01 frozen cohort and production runtime remain untouched; new studies require prospective registration and independent safeguards.
 
-The preexisting P1/P14 FP-09 worker scope, Trader Intelligence proposed study, private WR-06 records, PM-01/Phase 5 frozen cohorts, Combo 2 and running services **must not be silently reconfigured**. Start E6/E2 only via a separately versioned future observation/paper campaign after wallet identity/parent/subaccount verification, genuine P2_flatten safety acceptance, and independent ledger registration. No live orders, Propr terms mutation or funded activation is authorized by the V2 research preference.
+For the private SQLite read-only metadata registry (not execution/equity/qualification authority), from repository root:
+
+```bash
+uv run --frozen --group dev copytrade-wallet-registry status
+uv run --frozen --group dev copytrade-wallet-registry doctor
+uv run --frozen --group dev copytrade-wallet-registry portfolio
+uv run --frozen --group dev copytrade-wallet-registry portfolio E6
+uv run --frozen --group dev copytrade-wallet-registry wallet --alias W083
+uv run --frozen --group dev copytrade-wallet-registry paper
+uv run --frozen --group dev copytrade-wallet-registry sync --dry-run
+```
+
+The canonical [wallet status](WALLET-STATUS.md), [registry checkpoint](WALLET-REGISTRY-STATUS-20261104.md), [paper boundary](WALLET-REGISTRY-PAPER-CONTRACT-20261104.md), [negative-only evidence contract](WALLET-REGISTRY-SIGNED-NEGATIVE-EVIDENCE-20261104.md) and [release runbook](WALLET-REGISTRY-RELEASE-RUNBOOK.md) describe read-only source collection and reversible private sync. `paper` reads independently owned FP SQLite in `mode=ro` and rejects unsupported legacy JSONL; without genuine PID/transport/quote and journal evidence, RUNNING is UNKNOWN. No raw addresses, broker orders, trading authorization, automatic source subscription, independent science signoff or forced paper activation is implied.
 
 ## 0. Preflight, source of truth, safe worktree
 

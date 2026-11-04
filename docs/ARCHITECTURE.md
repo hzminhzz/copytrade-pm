@@ -2,6 +2,14 @@
 
 **Scope:** the mainline research architecture, updated during the 2026-11-01 PR17 recovery; see [the dated disposition](RECOVERY-DISPOSITION-2026-11-01.md) for exact commits and verification. This repository was history-filtered from `hyperliquid-expert-ensemble` (see [PROVENANCE](PROVENANCE.md)). It is **not** the production wallet tracker or Telegram consensus engine. Its research code must never import a live broker/order gateway. Read [INDEX](INDEX.md) first.
 
+## Private registry boundary (2026-11-04, partial implementation)
+
+The optional `copytrade_pm.wallet_registry` module builds an owner-private SQLite **inventory** from research roster CSVs, deployed tracker desired list and read-only subscription database. It does not own subscription writes, tracker admission, source equities, financial positions, execution, scientific qualification or risk authorization. See [the operational checkpoint](WALLET-REGISTRY-STATUS-20261104.md) for what has actually been verified; a preliminary imported database is not a completed WR-01–WR-12 activation.
+
+## Wallet research-catalog query interface — 2026-11-04
+
+`wallet_registry_catalog` extends the owner-private SQLite metadata inventory with the **approved Gemini V2 research selection** and qualified, immutable portfolio IDs (`gemini.phase4/E6`, `gemini.phase4/E2`, `gemini.phase5/B`, legacy `q3/B`). The CLI `copytrade-wallet-registry portfolio --current` is the canonical read interface for **new research priority**, distinct from an actual paper-account run. Source V2 JSON has a pinned SHA/first-known Git merge, private Phase 4 alias references have separate SHA and a conservative first-local import clock, and missing or colliding identities are explicit blockers. `portfolio_versions` and their source seals are immutable; new selection priorities are separate append-only `research_selections` rows. The tracker, financial PaperJournal and source data lake remain independent owners and are never written by this catalog. Existing PR #57 WR/FP/independent science gates remain partial. See [the registry implementation guide](WALLET-REGISTRY-STATUS-20261104.md) and [V2 decision](decisions/2026-11-04-gemini-phase6-portfolio-freeze-v2.md).
+
 ## Responsibility boundaries
 
 | Boundary | Owner | Inputs → outputs | Authority |
