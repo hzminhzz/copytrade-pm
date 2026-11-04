@@ -2,7 +2,7 @@
 
 **STATUS: BLOCKED. This is not a deployment or a grant of service authority.**
 
-`copytrade-pm-paper-preflight --inspect-services` performs read-only inspection of a fixed allowlist with `systemctl --user show`, not `start`, `stop`, `restart` or `daemon-reload`. This is in addition to the existing runtime path and privilege preflight. CLI results are a timestamp-specific inventory; they do **not** attest to future runtime continuity or root-level systemd units.
+`copytrade-pm-paper-preflight --inspect-services` performs read-only inspection of a fixed allowlist with `systemctl --user show` **and separate system-level** `systemctl show` for P1/P14/watchdog protected units, not `start`, `stop`, `restart` or `daemon-reload`. It reports loaded/active states, configured User/Group and PID metadata without claiming independently verified process identity. This is in addition to the existing runtime path and privilege preflight. CLI results are a timestamp-specific inventory; they do **not** attest to future runtime continuity or root-level systemd units.
 
 ## Verified live VPS state
 
@@ -14,6 +14,8 @@
 | `copytrade-paper-p1.service` | not-found | inactive |
 | `copytrade-paper-p14.service` | not-found | inactive |
 | `copytrade-paper-watchdog.service` | not-found | inactive |
+
+The new live system-level inventory likewise confirms all three `copytrade-paper-{p1,p14,watchdog}.service` units are `not-found`/`inactive`, with no configured protected OS user. Merely observing a loaded unit in future does not prove process identity or immutable release authority.
 
 Preflight found the following unresolved issues:
 

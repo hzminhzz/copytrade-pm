@@ -15,6 +15,12 @@ import stat
 import subprocess
 
 
+_PROTECTED_SYSTEM_UNITS = (
+    "copytrade-paper-p1.service",
+    "copytrade-paper-p14.service",
+    "copytrade-paper-watchdog.service",
+)
+
 _SERVICE_ALLOWLIST = (
     "copytrade-tracker.service",
     "copytrade-source-abc.service",
@@ -83,6 +89,78 @@ def read_only_user_service_inventory(*, runner=subprocess.run) -> dict:
     }
 
 
+def read_only_protected_system_inventory(*, runner=subprocess.run) -> dict:
+    """Inspect system-level unit metadata without claiming OS isolation.
+
+    A loaded/active systemd unit does not by itself prove independent process
+    identity, code immutability or authorized service control rights.
+    """
+    rows = []
+    missing = []
+    for unit in _PROTECTED_SYSTEM_UNITS:
+        args = [
+            "systemctl",
+            "show",
+            unit,
+            "-p",
+            "Id",
+            "-p",
+            "LoadState",
+            "-p",
+            "ActiveState",
+            "-p",
+            "MainPID",
+            "-p",
+            "User",
+            "-p",
+            "Group",
+            "-p",
+            "FragmentPath",
+            "--no-pager",
+        ]
+        try:
+            completed = runner(args, capture_output=True, text=True, timeout=8, check=False)
+            if completed.returncode != 0:
+                raise ValueError("PROTECTED_SYSTEMD_QUERY_FAILED")
+            fields = dict(
+                line.split("=", 1) for line in completed.stdout.splitlines() if "=" in line
+            )
+            if fields.get("Id") != unit:
+                raise ValueError("PROTECTED_SYSTEMD_UNIT_IDENTITY_MISMATCH")
+            rows.append(
+                {
+                    "unit": unit,
+                    "load_state": fields.get("LoadState", "UNKNOWN"),
+                    "active_state": fields.get("ActiveState", "UNKNOWN"),
+                    "main_pid": fields.get("MainPID", "UNKNOWN"),
+                    "configured_user": fields.get("User", ""),
+                    "configured_group": fields.get("Group", ""),
+                    "fragment_path": fields.get("FragmentPath", ""),
+                }
+            )
+        except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+            missing.append({"unit": unit, "reason": type(exc).__name__})
+    users = [r["configured_user"] for r in rows]
+    return {
+        "schema": "paper_protected_systemd_readonly_inventory_v1",
+        "status": "READ_ONLY_PARTIAL" if missing else "READ_ONLY_SNAPSHOT",
+        "units": rows,
+        "unavailable": missing,
+        "all_units_loaded": not missing and all(x["load_state"] == "loaded" for x in rows),
+        "all_units_active": not missing and all(x["active_state"] == "active" for x in rows),
+        "distinct_nonroot_configured_users": (
+            not missing
+            and len(users) == len(_PROTECTED_SYSTEM_UNITS)
+            and len(set(users)) == len(users)
+            and all(user not in ("", "root", "0") for user in users)
+        ),
+        "protected_process_identity_verified": False,
+        "release_immutable_verified": False,
+        "service_mutations": 0,
+        "cutover_performed": False,
+    }
+
+
 def protected_paper_preflight(
     *,
     release_root: Path,
@@ -147,8 +225,18 @@ def protected_paper_preflight(
     reasons.append("SUDO_DOCKER_PRIVILEGE_SEPARATION_UNVERIFIED")
     reasons.append("PROTECTED_SERVICE_START_STOP_RIGHTS_UNVERIFIED")
     inventory = read_only_user_service_inventory() if inspect_services else None
+    system_inventory = read_only_protected_system_inventory() if inspect_services else None
     if inventory is not None and inventory["unavailable"]:
         reasons.append("SERVICE_INVENTORY_INCOMPLETE")
+    if system_inventory is not None:
+        if system_inventory["unavailable"]:
+            reasons.append("PROTECTED_SYSTEMD_INVENTORY_INCOMPLETE")
+        if not system_inventory["all_units_loaded"]:
+            reasons.append("PROTECTED_SYSTEMD_UNITS_NOT_INSTALLED")
+        if not system_inventory["all_units_active"]:
+            reasons.append("PROTECTED_SYSTEMD_UNITS_NOT_RUNNING")
+        if not system_inventory["distinct_nonroot_configured_users"]:
+            reasons.append("PROTECTED_SYSTEMD_IDENTITIES_NOT_SEPARATED")
     return {
         "schema": "paper_release_preflight_v1",
         "status": "BLOCKED",
@@ -159,6 +247,7 @@ def protected_paper_preflight(
         "order_route": "NONE",
         "cutover_performed": False,
         "read_only_service_inventory": inventory,
+        "read_only_protected_system_inventory": system_inventory,
     }
 
 
