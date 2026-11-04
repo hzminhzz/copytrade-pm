@@ -231,8 +231,12 @@ def test_five_delays_three_and_five_wallets_are_repeatable(tmp_path):
     assert len(a["scenarios"]) == 15
     assert a["cache_hits"] == 0
     assert a["tape_cache_hits"] == 0
+    assert a["source_cache_hits"] == 0
+    assert a["market_cache_hits"] == 0
     assert b["cache_hits"] == 15
     assert b["tape_cache_hits"] == 5
+    assert b["source_cache_hits"] == 1
+    assert b["market_cache_hits"] == 1
     assert a["logical_sha256"] == b["logical_sha256"]
     assert a["financial_certified_real"] is False
     assert a["scientifically_qualified"] is False
@@ -247,6 +251,85 @@ def test_five_delays_three_and_five_wallets_are_repeatable(tmp_path):
         if x["scenario"] == "five-wallet-cost-stress" and x["delay_minutes"] == 0
     )
     assert D(five_costly["fees"]) > D(five_base["fees"])
+
+
+def test_cost_only_change_invalidates_scenarios_not_source_or_market(tmp_path):
+    path, root, cache, doc = sample(tmp_path)
+    baseline = run_synthetic_fixture_study(
+        path, input_root=root, market_root=root, cache_root=cache
+    )
+    cost_path = root / doc["cost_model"]["path"]
+    costs_doc = json.loads(cost_path.read_text())
+    costs_doc["fee_bps"] = "2"
+    content = json.dumps(costs_doc).encode()
+    cost_path.write_bytes(content)
+    doc["cost_model"]["sha256"] = sha256(content).hexdigest()
+    path.write_text(json.dumps(doc))
+    changed = run_synthetic_fixture_study(path, input_root=root, market_root=root, cache_root=cache)
+    assert changed["source_cache_hits"] == 1
+    assert changed["market_cache_hits"] == 1
+    assert changed["tape_cache_hits"] == 5
+    assert changed["cache_hits"] == 0
+    assert changed["logical_sha256"] != baseline["logical_sha256"]
+
+
+def test_market_day_change_invalidates_market_and_scenarios_only(tmp_path):
+    path, root, cache, doc = sample(tmp_path)
+    first = run_synthetic_fixture_study(path, input_root=root, market_root=root, cache_root=cache)
+    market_day = doc["market_days"][0]
+    parquet = root / market_day["path"]
+    bars = pl.read_parquet(parquet).with_columns((pl.col("open") + 0.1).alias("open"))
+    bars.write_parquet(parquet)
+    metadata = root / market_day["metadata_path"]
+    sidecar = json.loads(metadata.read_text())
+    sidecar["sha256"] = sha256(parquet.read_bytes()).hexdigest()
+    metadata.write_text(json.dumps(sidecar))
+    market_day["sha256"] = sidecar["sha256"]
+    market_day["metadata_sha256"] = sha256(metadata.read_bytes()).hexdigest()
+    path.write_text(json.dumps(doc))
+    changed = run_synthetic_fixture_study(path, input_root=root, market_root=root, cache_root=cache)
+    assert changed["source_cache_hits"] == 1
+    assert changed["market_cache_hits"] == 0
+    assert changed["tape_cache_hits"] == 5
+    assert changed["cache_hits"] == 0
+    assert changed["logical_sha256"] != first["logical_sha256"]
+
+
+def test_declared_account_identity_change_cannot_reuse_valid_source_book(tmp_path):
+    path, root, cache, doc = sample(tmp_path)
+    baseline = run_synthetic_fixture_study(
+        path, input_root=root, market_root=root, cache_root=cache
+    )
+    assert baseline["status"] == "COMPLETE_SYNTHETIC_FIXTURE_ONLY"
+    # Same bytes with a different manifest identity are NOT a new
+    # independently validated owner. Never reuse an earlier cached book.
+    doc["sources"][0]["account"] = "W099"
+    for scenario in doc["scenarios"]:
+        if "W001" in scenario["k_by_account"]:
+            scenario["k_by_account"]["W099"] = scenario["k_by_account"].pop("W001")
+    path.write_text(json.dumps(doc))
+    with pytest.raises(ManifestBlocked, match="CROSS_ACCOUNT_SOURCE_FILE"):
+        run_synthetic_fixture_study(path, input_root=root, market_root=root, cache_root=cache)
+
+
+def test_source_book_change_invalidates_source_not_native_market(tmp_path):
+    path, root, cache, doc = sample(tmp_path)
+    baseline = run_synthetic_fixture_study(
+        path, input_root=root, market_root=root, cache_root=cache
+    )
+    book_file = root / "W001/book.json"
+    book = json.loads(book_file.read_text())
+    book["fills"][0]["position_after"] = "2"
+    payload = json.dumps(book).encode()
+    book_file.write_bytes(payload)
+    doc["sources"][0]["book_sha256"] = sha256(payload).hexdigest()
+    path.write_text(json.dumps(doc))
+    changed = run_synthetic_fixture_study(path, input_root=root, market_root=root, cache_root=cache)
+    assert changed["source_cache_hits"] == 0
+    assert changed["market_cache_hits"] == 1
+    assert changed["tape_cache_hits"] == 0
+    assert changed["cache_hits"] == 0
+    assert changed["logical_sha256"] != baseline["logical_sha256"]
 
 
 def test_one_vs_two_workers_have_identical_logical_financial_results(tmp_path):
@@ -298,6 +381,58 @@ def test_pm03_code_fingerprint_change_invalidates_scenario_cache(tmp_path, monke
     assert changed["scenarios"] == first["scenarios"]
     warm = run_synthetic_fixture_study(path, input_root=root, market_root=root, cache_root=cache)
     assert warm["cache_hits"] == 15
+
+
+@pytest.mark.skipif(__import__("sys").platform != "linux", reason="POSIX SIGKILL test")
+def test_sigkill_after_first_sealed_scenario_resumes_without_double_apply(tmp_path):
+    import signal
+    import subprocess
+    import sys
+
+    path, root, cache, _ = sample(tmp_path)
+    child = """
+import os,signal,sys
+import copytrade_pm.pm_offline_sweep as impl
+from pathlib import Path
+calls=0
+actual=impl.replay_fixture
+def after_first(*args,**kwargs):
+    global calls
+    calls+=1
+    if calls==2:
+        os.kill(os.getpid(), signal.SIGKILL)
+    return actual(*args,**kwargs)
+impl.replay_fixture=after_first
+impl.run_synthetic_fixture_study(
+    Path(sys.argv[1]),input_root=Path(sys.argv[2]),
+    market_root=Path(sys.argv[2]),cache_root=Path(sys.argv[3])
+)
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", child, str(path), str(root), str(cache)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=45,
+    )
+    assert result.returncode == -signal.SIGKILL, result.stderr
+    recovered = run_synthetic_fixture_study(
+        path,
+        input_root=root,
+        market_root=root,
+        cache_root=cache,
+    )
+    assert recovered["status"] == "COMPLETE_SYNTHETIC_FIXTURE_ONLY"
+    assert recovered["cache_hits"] == 1
+    assert recovered["tape_cache_hits"] == 1
+    assert recovered["source_cache_hits"] == 1
+    assert recovered["market_cache_hits"] == 1
+    assert recovered["completed_scenarios"] == 15
+    repeated = run_synthetic_fixture_study(
+        path, input_root=root, market_root=root, cache_root=cache
+    )
+    assert recovered["logical_sha256"] == repeated["logical_sha256"]
+    assert repeated["cache_hits"] == 15
 
 
 def test_crash_mid_sweep_resumes_immutable_completed_scenarios(tmp_path, monkeypatch):

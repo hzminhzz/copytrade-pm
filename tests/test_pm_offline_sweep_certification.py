@@ -1,6 +1,7 @@
 """Exact PM-03 floor boundary and screening-only verdict regression."""
 
 from decimal import Decimal as D
+from random import Random
 
 import pytest
 
@@ -81,6 +82,29 @@ def test_trailing_highwater_equality_exact():
     assert above["floor"] == "10500"
     assert above["breached"] is True
     assert at["breached"] is True
+
+
+def test_randomized_exact_cent_and_subcent_contract_floor_parity():
+    rng = Random(20261104)
+    r = rulebook()
+    # Randomized exact cents and subcents cannot accidentally be classified
+    # through binary float rounding near an inclusive daily/trailing floor.
+    for floor, high, daily in (
+        (D("9500"), D("10000"), D("10000")),
+        (D("10000"), D("11000"), D("10500")),
+    ):
+        for _ in range(250):
+            n = rng.randint(-5000, 5000)
+            equity = floor + D(n).scaleb(-10)
+            verdict = exact_floor_state(
+                r,
+                observed_equity=equity,
+                high_water=high,
+                day_start_balance=daily,
+            )
+            assert D(verdict["floor"]) == floor
+            assert verdict["breached"] is (equity <= floor)
+            assert verdict["halt"] is (equity <= floor)
 
 
 def test_screen_never_authoritative_even_if_target_reached():

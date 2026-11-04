@@ -13,7 +13,7 @@ certificate. See [baseline](OFFLINE-PIT-BASELINE-20261104.md) and
 | `pm_offline_source` | Atomic verified initial book, exact same-millisecond chain or typed ambiguity, strict all-DEX/account identities and as-of positive equity, stable digest | Independent signed source/receipt producer and source/equity snapshot adapter |
 | `pm_offline_eligibility` | Polars 2.1 lazy strict next-bar, event-specific eligibility, stable streaming/in-memory hash, right-censor | Connect whole-book source tape; independently verified real receipt SHA and maturity |
 | `pm_offline_market` | Native day Parquet SHA; exact namespace + minute join; prior completed bar volume; ex-post volume separate | Source market-day manifest reconciliation; resource-bounded hot partitions; full minute MTM; source calendar/session |
-| `pm_offline_cache` | Owner-private immutable SHA object keys, fsync hardlink sealed metadata, error on corruption, content-sensitive dependencies and size/disk floor | Actual compiled tape/market worker integration, restart process fault/memory benchmark |
+| `pm_offline_cache`, `pm_offline_derived_cache` | Owner-private fsynced immutable SHA objects, independently sealed source-book/equity and native fixture market panels, per-fill tapes and per-scenario outputs; source/market/cost dependency isolation, corrupt-object fail-closed and SIGKILL restart tests | Optional month/week hot read-only numeric arrays (not yet implemented); real 90d market context already cached end-to-end |
 | `pm_offline_account` | Fixture-only sequential PM-03 Decimal Account, PM-03 classifier/execute_targets, source-equity sizing, frozen per-manager intents, explicit funding-complete assumption or UNKNOWN, minute marks, gross-before-net veto, exact first target/breach times and PM03 snapshot SHA | Real source/native bars/funding/contract receipts and multi-day persistent account/restart audit |
 | `pm_offline_certification` | Synthetic PM-03 Decimal exact inclusive floor/target verdict; SCREEN_ONLY never PASS; censor/unfilled residual and missing source/rulebook evidence UNKNOWN/AMBIGUOUS | Real qualified source and executable cost/funding paths before any real financial verdict |
 | `pm_offline_intents`, `pm_offline_receipts` | Causal whole-account opening and per-fill eligible last-book intent, true as-of source equity at execution, source-ID/clock-matched SHA-local prospective fixture receipts | Receipt presence alone is not an external attestation; real 94-wallet inputs lack signed independent NAV/receipt evidence |
@@ -29,8 +29,7 @@ fixture studies, with read-only SHA-pinned native data and sealed scenario
 cache, versioned source/risk/cost manifests, 3-/5-wallet stress, five delays,
 and bounded 1-/2-worker replay. It accepts nonflat **independently specified** opening books only with complete leader marks and source-equity as-of at the actual execution minute; cross-DEX same-manager books remain blocked without a consolidated admission contract. One unadmitted manager blocks only the affected scenario, not unrelated completed work. The separate `pm_offline_job` manifest-driven facade also runs the sealed 90-day real-source oracle-only screening pipeline and never certifies real follower P&L.
 
-All files are new offline-only modules. Frozen PM-01 v2, PM-03,
-PM-04, wallet registry and forward-paper modules are unmodified.
+Frozen PM-01 v2, PM-04, wallet registry and forward-paper modules are unmodified. One **internal PM-03 allocation precision fix** preserves all public PM-03 interfaces: exact full fills now retain original high-precision pod quantities, and partial pro-rata rounding redistributes residuals without exceeding requests. Deterministic 250-case Decimal stress, original account/FP tests and targeted high-precision partial execution regression are required before any review or merge.
 
 ### Timestamps and scientific meaning
 
@@ -89,6 +88,52 @@ the existing PM-01 benchmark has different oracle policy, workload and
 accounting. An independently comparable 90d/500k fills/13M 1m bar
 benchmark, memory/spill and p50/p95 are still BLOCKED by incomplete
 real-data source/equity/receipt and native sidecar evidence.
+
+## Updated independent cache and PM-03 high-precision regression (Option A)
+
+The current synthetic complete-fixture pipeline now has **four independently
+keyed immutable stages** before the final report: (1) whole-source-book +
+as-of NAV, (2) native 1-minute market panel, (3) per-delay whole-book
+eligibility tape, and (4) scenario ledger. Input changes affect only
+dependent outputs: changing cost does **not** rebuild source/market/eligibility;
+changing native market SHA rebuilds market/scenario but not source/tape;
+changing source SHA rebuilds source/tape/scenario but not market; changing
+declared owner/DEX identity cannot borrow another cached source book.
+All SHA objects remain private, fsynced, byte-validated and bounded.
+
+Five synthetic managers, 3 portfolio/cost scenarios, five delays, two workers,
+isolated private cache and **no disk-cache purge** produced:
+
+| Trial | Wall | Source hits | Market hits | Delay tape hits | Scenario hits | Cache bytes | Process RSS high-water |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Initial sealed fixture | 0.187041s | 0/1 | 0/1 | 0/5 | 0/15 | 107,823 | 92,244 KiB |
+| Warm #1 | 0.028671s | 1/1 | 1/1 | 5/5 | 15/15 | 107,823 | 92,244 KiB |
+| Warm #2 | 0.025495s | 1/1 | 1/1 | 5/5 | 15/15 | 107,823 | 92,244 KiB |
+
+All outputs share logical SHA
+`a06326b77b897b6675b5402380888b8b036eae069667f26b4124da1350d073ab`.
+A true child-process **SIGKILL** after one sealed scenario resumed 1/15
+scenario hits, preserved source/market/eligible state and reached exactly
+the same final logical SHA. This tests software crash-consistency, not live
+broker state recovery.
+
+A changed native open price exposed the original PM-03 allocation function
+rounding a high-precision complete fill, causing a false
+`OVERSIZED_PARTIAL_ALLOCATION`. The internal allocator now preserves exact
+pod quantities for complete fills and clamps/redistributes pro-rata partial
+rounding. Its public API and financial Account authority are unchanged.
+Dedicated positive/negative randomized 250-case Decimal allocation tests,
+source/market invalidation tests, partial reduction, overnight funding,
+subcent inclusive floor tests and original PM-03 compatibility tests
+demonstrate the engineering correction.
+
+**Remaining true engineering boundary:** an optional independently reused
+week/month hot-market numeric array interface is not yet delivered.
+The measured full native context remains reproducibly cached, with
+~0.9s warm report time. Do not claim original #85 week/month-array
+acceptance solely because the bounded current-study cache works.
+Scientific qualification also remains unavailable without independently
+as-of source NAV, complete historical book and real receipts.
 
 ## Real local source and native alignment added after synthetic checkpoint
 

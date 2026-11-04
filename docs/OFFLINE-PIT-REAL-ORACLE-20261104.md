@@ -50,6 +50,16 @@ Original source file SHA-set digest (hash of sorted SHA-256s of exactly the 94 J
 
 Several fills in directories labeled “90d” are older than the frozen window; the importer independently enforces the window. Spot-like `@107` and other invalid perpetual identifiers are excluded **with counts**, not silently mapped to existing perpetual instruments. A duplicate account/instrument/TID would be rejected from the tape. Any unverified source date, NAV or hedge state must remain UNKNOWN and must not be filled with a current equity value.
 
+A later **30-run SHA-identical warm-cache** sample of the same public
+90-day job on the shared VPS measured observed **wall p50 1.011240s**,
+**nearest-rank p95 1.174315s**, mean 1.036187s, range
+0.913131–1.250435s, process RSS high-water **278,556 KiB**.
+User+system CPU p50 1.210000s, observed nearest-rank CPU p95
+1.451843s. All 30/30 were cache hits with unchanged report SHA
+`3141e4acb2df842025f880403d9dd4be2702c6811917bcb7949546dbdc6cbd1a`.
+These are **empirical warm shared-host samples**, not a promised latency SLA,
+independent cold-disk runs, or whole PM03 account simulator benchmark.
+
 ## Verified native market evidence
 
 Canonical market root is the adjacent ML4T data lake under `crypto_futures_ohlcv_1m_HYPERLIQUID_*` daily Hive Parquet. Full verification reads **and hashes** each consumed `data.parquet` against the corresponding native `source.json`; it never substitutes the partial consolidated short candle files.

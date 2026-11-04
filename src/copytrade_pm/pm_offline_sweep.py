@@ -23,6 +23,16 @@ from .pm03_execution import CostModel
 from .pm03_risk import RiskPolicy
 from .pm_offline_account import replay_fixture
 from .pm_offline_cache import ImmutableCache
+from .pm_offline_derived_cache import (
+    MARKET_SCHEMA,
+    SOURCE_SCHEMA,
+    market_bundle,
+    pinned_market_dependencies,
+    pinned_source_dependencies,
+    read_market_bundle,
+    read_source_bundle,
+    source_bundle,
+)
 from .pm_offline_intents import compile_whole_book_intents
 from .pm_offline_manifest import ManifestBlocked, ManifestInvalid, Study
 from .pm_offline_market import _verified_day
@@ -68,6 +78,7 @@ def _software_sha() -> str:
         "pm_offline_account.py",
         "pm_offline_certification.py",
         "pm_offline_cache.py",
+        "pm_offline_derived_cache.py",
         "pm03_account.py",
         "pm03_execution.py",
         "pm03_risk.py",
@@ -284,13 +295,47 @@ def run_synthetic_fixture_study(
         raise ManifestInvalid("FOLLOWER_EQUITY_RULEBOOK_CONFLICT")
     costs = _cost(_json(root, doc["cost_model"]["path"]))
     risk_policy = _risk_policy(_json(root, doc["risk_policy"]["path"]))
-    source, initial, originals = _source_tape(
-        doc,
-        root,
-        study.clock_basis,
-        max_age_minutes=doc["source_equity_max_age_minutes"],
+    store = ImmutableCache(
+        cache_root,
+        max_object_bytes=8 * 1024 * 1024,
+        min_free_bytes=1024 * 1024 * 1024,
     )
-    market, market_shas = _minute_market(doc, market_root, start=start, end=end)
+    software = _software_sha()
+    source_deps = pinned_source_dependencies(
+        doc,
+        policy_sha=sha256(b"WHOLE_BOOK_EQUITY_ASOF_WITH_RECEIPTS_V2").hexdigest(),
+        software_sha=software,
+    )
+    cached_source = store.load("source_book", source_deps, version=SOURCE_SCHEMA)
+    source_cache_hits = int(cached_source is not None)
+    if cached_source is not None:
+        source, initial, originals = read_source_bundle(cached_source)
+    else:
+        source, initial, originals = _source_tape(
+            doc,
+            root,
+            study.clock_basis,
+            max_age_minutes=doc["source_equity_max_age_minutes"],
+        )
+        store.publish(
+            "source_book",
+            source_deps,
+            version=SOURCE_SCHEMA,
+            content=source_bundle(source, initial, originals),
+        )
+    market_deps = pinned_market_dependencies(doc, software_sha=software)
+    cached_market = store.load("market_panel", market_deps, version=MARKET_SCHEMA)
+    market_cache_hits = int(cached_market is not None)
+    if cached_market is not None:
+        market, market_shas = read_market_bundle(cached_market)
+    else:
+        market, market_shas = _minute_market(doc, market_root, start=start, end=end)
+        store.publish(
+            "market_panel",
+            market_deps,
+            version=MARKET_SCHEMA,
+            content=market_bundle(market, market_shas),
+        )
     for account, dex in initial:
         expected_symbols = {
             item["instrument"]
@@ -301,12 +346,6 @@ def run_synthetic_fixture_study(
             raise ManifestBlocked("INCOMPLETE_INITIAL_BOOK_IN_RUNNER")
     if len(scenarios) * len(study.delay_minutes) * len(market) > MAX_SCENARIO_MINUTES:
         raise ManifestBlocked("TOO_MANY_FIXTURE_SCENARIO_MINUTES")
-    store = ImmutableCache(
-        cache_root,
-        max_object_bytes=8 * 1024 * 1024,
-        min_free_bytes=1024 * 1024 * 1024,
-    )
-    software = _software_sha()
     results = []
     cache_hits = 0
     tape_cache_hits = 0
@@ -343,10 +382,12 @@ def run_synthetic_fixture_study(
                 }
             )
         tape_deps = {
-            "manifest": study.manifest_sha256,
+            "source": source_deps["source"],
             "software": software,
-            "source": source["sha256"],
-            "delay": sha256(str(delay).encode()).hexdigest(),
+            "period": sha256(f"{doc['start']}/{doc['end']}".encode()).hexdigest(),
+            "policy": sha256(f"PER_FILL_ELIGIBILITY:{delay}".encode()).hexdigest(),
+            "clock": source_deps["clock"],
+            "equity_age": source_deps["equity_age"],
         }
         cached_tape = store.load("eligible_tape", tape_deps, version=SCHEMA)
         if cached_tape is not None:
@@ -519,6 +560,8 @@ def run_synthetic_fixture_study(
         "scenarios": sorted(results, key=lambda x: (x["scenario"], x["delay_minutes"])),
         "cache_hits": cache_hits,
         "tape_cache_hits": tape_cache_hits,
+        "source_cache_hits": source_cache_hits,
+        "market_cache_hits": market_cache_hits,
         "workers_used": workers,
         "requested_scenarios": expected,
         "financial_certified_real": False,
@@ -528,7 +571,14 @@ def run_synthetic_fixture_study(
     logical = {
         key: value
         for key, value in output.items()
-        if key not in {"cache_hits", "tape_cache_hits", "workers_used"}
+        if key
+        not in {
+            "cache_hits",
+            "tape_cache_hits",
+            "source_cache_hits",
+            "market_cache_hits",
+            "workers_used",
+        }
     }
     output["logical_sha256"] = sha256(
         json.dumps(logical, sort_keys=True, separators=(",", ":")).encode()

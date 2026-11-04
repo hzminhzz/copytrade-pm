@@ -351,6 +351,54 @@ def test_pm03_snapshot_resume_equity_and_halt_parity():
         )
 
 
+def test_partial_reduction_remains_open_and_uncertified():
+    rule = replace(rules(), account_terms_confirmed=True)
+    result = replay_fixture(
+        rulebook=rule,
+        minutes=[
+            minute(0, updates=[update(qty="1")]),
+            minute(1, updates=[update(qty="0")], volume="0.25"),
+        ],
+        costs=costs(),
+        k_by_manager={"a": D("0.1")},
+        funding_evidence_complete=True,
+    )
+    assert D(result["ledger"]["positions"]["hyperliquid/perp/BTC"]) == D("0.875")
+    assert result["ledger"]["events"][1]["execution"]["status"] == "PARTIAL"
+    assert result["ledger"]["events"][1]["execution"]["remaining"] == {
+        "hyperliquid/perp/BTC": "-0.875"
+    }
+    assert result["certification"]["verdict"] == "UNKNOWN"
+    assert result["contractual_real_verdict"] == "UNKNOWN"
+
+
+def test_funding_across_day_rollover_is_exact_and_attributed_to_pod():
+    dayend = T.replace(hour=23, minute=59)
+    funding = {
+        "amount": "-0.375",
+        "allocated": {"a": "-0.375"},
+        "first_known_at": dayend + timedelta(minutes=1),
+    }
+    result = replay_fixture(
+        rulebook=rules(),
+        minutes=[
+            {**minute(0, updates=[update()]), "at": dayend},
+            {
+                **minute(1),
+                "at": dayend + timedelta(minutes=1),
+                "funding": [funding],
+            },
+        ],
+        costs=costs(),
+        k_by_manager={"a": D("0.1")},
+        funding_evidence_complete=True,
+    )
+    assert D(result["ledger"]["funding"]) == D("-0.375")
+    assert D(result["ledger"]["equity"]) == D("9999.625")
+    assert result["ledger"]["daily_key"] == "2026-10-21"
+    assert D(result["ledger"]["daily_start_balance"]) == D("10000")
+
+
 def test_unknown_capacity_causes_unfilled_residual():
     result = replay_fixture(
         rulebook=rules(),
