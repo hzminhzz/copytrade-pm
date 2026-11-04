@@ -1,5 +1,96 @@
 # Research operator runbook — verified CLI sequence
 
+## Offline Polars 2.x Milestone #2 public job (owner-approved engineering Option A, 2026-11-04)
+
+[Two-track engineering vs science acceptance](OFFLINE-MILESTONE2-ENGINEERING-ACCEPTANCE-20261104.md)
+is authoritative for the draft [PR #92](https://github.com/hzminhzz/copytrade-pm/pull/92).
+The new **single manifest-to-results** CLI is:
+
+```bash
+uv run --extra market --group dev python -m copytrade_pm.pm_offline_job \
+  docs/OFFLINE-HL94-ORACLE-JOB-20261104.json \
+  --input-root docs \
+  --source-root /home/quant/dev/copytrade-pm/data \
+  --market-root /home/quant/dev/quant/ml4t-data/.data/store \
+  --cache-root /home/quant/.cache/copytrade-polars-oracle-dev-20261104
+```
+
+The above concrete 90-day **real local source** invocation was run, not just documented:
+450,172 supported historical fills, 377,130 five-delay batch observations,
+322,970 SHA-native 1m prior-volume matches, and immutable report
+`3141e4acb2df842025f880403d9dd4be2702c6811917bcb7949546dbdc6cbd1a`.
+It intentionally returns `COMPLETE_HISTORICAL_ORACLE_SCREEN_ONLY`,
+`financial_status=BLOCKED_MISSING_ATOMIC_BOOK_ASOF_NAV_AND_REAL_FIRST_KNOWN`,
+`scientifically_qualified=false`. It **never** asserts actual historical
+follower P&L or prospective first-known event clocks.
+
+For account finance, use a **sealed synthetic fixture** as the nested manifest
+with `kind=SEALED_SYNTHETIC_PM03` plus exact `study_manifest_sha256`,
+`delays_minutes=[0,1,2,5,10]`, `clock_basis` and a stable `study_id`.
+The nested study must pin book/equity/receipt (if prospective fixture),
+rulebook/cost/risk and native-day `data.parquet` and `source.json` hashes. It also requires explicit `synthetic_funding_evidence_complete: true|false` to distinguish a frozen zero-funding fixture assumption from an unknown funding path. `false` forces UNKNOWN for target certification.
+Valid independently specified *non-flat* opening books are accepted if fully
+priced and source NAV is actually as-of; unpriced hedge legs are **BLOCKED**.
+One manager without admission blocks only its scenario; independent scenarios
+return their separate completed hashes. The CLI report's `financial_status`
+remains `SYNTHETIC_PM03_FIXTURE_ONLY`; a fixture contract PASS/BREACH is not
+real prop performance. Both routes use a single immutable, private cache.
+
+Run the full suite before issue closure:
+
+```bash
+uv run --group dev python -m pytest -q tests
+uv run --extra market --group dev python -m pytest -q tests
+uv run --group dev ruff check src tests
+uv run --group dev ruff format --check src tests
+uv build --offline
+```
+
+Optional **read-only hot native 7-day numeric panel**, for research worker
+memory mapping when full SHA-verified daily Parquet exists:
+
+```bash
+uv run --extra market --group dev python -m copytrade_pm.pm_offline_hot_market \
+  --market-root /home/quant/dev/quant/ml4t-data/.data/store \
+  --cache-root /home/quant/.cache/copytrade-polars-hot-week-20261104 \
+  --instrument hyperliquid:mainnet:perp:default:BTC \
+  --week-start 2026-10-19T00:00:00+00:00
+```
+
+A valid week has exactly **10,080 UTC minute bars**. It requires all
+seven independently SHA-valid native days and returns a private, read-only
+`numpy.memmap` with Float64 OHLCV and Int64 UTC-minute timestamps.
+Missing/partial native day returns BLOCKED, not interpolated data;
+the first weekly minute has no in-week prior capacity. This optional
+screening-only view is **not** an execution order book, fixed-point P&L
+or a replacement for the default full-study native context cache.
+
+For repeatable **Issue #89 resource profiling** of the same sealed 90-day
+research job with a new private application cache, run:
+
+```bash
+uv run --extra market --group dev python -m copytrade_pm.pm_offline_benchmark \
+  docs/OFFLINE-HL94-ORACLE-JOB-20261104.json \
+  --input-root docs \
+  --source-root /home/quant/dev/copytrade-pm/data \
+  --market-root /home/quant/dev/quant/ml4t-data/.data/store \
+  --cache-root /home/quant/.cache/copytrade-polars-bench-20261104-verified-v1/cache \
+  --workers 2 --repeats 10
+```
+
+Use a **new** owner-private cache root when measuring initial application
+cache cost; never delete or flush the canonical market lake or live
+services. The benchmark reports per-run CPU, OS process I/O, application
+cache bytes, peak RSS and observed p50/p95, with unknown Polars spill and
+cold OS page-cache state clearly distinguished. See the
+[measured 90-day results](OFFLINE-PIT-REAL-ORACLE-20261104.md).
+`BLOCKED_REAL_WORKLOAD` remains the full PM-03 follower economics state.
+
+All original wallet files, market lake partitions, frozen PM-01 36 wallets and
+Forward-Paper T+300s scheduler remain unmodified. No orders, merges,
+protected service restarts or deployments are authorized.
+
+
 **Scope:** the installed `copytrade-pm/main` commands checked against source/`--help` on 2026-10-31. Operations are offline by default; explicitly flagged acquisition commands can call paid/rate-limited vendors. **No live trading authority.** Begin with [INDEX](INDEX.md); for wallet fill acquisition and exact market sources read [DATA-ACQUISITION](DATA-ACQUISITION.md).
 
 ## Mandatory agent lookup contract (registry-first)
@@ -229,3 +320,79 @@ When any operation fails or returns BLOCKED, execute [RECOVER](BLOCKER-RECOVERY.
 Routine research/CLI operation has **no per-turn judge call**. For material frozen-roster, policy or qualification decisions, follow the [protected governance boundary](GOVERNANCE-GATES.md) and run `copytrade-pm-review-gate --help` to inspect the read-only signature-check interface. An unavailable independent reviewer blocks only that protected decision; no current CLI confers scientific qualification or trading permission.
 
 Before merging any non-trivial code or data-contract change: preserve dirty work, read `AGENTS.md`, inspect GitHub and real VPS sources, write behavior tests at the consumer seam, run **both** CI-equivalent dependency variants, Ruff and build, inspect diff and evidence SHA, update handbook links if CLI or source boundaries changed, push and wait for actual required checks. Do **not** confuse successful engineering with scientific qualification or deployment. Protected `main` requires `verify (core)` and `verify (market)`, strict current-base checks; no force push. Never touch production `hyperliquid-expert-ensemble` as a side effect of this repository.
+
+## Offline Polars v2 synthetic fixture runner (2026-11-04; draft PR #92)
+
+From a **clean isolated** project worktree, run the unit/integration contracts:
+
+```bash
+uv run --group dev python -m pytest -q tests
+uv run --extra market --group dev python -m pytest -q tests
+uv run --group dev ruff check src tests
+uv run --group dev ruff format --check src tests
+uv run --extra market --group dev python -m copytrade_pm.pm_offline_baseline --fills 120 --iterations 2
+```
+
+Inspect an owner-provided **synthetic** manifest (it must be prepared with
+all source/equity/rule/risk/cost/market file SHA values):
+
+```bash
+uv run --extra market --group dev python -m copytrade_pm.pm_offline_manifest   /tmp/private-fixture/manifest.json --input-root /tmp/private-fixture/inputs
+
+uv run --extra market --group dev python -m copytrade_pm.pm_offline_sweep   /tmp/private-fixture/manifest.json   --input-root /tmp/private-fixture/inputs   --market-root /tmp/private-fixture/inputs   --cache-root /tmp/private-fixture/cache --workers 2
+```
+
+The CLI expects **explicit `synthetic_fixture: true`**. Files for real
+HyperX, forward receipts, account data or a source-only historical oracle
+study are deliberately blocked in this prototype. Source-book initial
+positions must be flat for this fixture harness, not guessed flat. All
+scenario managers must independently enter the known state before a follower
+target is admitted. Account financial results are labeled `SYNTHETIC_PM03_*`;
+no PASS, broker orders, subscription changes, service restarts, real
+PIT certification or copytrading permission follows from passing tests.
+
+Deterministic integration fixtures are implemented in
+`tests/test_pm_offline_sweep_pipeline.py`. Do not add private wallet
+addresses, account rules, paid vendor pages or a raw market lake to Git.
+The cache is private 0700/0600 with 8 MiB maximum fixture artifact,
+1 GiB minimum free scratch and up to 2 workers. A corrupted/partial cache
+entry is not a cache hit; a completed scenario resumes by its pinned SHA.
+
+## Real local Polars 2.x historical timing and native-market audit (2026-11-04)
+
+The commands below are **offline, read-only against original sources**.
+They compile a `HISTORICAL_ORACLE` diagnostic, **never real financial
+or scientific qualification**. Adapt `RESEARCH_ROOT` and `NATIVE_LAKE`
+to the installed source paths; do not move the dirty main checkout's data
+into a Git worktree, and never write to the lake.
+
+```bash
+RESEARCH_ROOT=/home/quant/dev/copytrade-pm/data
+NATIVE_LAKE=/home/quant/dev/quant/ml4t-data/.data/store
+PRIVATE_CACHE=/home/quant/.cache/copytrade-polars-oracle-dev-20261104
+START=2026-08-05T00:00:00+00:00
+END=2026-11-03T00:00:00+00:00
+
+uv run --extra market --group dev python -m copytrade_pm.pm_offline_repository \
+  --source-root "$RESEARCH_ROOT" --market-root "$NATIVE_LAKE" \
+  --start "$START" --end "$END" --verify-market-sha
+uv run --extra market --group dev python -m copytrade_pm.pm_offline_oracle \
+  --source-root "$RESEARCH_ROOT" --cache-root "$PRIVATE_CACHE" \
+  --start "$START" --end "$END" --engine streaming
+uv run --extra market --group dev python -m copytrade_pm.pm_offline_oracle_market \
+  --source-root "$RESEARCH_ROOT" --market-root "$NATIVE_LAKE" \
+  --cache-root "$PRIVATE_CACHE" --start "$START" --end "$END"
+```
+
+The five-delay tape is a sealed, source-SHA-addressed private Parquet. Native
+market joins validate Parquet-day and metadata fingerprints even on warm
+cache; a changed upstream day creates a new dependent cache identity. The
+full study requires up to 4,088 instrument-day scans (maximum admitted 6,000)
+and initially uses hundreds of MiB of process RAM; check disk/swap
+headroom before scaling. Re-run with `--instrument
+hyperliquid:mainnet:perp:default:BTC` to audit a bounded subset.
+No fee, follower equity, drawdown, execution or contract PASS/BREACH is
+reported by these historical-only diagnostics.
+
+Detailed counts and reproducible output hashes:
+[real-data audit](OFFLINE-PIT-REAL-ORACLE-20261104.md).

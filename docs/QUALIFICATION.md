@@ -1,5 +1,29 @@
 # Evidence and qualification gates
 
+## Polars offline milestone #2 two independent result dimensions (2026-11-04)
+
+Read [two-track engineering acceptance](OFFLINE-MILESTONE2-ENGINEERING-ACCEPTANCE-20261104.md)
+before interpreting draft [PR #92](https://github.com/hzminhzz/copytrade-pm/pull/92).
+`ENGINEERING VERIFIED` requires a positive complete-evidence fixture and
+adversarial negative evidence tests through one sealed public job, exact
+PM-03 Decimal and compatible frozen code contracts. A correctly
+`BLOCKED` real historical-oracle study is **not** a failing engineering
+test when source facts are genuinely absent.
+
+`SCIENTIFICALLY QUALIFIED` instead needs independently authenticated
+prospective first-known events, historical source NAV/full account-book,
+funding, matched executable follower and control outcomes, OOS/holdouts,
+uncertainty, actual account terms and risk authorization. The optional native weekly `numpy.memmap` screen cache is an
+immutable, exact-minute market-data view, not an executable L2 book or
+permission to convert mid/open screening prices into certified
+follower P&L. The public
+90-day oracle-only job retains `financial_certified_real=false` and
+`scientifically_qualified=false` despite correctly matching native 1m
+context. Synthetic simulated `PASS`/`BREACH` cannot be promoted.
+`pm_offline_receipts` ties a sealed local file's IDs/clocks to fixture
+events; a SHA hash does **not** independently prove capture authenticity.
+
+
 **Read this before interpreting wallet rankings, a “pass,” an equity curve, or risk R.** Dated as of 2026-10-31 (repo `main` SHA `c3e9ccf`). The live source, actual GitHub issues and external Propr rules may evolve. Current research work is **not a trading system**.
 
 ## Separate the four statuses
@@ -77,3 +101,43 @@ A blocked scientific result stays blocked. For root-cause repair, bounded acquis
 Independent review is handled at protected [governance decision boundaries](GOVERNANCE-GATES.md), not on every research conversation or file inspection. The current read-only Trader Intelligence readiness report is always `NOT_SCIENTIFICALLY_QUALIFIED`; an external review cannot override that state. No scientific signoff/roster promotion writer exists in this repository.
 
 For actual commands: [RUNBOOK](RUNBOOK.md). For precise clock/audit signatures: [PM-01 prospective ledger](PM-01-prospective-ledger.md).
+
+## Offline Polars milestone #2 acceptance distinction (2026-11-04)
+
+The separate offline prototype under PR #92 has distinct verdict domains:
+
+| Result | Verified scope | What is **not** established |
+| --- | --- | --- |
+| `HISTORICAL_ORACLE` / `VALIDATED_INPUT_ONLY` | SHA/source/clock guard or retrospective compiler | True first-known, future tradability or source profitability |
+| `COMPLETE_SYNTHETIC_FIXTURE_ONLY` | Frozen 3/5-wallet, 5-delay, cost-stress scenario; PM-03 Decimal fixture | Real source replay, executable liquidity, contract PASS, scientific alpha |
+| `SYNTHETIC_PM03_OPEN/BREACH/TARGET` | Simulated account state from specified artificial events | Real challenge event or probability |
+| `UNKNOWN` / `AMBIGUOUS` | Missing funding, equity, source, minute mark, contract attestation, or unresolved intrabar order | Favorable assumption or zero loss |
+| `BLOCKED` / `INVALID` | Failed provenance, clock, complete-book, schema, cache or safety gate | Automatic retry with invented data |
+
+Only PM-03's sequential Decimal account may compute contractual cash/PnL
+and floor transitions. Polars Float64 price/volume projections are
+diagnostics until original exact prices or independently parity-verified
+fixed point is available. No contractual real PASS/BREACH is permitted
+from the current synthetic runner. A passing engineering suite is not an
+independent prospective causal study, scientifically qualified return,
+owner-approved risk, deployment or live order authorization.
+
+## Real 90-day Polars compiler versus real follower qualification (2026-11-04)
+
+The [real-data offline audit](OFFLINE-PIT-REAL-ORACLE-20261104.md)
+verified 450,172 retrospective perp fills and 322,970/377,130 batch
+observations matched to native exact minute open + preceding completed
+volume **screening context**. These are genuine local source/market bytes,
+**not** 322,970 independently executable fills or realized leader/follower
+trades. A bar's open and previous volume do not establish L2 depth, price
+impact, successful follower funding or copytrade permission.
+
+A source file's present-day equity scalar is not an historical NAV tape.
+No independent historical first-known timestamps or atomic initial
+whole-account books were verified for these 94 JSON inputs.
+`HISTORICAL_ORACLE_BATCH_SCREEN_ONLY` and
+`HISTORICAL_ORACLE_NATIVE_SCREEN_ONLY` therefore cannot produce a
+PM-03 financial PASS/BREACH, probability, qualified alpha or risk
+authorization. Only the existing PM-03 Decimal account may certify
+contractual equity/floor outcomes after full independently evidenced
+source, native execution, funding and rulebook prerequisites pass.
