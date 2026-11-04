@@ -93,6 +93,38 @@ def _generation(db: Path) -> dict:
     }
 
 
+def _doctor(db: Path) -> dict:
+    """Verify indexed generation against actual source files, not index age alone."""
+    try:
+        sink = io.StringIO()
+        with redirect_stdout(sink):
+            code = registry.cli(["--db", str(db), "doctor"])
+        payload = json.loads(sink.getvalue())
+        if code == 0 and payload["counts_match"] and payload["freshness"] == "CURRENT":
+            state = "VERIFIED"
+        elif code == 2 or not payload.get("counts_match"):
+            state = "STALE"
+        else:
+            state = "UNKNOWN"
+        # The native doctor does not report a stored index generation clock;
+        # that belongs to the independent status query.
+        return result(
+            "registry.doctor",
+            state,
+            {"counts_match": payload.get("counts_match"), "freshness": payload.get("freshness")},
+            authority="wallet_registry_live_source_parity",
+            error_code="REGISTRY_SOURCE_DRIFT" if state == "STALE" else None,
+        )
+    except (ValueError, OSError, KeyError, TypeError, RuntimeError, sqlite3.Error) as exc:
+        return result(
+            "registry.doctor",
+            "UNKNOWN",
+            authority="wallet_registry_live_source_parity",
+            error_code="REGISTRY_DOCTOR_UNAVAILABLE",
+            limitations=[type(exc).__name__],
+        )
+
+
 def _read_registry(db: Path, command: list[str], capability: str, asof: str | None = None) -> dict:
     try:
         gen = _generation(db)
@@ -121,9 +153,10 @@ def _read_registry(db: Path, command: list[str], capability: str, asof: str | No
             version="sqlite_v8",
             sha256=gen["sha"],
             source_observed_at=gen["observed_at"],
-            limitations=["Registry freshness is index-only; not worker health or trading authority"]
-            if status != "VERIFIED"
-            else [],
+            limitations=[
+                "Indexed freshness is based on the stored generation clock; run doctor for live source parity",
+                "Registry identity/read success does not establish worker health or trading authority",
+            ],
         )
     except (ValueError, OSError, KeyError, TypeError, RuntimeError, sqlite3.Error) as exc:
         return result(
@@ -215,6 +248,10 @@ def _health(db: Path, root: Path) -> dict:
             limitations=[type(exc).__name__],
         )
     parts["registry"] = _read_registry(db, ["status"], "registry.status")
+    parts["registry_source_parity"] = _doctor(db)
+    if parts["registry_source_parity"]["status"] != "VERIFIED":
+        # Cached indexed freshness is not an independently current source.
+        parts["registry"]["status"] = parts["registry_source_parity"]["status"]
     parts["selection"] = _read_registry(db, ["portfolio", "--current"], "portfolio.current")
     parts["paper"] = _paper(db)
     parts["research"] = _research("research.list")

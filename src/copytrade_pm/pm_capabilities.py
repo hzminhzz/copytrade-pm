@@ -232,6 +232,36 @@ DOCS = {
     "operations": DOC,
     "historical": "docs/RUNBOOK.md",
 }
+REGISTRY_REQUIRED_ARGUMENTS = {
+    "wallet --alias": ["--alias ALIAS"],
+    "wallet --address": ["--address ADDRESS"],
+    "cohort": ["NAME"],
+    "backup --to": ["--to PATH"],
+    "paper --apply": ["--run-dir PATH", "--portfolio NAME"],
+    "signed-selection": [
+        "--manifest PATH",
+        "--signature PATH",
+        "--trusted-public-key PATH",
+        "--trusted-key-sha256 SHA256",
+    ],
+    "signed-selection --apply": [
+        "--manifest PATH",
+        "--signature PATH",
+        "--trusted-public-key PATH",
+        "--trusted-key-sha256 SHA256",
+    ],
+    "qualification --apply": [
+        "--attestation-file PATH",
+        "--evidence-file PATH",
+        "--auditor-public-key-file PATH",
+    ],
+}
+NATIVE_REQUIRED_ARGUMENTS = {
+    "wallet.lookup": ["ALIAS"],
+    "wallet.alias": ["ALIAS"],
+    "portfolio.show": ["PORTFOLIO"],
+    "research.offline": ["JOB", "--input-root PATH", "--market-root PATH", "--cache-root PATH"],
+}
 EXTRA_MODULES = {
     "pm_offline_benchmark": ("research.benchmark", "research", "LOCAL_MUTATION"),
     "pm_offline_hot_market": ("market.hot_week", "market", "LOCAL_MUTATION"),
@@ -256,6 +286,42 @@ def _installed_scripts() -> dict[str, str]:
     except metadata.PackageNotFoundError:
         return {}
     return {ep.name: ep.value for ep in dist.entry_points if ep.group == "console_scripts"}
+
+
+def _required_cli_args(module: str, root: Path) -> list[str] | None:
+    """Derive mandatory flat argparse flags/positionals from actual implementation.
+
+    Nested subparsers have operation-dependent requirements: return None rather
+    than incorrectly describe a parent CLI as requiring no arguments.
+    """
+    path = (root / "src" / Path(*module.split("."))).with_suffix(".py")
+    if not path.is_file():
+        return None
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            if node.func.attr == "add_subparsers":
+                return None
+    required = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+            continue
+        if node.func.attr != "add_argument" or not node.args:
+            continue
+        value = node.args[0]
+        if not isinstance(value, ast.Constant) or not isinstance(value.value, str):
+            continue
+        option = value.value
+        flags = {keyword.arg: keyword.value for keyword in node.keywords}
+        mandatory_flag = isinstance(flags.get("required"), ast.Constant) and (
+            flags["required"].value is True
+        )
+        positional = not option.startswith("-") and not (
+            isinstance(flags.get("nargs"), ast.Constant) and flags["nargs"].value in ("?", "*")
+        )
+        if mandatory_flag or positional:
+            required.add(option)
+    return sorted(required)
 
 
 def _module_available(module: str, root: Path) -> bool:
@@ -286,7 +352,7 @@ def inventory(root: Path = ROOT) -> list[dict]:
                 "classification": safety,
                 "authority": family.upper(),
                 "dependencies": [],
-                "required_arguments": [],
+                "required_arguments": _required_cli_args(module, root),
                 "preflight": [],
                 "documentation": DOCS[family],
                 "available": _module_available(module, root)
@@ -309,7 +375,7 @@ def inventory(root: Path = ROOT) -> list[dict]:
                 "classification": safety,
                 "authority": "PRIVATE_VERSIONED_WALLET_REGISTRY",
                 "dependencies": [],
-                "required_arguments": [],
+                "required_arguments": REGISTRY_REQUIRED_ARGUMENTS.get(op, []),
                 "preflight": ["registry.doctor"] if op not in ("doctor", "status") else [],
                 "documentation": DOCS["registry"],
                 "available": True,
@@ -329,7 +395,7 @@ def inventory(root: Path = ROOT) -> list[dict]:
                 "classification": safety,
                 "authority": authority,
                 "dependencies": [],
-                "required_arguments": [],
+                "required_arguments": NATIVE_REQUIRED_ARGUMENTS.get(cap),
                 "preflight": [],
                 "documentation": DOCS[family],
                 "available": _module_available(module, root),
@@ -351,7 +417,7 @@ def inventory(root: Path = ROOT) -> list[dict]:
                 "classification": safety,
                 "authority": family.upper(),
                 "dependencies": [],
-                "required_arguments": [],
+                "required_arguments": None,
                 "preflight": [],
                 "documentation": DOCS[family],
                 "available": _module_available("copytrade_pm." + module, root),

@@ -39,6 +39,10 @@ def test_inventory_covers_actual_entry_points_and_safe_owner() -> None:
     entries = {x["id"]: x for x in cap.inventory(ROOT)}
     assert entries["account.pm03"]["authority"] == "PM03_FINANCIAL_AUTHORITY"
     assert entries["research.offline"]["classification"] == "LOCAL_MUTATION"
+    assert set(entries["paper.journal_status"]["required_arguments"]) == {"--db", "--run-id"}
+    assert entries["operations.cli"]["required_arguments"] is None
+    assert entries["registry.operation.wallet.alias"]["required_arguments"] == ["--alias ALIAS"]
+    assert "JOB" in entries["research.offline"]["required_arguments"]
     assert entries["source.collection"]["classification"] == "PROTECTED_MUTATION"
     assert entries["registry.operation.sync.apply"]["classification"] == "PROTECTED_MUTATION"
     assert entries["registry.operation.sync.dry.run"]["classification"] == "READ_ONLY"
@@ -106,11 +110,26 @@ def test_aggregate_partial_failure_preserves_known_revision(tmp_path: Path) -> N
     assert state["status"] == "DEGRADED"
     assert components["repository"]["status"] == "VERIFIED"
     assert components["registry"]["status"] == "UNKNOWN"
+    assert components["registry_source_parity"]["status"] == "UNKNOWN"
     assert components["paper"]["status"] == "UNKNOWN"
     assert components["installed_release"]["status"] == "UNKNOWN"
     assert components["market_provider"]["status"] == "UNKNOWN"
     assert components["scientific_qualification"]["status"] == "BLOCKED"
     assert state["trading_authorized"] is False
+
+
+def test_live_doctor_marks_stored_current_generation_stale(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def stale_cli(argv: list[str]) -> int:
+        assert argv[-1] == "doctor"
+        print(json.dumps({"counts_match": False, "freshness": "CURRENT"}))
+        return 2
+
+    monkeypatch.setattr(reg, "cli", stale_cli)
+    stale = ops._doctor(Path("/nonexistent/registry.sqlite"))
+    assert stale["status"] == "STALE"
+    assert stale["error_code"] == "REGISTRY_SOURCE_DRIFT"
 
 
 def test_no_indexed_paper_run_does_not_claim_running(tmp_path: Path) -> None:
@@ -127,6 +146,7 @@ def test_no_private_state_modified_by_readonly_adapter(tmp_path: Path) -> None:
     db, snapshot = _v2_snapshot(tmp_path)
     reg.apply(db, snapshot, AFTER)
     before = db.read_bytes()
+    before_names = {p.name for p in db.parent.iterdir()}
     for cmd in (
         ["portfolio"],
         ["portfolio", "--current"],
@@ -137,6 +157,10 @@ def test_no_private_state_modified_by_readonly_adapter(tmp_path: Path) -> None:
         item = ops._read_registry(db, cmd, "test.read")
         assert item["status"] in {"VERIFIED", "STALE"}
     assert db.read_bytes() == before
+    # SQLite mode=ro can create its own -wal/-shm interprocess sidecars.
+    # Those are not application mutations; reject any other new private files.
+    newly_created = {p.name for p in db.parent.iterdir()} - before_names
+    assert newly_created <= {db.name + "-wal", db.name + "-shm"}
 
 
 def test_static_agent_resolution_cases_and_docs() -> None:

@@ -26,8 +26,11 @@ Before adding any Python module, CLI or data-access path, agents **must**:
    independent scientific qualification or live order authorization.
 
 The directory automatically discovers project scripts from `pyproject.toml`
-and checks installed distribution entrypoints. Module-only capabilities are
-listed explicitly. All entries have a conservative operation classification:
+and checks installed distribution entrypoints. Mandatory arguments for flat
+argparse CLIs are derived from their source AST; subcommand-dependent or
+module-only requirements remain null rather than falsely advertised as empty.
+Reviewed registry operations include explicit required inputs. Module-only
+capabilities are listed explicitly. All entries have a conservative operation classification:
 `READ_ONLY`, `LOCAL_MUTATION`, `PROTECTED_MUTATION`, or `BROKER_OR_TRADING`.
 Unknown entrypoints become `UNCLASSIFIED` and fail validation. A parent CLI
 classification is **not** permission to execute arbitrary subcommands; use the
@@ -55,8 +58,11 @@ uv run --group dev copytrade-pm health
 All responses are JSON. Registry-backed read operations use
 `copytrade_read_result_v1` with query status, authority, source generation SHA,
 observation clock, data, limitations, error code and false authorization/
-qualification indicators. Exit code 2 represents unknown/failed selected
-queries; an aggregate status may return successful partial diagnostics while
+qualification indicators. The source observation timestamp is separate from
+the query observation timestamp. Registry index freshness reflects stored
+generation age, not live source parity; the aggregate health view runs the
+native `doctor` to verify current counts and source SHAs separately.
+Exit code 2 represents unknown/failed selected queries; an aggregate status may return successful partial diagnostics while
 its individual components remain `UNKNOWN` or `BLOCKED`. `--asof` is
 available for wallet and portfolio lookup (UTC offset); do not backdate
 later-known aliases or mix portfolio namespaces. Source generations are
@@ -69,7 +75,10 @@ Installed-release status is `UNKNOWN` in the aggregator: the existing
 release verifier is a separate operator workflow. Market-provider health is
 `UNKNOWN` without independent observations. A saved selection or zero indexed
 paper runs never proves paper execution. Those are intentional, explicit
-gaps, not fabricated success.
+gaps, not fabricated success. Native SQLite readers use `mode=ro` and do not
+change database tables or data bytes, though SQLite itself may create `-wal`
+or `-shm` coordination files; do not use unsafe immutable snapshots against a
+potentially active WAL writer.
 
 For verified pinned-release diagnostics, continue to use
 `uv run --group dev python scripts/registry_release.py verify`. For a
