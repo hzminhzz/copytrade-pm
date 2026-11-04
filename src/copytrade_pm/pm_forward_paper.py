@@ -8,7 +8,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .pm_forward_journal import PaperJournal
 
 from .pm03_account import Account, Rulebook, clock, digest
 
@@ -80,9 +83,10 @@ class PaperManifest:
 class PaperCampaign:
     """In-memory FP-01 interface; FP-02 adds a durable separate journal."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, journal: PaperJournal | None = None) -> None:
         self._runs: dict[str, tuple[PaperManifest, Account]] = {}
         self._accounts: set[str] = set()
+        self._journal = journal
 
     def register(self, manifest: PaperManifest) -> dict:
         previous = self._runs.get(manifest.run_id)
@@ -94,12 +98,23 @@ class PaperCampaign:
             raise ValueError("PAPER_ACCOUNT_ALREADY_REGISTERED")
         account = Account.start(manifest.rulebook, manifest.started_at)
         account.verify()
+        if self._journal is not None:
+            self._journal.register(manifest)
         self._runs[manifest.run_id] = (manifest, account)
         self._accounts.add(manifest.account_id)
         return self.status(manifest.run_id)
 
+    def record_event(self, run_id: str, event_id: str, event: dict) -> dict:
+        if self._journal is None:
+            raise ValueError("PAPER_JOURNAL_REQUIRED")
+        if run_id not in self._runs:
+            raise ValueError("UNKNOWN_PAPER_RUN")
+        self._journal.append(run_id, event_id, event)
+        return self.status(run_id)
+
     def status(self, run_id: str) -> dict:
         manifest, account = self._runs[run_id]
+        persisted = self._journal.restore(run_id) if self._journal is not None else None
         return {
             "schema": STATUS_SCHEMA,
             "run_id": run_id,
@@ -117,5 +132,7 @@ class PaperCampaign:
                 "NO_MARKET_ADMISSION",
                 "WORKER_NOT_STARTED",
             ],
-            "account": account.snapshot(),
+            "account": persisted["account"] if persisted is not None else account.snapshot(),
+            "cursor": persisted["cursor"] if persisted is not None else 0,
+            "journal_head_sha": persisted["journal_head_sha"] if persisted is not None else None,
         }

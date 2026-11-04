@@ -1,0 +1,256 @@
+"""Private, durable forward-paper account-event journal (FP-02).
+
+Financial transitions are made exclusively with PM-03 Account methods. There is
+no exchange transport or shared registry database.
+"""
+
+from __future__ import annotations
+
+from contextlib import contextmanager
+from dataclasses import dataclass
+import fcntl
+import json
+import os
+from pathlib import Path
+import sqlite3
+from typing import Iterator
+
+from .pm03_account import Account, RiskState, Rulebook, clock, digest, number
+from .pm_forward_paper import PaperManifest
+
+
+def _json(value: object) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+
+
+@dataclass
+class PaperJournal:
+    root: Path
+
+    def __post_init__(self) -> None:
+        self.root = Path(self.root)
+        self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if self.root.is_symlink() or self.root.stat().st_mode & 0o077:
+            raise ValueError("PAPER_STATE_DIRECTORY_NOT_PRIVATE")
+        self.path = self.root / "paper-events.sqlite3"
+        if self.path.is_symlink():
+            raise ValueError("PAPER_JOURNAL_SYMLINK")
+        self._lock_path = self.root / "paper-events.lock"
+        with self._writer() as db:
+            db.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS runs (
+                    run_id TEXT PRIMARY KEY,
+                    account_id TEXT NOT NULL UNIQUE,
+                    manifest TEXT NOT NULL,
+                    manifest_sha TEXT NOT NULL,
+                    snapshot TEXT NOT NULL,
+                    snapshot_sha TEXT NOT NULL,
+                    last_event_at TEXT NOT NULL,
+                    cursor INTEGER NOT NULL DEFAULT 0
+                );
+                CREATE TABLE IF NOT EXISTS events (
+                    run_id TEXT NOT NULL REFERENCES runs(run_id),
+                    seq INTEGER NOT NULL,
+                    event_id TEXT NOT NULL,
+                    event_at TEXT NOT NULL,
+                    input TEXT NOT NULL,
+                    input_sha TEXT NOT NULL,
+                    prior_sha TEXT NOT NULL,
+                    post_sha TEXT NOT NULL,
+                    chain_sha TEXT NOT NULL,
+                    PRIMARY KEY (run_id, seq),
+                    UNIQUE (run_id, event_id)
+                );
+                """
+            )
+        os.chmod(self.path, 0o600)
+
+    @contextmanager
+    def _writer(self) -> Iterator[sqlite3.Connection]:
+        fd = os.open(self._lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            db = sqlite3.connect(self.path, timeout=0, isolation_level=None)
+            try:
+                db.execute("PRAGMA journal_mode=WAL")
+                db.execute("PRAGMA synchronous=FULL")
+                db.execute("PRAGMA foreign_keys=ON")
+                yield db
+            finally:
+                db.close()
+        except (BlockingIOError, sqlite3.OperationalError) as exc:
+            raise ValueError("PAPER_JOURNAL_BUSY_OR_UNAVAILABLE") from exc
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            os.close(fd)
+
+    @staticmethod
+    def _apply(account: Account, event: dict) -> None:
+        kind = event.get("kind")
+        if kind == "HALT":
+            account.risk = RiskState.HALT
+            account.halt_reason = event.get("reason") or "PAPER_OPERATOR_HALT"
+        elif kind == "MARK":
+            if not event.get("state_known", False):
+                account.risk = RiskState.HALT
+                account.halt_reason = "UNKNOWN_PAPER_MARK"
+            else:
+                from .pm03_account import Instrument
+
+                account.mark(
+                    {Instrument.parse(k): number(v) for k, v in event["prices"].items()},
+                    event["event_at"],
+                )
+                account.verify()
+        else:
+            raise ValueError("PAPER_EVENT_NOT_SUPPORTED")
+
+    def register(self, manifest: PaperManifest) -> dict:
+        initial = Account.start(manifest.rulebook, manifest.started_at).snapshot()
+        with self._writer() as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                row = db.execute(
+                    "SELECT manifest_sha FROM runs WHERE run_id=?", (manifest.run_id,)
+                ).fetchone()
+                if row:
+                    if row[0] != manifest.sha:
+                        raise ValueError("CONFLICTING_PAPER_RUN_MANIFEST")
+                else:
+                    db.execute(
+                        "INSERT INTO runs VALUES (?,?,?,?,?,?,?,0)",
+                        (
+                            manifest.run_id,
+                            manifest.account_id,
+                            _json(manifest.payload()),
+                            manifest.sha,
+                            _json(initial),
+                            digest(initial),
+                            manifest.started_at,
+                        ),
+                    )
+                db.execute("COMMIT")
+            except Exception:
+                db.execute("ROLLBACK")
+                raise
+        return self.restore(manifest.run_id)
+
+    def append(self, run_id: str, event_id: str, event: dict) -> dict:
+        if not event_id or len(event_id) > 128:
+            raise ValueError("INVALID_PAPER_EVENT_ID")
+        if not isinstance(event, dict) or not isinstance(event.get("event_at"), str):
+            raise ValueError("INVALID_PAPER_EVENT")
+        clock(event["event_at"])
+        input_sha = digest(event)
+        with self._writer() as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                self._verify(db, run_id)
+                old = db.execute(
+                    "SELECT input_sha FROM events WHERE run_id=? AND event_id=?",
+                    (run_id, event_id),
+                ).fetchone()
+                if old:
+                    if old[0] != input_sha:
+                        raise ValueError("CONFLICTING_PAPER_EVENT")
+                    db.execute("COMMIT")
+                    return self._verify(db, run_id)
+                row = db.execute(
+                    "SELECT manifest,snapshot,last_event_at,cursor,snapshot_sha FROM runs WHERE run_id=?",
+                    (run_id,),
+                ).fetchone()
+                if row is None:
+                    raise ValueError("UNKNOWN_PAPER_RUN")
+                manifest, snapshot, last_at, cursor, prior_sha = row
+                if clock(event["event_at"]) < clock(last_at):
+                    raise ValueError("PAPER_EVENT_OUT_OF_ORDER")
+                rulebook = Rulebook.from_dict(json.loads(manifest)["rulebook"])
+                account = Account.from_snapshot(rulebook, json.loads(snapshot))
+                self._apply(account, event)
+                post = account.snapshot()
+                post_sha = digest(post)
+                chain_sha = digest([run_id, cursor + 1, event_id, input_sha, prior_sha, post_sha])
+                db.execute(
+                    "INSERT INTO events VALUES (?,?,?,?,?,?,?,?,?)",
+                    (
+                        run_id,
+                        cursor + 1,
+                        event_id,
+                        event["event_at"],
+                        _json(event),
+                        input_sha,
+                        prior_sha,
+                        post_sha,
+                        chain_sha,
+                    ),
+                )
+                db.execute(
+                    "UPDATE runs SET snapshot=?,snapshot_sha=?,last_event_at=?,cursor=? WHERE run_id=?",
+                    (_json(post), post_sha, event["event_at"], cursor + 1, run_id),
+                )
+                db.execute("COMMIT")
+            except Exception:
+                db.execute("ROLLBACK")
+                raise
+        return self.restore(run_id)
+
+    def _verify(self, db: sqlite3.Connection, run_id: str) -> dict:
+        row = db.execute(
+            "SELECT manifest,manifest_sha,snapshot,snapshot_sha,last_event_at,cursor FROM runs WHERE run_id=?",
+            (run_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError("UNKNOWN_PAPER_RUN")
+        manifest_raw, manifest_sha, snapshot_raw, snapshot_sha, last_at, cursor = row
+        manifest = json.loads(manifest_raw)
+        if digest(manifest) != manifest_sha or manifest.get("order_route") != "NONE":
+            raise ValueError("PAPER_MANIFEST_TAMPERED")
+        rulebook = Rulebook.from_dict(manifest["rulebook"])
+        account = Account.start(rulebook, manifest["started_at"])
+        prior_sha = digest(account.snapshot())
+        prior_at = manifest["started_at"]
+        rows = db.execute(
+            "SELECT seq,event_id,event_at,input,input_sha,prior_sha,post_sha,chain_sha "
+            "FROM events WHERE run_id=? ORDER BY seq",
+            (run_id,),
+        ).fetchall()
+        for expected_seq, entry in enumerate(rows, 1):
+            seq, event_id, at, payload, input_sha, before, after, chain_sha = entry
+            event = json.loads(payload)
+            if (
+                seq != expected_seq
+                or event.get("event_at") != at
+                or digest(event) != input_sha
+                or before != prior_sha
+                or clock(at) < clock(prior_at)
+            ):
+                raise ValueError("PAPER_JOURNAL_DIVERGENCE")
+            self._apply(account, event)
+            expected_post = digest(account.snapshot())
+            if after != expected_post or chain_sha != digest(
+                [run_id, seq, event_id, input_sha, before, after]
+            ):
+                raise ValueError("PAPER_JOURNAL_DIVERGENCE")
+            prior_sha = after
+            prior_at = at
+        if (
+            cursor != len(rows)
+            or prior_sha != snapshot_sha
+            or digest(json.loads(snapshot_raw)) != snapshot_sha
+            or last_at != prior_at
+            or account.snapshot() != json.loads(snapshot_raw)
+        ):
+            raise ValueError("PAPER_CHECKPOINT_DIVERGENCE")
+        return {
+            "run_id": run_id,
+            "manifest_sha": manifest_sha,
+            "cursor": cursor,
+            "last_event_at": last_at,
+            "account": account.snapshot(),
+            "journal_head_sha": rows[-1][-1] if rows else "0" * 64,
+        }
+
+    def restore(self, run_id: str) -> dict:
+        with self._writer() as db:
+            return self._verify(db, run_id)
