@@ -41,7 +41,7 @@ The private path `/home/quant/dev/copytrade-pm/data/private/ccxt_market_canary_2
 
 - `pm_forward_ccxt_market`: native market identity, live L2 validity, provider-session gating and fake-client reconnect tests.
 - `pm_forward_market.market_contract_reasons`: binds a `VERIFIED_QUOTE` observation to local L2 book/cost-policy hashes, quote freshness, allowed minimum lot/notional and conservative spread assumptions. A spoofed volume field is explicitly rejected.
-- `pm_forward_journal.PaperJournal.append_market_quote` and `market_quote_status`: monotonic, immutable SHA-chain and read-only backup/audit support. The market observation tape is **separate** from source-wallet receipts and account effects.
+- `pm_forward_journal.PaperJournal.append_market_quote` and `market_quote_status`: monotonic, immutable SHA-chain, latest-head integrity before append, and full SHA-chain validation on online backup/restore. A mutated latest head cannot silently admit more receipts; a corrupt market chain invalidates backup acceptance. The market observation tape is **separate** from source-wallet receipts and account effects.
 - `pm_forward_pm04` and the PM-03 simulated decision path call the extended contract validator; no broker adapter or ticker-to-order conversion was introduced.
 
 **Outstanding work before actual unattended forward paper:** independently complete and first-local-known source wallet equity/positions across all DEXes/subaccounts; prospective, continuous market/trade-volume and funding provenance; HIP-3 session and tradability attestation; independently verified worker/feed heartbeats, dedicated protected OS paper identity, reversible cutover, 72h pilot and 24h soak. CCXT Pro data alone cannot satisfy those requirements.

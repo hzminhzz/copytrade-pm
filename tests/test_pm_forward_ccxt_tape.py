@@ -64,6 +64,24 @@ def test_market_quote_tamper_clock_regression_and_replayed_book_fails(tmp_path):
         PaperJournal(store.root).market_quote_status(BTC.key)
 
 
+def test_market_quote_head_tamper_blocks_append_and_backup(tmp_path):
+    store = PaperJournal(tmp_path / "private")
+    first, second = quotes()
+    store.append_market_quote(first)
+    with closing(sqlite3.connect(store.path)) as db:
+        with db:
+            db.execute(
+                "UPDATE market_quote_heads SET chain_sha=? WHERE instrument=?",
+                ("a" * 64, BTC.key),
+            )
+    with pytest.raises(ValueError, match="PAPER_MARKET_QUOTE_HEAD_DIVERGENCE"):
+        store.append_market_quote(second)
+    with pytest.raises(ValueError, match="PAPER_MARKET_QUOTE_HEAD_DIVERGENCE"):
+        store.market_quote_status(BTC.key)
+    with pytest.raises(ValueError, match="PAPER_MARKET_QUOTE_HEAD_DIVERGENCE"):
+        store.backup(tmp_path / "corrupt_copy")
+
+
 def test_market_quote_requires_real_book_provenance_not_forged_volume(tmp_path):
     store = PaperJournal(tmp_path / "private")
     first, _ = quotes()

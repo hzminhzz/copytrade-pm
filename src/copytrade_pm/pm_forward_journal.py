@@ -838,12 +838,20 @@ class PaperJournal:
                     if clock(event_at) < clock(prev_event) or clock(known_at) < clock(prev_known):
                         raise ValueError("PAPER_MARKET_QUOTE_CLOCK_REGRESSION")
                     previous_book = db.execute(
-                        "SELECT payload FROM market_quote_receipts WHERE instrument=? AND seq=?",
+                        "SELECT payload,payload_sha,prior_sha,chain_sha "
+                        "FROM market_quote_receipts WHERE instrument=? AND seq=?",
                         (instrument, cursor),
                     ).fetchone()
                     if previous_book is None:
                         raise ValueError("PAPER_MARKET_QUOTE_HEAD_DIVERGENCE")
                     old_quote = json.loads(previous_book[0])
+                    if (
+                        digest(old_quote) != previous_book[1]
+                        or previous_book[3] != previous
+                        or previous_book[3]
+                        != digest([instrument, cursor, previous_book[1], previous_book[2]])
+                    ):
+                        raise ValueError("PAPER_MARKET_QUOTE_HEAD_DIVERGENCE")
                     if old_quote.get("source_event_at") == event_at and old_quote.get(
                         "book_sha"
                     ) == quote.get("book_sha"):
@@ -975,4 +983,12 @@ class PaperJournal:
         recovered = PaperJournal(destination)
         with self._writer() as source:
             run_ids = [row[0] for row in source.execute("SELECT run_id FROM runs")]
+            markets = [
+                row[0] for row in source.execute("SELECT instrument FROM market_quote_heads")
+            ]
+        for market in markets:
+            original = self.market_quote_status(market)
+            copied = recovered.market_quote_status(market)
+            if original["journal_head_sha"] != copied["journal_head_sha"]:
+                raise ValueError("PAPER_BACKUP_MARKET_QUOTE_MISMATCH")
         return {run_id: recovered.restore(run_id)["journal_head_sha"] for run_id in run_ids}
