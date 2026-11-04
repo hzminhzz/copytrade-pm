@@ -119,6 +119,16 @@ class BoundedMarketCapture:
                     task.cancel()
                 await asyncio.gather(*tasks, return_exceptions=True)
             observed_catalog = self.feed.status()
+            requested_keys = {inst.key for inst in self.requested}
+            catalogued_keys = set(observed_catalog["catalogued"])
+            missing_keys = requested_keys - catalogued_keys
+            # A market that fails identity discovery must not disappear from
+            # coverage just because no websocket task was created for it.
+            for key in sorted(missing_keys):
+                failures[key].append(
+                    "identity:"
+                    + observed_catalog["blocked"].get(key, "CCXT_NATIVE_MARKET_UNAVAILABLE")
+                )
             # A bounded CLI has already ended by the time its report is read.
             # Never serialize a transient in-loop connection as RUNNING.
             historical_catalog = {
@@ -134,6 +144,10 @@ class BoundedMarketCapture:
                 "market_catalog": historical_catalog,
                 "receipt_counts": dict(counters),
                 "stream_failures": dict(failures),
+                "requested_market_count": len(requested_keys),
+                "catalogued_market_count": len(catalogued_keys),
+                "missing_native_markets": sorted(missing_keys),
+                "full_requested_market_scope_observed": False,
                 "market_quote_tapes": {
                     inst.key: self.journal.market_quote_status(inst.key)
                     for inst in self.requested

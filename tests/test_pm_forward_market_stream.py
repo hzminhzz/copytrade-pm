@@ -54,6 +54,10 @@ def test_bounded_public_dual_stream_is_durable_readonly_and_no_order(tmp_path: P
         assert report["receipt_counts"][BTC.key]["trade_baseline"] == 1
         assert report["receipt_counts"][BTC.key]["trade"] == 1
         assert report["stream_failures"] == {}
+        assert report["requested_market_count"] == 1
+        assert report["catalogued_market_count"] == 1
+        assert report["missing_native_markets"] == []
+        assert report["full_requested_market_scope_observed"] is False
         assert report["market_quote_tapes"][BTC.key]["cursor"] == 2
         assert report["market_trade_tapes"][BTC.key]["cursor"] == 2
         assert report["market_trade_tapes"][BTC.key]["locally_observed_trade_count"] == 1
@@ -72,6 +76,34 @@ def test_bounded_public_dual_stream_is_durable_readonly_and_no_order(tmp_path: P
     asyncio.run(run())
 
 
+def test_missing_native_market_is_explicitly_blocked_not_silently_skipped(tmp_path):
+    class MissingMarketClient(PublicClient):
+        async def load_markets(self):
+            await super().load_markets()
+            return {}
+
+    async def run():
+        client = MissingMarketClient({})
+        result = await BoundedMarketCapture(
+            (BTC,),
+            journal=PaperJournal(tmp_path / "private"),
+            factory=lambda config: client,
+            now=lambda: (T + timedelta(seconds=6)).isoformat(),
+        ).run(duration_seconds=0.5, max_updates_per_channel=1)
+        assert result["requested_market_count"] == 1
+        assert result["catalogued_market_count"] == 0
+        assert result["missing_native_markets"] == [BTC.key]
+        assert result["stream_failures"][BTC.key] == [
+            "identity:CCXT_NATIVE_MARKET_NOT_UNIQUELY_DISCOVERED"
+        ]
+        assert result["market_quote_tapes"] == {}
+        assert result["market_trade_tapes"] == {}
+        assert result["full_requested_market_scope_observed"] is False
+        assert client.closed
+
+    asyncio.run(run())
+
+
 def test_feed_failure_reports_gap_and_still_never_executes(tmp_path):
     async def run():
         client = PublicClient({})
@@ -85,6 +117,7 @@ def test_feed_failure_reports_gap_and_still_never_executes(tmp_path):
         )
         result = await capture.run(duration_seconds=1, max_updates_per_channel=2)
         assert result["stream_failures"][BTC.key]
+        assert result["missing_native_markets"] == []
         assert any("trade:TimeoutError" in x for x in result["stream_failures"][BTC.key])
         assert not result["paper_observed"]
         assert result["market_trade_tapes"][BTC.key]["cursor"] == 0
