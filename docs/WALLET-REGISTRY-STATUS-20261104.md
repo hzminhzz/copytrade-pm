@@ -25,6 +25,7 @@ uv run --group dev copytrade-wallet-registry sync --apply
 uv run --group dev copytrade-wallet-registry status
 uv run --group dev copytrade-wallet-registry doctor
 uv run --group dev copytrade-wallet-registry runtime
+uv run --group dev copytrade-wallet-registry wallet --alias W028
 uv run --group dev copytrade-wallet-registry cohort research-108
 uv run --group dev copytrade-wallet-registry portfolio P1
 uv run --group dev copytrade-wallet-registry portfolio P1 --asof 2026-11-03T00:00:00+00:00

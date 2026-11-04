@@ -621,7 +621,18 @@ def db_status(db: Path) -> dict:
         counts["paper_running"] = "UNKNOWN"
         counts["scientifically_qualified"] = "NOT_ESTABLISHED"
         counts["trading_authorized"] = "NOT_ESTABLISHED"
-        return {"counts": counts, "generation": meta, "source_shas": sources}
+        observed = meta.get("observed_at")
+        try:
+            age = (datetime.now(timezone.utc) - datetime.fromisoformat(observed)).total_seconds()
+            freshness = "CURRENT" if 0 <= age <= 86400 else "STALE"
+        except TypeError, ValueError:
+            freshness = "UNKNOWN"
+        return {
+            "counts": counts,
+            "generation": meta,
+            "source_shas": sources,
+            "freshness": freshness,
+        }
 
 
 def asof_cutoff(value: str | None) -> str:
@@ -665,7 +676,10 @@ def cli(argv: list[str] | None = None) -> int:
     report = sub.add_parser("report")
     report.add_argument("--redacted", action="store_true", required=True)
     wallet = sub.add_parser("wallet")
-    wallet.add_argument("--address", required=True)
+    lookup = wallet.add_mutually_exclusive_group(required=True)
+    lookup.add_argument("--address")
+    lookup.add_argument("--alias")
+    wallet.add_argument("--namespace", default="frozen_pm01", choices=("frozen_pm01",))
     wallet.add_argument("--asof", help="UTC as-known cutoff")
     cohort = sub.add_parser("cohort")
     cohort.add_argument("name", choices=tuple(RESEARCH))
@@ -690,11 +704,13 @@ def cli(argv: list[str] | None = None) -> int:
                 for k in ("research_unique", "desired", "subscribed")
             )
             and stored["source_shas"] == live["source_shas"]
+            and stored["freshness"] == "CURRENT"
         )
         print(
             json.dumps(
                 {
                     "counts_match": matched,
+                    "freshness": stored["freshness"],
                     "runtime_admitted": "UNKNOWN",
                     "source_shas": live["source_shas"],
                 },
@@ -712,10 +728,12 @@ def cli(argv: list[str] | None = None) -> int:
         print("# Private wallet registry — redacted snapshot")
         print(f"\nSource observed: {stored['generation'].get('observed_at', 'UNKNOWN')}")
         print(f"\nGeneration SHA: {stored['generation'].get('manifest_sha256', 'UNKNOWN')}")
+        cohort_str = ", ".join(f"{key}: {c[key]}" for key in RESEARCH)
         print(
-            f"\nResearch: {c['research_unique']} (108/20/30 cohorts); "
+            f"\nResearch: {c['research_unique']} ({cohort_str}); "
             f"configured: {c['desired']}; subscribed: {c['subscribed']}."
         )
+        print(f"\nFreshness: {stored['freshness']}")
         print(
             "\nRuntime admitted: UNKNOWN. Paper/demo running: UNKNOWN. "
             "Scientific qualification: NOT ESTABLISHED. Trading authorization: NOT ESTABLISHED."
@@ -725,12 +743,22 @@ def cli(argv: list[str] | None = None) -> int:
             "reconstruction or prospective first-known evidence."
         )
     elif args.command == "wallet":
-        address = normalize(args.address)
         cutoff = asof_cutoff(args.asof)
         with closing(connect(args.db, False)) as con:
-            row = con.execute(
-                "SELECT wallet_id FROM wallets WHERE address=?", (address,)
-            ).fetchone()
+            if args.address:
+                row = con.execute(
+                    "SELECT wallet_id FROM wallets WHERE address=?",
+                    (normalize(args.address),),
+                ).fetchone()
+            else:
+                matches = con.execute(
+                    "SELECT DISTINCT wallet_id FROM wallet_aliases "
+                    "WHERE namespace=? AND alias=? AND known_at<=?",
+                    (args.namespace, args.alias, cutoff),
+                ).fetchall()
+                if len(matches) > 1:
+                    raise ValueError("ambiguous alias, fail closed")
+                row = matches[0] if matches else None
             if not row:
                 print(json.dumps({"found": False}))
             else:

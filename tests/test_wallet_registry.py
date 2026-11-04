@@ -111,6 +111,38 @@ def test_private_permissions(tmp_path: Path) -> None:
         registry.apply(db, snapshot, "2026-11-05T00:00:00+00:00")
 
 
+def test_wallet_alias_resolution_is_private_and_asof(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _, snapshot = fixture(tmp_path)
+    db = tmp_path / "private" / "registry.sqlite"
+    snapshot["frozen_aliases"] = {"W001": address(1)}
+    t0 = "2026-11-04T00:00:00+00:00"
+    registry.apply(db, snapshot, t0)
+    import json
+
+    assert (
+        registry.cli(
+            [
+                "--db",
+                str(db),
+                "wallet",
+                "--alias",
+                "W001",
+                "--asof",
+                "2026-11-03T00:00:00+00:00",
+            ]
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out) == {"found": False}
+    assert registry.cli(["--db", str(db), "wallet", "--alias", "W001"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["found"] is True
+    assert result["cohorts"] == ["research-108"]
+    assert "0x" not in json.dumps(result)
+
+
 def test_alias_conflict_rolls_back_mid_transaction(tmp_path: Path) -> None:
     _, snapshot = fixture(tmp_path)
     db = tmp_path / "private" / "registry.sqlite"
