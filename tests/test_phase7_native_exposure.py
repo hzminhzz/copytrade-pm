@@ -1,4 +1,9 @@
 """Fail-closed source-chain tests for exploratory Phase 7 native exposure."""
+
+import pytest
+
+pytest.importorskip("polars")
+
 from scripts.phase7_native_exposure import START_MS, consistent_intervals
 
 

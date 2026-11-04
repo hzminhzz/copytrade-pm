@@ -1,4 +1,9 @@
 """Phase 7 candidate shortlist remains a non-financial cheap screen."""
+
+import pytest
+
+pytest.importorskip("polars")
+
 from scripts.phase7_candidate_screen import pair_turnover_overlap, run
 
 
@@ -34,7 +39,9 @@ def test_no_financial_rankings_or_unsupported_wallet_promotion() -> None:
     assert outcome["pool_count"] == 6
     assert len(outcome["top10_screen_three"]) == 10
     assert all("R" not in x["members"] for x in outcome["top10_screen_three"])
-    assert all(x["portfolio_pnl"] is None and x["max_dd"] is None for x in outcome["top10_screen_five"])
+    assert all(
+        x["portfolio_pnl"] is None and x["max_dd"] is None for x in outcome["top10_screen_five"]
+    )
     assert outcome["scientific_qualification"] is False
     assert outcome["mandatory_controls"]["E6"]["status"] == "MISSING_SOURCE_IDENTITY"
 

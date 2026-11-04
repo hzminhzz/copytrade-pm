@@ -1,9 +1,21 @@
 """Test conditional shock & event-delay screens without real or fabricated NAV."""
+
 from __future__ import annotations
+
+import pytest
+
+pytest.importorskip("polars")
+pytest.importorskip("numpy")
 
 import numpy as np
 
-from scripts.phase7_conditional_stress import SCALES, STUDY_MINUTES, evaluate, max_loss, port_exposure
+from scripts.phase7_conditional_stress import (
+    SCALES,
+    STUDY_MINUTES,
+    evaluate,
+    max_loss,
+    port_exposure,
+)
 from scripts.phase7_delay_cost_screen import batch_orders, study_one_source
 from scripts.phase7_native_exposure import END_MS, START_MS
 
@@ -42,11 +54,14 @@ def test_window_right_censors_at_end_of_study() -> None:
 def test_study_never_certifies_follower_price_or_pnl() -> None:
     def fill(ms, side, tid):
         return {"time": ms, "coin": "BTC", "px": "100", "sz": "2", "side": side, "tid": tid}
-    stats = study_one_source([
-        fill(START_MS + 1000, "B", 1),
-        fill(START_MS + 2000, "A", 2),
-        fill(START_MS + 1000, "B", 1),
-    ])
+
+    stats = study_one_source(
+        [
+            fill(START_MS + 1000, "B", 1),
+            fill(START_MS + 2000, "A", 2),
+            fill(START_MS + 1000, "B", 1),
+        ]
+    )
     assert stats["valid_events"] == 2
     assert stats["duplicates"] == 1
     assert stats["0"]["orders"] == 2
@@ -58,9 +73,7 @@ def test_adversarial_shock_distinguishes_net_and_gross() -> None:
     short = np.zeros(STUDY_MINUTES, dtype=np.float32)
     long[123] = 1000
     short[123] = -600
-    by_coin, by_wallet = port_exposure(
-        {("A", "BTC"): long, ("B", "BTC"): short}, {"A": 1, "B": 1}
-    )
+    by_coin, by_wallet = port_exposure({("A", "BTC"): long, ("B", "BTC"): short}, {"A": 1, "B": 1})
     assert by_coin["BTC"][123] == 400
     assert by_wallet["A"][123] == 1000
     assert by_wallet["B"][123] == 600
