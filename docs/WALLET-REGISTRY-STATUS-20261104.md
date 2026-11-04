@@ -4,6 +4,8 @@ For a short entrypoint consult [the dated canonical wallet status](WALLET-STATUS
 
 **State: PARTIAL IMPLEMENTATION. Do not claim all WR-01–WR-12 acceptance is complete.**
 
+**2026-11-04 integration update:** New user-approved [Gemini V2 priorities](decisions/2026-11-04-gemini-phase6-portfolio-freeze-v2.md) are **E6 primary, E2 challenger**, with P1 baseline and P14 archived from new priority. The seven originally SHA-sealed WR-06 portfolio versions, and FP-09 frozen P1/P14 trial, remain unchanged. New read-only `copytrade-wallet-registry priority` and separate `new_research_priority_v2` query fields make this distinction explicit. No private registry migration or active standalone release update was performed. A cross-branch read-only FP/WR native identity smoke verified both version-2 seals, current P1/P14 aliases, and zero certified source NAV; private runtime admission remains BLOCKED/UNKNOWN. See [WR/FP paper contract](WALLET-REGISTRY-PAPER-CONTRACT-20261104.md).
+
 This checkpoint describes the initial implementation of the owner-private registry, not a source-account book, trading service, qualified wallet roster, or production adoption signoff. [Approved design](WALLET-REGISTRY-SQLITE-ADOPTION-PLAN-20261104.md), GitHub issues #44–#55.
 
 ## Source snapshot, independently observed 2026-11-04

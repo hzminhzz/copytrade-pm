@@ -20,6 +20,7 @@ from contextlib import closing, contextmanager
 import fcntl
 
 from . import wallet_registry_portfolios as portfolio_contract
+from . import wallet_registry_priority as priority_contract
 from . import wallet_registry_qualification as qualification_contract
 from . import wallet_registry_science_proofs as scientific_proofs
 from . import wallet_registry_runs as paper_contract
@@ -923,6 +924,8 @@ def cli(argv: list[str] | None = None) -> int:
     portfolio = sub.add_parser("portfolio")
     portfolio.add_argument("name", nargs="?", choices=tuple(PORTFOLIOS))
     portfolio.add_argument("--asof", help="UTC as-known cutoff")
+    priorities = sub.add_parser("priority", help="read-only new Gemini V2 research priorities")
+    priorities.add_argument("--asof", help="UTC as-known cutoff")
     paper = sub.add_parser("paper")
     paper.add_argument("--run-dir", type=Path, help="private paper-run directory")
     paper.add_argument(
@@ -1152,9 +1155,28 @@ def cli(argv: list[str] | None = None) -> int:
             else:
                 result["stored"] = False
             print(json.dumps(result, sort_keys=True))
+    elif args.command == "priority":
+        print(
+            json.dumps(
+                priority_contract.priority_v2(
+                    args.decision_repo,
+                    as_of=asof_cutoff(args.asof),
+                ),
+                sort_keys=True,
+            )
+        )
     elif args.command == "portfolio":
         names = [args.name] if args.name else list(PORTFOLIOS)
         cutoff = asof_cutoff(args.asof)
+        try:
+            priority = priority_contract.priority_v2(args.decision_repo, as_of=cutoff)
+        except ValueError as exc:
+            if str(exc) != "PRIORITY_V2_SOURCE_FILE_UNAVAILABLE":
+                raise
+            # The registry can be installed as a pinned standalone package
+            # without the *newer* research document. Do not break frozen
+            # P1/P14 read-only queries or invent a current priority.
+            priority = {"state": "PRIORITY_V2_SOURCE_NOT_INSTALLED", "portfolios": {}}
         with closing(connect(args.db, False)) as con:
             result = {}
             for name in names:
@@ -1184,6 +1206,22 @@ def cli(argv: list[str] | None = None) -> int:
                 else:
                     selected["source_sealed"] = True
                 selected["status"] = selected["state"]
+                # Source-sealed WR-06 status is historic; the later Gemini V2
+                # new-study priority is a distinct SHA-pinned projection.
+                # It never edits/updates the underlying sealed selection.
+                if name in priority.get("portfolios", {}):
+                    selected["new_research_priority_v2"] = priority["portfolios"][name][
+                        "research_disposition"
+                    ]
+                    selected["new_research_rank_v2"] = priority["portfolios"][name][
+                        "new_research_rank"
+                    ]
+                else:
+                    selected["new_research_priority_v2"] = "NOT_SELECTED_OR_UNKNOWN"
+                    selected["new_research_rank_v2"] = None
+                selected["new_research_priority_source_sha256"] = priority.get("source_sha256")
+                selected["research_priority_is_not_paper_admission"] = True
+                selected["new_research_priority_view_status"] = priority["state"]
                 selected["actual_run"] = "UNKNOWN"
                 selected["authorized"] = False
                 result[name] = selected
