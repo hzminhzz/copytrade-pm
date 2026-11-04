@@ -12,6 +12,7 @@ from copytrade_pm.pm_phase6b import (
     market_days,
     require_same_frozen,
     safe_write_json,
+    source_market_scope,
 )
 
 
@@ -98,6 +99,28 @@ def test_market_namespace_is_exact(tmp_path: Path):
     assert name == "xyz:CL"
     assert _market_directory(tmp_path, "#123")[0] is None
     assert _market_directory(tmp_path, "../BTC")[0] is None
+
+
+def test_spot_and_special_coin_not_treated_as_perpetual_market(tmp_path: Path):
+    assert source_market_scope("@107") == "SPOT"
+    assert source_market_scope("PURR/USDC") == "SPOT"
+    assert source_market_scope("#21981") == "BINARY_OR_SPECIAL"
+    assert source_market_scope("xyz:SP500") == "PERP"
+    assert source_market_scope("NEAR") == "PERP"
+    assert _market_directory(tmp_path, "@107") == (None, "OUT_OF_SCOPE_NONPERP_INSTRUMENT")
+    with pytest.raises(ValueError, match="INVALID_SOURCE_SPOT_INSTRUMENT"):
+        source_market_scope("@wrong")
+
+
+def test_spot_collateral_kept_out_of_perp_positions_but_not_silently_lost():
+    fills = [_fill(1, "0", "B", "1")]
+    fills += [dict(_fill(10 + n, str(n), "B", "1"), coin="@107") for n in range(4)]
+    result = inspect_fill_chain(fills, ADDRESS)
+    assert result["raw_fills_in_window"] == 5
+    assert result["fill_events_in_window"] == 1
+    assert result["excluded_nonperp_fills_by_scope"] == {"SPOT": 4}
+    assert result["excluded_nonperp_collateral_reconciled"] is False
+    assert {record["instrument"] for record in result["instruments"]} == {"BTC"}
 
 
 def test_missing_days_not_zero_coverage(tmp_path: Path):

@@ -19,13 +19,24 @@ def _file(folder: Path, stem: str, value: dict) -> Path:
 
 def _fixture_files(tmp_path: Path) -> dict[str, Path]:
     phase5 = _file(tmp_path, "phase5", {"portfolios": [{} for _ in range(5)]})
+    scopes = {
+        x: ({"SPOT": 4} if x == "ACT08" else {})
+        for x in set().union(*(set(v) for v in WALLETS.values()))
+    }
     source = _file(
         tmp_path,
         "source",
         {
             "wallets": {
-                x: {"source_file_sha256": "a" * 64, "full_account_book_qualified": False}
-                for x in set().union(*(set(v) for v in WALLETS.values()))
+                x: {
+                    "source_file_sha256": "a" * 64,
+                    "full_account_book_qualified": False,
+                    "source_position": {
+                        "excluded_nonperp_fills_by_scope": scopes[x],
+                        "excluded_nonperp_collateral_reconciled": False,
+                    },
+                }
+                for x in scopes
             },
             "market_day_inventory": {"BTC": {}},
         },
@@ -51,6 +62,13 @@ def _fixture_files(tmp_path: Path) -> dict[str, Path]:
             "source_coverage_sha256": fingerprint(source),
             "native_minute_sha256": fingerprint(minute),
             "phase5_sha256": fingerprint(phase5),
+            "wallets": {
+                alias: {
+                    "excluded_nonperp_fills_by_scope": scope,
+                    "excluded_nonperp_collateral_reconciled": False,
+                }
+                for alias, scope in scopes.items()
+            },
             "total_observed_exposure_minutes": 100,
             "total_unverified_exposure_minutes": 25,
         },
@@ -128,6 +146,15 @@ def test_cross_generation_sha_mismatch_blocks_final_signoff(tmp_path: Path):
     contents["original_coverage_sha256"] = "0" * 64
     paths["minute"].write_text(json.dumps(contents))
     with pytest.raises(ValueError, match="PHASE6B_EVIDENCE_INCOMPLETE_OR_CONFLICT"):
+        verify_evidence(**paths)
+
+
+def test_spot_exclusion_reconciliation_mismatch_blocks_signoff(tmp_path: Path):
+    paths = _fixture_files(tmp_path)
+    activity = json.loads(paths["activity"].read_text())
+    activity["wallets"]["ACT08"]["excluded_nonperp_fills_by_scope"]["SPOT"] = 3
+    paths["activity"].write_text(json.dumps(activity))
+    with pytest.raises(ValueError, match="nonperp_fill_scope_accounting_consistent"):
         verify_evidence(**paths)
 
 

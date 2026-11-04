@@ -9,7 +9,7 @@ coins, incomplete DEX coverage, and discontinuities are never treated as flat.
 from __future__ import annotations
 
 import argparse
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal as D
@@ -26,6 +26,7 @@ from .pm_phase6b import (
     locate_phase4_wallet,
     normalize_phase4_wallet,
     safe_write_json,
+    source_market_scope,
 )
 
 ONE_MINUTE = timedelta(minutes=1)
@@ -76,6 +77,7 @@ def load_events(
         if fingerprint(path) != before:
             raise ValueError("SOURCE_FILE_CHANGED_DURING_LOAD")
         seen = set()
+        excluded_nonperp = Counter()
         grouped: dict[str, list[SourceStep]] = defaultdict(list)
         for row in rows:
             if str(row.get("user", "")).lower() != address:
@@ -99,7 +101,15 @@ def load_events(
                 raise ValueError("INVALID_SOURCE_FINANCIAL_ROW")
             after_qty = before_qty + (size if side == "B" else -size)
             if START <= t < END:
+                scope = source_market_scope(coin)
+                if scope != "PERP":
+                    excluded_nonperp[scope] += 1
+                    continue
                 grouped[coin].append(SourceStep(t, tid, coin, before_qty, after_qty, price))
+        if dict(excluded_nonperp) != existing["wallets"][alias]["source_position"].get(
+            "excluded_nonperp_fills_by_scope", {}
+        ):
+            raise ValueError("FROZEN_NONPERP_SCOPE_AUDIT_MISMATCH:" + alias)
         events = []
         for coin, seq in sorted(grouped.items()):
             seq.sort(key=lambda x: (x.t, int(x.tid)))
@@ -198,6 +208,7 @@ def build(
     out: Path,
 ) -> dict:
     market = json.loads(native_minute.read_text())
+    source = json.loads(source_coverage.read_text())
     if market.get("original_coverage_sha256") != fingerprint(source_coverage):
         raise ValueError("SOURCE_AND_MINUTE_AUDIT_DIFFERENT_GENERATIONS")
     events = load_events(phase5, new50, phase4_root, source_coverage)
@@ -211,6 +222,10 @@ def build(
                 total[coin][key] += value
         by_wallet[wallet] = {
             "source_events": len(rows),
+            "excluded_nonperp_fills_by_scope": source["wallets"][wallet]["source_position"][
+                "excluded_nonperp_fills_by_scope"
+            ],
+            "excluded_nonperp_collateral_reconciled": False,
             "observed_source_instruments": len({r.coin for r in rows}),
             "position_chain_breaks": breaks,
             "intervals_nonzero": len(intervals),

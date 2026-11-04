@@ -57,6 +57,20 @@ def verify_evidence(
         "activity_source_sha": observed.get("source_coverage_sha256") == source_sha,
         "activity_minute_sha": observed.get("native_minute_sha256") == minute_sha,
         "activity_phase5_sha": observed.get("phase5_sha256") == phase5_shas,
+        "nonperp_fill_scope_accounting_consistent": all(
+            x["source_position"].get("excluded_nonperp_fills_by_scope", {})
+            == observed.get("wallets", {}).get(alias, {}).get("excluded_nonperp_fills_by_scope", {})
+            and x["source_position"].get("excluded_nonperp_collateral_reconciled") is False
+            and observed.get("wallets", {})
+            .get(alias, {})
+            .get("excluded_nonperp_collateral_reconciled")
+            is False
+            for alias, x in first["wallets"].items()
+        ),
+        "ACT08_spot_fills_explicitly_excluded": first["wallets"]["ACT08"]["source_position"]
+        .get("excluded_nonperp_fills_by_scope", {})
+        .get("SPOT")
+        == 4,
         "official_history_phase5_sha": history.get("frozen_phase5_sha256") == phase5_shas,
         "stress_source_sha": modeled.get("source_file_audit_sha256") == source_sha,
         "stress_minute_sha": modeled.get("native_market_audit_sha256") == minute_sha,
@@ -111,6 +125,11 @@ def verify_evidence(
         ),
         "study_days": 90,
         "native_markets": len(market),
+        "spot_fills_outside_perp_replay": {
+            alias: x["source_position"]["excluded_nonperp_fills_by_scope"]
+            for alias, x in first["wallets"].items()
+        },
+        "spot_collateral_and_equity_reconciled": False,
         "native_instrument_minutes_verified": sum(x["verified_minutes"] for x in market.values()),
         "native_instrument_minutes_unweighted_expected": sum(
             x["expected_minutes"] for x in market.values()

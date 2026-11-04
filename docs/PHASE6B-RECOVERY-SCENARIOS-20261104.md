@@ -1,5 +1,7 @@
 # Phase 6B recovery and conditional risk research — 2026-11-04
 
+**Dated v13 snapshot, retained for evidence lineage.** The later [Phase 6A input reconciliation and v19 disposition](PHASE6A-PHASE6B-RECONCILIATION-20261104.md) correctly isolates four ACT08 spot fills; the pure-perpetual universe is 95, not the original 96 mixed markets. Previous paths and counts on this page describe the v13 run and must not be silently reinterpreted as current.
+
 **Engineering disposition: COMPLETE for the feasible read-only historical research.**
 **Scientifically qualified Phase 6B follower PnL: NOT ESTABLISHED.**
 **Trading authorization: NONE.** No order gateway, subscriptions or active production services were altered by this work.

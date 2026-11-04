@@ -36,6 +36,34 @@ REQUIRED_FROZEN_IDS = {
 ONE_MINUTE = timedelta(minutes=1)
 
 
+def source_market_scope(coin: str) -> str:
+    """Classify official Hyperliquid fill coin names before perp-only pricing.
+
+    Official spot tokens use @<spot-pair-index> (e.g., @107 is HYPE/USDC)
+    or PURR/USDC. Binary/special # IDs are not perpetual positions.
+    Never silently promote either class into the perp market book.
+    """
+    if not isinstance(coin, str) or not coin:
+        raise ValueError("SOURCE_INSTRUMENT_IDENTITY_MISSING")
+    if coin.startswith("@"):
+        if not coin[1:].isdigit():
+            raise ValueError("INVALID_SOURCE_SPOT_INSTRUMENT")
+        return "SPOT"
+    if coin == "PURR/USDC":
+        return "SPOT"
+    if coin.startswith("#"):
+        if not coin[1:].isdigit():
+            raise ValueError("INVALID_SOURCE_SPECIAL_INSTRUMENT")
+        return "BINARY_OR_SPECIAL"
+    if ":" in coin:
+        dex, symbol = coin.split(":", 1)
+        if dex not in {"xyz", "io", "para"} or not symbol.isalnum():
+            raise ValueError("UNRECOGNIZED_SOURCE_PERP_NAMESPACE")
+    elif not coin.isalnum():
+        raise ValueError("UNRECOGNIZED_SOURCE_MARKET_SCOPE")
+    return "PERP"
+
+
 def fingerprint(path: Path) -> str:
     h = sha256()
     with path.open("rb") as stream:
@@ -62,6 +90,8 @@ def inspect_fill_chain(fills: list[dict], address: str) -> dict:
     """
     by_coin = defaultdict(list)
     blockers = Counter()
+    excluded_scopes = Counter()
+    total_fills_in_window = 0
     seen = set()
     for row in fills:
         if row.get("user", "").lower() != address.lower():
@@ -84,6 +114,11 @@ def inspect_fill_chain(fills: list[dict], address: str) -> dict:
             raise ValueError("NONFINITE_FILL")
         after = prior + (qty if side == "B" else -qty)
         if START <= t < END:
+            total_fills_in_window += 1
+            scope = source_market_scope(coin)
+            if scope != "PERP":
+                excluded_scopes[scope] += 1
+                continue
             by_coin[coin].append((t, str(tid), prior, after))
     instruments = []
     for coin, records in sorted(by_coin.items()):
@@ -135,6 +170,9 @@ def inspect_fill_chain(fills: list[dict], address: str) -> dict:
         "instruments": instruments,
         "counts": dict(blockers),
         "fill_events_in_window": sum(x["fills_in_window"] for x in instruments),
+        "raw_fills_in_window": total_fills_in_window,
+        "excluded_nonperp_fills_by_scope": dict(excluded_scopes),
+        "excluded_nonperp_collateral_reconciled": False,
     }
 
 
@@ -143,8 +181,12 @@ def _same(a: D, b: D) -> bool:
 
 
 def _market_directory(market_root: Path, coin: str) -> tuple[Path | None, str]:
-    if coin.startswith("#"):
-        return None, "OPAQUE_INSTRUMENT"
+    try:
+        scope = source_market_scope(coin)
+    except ValueError:
+        return None, "UNSUPPORTED_SYMBOL"
+    if scope != "PERP":
+        return None, "OUT_OF_SCOPE_NONPERP_INSTRUMENT"
     if ":" in coin:
         dex, symbol = coin.split(":", 1)
         if dex not in {"xyz", "io", "para"} or not symbol.isalnum():
