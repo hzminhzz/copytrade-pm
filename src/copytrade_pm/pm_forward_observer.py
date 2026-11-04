@@ -369,6 +369,37 @@ async def run_readonly_observer_epochs(
     }
 
 
+async def _capture_until_stopped(
+    run_cycle: Callable[[], Awaitable[dict]],
+    stop: asyncio.Event,
+    *,
+    timeout_seconds: float,
+) -> dict | None:
+    """Cancel a hung public subscription promptly when SIGTERM sets stop.
+
+    None means intentionally interrupted, not a complete source/market epoch.
+    The caller must record that interruption as degraded observer evidence.
+    """
+    capture = asyncio.create_task(run_cycle(), name="readonly-observer-cycle")
+    stopping = asyncio.create_task(stop.wait(), name="readonly-observer-stop")
+    try:
+        done, _ = await asyncio.wait(
+            {capture, stopping},
+            timeout=timeout_seconds,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        if stopping in done and stop.is_set():
+            return None
+        if capture in done:
+            return await capture
+        raise TimeoutError("PAPER_OBSERVER_CAPTURE_TIMEOUT")
+    finally:
+        for task in (capture, stopping):
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(capture, stopping, return_exceptions=True)
+
+
 async def run_readonly_observer_service(
     *,
     run_cycle: Callable[[], Awaitable[dict]],
@@ -393,31 +424,43 @@ async def run_readonly_observer_service(
     while not stop.is_set():
         epochs += 1
         try:
-            result = await asyncio.wait_for(run_cycle(), timeout=cycle_timeout_seconds)
-            if result.get("status") != "BLOCKED_NO_TRADE" or result.get("order_route") != "NONE":
-                raise ValueError("PAPER_OBSERVER_SERVICE_FINANCIAL_PROMOTION_REFUSED")
-            degraded = (
-                bool(result.get("market_failures"))
-                or bool(result.get("source_capture_gaps"))
-                or any(
-                    shard.get("status") == "DEGRADED" for shard in result.get("market_shards", [])
-                )
+            result = await _capture_until_stopped(
+                run_cycle,
+                stop,
+                timeout_seconds=cycle_timeout_seconds,
             )
-            event = {
-                "epoch": epochs,
-                "status": "DEGRADED_OBSERVER_EVIDENCE" if degraded else "BLOCKED_NO_TRADE",
-                "observed_native_market_count": result["native_inventory"][
-                    "observed_native_market_count"
-                ],
-                "capture_gaps": (
-                    len(result.get("market_failures", []))
-                    + len(result.get("source_capture_gaps", []))
-                    + sum(
+            if result is None:
+                event = {
+                    "epoch": epochs,
+                    "status": "DEGRADED_OBSERVER_STOPPED",
+                    "reason": "INCOMPLETE_SOURCE_MARKET_CYCLE_DURING_SHUTDOWN",
+                }
+            elif result.get("status") != "BLOCKED_NO_TRADE" or result.get("order_route") != "NONE":
+                raise ValueError("PAPER_OBSERVER_SERVICE_FINANCIAL_PROMOTION_REFUSED")
+            if result is not None:
+                degraded = (
+                    bool(result.get("market_failures"))
+                    or bool(result.get("source_capture_gaps"))
+                    or any(
                         shard.get("status") == "DEGRADED"
                         for shard in result.get("market_shards", [])
                     )
-                ),
-            }
+                )
+                event = {
+                    "epoch": epochs,
+                    "status": "DEGRADED_OBSERVER_EVIDENCE" if degraded else "BLOCKED_NO_TRADE",
+                    "observed_native_market_count": result["native_inventory"][
+                        "observed_native_market_count"
+                    ],
+                    "capture_gaps": (
+                        len(result.get("market_failures", []))
+                        + len(result.get("source_capture_gaps", []))
+                        + sum(
+                            shard.get("status") == "DEGRADED"
+                            for shard in result.get("market_shards", [])
+                        )
+                    ),
+                }
         except asyncio.CancelledError:
             raise
         except Exception as exc:

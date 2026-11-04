@@ -12,6 +12,7 @@ import pytest
 
 from copytrade_pm.pm_forward_journal import PaperJournal
 from copytrade_pm.pm_forward_observer import (
+    _capture_until_stopped,
     capture_shared_observer_cycle,
     exclusive_observer_lease,
     run_readonly_observer_epochs,
@@ -439,7 +440,7 @@ def test_unbounded_observer_service_graceful_stop_and_bounded_reports():
         assert [entry["status"] for entry in outputs] == [
             "DEGRADED_OBSERVER_FAILURE",
             "BLOCKED_NO_TRADE",
-            "BLOCKED_NO_TRADE",
+            "DEGRADED_OBSERVER_STOPPED",
         ]
         assert result["status"] == "OBSERVER_STOPPED_NOT_PAPER_RUNNING"
         assert len(outputs) == result["epochs"]
@@ -459,6 +460,60 @@ def test_unbounded_service_rejects_unsafe_cadence_without_capture():
                 stop=asyncio.Event(),
                 report=lambda row: pytest.fail("unexpected report"),
             )
+
+    asyncio.run(run())
+
+
+def test_observer_shutdown_cancels_hanging_public_socket_and_records_incomplete_epoch():
+    async def run():
+        stop = asyncio.Event()
+        entered = asyncio.Event()
+        cancelled = asyncio.Event()
+        outputs = []
+
+        async def blocked_capture():
+            entered.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+
+        task = asyncio.create_task(
+            run_readonly_observer_service(
+                run_cycle=blocked_capture,
+                pause_seconds=30,
+                cycle_timeout_seconds=30,
+                stop=stop,
+                report=outputs.append,
+            )
+        )
+        await asyncio.wait_for(entered.wait(), timeout=2)
+        stop.set()
+        result = await asyncio.wait_for(task, timeout=2)
+        assert cancelled.is_set()
+        assert result["epochs"] == 1
+        assert result["status"] == "OBSERVER_STOPPED_NOT_PAPER_RUNNING"
+        assert len(outputs) == 1
+        assert outputs[0]["status"] == "DEGRADED_OBSERVER_STOPPED"
+        assert outputs[0]["financial_events_committed"] == 0
+        assert outputs[0]["order_route"] == "NONE"
+
+    asyncio.run(run())
+
+
+def test_observer_capture_timeout_cancels_underlying_task():
+    async def run():
+        cancelled = asyncio.Event()
+
+        async def hung():
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+
+        with pytest.raises(TimeoutError, match="PAPER_OBSERVER_CAPTURE_TIMEOUT"):
+            await _capture_until_stopped(hung, asyncio.Event(), timeout_seconds=0.01)
+        assert cancelled.is_set()
 
     asyncio.run(run())
 

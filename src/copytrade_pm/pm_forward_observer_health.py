@@ -104,7 +104,12 @@ def publish_public_observer_heartbeat(
         or epoch_report.get("trade_volume_complete") is not False
         or epoch_report.get("order_route") != "NONE"
         or epoch_report.get("status")
-        not in ("BLOCKED_NO_TRADE", "DEGRADED_OBSERVER_EVIDENCE", "DEGRADED_OBSERVER_FAILURE")
+        not in (
+            "BLOCKED_NO_TRADE",
+            "DEGRADED_OBSERVER_EVIDENCE",
+            "DEGRADED_OBSERVER_FAILURE",
+            "DEGRADED_OBSERVER_STOPPED",
+        )
     ):
         raise ValueError("OBSERVER_HEARTBEAT_UNTRUSTED_EPOCH_REPORT")
     snapshot = _readonly_tape_snapshot(journal_db)
