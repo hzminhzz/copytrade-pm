@@ -74,4 +74,6 @@ Current scientific trackers: [PM-01 #4](https://github.com/hzminhzz/copytrade-pm
 
 A blocked scientific result stays blocked. For root-cause repair, bounded acquisition and continuation of independent work, follow [RECOVER](BLOCKER-RECOVERY.md); never reclassify missing PIT or outcomes as qualified.
 
+Independent review is handled at protected [governance decision boundaries](GOVERNANCE-GATES.md), not on every research conversation or file inspection. The current read-only Trader Intelligence readiness report is always `NOT_SCIENTIFICALLY_QUALIFIED`; an external review cannot override that state. No scientific signoff/roster promotion writer exists in this repository.
+
 For actual commands: [RUNBOOK](RUNBOOK.md). For precise clock/audit signatures: [PM-01 prospective ledger](PM-01-prospective-ledger.md).
