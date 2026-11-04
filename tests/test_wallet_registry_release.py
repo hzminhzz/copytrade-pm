@@ -8,6 +8,7 @@ from __future__ import annotations
 from contextlib import closing
 from hashlib import sha256
 import importlib.util
+import json
 from pathlib import Path
 import sqlite3
 import stat
@@ -58,6 +59,58 @@ def test_release_rejects_pointer_tampering(tmp_path: Path) -> None:
     (control / "current").write_text("not an owned symlink")
     with pytest.raises(ValueError, match="not a symlink"):
         release.atomic_current("a" * 40, control=control)
+
+
+def test_rollback_to_prior_release_preserves_pinned_hashes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    control = tmp_path / "private" / "control"
+    control.parent.mkdir(mode=0o700)
+    control.mkdir(mode=0o700)
+    releases = control / "releases"
+    releases.mkdir(mode=0o700)
+    a, b = "a" * 40, "b" * 40
+    file_hashes = {}
+    for revision in (a, b):
+        package = releases / revision
+        package.mkdir(mode=0o700)
+        (package / "source.py").write_text(revision)
+        file_hashes[revision] = {"source.py": sha256(revision.encode()).hexdigest()}
+    release.atomic_current(b, control=control)
+    state = control / "release-state.json"
+    state.write_text(
+        json.dumps(
+            {
+                "current": b,
+                "previous": a,
+                "files": file_hashes[b],
+                "release_files": file_hashes,
+            }
+        )
+    )
+    state.chmod(0o600)
+    original_pointer = release.active_revision
+    original_atomic = release.atomic_current
+    original_private_dirs = release._private_dirs
+    monkeypatch.setattr(release, "CONTROL", control)
+    monkeypatch.setattr(release, "RELEASES", releases)
+    monkeypatch.setattr(release, "STATE", state)
+    monkeypatch.setattr(release, "active_revision", lambda: original_pointer(control))
+    monkeypatch.setattr(
+        release, "atomic_current", lambda rev: original_atomic(rev, control=control)
+    )
+    monkeypatch.setattr(release, "_private_dirs", lambda: original_private_dirs(control))
+    monkeypatch.setattr(release, "services", lambda: {"tracker": {"pid": "100"}})
+    monkeypatch.setattr(release, "_installed_doctor", lambda _: None)
+    monkeypatch.setattr(release, "readonly_source_health", lambda: {"source": "unchanged"})
+
+    result = release.rollback()
+    assert result["result"] == "POINTER_ROLLED_BACK"
+    assert result["now_active"] == a
+    assert release.verify()["revision"] == a
+    assert release.verify()["result"] == "ACTIVE_READ_ONLY_VERIFIED"
+    assert (releases / b).is_dir()
+    assert (releases / a).is_dir()
 
 
 def test_service_parity_catches_legacy_service_restart() -> None:

@@ -345,6 +345,11 @@ def activate(repo: Path) -> dict:
         if con.execute("PRAGMA foreign_key_check").fetchone() is not None:
             raise ValueError("preactivation backup has invalid foreign keys")
     service_parity(before_services, services())
+    old_state = _json(STATE)
+    history = dict(old_state.get("release_files", {}))
+    if prior and old_state.get("current") == prior and old_state.get("files"):
+        history[prior] = old_state["files"]
+    history[pin["revision"]] = pin["files"]
     try:
         atomic_current(pin["revision"])
         _installed_doctor(stage)
@@ -357,6 +362,7 @@ def activate(repo: Path) -> dict:
                 "installed_at": datetime.now(timezone.utc).isoformat(),
                 "source_manifest_sha256": baseline["source_manifest_sha256"],
                 "files": pin["files"],
+                "release_files": history,
                 "mode": "ON_DEMAND_READ_ONLY_NO_TIMER",
             },
         )
@@ -400,21 +406,26 @@ def rollback() -> dict:
     if not current or state.get("current") != current:
         raise ValueError("no matching active release to roll back")
     prior = state.get("previous")
+    history = dict(state.get("release_files", {}))
+    if current not in history and state.get("files"):
+        history[current] = state["files"]
     if prior is not None:
-        if not GIT_SHA.fullmatch(prior):
+        if not isinstance(prior, str) or not GIT_SHA.fullmatch(prior):
             raise ValueError("invalid rollback target")
-        earlier = _json(STATE)  # existing control metadata
-        if not (RELEASES / prior).is_dir():
-            raise ValueError("previous release missing")
-        # The earlier pinned release may be stale; rollback is still a
-        # metadata pointer operation. Do not alter any source or registry DB.
-        del earlier
+        if prior not in history:
+            raise ValueError("missing previous release fingerprint")
+        check_release(RELEASES / prior, {"files": history[prior]})
+        # The old source may be stale; an old pointer is never a promise of
+        # source health or qualification. No registry DB restore is performed.
+    service_parity(before_services, services())
     atomic_current(prior)
     _write_json_atomic(
         STATE,
         {
             "current": prior,
             "previous": None,
+            "files": history.get(prior),
+            "release_files": history,
             "rolled_back_from": current,
             "rolled_back_at": datetime.now(timezone.utc).isoformat(),
             "mode": "ON_DEMAND_READ_ONLY_NO_TIMER",
