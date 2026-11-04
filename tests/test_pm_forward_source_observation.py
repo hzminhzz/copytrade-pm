@@ -45,6 +45,11 @@ def test_verified_per_dex_signed_position_preserved_but_no_wallet_admission(tmp_
     assert item["discovered_subaccount_count"] == 1
     assert item["whole_wallet_equity_attested"] is False
     assert book["source_equity"] is None
+    assert book["whole_wallet_margin_reconciled"] is False
+    assert [row["dex"] for row in book["per_dex_margin_diagnostics"]] == ["default", "xyz"]
+    assert book["per_dex_margin_diagnostics"][0]["account_value_usd"] == "100"
+    assert book["per_dex_margin_diagnostics"][1]["margin_used_usd"] == "5"
+    assert set(book["position_margin_diagnostics"]) == set(book["positions"])
     assert book["source_marks"] == {}
     assert book["synthetic_fixture"] is False
     assert not admit_source_book(book, decision_at=at(2), fill_at=at(2)).admitted

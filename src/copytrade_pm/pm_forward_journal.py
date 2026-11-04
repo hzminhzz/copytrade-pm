@@ -105,6 +105,17 @@ class PaperJournal:
                     PRIMARY KEY (source_id, seq),
                     UNIQUE (source_id, receipt_id)
                 );
+                CREATE TABLE IF NOT EXISTS source_scope_receipts (
+                    account_sha TEXT NOT NULL,
+                    seq INTEGER NOT NULL,
+                    receipt_id TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    payload_sha TEXT NOT NULL,
+                    prior_sha TEXT NOT NULL,
+                    chain_sha TEXT NOT NULL,
+                    PRIMARY KEY (account_sha, seq),
+                    UNIQUE (account_sha, receipt_id)
+                );
                 CREATE TABLE IF NOT EXISTS account_source_cursors (
                     run_id TEXT NOT NULL REFERENCES runs(run_id),
                     source_id TEXT NOT NULL,
@@ -763,6 +774,128 @@ class PaperJournal:
                 raise
         return self.source_status(source_id)
 
+    @staticmethod
+    def _check_collateral_diagnostic(report: dict) -> None:
+        if not isinstance(report, dict) or (
+            report.get("schema") != "paper_public_collateral_scope_v1"
+            or report.get("source_equity") is not None
+            or report.get("provider_atomic_nav_available") is not False
+            or report.get("collateral_reconciled") is not False
+            or report.get("paper_observed") is not False
+            or report.get("order_route") != "NONE"
+            or report.get("status") != "BLOCKED_COLLATERAL_AND_VAULT_RECONCILIATION"
+        ):
+            raise ValueError("SOURCE_COLLATERAL_UNTRUSTED_POSITIVE_CLAIM")
+        account = report.get("account_address_sha256")
+        if (
+            not isinstance(account, str)
+            or len(account) != 64
+            or any(x not in "0123456789abcdef" for x in account)
+        ):
+            raise ValueError("SOURCE_COLLATERAL_ACCOUNT_HASH_INVALID")
+        scopes = report.get("observations")
+        if (
+            not isinstance(scopes, list)
+            or [x.get("scope") for x in scopes if isinstance(x, dict)]
+            != ["spotClearinghouseState", "userVaultEquities"]
+            or len(scopes) != 2
+        ):
+            raise ValueError("SOURCE_COLLATERAL_SCOPE_CENSUS_INVALID")
+        last_known = None
+        for row in scopes:
+            if row.get("source_event_at") is not None:
+                raise ValueError("SOURCE_COLLATERAL_EVENT_TIME_FABRICATED")
+            state = row.get("status")
+            if state == "PARTIAL_PUBLIC_OBSERVATION":
+                stamp = row.get("first_known_at")
+                if not isinstance(stamp, str):
+                    raise ValueError("SOURCE_COLLATERAL_KNOWN_TIME_MISSING")
+                known = clock(stamp)
+                if last_known is not None and known < last_known:
+                    raise ValueError("SOURCE_COLLATERAL_CLOCK_REGRESSION")
+                last_known = known
+                sha = row.get("response_sha256")
+                if (
+                    not isinstance(sha, str)
+                    or len(sha) != 64
+                    or any(x not in "0123456789abcdef" for x in sha)
+                ):
+                    raise ValueError("SOURCE_COLLATERAL_RESPONSE_SHA_INVALID")
+                if type(row.get("row_count")) is not int or row["row_count"] < 0:
+                    raise ValueError("SOURCE_COLLATERAL_ROW_COUNT_INVALID")
+            elif state == "BLOCKED_SCOPE_ACQUISITION":
+                if any(
+                    row.get(field) is not None
+                    for field in ("first_known_at", "response_sha256", "row_count")
+                ):
+                    raise ValueError("SOURCE_COLLATERAL_FAILED_SCOPE_FABRICATED")
+            else:
+                raise ValueError("SOURCE_COLLATERAL_UNKNOWN_SCOPE_STATUS")
+
+    def append_collateral_diagnostic(self, report: dict) -> dict:
+        """Durably SHA-chain incomplete spot/vault scopes, never authorize finance."""
+        self._check_collateral_diagnostic(report)
+        account = report["account_address_sha256"]
+        receipt_sha = digest(report)
+        with self._writer() as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                old = db.execute(
+                    "SELECT payload_sha FROM source_scope_receipts "
+                    "WHERE account_sha=? AND receipt_id=?",
+                    (account, receipt_sha),
+                ).fetchone()
+                if old is None:
+                    last = db.execute(
+                        "SELECT seq,chain_sha FROM source_scope_receipts WHERE account_sha=? "
+                        "ORDER BY seq DESC LIMIT 1",
+                        (account,),
+                    ).fetchone()
+                    previous = last[1] if last else "0" * 64
+                    seq = last[0] + 1 if last else 1
+                    chained = digest([account, seq, receipt_sha, previous])
+                    db.execute(
+                        "INSERT INTO source_scope_receipts VALUES (?,?,?,?,?,?,?)",
+                        (account, seq, receipt_sha, _json(report), receipt_sha, previous, chained),
+                    )
+                elif old[0] != receipt_sha:
+                    raise ValueError("SOURCE_COLLATERAL_RECEIPT_CONFLICT")
+                db.execute("COMMIT")
+            except Exception:
+                db.execute("ROLLBACK")
+                raise
+        return self.collateral_scope_status(account)
+
+    def collateral_scope_status(self, account_sha: str) -> dict:
+        with self._writer() as db:
+            rows = db.execute(
+                "SELECT seq,receipt_id,payload,payload_sha,prior_sha,chain_sha "
+                "FROM source_scope_receipts WHERE account_sha=? ORDER BY seq",
+                (account_sha,),
+            ).fetchall()
+        head = "0" * 64
+        for expected, (seq, receipt_id, payload, sha, prior, chain_sha) in enumerate(rows, 1):
+            content = json.loads(payload)
+            if (
+                seq != expected
+                or receipt_id != sha
+                or digest(content) != sha
+                or content.get("account_address_sha256") != account_sha
+                or prior != head
+                or chain_sha != digest([account_sha, seq, sha, prior])
+            ):
+                raise ValueError("SOURCE_COLLATERAL_CHAIN_DIVERGENCE")
+            self._check_collateral_diagnostic(content)
+            head = chain_sha
+        return {
+            "account_address_sha256": account_sha,
+            "cursor": len(rows),
+            "head_sha": head,
+            "status": "CAPTURED_DIAGNOSTICS_ONLY" if rows else "NO_COLLATERAL_DIAGNOSTICS",
+            "source_equity": None,
+            "paper_admitted": False,
+        }
+
     def source_status(self, source_id: str) -> dict:
         with self._writer() as db:
             rows = db.execute(
@@ -1203,6 +1336,23 @@ class PaperJournal:
             trade_markets = [
                 row[0] for row in source.execute("SELECT instrument FROM market_trade_heads")
             ]
+            source_ids = [
+                row[0] for row in source.execute("SELECT DISTINCT source_id FROM source_receipts")
+            ]
+            collateral_accounts = [
+                row[0]
+                for row in source.execute("SELECT DISTINCT account_sha FROM source_scope_receipts")
+            ]
+        for account_sha in collateral_accounts:
+            original = self.collateral_scope_status(account_sha)
+            copied = recovered.collateral_scope_status(account_sha)
+            if original["head_sha"] != copied["head_sha"]:
+                raise ValueError("PAPER_BACKUP_COLLATERAL_SCOPE_MISMATCH")
+        for source_id in source_ids:
+            original = self.source_status(source_id)
+            copied = recovered.source_status(source_id)
+            if original["head_sha"] != copied["head_sha"]:
+                raise ValueError("PAPER_BACKUP_SOURCE_RECEIPT_MISMATCH")
         for market in trade_markets:
             original = self.market_trade_status(market)
             copied = recovered.market_trade_status(market)

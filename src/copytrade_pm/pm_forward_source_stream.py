@@ -156,10 +156,12 @@ async def read_public_collateral_scope(
     observations = []
     for request_type in ("spotClearinghouseState", "userVaultEquities"):
         try:
-            payload, _, response_sha = await asyncio.to_thread(
+            payload, raw, response_sha = await asyncio.to_thread(
                 info, {"type": request_type, "user": address}
             )
             first_known_at = now()
+            if not isinstance(raw, bytes) or sha256(raw).hexdigest() != response_sha:
+                raise ValueError("SOURCE_COLLATERAL_RAW_SHA_MISMATCH")
             if request_type == "spotClearinghouseState":
                 if not isinstance(payload, dict) or not isinstance(payload.get("balances"), list):
                     raise ValueError("SOURCE_SPOT_SCOPE_RESPONSE_INVALID")
@@ -265,9 +267,13 @@ async def bounded_source_family_capture(
     collateral = []
     if include_collateral:
         for address in addresses:
-            collateral.append(
-                await read_public_collateral_scope(address=address, info=info, now=now)
-            )
+            diagnostic = await read_public_collateral_scope(address=address, info=info, now=now)
+            try:
+                diagnostic["receipt"] = journal.append_collateral_diagnostic(diagnostic)
+            except ValueError as exc:
+                diagnostic["persist_error"] = type(exc).__name__ + ":" + str(exc)[:110]
+                diagnostic["status"] = "BLOCKED_COLLATERAL_RECEIPT_PERSISTENCE"
+            collateral.append(diagnostic)
     return {
         "schema": "paper_public_family_bounded_capture_v1",
         "collateral_diagnostics": collateral,

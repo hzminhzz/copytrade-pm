@@ -2,6 +2,7 @@
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+from hashlib import sha256
 import json
 
 from copytrade_pm.pm_forward_journal import PaperJournal
@@ -101,8 +102,12 @@ def test_public_spot_and_vault_receipts_have_distinct_known_clocks_no_equity():
     def info(request):
         calls.append(request["type"])
         if request["type"] == "spotClearinghouseState":
-            return {"balances": [{"coin": "USDC", "total": "11"}]}, b"spot", "a" * 64
-        return [{"vaultAddress": "redacted", "equity": "4"}], b"vault", "b" * 64
+            return (
+                {"balances": [{"coin": "USDC", "total": "11"}]},
+                b"spot",
+                sha256(b"spot").hexdigest(),
+            )
+        return [{"vaultAddress": "redacted", "equity": "4"}], b"vault", sha256(b"vault").hexdigest()
 
     async def run():
         result = await read_public_collateral_scope(
@@ -123,8 +128,8 @@ def test_public_spot_and_vault_receipts_have_distinct_known_clocks_no_equity():
 def test_invalid_spot_does_not_promote_vault_or_assume_zero():
     def info(request):
         if request["type"] == "spotClearinghouseState":
-            return None, b"null", "a" * 64
-        return [], b"[]", "b" * 64
+            return None, b"null", sha256(b"null").hexdigest()
+        return [], b"[]", sha256(b"[]").hexdigest()
 
     async def run():
         result = await read_public_collateral_scope(address=WALLET, info=info)
