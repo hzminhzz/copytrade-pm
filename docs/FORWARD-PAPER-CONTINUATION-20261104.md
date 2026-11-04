@@ -2,6 +2,12 @@
 
 **Repository:** `hzminhzz/copytrade-pm` · **Draft PR:** #73 · **branch:** `feat/forward-paper-fp01-15-20261104`.
 
+## WR PR #57 / FP PR #73 compatibility gate — 2026-11-04
+
+The **current approved new-research priority** in merged Gemini V2 is E6 primary and E2 challenger, P1 an incumbent historical baseline and P14 archived from the new-selection queue. The preexisting FP-09 implementation in this PR remains a distinct **sealed P1/P14 engineering trial** ($10k each, $600 total nominal risk), not an E6/E2 deployment. The research priority does not authorize remapping a current P1 or P14 run's wallets, equity denominator, historical SHA, effective time or separate private virtual account. `PaperPortfolioView.register()` now refuses any unsealed portfolio or changed P1/P14 membership even if the new name/budget form a valid `FrozenPaperPortfolio`. It cannot silently register E6/E2 without their own reviewed, newly versioned WR+FP contracts.
+
+The independently checked WR PR #57 registry P1/P14 v2 seals are `0862c6dd3e19...` / `079c7c6f3751...`; the **distinct** FP manifest frozen portfolio hashes are `14c0b3611453...` / `fe50ebdafd4c...`. A read-only cross-branch smoke uses the *real* VPS private registry and official private source locators to verify seal version, source document SHA, selection-known timestamp, exact roster, no mutation and the existing synthetic HALT/status boundary: **P1 3/3 aliases; P14 5/5 aliases** match. Both remain **0 independently resolved frozen wallet IDs and 0 verified whole-wallet source-equity books**; neither PR may promote that into paper admission or a healthy worker. The newer WR read-only `priority` projection is separate from its seven original immutable selection records and does not alter this trial. No service was started or real financial state changed by the compatibility checks.
+
 ## Latest engineering continuation (2026-11-04, HEAD `f40ef4c`)
 
 This section supersedes the **older snapshots below**; earlier counts and service statements remain time-scoped. New commits after `7b9bae2`: `79ba0d1`, `b985664`, `6ecb12f`, `cbcfb00`, `61825e0`, `f40ef4c`. The branch is still draft, not merged or deployed.

@@ -59,6 +59,12 @@ class PaperPortfolioView:
         self.books: dict[str, Admission] = {}
 
     def register(self, portfolio: FrozenPaperPortfolio, manifest: PaperManifest) -> dict:
+        # An approved *research priority* is not a registered paper trial.
+        # P1/P14 are the only sealed FP-09 baselines in this version;
+        # E6/E2 require their own versioned WR+FP campaign, not an alias
+        # substitution with a matching initial balance or risk budget.
+        if portfolio != {"P1": P1, "P14": P14}.get(portfolio.name):
+            raise ValueError("UNSEALED_FORWARD_PAPER_PORTFOLIO")
         if portfolio.name in self.portfolios:
             raise ValueError("PORTFOLIO_ALREADY_SEALED")
         if manifest.portfolio_sha != portfolio.sha:

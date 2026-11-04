@@ -49,6 +49,10 @@ uv run --group dev copytrade-pm-paper-observer-health \
 
 It verifies the locally fsynced `p1p14-public-observer.heartbeat.json`, private file modes, actual Linux PID/start ticks/boot epoch, SHA of the heartbeat envelope, and current SHA-chain heads of the existing source, market quote and spot/vault collateral tapes, using SQLite `mode=ro`. It distinguishes aliases checked from aliases actually having source receipts, separately flags stale/missing source or market observations, and rejects missing/tampered/forged/PID-reused/stale or financially divergent evidence as `UNKNOWN`. Even a valid recent heartbeat is only `DEGRADED_OBSERVER_ONLY`: the producer is coder-writable, the heartbeat is not independently signed, the provider has not attested atomic NAV/volume, and the watchdog does not prove protected OS user or unattended systemd service. No user/system service was installed by this change. The independent WR-07 and FP protected worker health gates remain blocked.
 
+## WR PR #57 selection and new Gemini V2 scope
+
+WR PR #57 stores separate canonical, time-versioned registry selection `wallet_portfolio_definition_v1` hashes for legacy P1/P14; FP PR #73 stores their original `frozen_paper_portfolio_v1` trial hashes. Those two hash values are **not interchangeable**. The real WR registry v2 selections were compared with this FP observer's source identity audit and show identical P1 (3) / P14 (5) frozen aliases, risk and first-known seal clock, while preserving unresolved wallet-ID/equity gates and read-only private source SHA. Gemini V2's newer E6/E2 research priority does **not** silently replace the old P1/P14 paper-engineering trial. `PaperPortfolioView.register()` rejects E6/E2 or a mutated P1/P14 membership unless an explicitly reviewed, newly sealed campaign is implemented. A new WR `priority` command reports research preference only; it cannot authorize a paper worker.
+
 ## Hard limitations
 
 - The P1/P14 sealed v2 membership `wallet_id` links were unresolved at the last audit. A filename/address match is identity-locator evidence only, not authorization to change frozen membership.

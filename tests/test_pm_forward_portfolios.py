@@ -1,12 +1,23 @@
 """FP-09 blocked-yet-independent P1 and P14 portfolio admission."""
 
 from dataclasses import replace
+from hashlib import sha256
+import json
+from pathlib import Path
 
 import pytest
 
 from copytrade_pm.pm_forward_admission import admit_source_book
 from copytrade_pm.pm_forward_paper import PaperCampaign
-from copytrade_pm.pm_forward_portfolios import P1, P14, PaperPortfolioView
+from copytrade_pm.pm_forward_portfolios import (
+    P1,
+    P14,
+    FrozenPaperPortfolio,
+    PaperPortfolioView,
+)
+from copytrade_pm.pm_forward_registry_identity import P1 as WR_P1
+from copytrade_pm.pm_forward_registry_identity import P14 as WR_P14
+from copytrade_pm.pm_forward_source_campaign import _ALIAS
 from test_pm_forward_admission import _alter
 from test_pm_forward_fill import _source_book
 from test_pm_forward_journal import T, manifest
@@ -37,6 +48,45 @@ def test_two_frozen_10k_accounts_and_shared_source_fanout() -> None:
     assert "S064" in coordinator.status("P14")["rejected_members"]
     assert coordinator.status("P1")["rejected_members"] == {}
     assert coordinator.status("P1")["account"] == coordinator.campaign.status("p1")["account"]
+
+
+def test_new_e6_e2_research_priorities_cannot_silently_register_as_legacy_fp09() -> None:
+    v2 = Path(__file__).resolve().parents[1] / (
+        "docs/decisions/2026-11-04-gemini-phase6-portfolio-freeze-v2.json"
+    )
+    assert sha256(v2.read_bytes()).hexdigest() == (
+        "21f4e9406370fefcb0e38719c2a07bb57b68b073d70b3530034f7f5944c240fc"
+    )
+    study = json.loads(v2.read_text())
+    assert study["scope"] == "NEW_FORWARD_PAPER_RESEARCH_ONLY"
+    assert study["preservation"]["existing_FP09_P1_P14_trial_unchanged"] is True
+    assert study["new_forward_paper_priority"][:2] == ["E6", "E2"]
+    assert tuple(_ALIAS[alias] for alias in WR_P1) == P1.members
+    assert tuple(_ALIAS[alias] for alias in WR_P14) == P14.members
+    assert {entry["canonical_alias"] for entry in study["portfolios"]["P1"]["members"]} == set(
+        WR_P1
+    )
+    assert {entry["canonical_alias"] for entry in study["portfolios"]["P14"]["members"]} == set(
+        WR_P14
+    )
+    view = PaperPortfolioView(PaperCampaign())
+    for name in ("E6", "E2"):
+        candidate = FrozenPaperPortfolio(
+            name,
+            tuple(entry["canonical_alias"] for entry in study["portfolios"][name]["members"]),
+        )
+        with pytest.raises(ValueError, match="UNSEALED_FORWARD_PAPER_PORTFOLIO"):
+            view.register(
+                candidate,
+                replace(manifest(name, name + "_account"), portfolio_sha=candidate.sha),
+            )
+    rogue_baseline = FrozenPaperPortfolio("P1", ("S035", "S051", "ACT04"))
+    with pytest.raises(ValueError, match="UNSEALED_FORWARD_PAPER_PORTFOLIO"):
+        view.register(
+            rogue_baseline,
+            replace(manifest("P1", "unapproved"), portfolio_sha=rogue_baseline.sha),
+        )
+    assert view.portfolios == {} and view.run_ids == {}
 
 
 def test_resealing_or_cross_portfolio_manifest_fails() -> None:
