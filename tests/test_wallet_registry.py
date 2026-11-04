@@ -111,6 +111,39 @@ def test_private_permissions(tmp_path: Path) -> None:
         registry.apply(db, snapshot, "2026-11-05T00:00:00+00:00")
 
 
+def test_indexed_ledger_observes_without_claiming_admission(tmp_path: Path) -> None:
+    db = tmp_path / "ledger.sqlite"
+    con = sqlite3.connect(db)
+    try:
+        con.executescript("""
+        CREATE TABLE ledger_meta(ledger_id TEXT,current_seq INTEGER,retention_floor INTEGER);
+        CREATE TABLE outbox_events(seq INTEGER PRIMARY KEY,wallet_id TEXT,
+                                   kind TEXT,known_at TEXT);
+        CREATE INDEX idx_outbox_wallet ON outbox_events(wallet_id);
+        INSERT INTO ledger_meta VALUES('synthetic',2,0);
+        """)
+        con.execute(
+            "INSERT INTO outbox_events VALUES(1,?,?,?)",
+            (address(1), "ACCOUNT_SNAPSHOT", "2026-01-01T00:00:00+00:00"),
+        )
+        con.commit()
+    finally:
+        con.close()
+    result = registry.observe_ledger(db, {address(1), address(2)})
+    assert result["queried_wallets"] == 2
+    assert result["stale_outbox_observation"] == 1
+    assert result["no_indexed_event"] == 1
+    assert result["runtime_admitted"] == "UNKNOWN"
+    assert result["receipt_health"] == "UNKNOWN"
+    with pytest.raises(ValueError, match="budget"):
+        registry.observe_ledger(db, {address(1), address(2)}, max_wallets=1)
+    with closing(sqlite3.connect(db)) as connection:
+        connection.execute("DROP INDEX idx_outbox_wallet")
+        connection.commit()
+    with pytest.raises(ValueError, match="index"):
+        registry.observe_ledger(db, {address(1)})
+
+
 def test_asof_and_backup_restore(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     _, snapshot = fixture(tmp_path)
     db = tmp_path / "private" / "registry.sqlite"

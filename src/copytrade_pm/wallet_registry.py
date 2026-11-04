@@ -185,6 +185,62 @@ def observe_monitoring(path: Path) -> tuple[set[str], set[str], dict[str, str]]:
     return desired, subscribed, cfg
 
 
+def observe_ledger(path: Path, addresses: set[str], max_wallets: int = 500) -> dict:
+    """Bounded, index-backed observational audit; NEVER claim admission."""
+    if len(addresses) > max_wallets:
+        raise ValueError("ledger observation budget exceeded")
+    now = datetime.now(timezone.utc)
+    with closing(readonly_sqlite(path)) as con:
+        columns = {row[1] for row in con.execute("PRAGMA table_info(outbox_events)")}
+        if not {"seq", "wallet_id", "kind", "known_at"} <= columns:
+            raise ValueError("unsupported observation ledger schema")
+        indexes = {row[1] for row in con.execute("PRAGMA index_list(outbox_events)")}
+        if "idx_outbox_wallet" not in indexes:
+            raise ValueError("bounded wallet observation index unavailable")
+        con.execute("BEGIN")
+        meta = con.execute(
+            "SELECT ledger_id,current_seq,retention_floor FROM ledger_meta LIMIT 2"
+        ).fetchall()
+        if len(meta) != 1:
+            raise ValueError("ledger identity or cursor ambiguous")
+        ledger_id, max_seq, retention_floor = meta[0]
+        recent = stale = never = 0
+        for addr in sorted(addresses):
+            row = con.execute(
+                "SELECT seq,kind,known_at FROM outbox_events "
+                "WHERE wallet_id=? AND seq<=? ORDER BY seq DESC LIMIT 1",
+                (addr, max_seq),
+            ).fetchone()
+            if row is None:
+                never += 1
+                continue
+            try:
+                known = datetime.fromisoformat(row[2].replace("Z", "+00:00"))
+                age_seconds = (now - known.astimezone(timezone.utc)).total_seconds()
+            except ValueError, TypeError, AttributeError:
+                stale += 1
+                continue
+            if known.tzinfo is None or not (0 <= age_seconds <= 3600):
+                stale += 1
+            else:
+                recent += 1
+        con.rollback()
+    return {
+        "source": "READONLY_INDEXED_OUTBOX",
+        "ledger_id_sha256": sha256(str(ledger_id).encode()).hexdigest(),
+        "ledger_seq": max_seq,
+        "retention_floor": retention_floor,
+        "queried_wallets": len(addresses),
+        "recent_outbox_observation_1h": recent,
+        "stale_outbox_observation": stale,
+        "no_indexed_event": never,
+        "runtime_admitted": "UNKNOWN",
+        "receipt_health": "UNKNOWN",
+        "scientifically_qualified": "NOT_ESTABLISHED",
+        "meaning": "Observed outbox activity is NOT admission, subscription, or complete receipts",
+    }
+
+
 def collect(root: Path, env_path: Path | None) -> dict:
     sources: dict[str, str] = {}
     source_paths: dict[str, Path] = {}
@@ -551,6 +607,7 @@ def cli(argv: list[str] | None = None) -> int:
     flags.add_argument("--apply", action="store_true")
     sub.add_parser("status")
     sub.add_parser("doctor")
+    sub.add_parser("runtime")
     report = sub.add_parser("report")
     report.add_argument("--redacted", action="store_true", required=True)
     wallet = sub.add_parser("wallet")
@@ -591,6 +648,10 @@ def cli(argv: list[str] | None = None) -> int:
             )
         )
         return 0 if matched else 2
+    elif args.command == "runtime":
+        desired, subscribed, config = observe_monitoring(args.tracker_env)
+        result = observe_ledger(Path(config["TRACKER_LEDGER_PATH"]), desired | subscribed)
+        print(json.dumps(result, sort_keys=True))
     elif args.command == "report":
         stored = db_status(args.db)
         c = stored["counts"]

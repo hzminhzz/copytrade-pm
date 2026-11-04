@@ -11,7 +11,7 @@ This checkpoint describes the initial implementation of the owner-private regist
 - Subscriber SQLite: **150** distinct addresses; **19** research overlap desired and **9** research overlap subscribed.
 - New50 independent vendor audit: **113,273** vendor fill records / **1,196** vendor instrument pairs. This is retrospective vendor coverage, **not** whole-account or follower-economic completeness.
 - Exclusions: the current owner rejected **22**-wallet file is imported; the full 28-rejection lineage and dated overrides require further independent reconciliation.
-- Tracker/ensemble/source-ABC services were active at the initial systemd inspection. Runtime wallet admission and receipt-level health are **UNKNOWN** until supported by independently verified bounded ledger evidence.
+- Tracker/ensemble/source-ABC services were active at the initial systemd inspection. The optional `runtime` command executes index-backed, read-only last-outbox-event lookups bounded at 500 addresses. On the live 215 configured wallets, 215 had an outbox event timestamp in the prior hour at inspection. This demonstrates *recent ledger emission*, **not** runtime admission, subscriber-specific health, or end-to-end receipt completeness. Both admission and receipt-level health remain **UNKNOWN**.
 - Paper/demo **RUNNING** statuses **UNKNOWN**, not inferred from portfolio proposals or previous account canaries.
 - Scientifically qualified and trading-authorized wallets **NOT ESTABLISHED**. Original PM-01 36-wallet contract unchanged.
 
@@ -24,6 +24,7 @@ uv run --group dev copytrade-wallet-registry sync --dry-run
 uv run --group dev copytrade-wallet-registry sync --apply
 uv run --group dev copytrade-wallet-registry status
 uv run --group dev copytrade-wallet-registry doctor
+uv run --group dev copytrade-wallet-registry runtime
 uv run --group dev copytrade-wallet-registry cohort research-108
 uv run --group dev copytrade-wallet-registry portfolio P1
 uv run --group dev copytrade-wallet-registry portfolio P1 --asof 2026-11-03T00:00:00+00:00
@@ -36,7 +37,7 @@ uv run --group dev copytrade-wallet-registry report --redacted
 
 Current module: `src/copytrade_pm/wallet_registry.py` with core identity normalization, cohort overlap checks, vendor-audit count reconciliation, owner rejected exclusions, privacy-safe source digests, SQLite migrations, WAL/FULL, writer locking, transactional replay, read-only subscriber access, portfolio proposal metadata, unknown admission/qualification and CLI.
 
-**Not complete:** complete P1 private alias resolution and independently versioned portfolio selection timestamps (the CLI's current as-of queries conservatively use the registry import knowledge time); all 28 exclusion decisions; independently verified PM-01 consumer output SHA parity (frozen 36 identities and source SHA pointers are checked); actual bounded ledger runtime admission and receipt health; independent paper/demo run manifest/heartbeat validation; independent scientific evidence ingestion; archive and stale status hygiene; comprehensive concurrency, crash/restart, backup/restore and out-of-disk fault matrix (synthetic online backup/restore smoke now passes); refreshed-source atomic generation semantics; release timer; production activation signoff.
+**Not complete:** complete P1 private alias resolution and independently versioned portfolio selection timestamps (the CLI's current as-of queries conservatively use the registry import knowledge time); all 28 exclusion decisions; independently verified PM-01 consumer output SHA parity (frozen 36 identities and source SHA pointers are checked); independently established runtime admission and receipt health (bounded outbox observation is implemented but insufficient for either); independent paper/demo run manifest/heartbeat validation; independent scientific evidence ingestion; archive and stale status hygiene; comprehensive concurrency, crash/restart, backup/restore and out-of-disk fault matrix (synthetic online backup/restore smoke now passes); refreshed-source atomic generation semantics; release timer; production activation signoff.
 
 The initial import deliberately blocks replacing a database that contains run/qualification records; a non-destructive versioned import is required before those can be safely indexed. Do not treat a successful `sync --apply` as completion of WR-11.
 
