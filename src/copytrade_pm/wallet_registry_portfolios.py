@@ -138,15 +138,19 @@ def read_decisions(
     return result
 
 
-def select_asof(con, portfolio_id: str, cutoff: str) -> dict:
-    """Only sealed decisions are visible to cross-program consumers."""
+def select_asof(con, portfolio_id: str, cutoff: str, *, version: int | None = None) -> dict:
+    """Only independently validated sealed decisions are visible."""
+    if version is not None and (type(version) is not int or version < 1):
+        raise ValueError("invalid requested portfolio version")
+    conditions = " AND pv.version=?" if version is not None else ""
+    params = (portfolio_id, cutoff, version) if version is not None else (portfolio_id, cutoff)
     rows = con.execute(
         "SELECT pv.version,pv.status,pv.sizing_contract,ps.definition_sha256,"
         "ps.doc_sha256,ps.source_revision,ps.selection_known_at "
         "FROM portfolio_versions pv JOIN portfolio_seals ps USING(portfolio_id,version) "
-        "WHERE pv.portfolio_id=? AND ps.selection_known_at<=? "
+        "WHERE pv.portfolio_id=? AND ps.selection_known_at<=?" + conditions + " "
         "ORDER BY pv.version DESC LIMIT 1",
-        (portfolio_id, cutoff),
+        params,
     ).fetchall()
     if not rows:
         return {
@@ -165,6 +169,72 @@ def select_asof(con, portfolio_id: str, cutoff: str) -> dict:
         (portfolio_id, version),
     ).fetchall()
     from . import wallet_registry_catalog as catalog
+    from .wallet_registry import PORTFOLIOS
+
+    # The stored SHA is not proof that its underlying membership survived
+    # unchanged. Reconstruct it from the reviewed, independent Git source.
+    if portfolio_id in DECISIONS and doc_sha == DECISIONS[portfolio_id]["sha256"]:
+        record = DECISIONS[portfolio_id]
+        expected_members = sorted(PORTFOLIOS[portfolio_id])
+        source = Path(__file__).resolve().parents[2] / record["path"]
+        if (
+            not source.is_file()
+            or source.is_symlink()
+            or sha256(source.read_bytes()).hexdigest() != record["sha256"]
+        ):
+            raise ValueError("sealed portfolio source document drift")
+        expected_payload = {
+            "schema": SCHEMA,
+            "portfolio_id": portfolio_id,
+            "aliases": list(PORTFOLIOS[portfolio_id]),
+            "source_commit": record["commit"],
+            "source_doc_sha256": record["sha256"],
+            "selection_known_at": record["known_at"],
+            "status": record["status"],
+            "sizing_contract": record["sizing"],
+            "source_identity_proven": False,
+            "order_route": "NONE",
+        }
+        expected_sha = sha256(_canonical_json(expected_payload)).hexdigest()
+        required = (
+            record["sha256"],
+            record["commit"],
+            record["known_at"],
+            record["status"],
+            record["sizing"],
+        )
+    elif doc_sha == catalog.V2_SHA256 and portfolio_id in catalog.NAMES.values():
+        pinned = catalog.read_v2(Path(__file__).resolve().parents[2], observed_at=cutoff)
+        definition = pinned["definitions"][portfolio_id]
+        expected_members = sorted(definition["members"])
+        expected_sha = definition["definition_sha256"]
+        required = (
+            catalog.V2_SHA256,
+            catalog.V2_COMMIT,
+            catalog.V2_KNOWN_AT,
+            definition["payload"]["status"],
+            definition["payload"]["sizing_contract"],
+        )
+    else:
+        from . import wallet_registry_signed_catalog as signed
+
+        signed_record = signed.load(con, doc_sha)
+        payload, expected_sha = signed.definition(signed_record, portfolio_id)
+        expected_members = sorted(payload["aliases"])
+        required = (
+            doc_sha,
+            payload["source_commit"],
+            payload["selection_known_at"],
+            payload["status"],
+            payload["sizing_contract"],
+        )
+    if (
+        [alias for alias, _ in members] != expected_members
+        or len(members) != len(expected_members)
+        or seal != expected_sha
+        or (doc_sha, commit, known_at, status, sizing) != required
+    ):
+        raise ValueError("sealed portfolio membership or definition disagrees with approved source")
 
     resolved = []
     for alias, frozen_wallet_id in members:
