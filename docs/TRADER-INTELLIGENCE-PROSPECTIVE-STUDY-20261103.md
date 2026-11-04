@@ -100,6 +100,10 @@ exploratory means remain descriptive only; none can establish a new independent
 holdout or justify an A/B grade. Benchmark selection and evaluation must never
 silently overwrite duplicate economic labels or merge different control events.
 
+## 2026-11-04 continuation: model-cost and baseline comparability
+
+The [engineering continuation](TRADER-INTELLIGENCE-CONTINUATION-20261104.md) introduces intentionally versioned `ti_matched_benchmark_v2` and `ti_matched_walkforward_diagnostic_v2` control-binding contracts. The control must match the exact episode, candidate cut, instrument, direction, horizon, entry/exit timestamps, cost R and execution-policy hash. The original `v1` descriptive input/report cannot be silently treated as `v2` without all these fields. Independent native data-day SHA checks, the four hypothetical fixed-input follower cost/latency/stop stresses and the read-only live journal source audit do **not** certify 300s executable follower/control economics or positive calibration. The previously frozen future study roster/window has **not** been activated; #31–#33 remain open.
+
 ## Already inspected data exclusions
 
 The October–November prospective-journal/midpoint-markout period has **already been examined** in the [P1 exploratory diagnostic](TRADER-INTELLIGENCE-P1-EXPLORATORY-AUDIT-20261103.md), including P1 outcome means, intervals and multiplicity diagnostics. It is **permanently ineligible as an untouched independent validation window** for these selected wallets and model hypotheses. Do not use the apparent positive S053-HYPE results to silently redefine P1 or change the holdout family. The proposed Nov 4 window still cannot begin as a valid study without verified actual pre-registration, eligible source capture and an independent economic outcome producer.
