@@ -2,9 +2,13 @@
 
 **Future agents:** read the [mandatory registry-first workflow](WALLET-REGISTRY-AGENT-WORKFLOW.md) before using counts or source identities from this dated checkpoint. Check the current source generation, as-of, CLI, Git `main`, pinned release, and actual worker evidence separately; never upgrade a status from OptMem or documentation alone.
 
-## Reviewed hardening of the P0 catalog (schema v8 candidate, not yet released)
+## Registry review hardening and live read-only release (2026-11-04)
 
-[Review fixes and operator migration contract](WALLET-REGISTRY-REVIEW-HARDENING-20261104.md): independent member-set SHA validation, immutable sealed-member triggers, precise source-wallet hash (not a display prefix), historical selection version pinning, rollback target doctor preflight, and append-only privately signed future research selections. The new schema version is **v8 in this code**, but any previously installed on-demand registry release remains independently pinned until controlled activation. No scientific or trading status changes.
+[Review fixes and operator migration contract](WALLET-REGISTRY-REVIEW-HARDENING-20261104.md) cover independent member-set SHA validation, immutable sealed-member triggers, precise source-wallet hash, historical selection version pinning, rollback target doctor preflight and append-only privately signed future research selections. Schema v8 is implemented in the registry review branch; the live release must be verified independently of Git commits.
+
+**Live read-only checkpoint (2026-11-04):** `registry_release.py verify` reports pinned registry release `97ca70ed` as `ACTIVE_READ_ONLY_VERIFIED` with source generation `e2836aab...`, 264 configured/264 subscribed, 158 research wallets, 22 owner exclusions, 11 sealed definitions, 0 registered paper runs and no trading authorization. The earlier `5d7b4d7` release and 215/150/7 snapshot are historical. The registry read model is not a running paper worker or independent admission system.
+
+The earlier v7 importer retroactively filled historical P1/P14 v2 NULL membership wallet IDs from Phase-4 aliases observed **after** those portfolios' selection seals. That is not valid original point-in-time identity proof. The registry hardening prevents future historical membership mutations, while FP #73 independently fails closed on post-seal alias bindings. Both P1 (0/3) and P14 (0/5) remain blocked for frozen wallet identity admission despite matching current addresses. Do not rewrite the older seals or patch the private database without reviewed, backed-up versioned repair.
 
 ## P0 research-catalog integration (Gemini Portfolio Freeze V2)
 

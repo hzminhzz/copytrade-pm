@@ -1,0 +1,343 @@
+"""Read-only P1/P14 multi-source forward-paper readiness without false admission.
+
+Uses canonical WR-06 registry, official parent-only Hyperliquid source receipts
+and CCXT Pro public market quote tapes. It NEVER creates a paper account,
+replays historical fills or submits an order. Sources/quotes may be present
+yet a complete wallet NAV and executable capacity are still UNKNOWN.
+"""
+
+from __future__ import annotations
+
+import argparse
+from contextlib import closing
+from datetime import UTC, datetime
+import json
+from pathlib import Path
+import sqlite3
+
+from .pm03_account import clock, digest
+from .pm_forward_admission import admit_source_book
+from .pm_forward_journal import PaperJournal
+from .pm_forward_registry_identity import (
+    P1,
+    P14,
+    audit_frozen_member_resolution,
+)
+
+_ALIAS = {
+    "S035-ENA": "S035",
+    "S051-BTC": "S051",
+    "S053-HYPE": "S053",
+    "S064-xyz:BRENTOIL": "S064",
+    "Whale_0x5f94": "Whale_0x5f94",
+}
+
+
+def _read_db(path: Path) -> sqlite3.Connection:
+    path = Path(path)
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("PAPER_EVIDENCE_DB_MISSING_OR_SYMLINK")
+    uri = "file:" + str(path.resolve()) + "?mode=ro"
+    conn = sqlite3.connect(uri, uri=True, timeout=0)
+    conn.execute("PRAGMA query_only=ON")
+    return conn
+
+
+def _source(db: sqlite3.Connection, alias: str) -> dict:
+    rows = db.execute(
+        "SELECT seq,receipt_id,payload,receipt_sha,prior_sha,chain_sha "
+        "FROM source_receipts WHERE source_id=? ORDER BY seq",
+        (alias,),
+    ).fetchall()
+    prior = "0" * 64
+    last = None
+    latest_by_account: dict[str, dict] = {}
+    for expected, (seq, receipt_id, raw, sha, previous, chain) in enumerate(rows, 1):
+        receipt = json.loads(raw)
+        if (
+            expected != seq
+            or receipt.get("source_id") != alias
+            or digest(receipt) != sha
+            or previous != prior
+            or chain != digest([alias, seq, receipt_id, prior, sha])
+        ):
+            raise ValueError("PAPER_SOURCE_READONLY_TAPE_DIVERGENCE")
+        book = receipt.get("source_book")
+        if (
+            not isinstance(book, dict)
+            or receipt.get("payload_sha") != book.get("snapshot_sha")
+            or book.get("snapshot_sha")
+            != digest({k: v for k, v in book.items() if k != "snapshot_sha"})
+        ):
+            raise ValueError("PAPER_SOURCE_READONLY_BOOK_TAMPERED")
+        account = book.get("account_id")
+        if not isinstance(account, str) or len(account) != 64:
+            raise ValueError("PAPER_SOURCE_READONLY_ACCOUNT_ID_INVALID")
+        # A wallet tape may carry a parent plus one or more subaccounts.
+        # Keep each account's latest first-known receipt separately rather
+        # than falsely choosing the newest child as the parent NAV.
+        latest_by_account[account] = receipt
+        prior = chain
+        last = receipt
+    return {
+        "cursor": len(rows),
+        "receipt": last,
+        "account_receipts": latest_by_account,
+        "head_sha": prior,
+    }
+
+
+def _collateral(db: sqlite3.Connection, account_sha: str) -> dict:
+    """Verify optional diagnostic-only SHA chain; never authorize equity."""
+    try:
+        rows = db.execute(
+            "SELECT seq,receipt_id,payload,payload_sha,prior_sha,chain_sha "
+            "FROM source_scope_receipts WHERE account_sha=? ORDER BY seq",
+            (account_sha,),
+        ).fetchall()
+    except sqlite3.OperationalError as exc:
+        if "no such table" not in str(exc):
+            raise
+        return {
+            "cursor": 0,
+            "head_sha": "0" * 64,
+            "last_spot_known_at": None,
+            "last_vault_known_at": None,
+            "status": "SCHEMA_NOT_AVAILABLE",
+        }
+    prior = "0" * 64
+    spot_known = vault_known = None
+    for expected, (seq, receipt_id, raw, sha, old, chain) in enumerate(rows, 1):
+        report = json.loads(raw)
+        PaperJournal._check_collateral_diagnostic(report)
+        if (
+            seq != expected
+            or receipt_id != sha
+            or digest(report) != sha
+            or report.get("account_address_sha256") != account_sha
+            or old != prior
+            or chain != digest([account_sha, seq, sha, prior])
+        ):
+            raise ValueError("PAPER_COLLATERAL_READONLY_CHAIN_DIVERGENCE")
+        latest = {row["scope"]: row for row in report["observations"]}
+        spot_known = latest["spotClearinghouseState"]["first_known_at"]
+        vault_known = latest["userVaultEquities"]["first_known_at"]
+        prior = chain
+    return {
+        "cursor": len(rows),
+        "head_sha": prior,
+        "last_spot_known_at": spot_known,
+        "last_vault_known_at": vault_known,
+        "status": "DIAGNOSTIC_ONLY_NOT_NAV" if rows else "NOT_CAPTURED",
+    }
+
+
+def _market(db: sqlite3.Connection, instrument: str) -> dict:
+    rows = db.execute(
+        "SELECT seq,quote_id,payload,payload_sha,prior_sha,chain_sha,event_at,known_at "
+        "FROM market_quote_receipts WHERE instrument=? ORDER BY seq",
+        (instrument,),
+    ).fetchall()
+    head = db.execute(
+        "SELECT cursor,event_at,known_at,chain_sha FROM market_quote_heads WHERE instrument=?",
+        (instrument,),
+    ).fetchone()
+    previous = "0" * 64
+    last = None
+    last_source = last_known = None
+    for expected, (seq, qid, raw, sha, prior, chain, at, known) in enumerate(rows, 1):
+        quote = json.loads(raw)
+        PaperJournal._validate_market_quote(quote)
+        if (
+            expected != seq
+            or quote.get("instrument") != instrument
+            or digest(quote) != sha
+            or qid != sha
+            or prior != previous
+            or chain != digest([instrument, seq, sha, prior])
+            or quote.get("source_event_at") != at
+            or quote.get("first_known_at") != known
+            or (last_source and clock(at) < clock(last_source))
+            or (last_known and clock(known) < clock(last_known))
+        ):
+            raise ValueError("PAPER_MARKET_READONLY_TAPE_DIVERGENCE")
+        previous, last, last_source, last_known = chain, quote, at, known
+    if (head is None and rows) or (
+        head is not None and head != (len(rows), last_source, last_known, previous)
+    ):
+        raise ValueError("PAPER_MARKET_READONLY_HEAD_DIVERGENCE")
+    return {"cursor": len(rows), "quote": last, "head_sha": previous}
+
+
+def audit_live_paper_readiness(
+    *,
+    registry_db: Path,
+    primary_dir: Path,
+    secondary_dir: Path,
+    source_db: Path,
+    market_db: Path,
+    portfolio_id: str,
+    as_of: str,
+    max_source_age_seconds: float = 180,
+    max_quote_age_seconds: float = 30,
+) -> dict:
+    now = clock(as_of)
+    identity = audit_frozen_member_resolution(
+        registry_db=registry_db,
+        primary_dir=primary_dir,
+        secondary_dir=secondary_dir,
+        portfolio_id=portfolio_id,
+    )
+    if identity["status"] != "PIT_IDENTITY_RESOLVED_ONLY":
+        identity_blockers = ["UNSEALED_FROZEN_MEMBER_WALLET_IDS"]
+    else:
+        identity_blockers = []
+    expected = P1 if portfolio_id == "P1" else P14
+    identity_sha = {item["alias"]: item["address_sha256"] for item in identity["members"]}
+    sources = []
+    required_market: set[str] = set()
+    with closing(_read_db(source_db)) as db:
+        for member in expected:
+            alias = _ALIAS[member]
+            source = _source(db, alias)
+            collateral = _collateral(db, identity_sha[member])
+            reasons: list[str] = []
+            if collateral["cursor"] == 0:
+                reasons.append("COLLATERAL_DIAGNOSTICS_MISSING")
+            else:
+                for field in ("last_spot_known_at", "last_vault_known_at"):
+                    known = collateral[field]
+                    if (
+                        known is None
+                        or not 0 <= (now - clock(known)).total_seconds() <= max_source_age_seconds
+                    ):
+                        reasons.append("COLLATERAL_SCOPE_STALE_OR_MISSING")
+                reasons.append("COLLATERAL_SCOPE_NOT_ATOMIC_NAV")
+            receipt = source["account_receipts"].get(identity_sha[member])
+            child_receipts = {
+                key: row
+                for key, row in source["account_receipts"].items()
+                if key != identity_sha[member]
+            }
+            if child_receipts:
+                reasons.append("NON_ATOMIC_SUBACCOUNT_OBSERVATIONS")
+            if receipt is None:
+                reasons.append("NO_FIRST_LOCAL_WALLET_RECEIPT")
+                source_event = None
+            else:
+                source_event = receipt["first_known_at"]
+                age = (now - clock(source_event)).total_seconds()
+                if age < 0 or age > max_source_age_seconds:
+                    reasons.append("SOURCE_NOT_FRESH_AS_OF")
+                book = receipt["source_book"]
+                if book.get("account_id") != identity_sha[member]:
+                    reasons.append("SOURCE_REGISTRY_ADDRESS_IDENTITY_MISMATCH")
+                gate = admit_source_book(book, decision_at=as_of, fill_at=as_of)
+                reasons.extend(gate.reason_codes)
+                required_market.update(book["positions"].keys())
+                # A strictly parent-only snapshot cannot create whole-wallet NAV.
+                if receipt.get("status") == "BLOCKED_INCOMPLETE_WHOLE_WALLET":
+                    reasons.append("PARENT_ONLY_ACCOUNT_SCOPE")
+            # Distinct child accounts must contribute their signed exposure
+            # instruments to the requested market universe, even if those
+            # per-account receipts cannot be assembled into atomic NAV.
+            for child in child_receipts.values():
+                required_market.update(child["source_book"]["positions"])
+            sources.append(
+                {
+                    "member": member,
+                    "observed_distinct_account_count": len(source["account_receipts"]),
+                    "observed_subaccount_receipt_count": len(child_receipts),
+                    "parent_receipt_present": receipt is not None,
+                    "first_local_receipts": source["cursor"],
+                    "last_first_known_at": source_event,
+                    "head_sha": source["head_sha"],
+                    "collateral_diagnostics": collateral,
+                    "admitted": not reasons,
+                    "reason_codes": sorted(set(reasons)),
+                }
+            )
+    market = []
+    with closing(_read_db(market_db)) as db:
+        for native in sorted(required_market):
+            quote = _market(db, native)
+            reasons: list[str] = []
+            row = quote["quote"]
+            if row is None:
+                reasons.append("MISSING_FOLLOWER_MARKET_QUOTE")
+                known = None
+            else:
+                known = row["first_known_at"]
+                age = (now - clock(known)).total_seconds()
+                if age < 0 or age > max_quote_age_seconds:
+                    reasons.append("MARKET_QUOTE_STALE_AS_OF")
+                if row.get("session_trust") == "UNKNOWN_HIP3_SESSION":
+                    reasons.append("HIP3_TRADING_SESSION_NOT_ATTESTED")
+                if row.get("volume_status") == "UNKNOWN_BOOK_DEPTH_NOT_TRADED_VOLUME":
+                    reasons.append("EXECUTABLE_VOLUME_COVERAGE_UNKNOWN")
+            market.append(
+                {
+                    "instrument": native,
+                    "quote_cursor": quote["cursor"],
+                    "last_known_at": known,
+                    "reason_codes": sorted(set(reasons)),
+                }
+            )
+    reasons = (
+        identity_blockers
+        + [reason for item in sources for reason in item["reason_codes"]]
+        + [reason for item in market for reason in item["reason_codes"]]
+    )
+    reasons.extend(
+        [
+            "PROTECTED_PAPER_WORKER_NOT_ATTESTED",
+            "INDEPENDENT_PARENT_SUBACCOUNT_NAV_NOT_RECONCILED",
+        ]
+    )
+    return {
+        "schema": "paper_live_readiness_v1",
+        "portfolio": portfolio_id,
+        "as_of": as_of,
+        "status": "BLOCKED_NO_TRADE",
+        "reason_codes": sorted(set(reasons)),
+        "registry": {
+            "frozen_version": identity["registry_version"],
+            "member_count": identity["member_count"],
+            "unresolved_aliases": identity["unresolved_aliases"],
+            "registry_mutated": False,
+        },
+        "source": sources,
+        "market": market,
+        "needed_native_market_count": len(required_market),
+        "source_wallet_equity_attested": False,
+        "trade_volume_complete": False,
+        "paper_observed": False,
+        "order_route": "NONE",
+    }
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Read-only P1/P14 live source/market readiness")
+    parser.add_argument("--registry", type=Path, required=True)
+    parser.add_argument("--primary-dir", type=Path, required=True)
+    parser.add_argument("--secondary-dir", type=Path, required=True)
+    parser.add_argument("--source-db", type=Path, required=True)
+    parser.add_argument("--market-db", type=Path, required=True)
+    parser.add_argument("--portfolio", choices=("P1", "P14"), required=True)
+    parser.add_argument("--as-of", default=datetime.now(UTC).isoformat())
+    args = parser.parse_args()
+    print(
+        json.dumps(
+            audit_live_paper_readiness(
+                registry_db=args.registry,
+                primary_dir=args.primary_dir,
+                secondary_dir=args.secondary_dir,
+                source_db=args.source_db,
+                market_db=args.market_db,
+                portfolio_id=args.portfolio,
+                as_of=args.as_of,
+            ),
+            indent=2,
+            sort_keys=True,
+        )
+    )

@@ -9,6 +9,7 @@ dependencies = ["cryptography>=46.0"]
 [project.optional-dependencies]
 market = ["polars>=2.0,<3", "pandas>=2.3"]
 source = ["websockets==15.0.1"]
+market-stream = ["ccxt==4.5.91"]
 
 [dependency-groups]
 dev = ["pytest>=8.3", "ruff>=0.8"]
@@ -28,6 +29,19 @@ copytrade-pm-source-audit = "copytrade_pm.pm_e4_source_readiness:main"
 copytrade-pm-combo2-paper = "copytrade_pm.pm_combo2_cli:main"
 copytrade-wallet-registry = "copytrade_pm.wallet_registry:main"
 copytrade-pm-review-gate = "copytrade_pm.pm_governance:main"
+copytrade-pm-paper-status = "copytrade_pm.pm_forward_status:main"
+copytrade-pm-paper-report = "copytrade_pm.pm_forward_report:main"
+copytrade-pm-paper-preflight = "copytrade_pm.pm_forward_release:main"
+copytrade-pm-paper-candidate-verify = "copytrade_pm.pm_forward_release_candidate:main"
+copytrade-pm-market-ccxt = "copytrade_pm.pm_forward_ccxt_market:main"
+copytrade-pm-market-stream = "copytrade_pm.pm_forward_market_stream:main"
+copytrade-pm-source-scope = "copytrade_pm.pm_forward_source_stream:main"
+copytrade-pm-paper-watchdog = "copytrade_pm.pm_forward_heartbeat:main"
+copytrade-pm-paper-registry-audit = "copytrade_pm.pm_forward_registry_identity:main"
+copytrade-pm-paper-readiness = "copytrade_pm.pm_forward_readiness:main"
+copytrade-pm-paper-source-campaign = "copytrade_pm.pm_forward_source_campaign:main"
+copytrade-pm-paper-observe = "copytrade_pm.pm_forward_observer:main"
+copytrade-pm-paper-observer-health = "copytrade_pm.pm_forward_observer_health:main"
 
 [build-system]
 requires = ["hatchling"]

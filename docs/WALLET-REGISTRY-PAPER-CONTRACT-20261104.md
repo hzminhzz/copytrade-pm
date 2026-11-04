@@ -1,6 +1,25 @@
 # Wallet registry to paper-runtime boundary — engineering contract
 
-**2026-11-04 status: implemented as an optional PRIVATE read-only observer and tested against synthetic fixtures only. No registered live P1/P14 paper worker was found at inspection.** This is not production activation, not a live/demo broker integration and not scientific qualification. FP-10 issue #67 remains a separate cross-program integration gate.
+**2026-11-04 status:** standalone read-only metadata registry at `5d7b4d7` is active and verified; the registry's *paper-runtime observer* is still a private, synthetic-tested read-only journal adapter. **No protected P1/P14 paper worker is installed or registered.** This is not a paper-worker activation, live/demo broker integration or scientific qualification. FP-10 issue #67 remains open.
+
+## Mainline V2 catalog and frozen P1/P14 boundary (2026-11-04)
+
+The newer mainline `wallet_registry_catalog` (SQLite v7, merged by `5d7b4d7`, PR #79) supersedes the older draft PR #57 CLI overlay. Its only canonical new-study query is `copytrade-wallet-registry portfolio --current`; it exposes **E6 primary, E2 challenger, P1 incumbent and P14 archived** with separate SHA-sealed versioned research IDs. It does **not** promote a new paper worker, replace P1/P14 frozen run hashes, or authorize trading. Live registry `doctor` now matches 264 configured/264 subscribed, 158 research, 22 excluded and 11 sealed portfolio definitions at source manifest `e2836aab...`; the on-demand registry-only pinned read-only release is verified at `5d7b4d7`. Do not confuse this with an installed protected FP worker.
+
+**Version-2 integrity warning:** the current mainline importer has a retroactive NULL-`wallet_id` assignment path in historical frozen portfolio membership. It has already executed during the newer private registry generation. Although matching native addresses exist, later Phase-4 alias evidence cannot be reclassified as known on the original historical seal date. FP PR #73 repairs this path *in its integration branch* and checks true first-known alias chronology against the original seal: **P1 3/3, P14 5/5 are post-seal bindings**, not proof of frozen PIT identity. The read-only FP registry audit therefore reports `BLOCKED` and no paper admission; it never rewrites the live registry to pretend otherwise. A separate reviewed source-of-truth migration is required before any protected paper cutover.
+
+Read-only cross-program contract:
+
+```bash
+uv run --group dev copytrade-wallet-registry portfolio --current
+uv run --group dev python scripts/verify_wr_fp_journal_contract.py \
+  --fp-worktree /home/quant/.devspace/worktrees/copytrade-pm-569e8bef \
+  --audit-native-source --portfolio P1 \
+  --primary-dir /home/quant/dev/copytrade-pm/data/wallet_fills_90d \
+  --secondary-dir /home/quant/dev/copytrade-pm/data/nansen_smart_money_fills_90d
+```
+
+This live private census checks roster/selection SHA/version and side-effect absence, **not** future-first-known full account NAV or trading capacity. No private source material is committed.
 
 ## Registry v7 frozen-member as-of correction (2026-11-04)
 

@@ -92,6 +92,13 @@ def main() -> int:
     parser.add_argument("--fp-worktree", type=Path, required=True)
     parser.add_argument("--registry-db", type=Path, default=reg.DB)
     parser.add_argument("--portfolio", choices=("P1", "P14"), default="P1")
+    parser.add_argument(
+        "--audit-native-source",
+        action="store_true",
+        help="check actual private registry seal and native alias census read-only",
+    )
+    parser.add_argument("--primary-dir", type=Path)
+    parser.add_argument("--secondary-dir", type=Path)
     args = parser.parse_args()
     fp_root = args.fp_worktree.resolve()
     if not (fp_root / "src/copytrade_pm/pm_forward_portfolios.py").is_file():
@@ -115,6 +122,56 @@ def main() -> int:
     fp_sha = fp.fp_portfolio_sha(selected)
     if fp_sha is None:
         raise SystemExit("FP aliases/risk do not match the WR sealed decision")
+
+    native_identity = None
+    if args.audit_native_source:
+        if args.primary_dir is None or args.secondary_dir is None:
+            raise SystemExit("native census requires both private source directories")
+        before_registry = sha256(args.registry_db.read_bytes()).hexdigest()
+        process = subprocess.run(
+            [
+                "uv",
+                "run",
+                "--frozen",
+                "--offline",
+                "--directory",
+                str(fp_root),
+                "--group",
+                "dev",
+                "copytrade-pm-paper-registry-audit",
+                "--registry",
+                str(args.registry_db),
+                "--primary-dir",
+                str(args.primary_dir),
+                "--secondary-dir",
+                str(args.secondary_dir),
+                "--portfolio",
+                args.portfolio,
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        native_identity = json.loads(process.stdout)
+        if (
+            native_identity.get("portfolio_id") != args.portfolio
+            or native_identity.get("registry_version") != selected["version"]
+            or native_identity.get("registry_definition_sha256") != selected["definition_sha256"]
+            or native_identity.get("source_document_sha256") != selected["source_doc_sha256"]
+            or native_identity.get("selection_known_at") != selected["selection_known_at"]
+            or sorted(item["alias"] for item in native_identity.get("members", []))
+            != sorted(selected["members"])
+            or native_identity.get("source_wallet_equity_attested") is not False
+            or native_identity.get("registry_mutated") is not False
+            or native_identity.get("paper_admitted") is not False
+            or native_identity.get("order_route") != "NONE"
+            or (
+                bool(native_identity.get("post_seal_binding_aliases"))
+                and native_identity.get("status") != "BLOCKED"
+            )
+            or sha256(args.registry_db.read_bytes()).hexdigest() != before_registry
+        ):
+            raise SystemExit("FP/WR source registry identity or seal drift")
 
     with tempfile.TemporaryDirectory(prefix="wr-fp-contract-") as directory:
         fp_run_dir = Path(directory) / "fp-owned-state"
@@ -171,6 +228,19 @@ def main() -> int:
                     "read_only_source_unchanged": True,
                     "registry_mutated": False,
                     "worker_state": observed["state"],
+                    "native_source_identity_checked": native_identity is not None,
+                    "native_source_aliases_reconciled": (
+                        len(native_identity["members"]) if native_identity else None
+                    ),
+                    "native_source_aliases_unresolved": (
+                        len(native_identity["unresolved_aliases"]) if native_identity else None
+                    ),
+                    "native_source_wallet_equity_attested": False,
+                    "post_seal_bindings_blocked": (
+                        len(native_identity["post_seal_binding_aliases"])
+                        if native_identity
+                        else None
+                    ),
                     "fp_operator_before": child["operator_before"],
                     "fp_operator_after": child["operator_after"],
                     "financial_replay_verified": False,
