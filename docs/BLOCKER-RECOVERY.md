@@ -26,12 +26,11 @@ Do not run identical retries indefinitely. Bound attempts and spend; after repea
 
 **Fail closed on an affected result; keep the wider research program moving.** Historical event timestamps cannot recover a follower's past first-known time. Missing hedge/book/collateral cannot be zero-filled. A provider proxy cannot masquerade as native executable evidence. A blocked or invalid historical study may remain terminal while safe prospective collection and other eligible studies continue.
 
-## Decision authority and missing judge
+## Decision authority and missing independent review
 
-- When available, consult the repository's `judge`/`judge_batch` for non-trivial decisions with real evidence; report its verdict and confidence. Low confidence calls for additional verification, not automatic approval.
-- If the integration cannot be invoked, record `JUDGE_UNAVAILABLE` and the attempted discovery. Perform explicit evidence-based comparison and independent tests; **continue reversible, already-authorized research and engineering**. Never invent a judge response, confidence, or independent-review claim.
-- An unavailable judge does **not** grant approval to change frozen cohorts, sampling/qualification gates, source authority, contractual Propr rules, live risk, execution permissions or irrevocable state. These require their own explicit owner authorization, versioned evidence and review as applicable.
-- An explicit user approval covers its actual scope. New destructive changes, unapproved charges/quotas, protected holdout access, live orders, contract rewrites and production deployment require their applicable independent authority.
+Routine exploration, screening, data queries, tests and already-authorized engineering do not call the judge. Classify **protected decisions**, not chat turns: consult [governance gates](GOVERNANCE-GATES.md) at explicit PR/signoff boundaries for material scientific-policy changes, frozen roster promotion/deletion or other irreversible decisions. Existing deterministic PIT/source/risk gates are mandatory regardless of the review verdict.
+
+If a review integration is unavailable, record `JUDGE_UNAVAILABLE` for that protected decision and preserve its pending status. Continue all independently valid reversible work; do not simulate or invent a review. A valid review is evidence of review only, not owner approval, scientific qualification or trading permission. Explicit approval covers only its authorized scope; protected holdout access, live orders, contract rewrites and production deployment still require their separate authority.
 
 ## Source of truth and memory checkpoints
 
