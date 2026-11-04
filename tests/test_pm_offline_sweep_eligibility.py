@@ -6,6 +6,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+pytest.importorskip("polars")
+
 from copytrade_pm.pm_offline_eligibility import compile_eligible
 from copytrade_pm.pm_offline_manifest import ManifestBlocked, ManifestInvalid
 
