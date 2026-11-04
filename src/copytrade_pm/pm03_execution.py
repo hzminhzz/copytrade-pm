@@ -89,22 +89,51 @@ class CostModel:
 
 
 def _allocate(qty: D, leftovers: dict[str, D]) -> dict[str, D]:
-    """Deterministic sign-consistent pro rata, with exact final remainder."""
+    """Deterministic, sign-consistent pro rata bounded by each pod's request.
+
+    A complete fill must preserve original high-precision target quantities
+    exactly; rounding them to 12 decimals can overshoot a pod and falsely
+    reject a valid total execution. For partial fills, quantize preliminary
+    shares, cap to each request, then allocate any final rounding residual
+    to pods with remaining room in deterministic key order.
+    """
     if not leftovers or not qty:
         return {}
-    total = sum((abs(x) for x in leftovers.values()), ZERO)
-    if qty * next(iter(leftovers.values())) < ZERO:
+    pending = {pm: x for pm, x in sorted(leftovers.items()) if x}
+    if not pending:
+        return {}
+    if any(x * qty < ZERO for x in pending.values()):
         raise ValueError("INCOMPATIBLE_ALLOCATION_SIDE")
-    consumed = ZERO
+    total = sum((abs(x) for x in pending.values()), ZERO)
+    if abs(qty) > total:
+        raise ValueError("OVERSIZED_PARTIAL_ALLOCATION")
+    if abs(qty) == total:
+        return dict(pending)
+    sign = D("1") if qty > ZERO else D("-1")
+    keys = sorted(pending)
     result: dict[str, D] = {}
-    keys = sorted(leftovers)
+    consumed = ZERO
     for pm in keys[:-1]:
-        part = (qty * abs(leftovers[pm]) / total).quantize(D("0.000000000001"))
+        raw = (qty * abs(pending[pm]) / total).quantize(D("0.000000000001"))
+        part = min(abs(raw), abs(pending[pm]), abs(qty - consumed)) * sign
         result[pm] = part
         consumed += part
-    result[keys[-1]] = qty - consumed
-    if any(abs(x) > abs(leftovers[pm]) for pm, x in result.items()):
+    tail = keys[-1]
+    result[tail] = qty - consumed
+    excess = max(ZERO, abs(result[tail]) - abs(pending[tail]))
+    if excess:
+        for pm in keys[:-1]:
+            room = abs(pending[pm]) - abs(result[pm])
+            moved = min(room, excess)
+            result[pm] += sign * moved
+            result[tail] -= sign * moved
+            excess -= moved
+            if not excess:
+                break
+    if excess or any(abs(x) > abs(pending[pm]) for pm, x in result.items()):
         raise ValueError("OVERSIZED_PARTIAL_ALLOCATION")
+    if sum(result.values(), ZERO) != qty:
+        raise ValueError("PARTIAL_ALLOCATION_RECONCILIATION")
     return result
 
 

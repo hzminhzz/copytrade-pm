@@ -1,5 +1,34 @@
 # Architecture: evidence, manager governance, shadow account
 
+## Offline milestone #2 complete engineering vs independent science (2026-11-04)
+
+[Owner-approved engineering acceptance](OFFLINE-MILESTONE2-ENGINEERING-ACCEPTANCE-20261104.md)
+adds a single `pm_offline_job` manifest-to-report seam. It dispatches only
+(a) a sealed synthetic PM-03 Decimal scenario with exact opening whole-book
+and source-equity-as-of admission or (b) SHA-pinned real historical-oracle
+source/market alignment, which is SCREEN_ONLY.
+
+The `pm_offline_intents` compiler selects the latest *eligible entire
+source book* across instruments, not lexicographic instrument order;
+admits separately priced nonflat opening positions; enforces an equity
+observation known at the **execution** instant; and right-censors unseen
+fills. `pm_offline_receipts` checks local synthetic prospective bundle
+source identity/time equality but does **not** independently attest a
+real producer. PM-03 remains the **only** sequential cash, NAV, position,
+fee, funding, drawdown and HALT authority.
+
+One failing portfolio scenario returns `PARTIAL` with typed BLOCKED reason
+and does not poison unrelated completed scenarios. Report and input SHA
+are stable across worker counts and separate process restarts.
+Optional `pm_offline_hot_market` derives a seven-day read-only, OS memory-mapped Int64 UTC/Float64 OHLCV numeric panel from precisely seven SHA-verified native daily source partitions. The default real 90-day native context cache remains optimized and unchanged. Hot-week arrays are screening-only and cannot authorize a PM-03 contractual PASS/BREACH or execution depth assumption.
+A complete 90-day read-only real-data run produced report SHA
+`3141e4acb2df842025f880403d9dd4be2702c6811917bcb7949546dbdc6cbd1a`
+with `financial_status=BLOCKED_MISSING_ATOMIC_BOOK_ASOF_NAV_AND_REAL_FIRST_KNOWN`.
+This is a successful engineering SCREEN_ONLY outcome, **not** historical
+follower economics or science. Offline per-fill delay remains separate
+from Forward-Paper first-event non-resetting T+300s.
+
+
 **Scope:** the mainline research architecture, updated during the 2026-11-01 PR17 recovery; see [the dated disposition](RECOVERY-DISPOSITION-2026-11-01.md) for exact commits and verification. This repository was history-filtered from `hyperliquid-expert-ensemble` (see [PROVENANCE](PROVENANCE.md)). It is **not** the production wallet tracker or Telegram consensus engine. Its research code must never import a live broker/order gateway. Read [INDEX](INDEX.md) first.
 
 ## Private registry boundary (2026-11-04, partial implementation)
@@ -131,3 +160,75 @@ The ensemble `copy_board.py`/`copy_digest.py` and opt-in C/X adapter are on `fea
 - Separate wallet accounts' summed closed PnL is not a pooled challenge equity curve.
 - The five-seat allocator is not the production consensus-signal engine in `hyperliquid-expert-ensemble`.
 - Draft [PM-36 PR #7](https://github.com/hzminhzz/copytrade-pm/pull/7) is separate research, **not** part of this `main` description.
+
+## Offline Polars 2.x PIT study foundations (2026-11-04; draft PR #92)
+
+This is an **additive, offline-only** research surface on the independent
+`feat/polars2-pit-offline-sweeps-20261104` branch. It is not the production
+paper worker, wallet registry, legacy 36-wallet replay, trading gateway,
+scientifically qualified signal or portfolio deployment.
+
+- `pm_offline_manifest.Study`: fail-closed clock/namespace/rule/cost/risk/
+  source-equity/market-day SHA manifest, explicit 0/1/2/5/10-minute policies
+  and scenario stress snapshots. Unknown, stale or partial evidence is blocked.
+- `pm_offline_source.reconstruct_whole_books`: independent account/DEX
+  all-leg initial-book continuity, exact same-timestamp position chain,
+  as-of positive source equity, no future-only snapshot/phantom flat hedge.
+- `pm_offline_eligibility.compile_eligible`: Polars lazy optimizer stage
+  using `eligible_at = first_known_at + delay`, followed by strictly later
+  native minute open; same-minute collapse only **after each event is eligible**.
+- `pm_offline_market`: native Hyperliquid 1m SHA and sidecar validated
+  exact timestamp joins. **Prior completed** minute volume is a conservative
+  proxy, not executable depth; current minute realized volume is ex-post only.
+- `pm_offline_cache`: private, immutable SHA + software-version keyed
+  cached outcomes; atomic fsync/sealed hardlinks, corruption checks and
+  explicit per-object size/free-disk budgets.
+- `pm_offline_account`: **synthetic fixture** adapter to the existing
+  PM-03 Decimal `Account`, `execute_targets` and `pm03_risk.classify`.
+  Portfolio net/gross/pod concentration and frozen stress exposures are
+  conservative pretrade gates; PM-03 remains the cash, PnL, fees, funding,
+  drawdown, margin and HALT authority.
+- `pm_offline_certification`: fixture-only inclusive exact-floor and
+  target checks; missing contractual/whole-book/equity/funding/mark inputs
+  return UNKNOWN, ambiguous timing AMBIGUOUS, screening cannot PASS.
+- `pm_offline_sweep`: **bounded synthetic fixture-only** deterministic
+  scenario runner, 1/2 worker parity, frozen 3/5-wallet and cost stresses,
+  crash/resume cache. Real vendor source-to-account execution is **not yet
+  certified or supported** by this runner.
+
+The offline **per-fill eligibility policy is distinct from Forward-Paper
+PR #73's first-event, non-resetting 300-second batch**. Neither modifies
+the other. Retrospective HyperX event timestamps are never relabeled as
+prospective first-known receipts. The fixture size envelope is deliberately
+small (up to 2,000 events, 32 markets, 1,440 minutes, 12,000
+scenario-minutes and 2 workers). It does not meet representative
+500k-fill / 13M-bar OOS performance or full economic qualification gates.
+
+See [baseline](OFFLINE-PIT-BASELINE-20261104.md),
+[partial engineering checkpoint](OFFLINE-PIT-PROCESSING-20261104.md),
+[operator runbook](RUNBOOK.md) and [qualification gates](QUALIFICATION.md).
+
+## Read-only real-data Polars historical-oracle adapter (2026-11-04, PR #92)
+
+`pm_offline_repository` inspects owner-local ignored JSON files from three
+research cohorts and the canonical adjacent ML4T Hyperliquid Parquet lake. It
+reports aggregate source completeness, SHA-checked native-day coverage and
+explicit unsupported/spot coins, but **never** converts a single current
+wallet-equity scalar into historical NAV or receipt times.
+
+`pm_offline_oracle` normalizes only verified namespace-qualified perpetual
+fills into SHA-addressed source and per-fill delay tapes, 0/1/2/5/10 minutes;
+its time clock is explicitly `HISTORICAL_ORACLE`. It provides grouping and
+right-censor counts only, not PM-03 follower targets.
+
+`pm_offline_oracle_market` joins those sealed candidates against SHA-verified
+native 1m Hyperliquid opening prices and *prior completed-minute* base volume
+in bounded per-instrument Polars queries. Missing/partial/invalid market days
+are reported as unmatched, never substituted. The optimized market join
+retains byte-identical tapes versus a simpler day-by-day reference on the
+same 377,130-event full 90-day sample.
+
+None of these imports a broker, changes paper or registry ownership, or
+authorizes a real follower P&L. A complete source NAV/atomic opening book
+and independently timestamped receipt producer are **still required** for
+real PM-03 financial certification. See [dated audit and benchmarks](OFFLINE-PIT-REAL-ORACLE-20261104.md).
