@@ -1,3 +1,15 @@
+## Mandatory native-first capability discovery
+
+Before implementing new functionality, query `copytrade-pm capabilities list`,
+`copytrade-pm capabilities show <id>` and `copytrade-pm capabilities validate`.
+Read the owning module/contracts before adding another implementation; reuse or
+extend the existing native interface. Do not recreate Wallet Registry, PM-03
+finance, research replay, evidence qualification or broker routes. Follow
+[the agent-native operator guide](docs/AGENT-NATIVE-OPERATIONS.md), its
+mechanical catalog checks and the registry-first workflow for wallet/portfolio
+questions. A missing service must remain `UNKNOWN` or `NOT_RUNNING`, never
+inferred as healthy from Git or tests.
+
 ## Memory
 
 Your memory is OptMem:

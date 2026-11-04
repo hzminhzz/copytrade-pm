@@ -1,5 +1,17 @@
 # Research operator runbook — verified CLI sequence
 
+## Agent-native discovery and operator read
+
+For new engineering work run `copytrade-pm capabilities list`,
+`copytrade-pm capabilities show portfolio.current`, and
+`copytrade-pm capabilities validate` before adding a module. The
+[agent-native guide](AGENT-NATIVE-OPERATIONS.md) documents scope,
+examples, failure semantics and protected boundaries. The `copytrade-pm`
+CLI provides read-only wallet, portfolio, paper and aggregate status adapters;
+research enumeration remains explicitly unknown without an authoritative run
+catalog. Original commands remain the owners.
+
+
 ## Offline Polars 2.x Milestone #2 public job (owner-approved engineering Option A, 2026-11-04)
 
 [Two-track engineering vs science acceptance](OFFLINE-MILESTONE2-ENGINEERING-ACCEPTANCE-20261104.md)
