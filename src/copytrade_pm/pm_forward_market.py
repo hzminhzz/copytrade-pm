@@ -18,6 +18,9 @@ def market_contract_reasons(
     decision_at: str,
     target_quantity: Decimal,
     costs_sha: str,
+    observation: dict | None = None,
+    quote_evidence: dict | None = None,
+    costs: dict | None = None,
 ) -> tuple[str, ...]:
     """Return explicit refusal reasons, never round or fabricate lots."""
     if not isinstance(contract, dict):
@@ -53,4 +56,33 @@ def market_contract_reasons(
             reasons.append("MARKET_UNSUPPORTED_QUANTITY_INCREMENT")
     except ValueError, TypeError, KeyError:
         reasons.append("MARKET_LOT_CONTRACT_UNKNOWN")
+    if observed_quality == "VERIFIED_QUOTE":
+        from .pm_forward_ccxt_market import verify_l2_evidence
+
+        if observation is None:
+            reasons.append("MARKET_CCXT_L2_OBSERVATION_MISSING")
+        else:
+            reasons.extend(
+                verify_l2_evidence(quote_evidence, contract, observation, decision_at=decision_at)
+            )
+        try:
+            if costs is None or digest(costs) != costs_sha:
+                raise ValueError
+            quoted_spread = number(contract["observed_spread_bps"])
+            modeled_spread = number(contract["modeled_spread_bps"])
+            if quoted_spread < 0 or modeled_spread < quoted_spread:
+                reasons.append("MARKET_COST_UNDERESTIMATES_OBSERVED_SPREAD")
+            if modeled_spread != number(costs["full_spread_bps"]):
+                reasons.append("MARKET_COST_SPREAD_CONTRACT_MISMATCH")
+        except ValueError, KeyError, TypeError:
+            reasons.append("MARKET_CCXT_COST_ASSUMPTIONS_UNKNOWN")
+        try:
+            mark = number(contract["quote_mid"])
+            min_notional = number(contract["minimum_notional"])
+            if mark <= 0 or min_notional <= 0:
+                raise ValueError
+            if number(target_quantity) and abs(number(target_quantity) * mark) < min_notional:
+                reasons.append("MARKET_NATIVE_MIN_NOTIONAL_VIOLATION")
+        except ValueError, KeyError, TypeError:
+            reasons.append("MARKET_NATIVE_MIN_NOTIONAL_UNKNOWN")
     return tuple(sorted(set(reasons)))

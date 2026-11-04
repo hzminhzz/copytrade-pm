@@ -9,6 +9,7 @@ dependencies = ["cryptography>=46.0"]
 [project.optional-dependencies]
 market = ["polars>=1.20", "pandas>=2.3"]
 source = ["websockets==15.0.1"]
+market-stream = ["ccxt==4.5.91"]
 
 [dependency-groups]
 dev = ["pytest>=8.3", "ruff>=0.8"]
@@ -30,6 +31,7 @@ copytrade-pm-review-gate = "copytrade_pm.pm_governance:main"
 copytrade-pm-paper-status = "copytrade_pm.pm_forward_status:main"
 copytrade-pm-paper-report = "copytrade_pm.pm_forward_report:main"
 copytrade-pm-paper-preflight = "copytrade_pm.pm_forward_release:main"
+copytrade-pm-market-ccxt = "copytrade_pm.pm_forward_ccxt_market:main"
 
 [build-system]
 requires = ["hatchling"]

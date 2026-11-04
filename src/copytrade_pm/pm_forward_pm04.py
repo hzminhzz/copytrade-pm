@@ -164,6 +164,9 @@ def apply_forward_pm04(account: Account, event: dict) -> dict:
                     decision_at=event["event_at"],
                     target_quantity=delta,
                     costs_sha=digest(inputs["costs"]),
+                    observation=row,
+                    quote_evidence=event.get("market_evidence", {}).get(instrument.key),
+                    costs=inputs["costs"],
                 )
             )
         if reasons:

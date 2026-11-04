@@ -56,6 +56,26 @@ class PaperJournal:
                     event_id TEXT NOT NULL,
                     PRIMARY KEY (run_id, instrument, interval_id)
                 );
+                CREATE TABLE IF NOT EXISTS market_quote_heads (
+                    instrument TEXT PRIMARY KEY,
+                    cursor INTEGER NOT NULL,
+                    event_at TEXT NOT NULL,
+                    known_at TEXT NOT NULL,
+                    chain_sha TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS market_quote_receipts (
+                    instrument TEXT NOT NULL REFERENCES market_quote_heads(instrument),
+                    seq INTEGER NOT NULL,
+                    quote_id TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    payload_sha TEXT NOT NULL,
+                    prior_sha TEXT NOT NULL,
+                    chain_sha TEXT NOT NULL,
+                    event_at TEXT NOT NULL,
+                    known_at TEXT NOT NULL,
+                    PRIMARY KEY (instrument, seq),
+                    UNIQUE (instrument, quote_id)
+                );
                 CREATE TABLE IF NOT EXISTS source_receipts (
                     source_id TEXT NOT NULL,
                     seq INTEGER NOT NULL,
@@ -272,6 +292,19 @@ class PaperJournal:
                         decision_at=decision_at,
                         target_quantity=targets.get(instrument, number("0")),
                         costs_sha=digest(event["costs"]),
+                        observation={
+                            "instrument": instrument.key,
+                            "event_at": quote.event_at,
+                            "first_known_at": quote.first_known_at,
+                            "mark": str(quote.mark),
+                            "volume_base": (
+                                str(quote.volume_base) if quote.volume_base is not None else None
+                            ),
+                            "quality": quote.quality,
+                            "supported": quote.supported,
+                        },
+                        quote_evidence=event.get("market_evidence", {}).get(instrument.key),
+                        costs=event["costs"],
                     )
                 )
             if market_reasons:
@@ -736,6 +769,187 @@ class PaperJournal:
             "status": "CAPTURED_ONLY" if rows else "NO_SOURCE_RECEIPTS",
             "stream_live": False,
             "paper_admitted": False,
+        }
+
+    @staticmethod
+    def _validate_market_quote(quote: dict) -> None:
+        from .pm_forward_ccxt_market import SCHEMA, verify_l2_evidence
+
+        if not isinstance(quote, dict) or quote.get("schema") != SCHEMA:
+            raise ValueError("PAPER_CCXT_QUOTE_SCHEMA_UNKNOWN")
+        try:
+            contract = {
+                "quote_sha": digest(quote),
+                "provider_catalog_sha": quote["catalog_sha"],
+                "instrument": quote["instrument"],
+                "quote_mid": quote["mid_quote"],
+            }
+            observation = {
+                "instrument": quote["instrument"],
+                "event_at": quote["source_event_at"],
+                "first_known_at": quote["first_known_at"],
+                "mark": quote["mid_quote"],
+                "quality": "VERIFIED_QUOTE",
+                "volume_base": None,
+            }
+            failed = verify_l2_evidence(
+                quote,
+                contract,
+                observation,
+                decision_at=quote["first_known_at"],
+            )
+        except (KeyError, ValueError, TypeError) as exc:
+            raise ValueError("PAPER_CCXT_QUOTE_INVALID") from exc
+        if failed:
+            raise ValueError("PAPER_CCXT_QUOTE_INVALID:" + ",".join(failed))
+
+    def append_market_quote(self, quote: dict) -> dict:
+        """One public CCXT L2 capture, never a trade-capacity or wallet signal.
+
+        The private SQLite market receipt is locally SHA-chained and
+        idempotent. This does not provide a vendor signature, authenticated
+        exchange session, or a filled paper order.
+        """
+        self._validate_market_quote(quote)
+        instrument = quote["instrument"]
+        known_at = quote["first_known_at"]
+        event_at = quote["source_event_at"]
+        raw_sha = digest(quote)
+        with self._writer() as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                existing = db.execute(
+                    "SELECT payload_sha FROM market_quote_receipts "
+                    "WHERE instrument=? AND quote_id=?",
+                    (instrument, raw_sha),
+                ).fetchone()
+                if existing is not None:
+                    if existing[0] != raw_sha:
+                        raise ValueError("PAPER_MARKET_QUOTE_CONFLICT")
+                    db.execute("COMMIT")
+                    return {"status": "DUPLICATE_MARKET_QUOTE", "quote_sha": raw_sha}
+                head = db.execute(
+                    "SELECT cursor,event_at,known_at,chain_sha FROM market_quote_heads "
+                    "WHERE instrument=?",
+                    (instrument,),
+                ).fetchone()
+                if head is not None:
+                    cursor, prev_event, prev_known, previous = head
+                    if clock(event_at) < clock(prev_event) or clock(known_at) < clock(prev_known):
+                        raise ValueError("PAPER_MARKET_QUOTE_CLOCK_REGRESSION")
+                    previous_book = db.execute(
+                        "SELECT payload FROM market_quote_receipts WHERE instrument=? AND seq=?",
+                        (instrument, cursor),
+                    ).fetchone()
+                    if previous_book is None:
+                        raise ValueError("PAPER_MARKET_QUOTE_HEAD_DIVERGENCE")
+                    old_quote = json.loads(previous_book[0])
+                    if old_quote.get("source_event_at") == event_at and old_quote.get(
+                        "book_sha"
+                    ) == quote.get("book_sha"):
+                        raise ValueError("PAPER_MARKET_QUOTE_REPLAYED_BOOK")
+                else:
+                    cursor, previous = 0, "0" * 64
+                seq = cursor + 1
+                head_sha = digest([instrument, seq, raw_sha, previous])
+                if head is None:
+                    db.execute(
+                        "INSERT INTO market_quote_heads VALUES (?,?,?,?,?)",
+                        (instrument, seq, event_at, known_at, head_sha),
+                    )
+                else:
+                    db.execute(
+                        "UPDATE market_quote_heads SET cursor=?,event_at=?,known_at=?,"
+                        "chain_sha=? WHERE instrument=?",
+                        (seq, event_at, known_at, head_sha, instrument),
+                    )
+                db.execute(
+                    "INSERT INTO market_quote_receipts VALUES (?,?,?,?,?,?,?,?,?)",
+                    (
+                        instrument,
+                        seq,
+                        raw_sha,
+                        _json(quote),
+                        raw_sha,
+                        previous,
+                        head_sha,
+                        event_at,
+                        known_at,
+                    ),
+                )
+                db.execute("COMMIT")
+            except Exception:
+                db.execute("ROLLBACK")
+                raise
+        return {
+            "status": "RECORDED_L2_ONLY_CAPACITY_UNKNOWN",
+            "instrument": instrument,
+            "cursor": seq,
+            "quote_sha": raw_sha,
+            "journal_head_sha": head_sha,
+            "paper_observed": False,
+            "order_route": "NONE",
+        }
+
+    def market_quote_status(self, instrument: str) -> dict:
+        """Read-only full chain audit; no market/financial mutations."""
+        from contextlib import closing
+
+        uri = "file:" + str(self.path.resolve()) + "?mode=ro"
+        with closing(sqlite3.connect(uri, uri=True, timeout=0)) as db:
+            db.execute("PRAGMA query_only=ON")
+            rows = db.execute(
+                "SELECT seq,quote_id,payload,payload_sha,prior_sha,chain_sha,"
+                "event_at,known_at FROM market_quote_receipts "
+                "WHERE instrument=? ORDER BY seq",
+                (instrument,),
+            ).fetchall()
+            head = db.execute(
+                "SELECT cursor,event_at,known_at,chain_sha FROM market_quote_heads "
+                "WHERE instrument=?",
+                (instrument,),
+            ).fetchone()
+        previous = "0" * 64
+        last_event = last_known = ""
+        for expected_seq, (seq, quote_id, payload, sha, prior, chain, at, known) in enumerate(
+            rows, 1
+        ):
+            quote = json.loads(payload)
+            self._validate_market_quote(quote)
+            if (
+                seq < 1
+                or seq != expected_seq
+                or quote.get("instrument") != instrument
+                or digest(quote) != sha
+                or quote_id != sha
+                or previous != prior
+                or chain != digest([instrument, seq, sha, prior])
+                or quote["source_event_at"] != at
+                or quote["first_known_at"] != known
+                or (last_event and clock(at) < clock(last_event))
+                or (last_known and clock(known) < clock(last_known))
+            ):
+                raise ValueError("PAPER_MARKET_QUOTE_CHAIN_DIVERGENCE")
+            previous, last_event, last_known = chain, at, known
+        if head is None:
+            if rows:
+                raise ValueError("PAPER_MARKET_QUOTE_HEAD_DIVERGENCE")
+        elif (
+            head[0] != len(rows)
+            or head[1] != last_event
+            or head[2] != last_known
+            or head[3] != previous
+        ):
+            raise ValueError("PAPER_MARKET_QUOTE_HEAD_DIVERGENCE")
+        return {
+            "schema": "paper_ccxt_market_tape_status_v1",
+            "instrument": instrument,
+            "cursor": len(rows),
+            "journal_head_sha": previous,
+            "last_quote_known_at": last_known or None,
+            "trade_volume_complete": False,
+            "paper_observed": False,
+            "order_route": "NONE",
         }
 
     def restore(self, run_id: str) -> dict:
