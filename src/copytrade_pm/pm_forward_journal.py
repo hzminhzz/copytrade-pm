@@ -49,6 +49,13 @@ class PaperJournal:
                     last_event_at TEXT NOT NULL,
                     cursor INTEGER NOT NULL DEFAULT 0
                 );
+                CREATE TABLE IF NOT EXISTS funding_claims (
+                    run_id TEXT NOT NULL REFERENCES runs(run_id),
+                    instrument TEXT NOT NULL,
+                    interval_id TEXT NOT NULL,
+                    event_id TEXT NOT NULL,
+                    PRIMARY KEY (run_id, instrument, interval_id)
+                );
                 CREATE TABLE IF NOT EXISTS source_receipts (
                     source_id TEXT NOT NULL,
                     seq INTEGER NOT NULL,
@@ -116,6 +123,54 @@ class PaperJournal:
             )
             account.verify()
             return {"status": "MARKED"}
+        if kind == "FUNDING_UNKNOWN":
+            account.risk = RiskState.RED
+            account.risk_reasons = ("UNOBSERVED_FUNDING_INTERVAL",)
+            return {"status": "UNKNOWN_FUNDING", "cash_effect_assumed": False}
+        if kind == "FUNDING":
+            from .pm03_account import Instrument
+            from .pm_forward_margin import margin_projection
+
+            if event.get("fixture_attested") is not True:
+                raise ValueError("FUNDING_RECEIPT_NOT_ATTESTED")
+            instrument = Instrument.parse(event["instrument"])
+            if not account.quantities.get(instrument):
+                raise ValueError("FUNDING_WITHOUT_OPEN_POSITION")
+            if not event.get("interval_id") or not isinstance(event["interval_id"], str):
+                raise ValueError("FUNDING_INTERVAL_UNKNOWN")
+            if not (
+                clock(event["source_event_at"])
+                <= clock(event["first_known_at"])
+                <= clock(event["event_at"])
+            ):
+                raise ValueError("FUNDING_CLOCK_ORDER_INVALID")
+            quote_rows = event.get("marks")
+            if not isinstance(quote_rows, dict):
+                raise ValueError("FUNDING_MARKS_UNKNOWN")
+            account.mark(
+                {Instrument.parse(k): number(v) for k, v in quote_rows.items()},
+                event["event_at"],
+            )
+            account.post_funding(
+                number(event["amount"]),
+                {k: number(v) for k, v in event["allocated"].items()},
+            )
+            margin = margin_projection(
+                account, event.get("margin_contract"), as_of=event["event_at"]
+            )
+            if margin["status"] == "UNKNOWN_LIQUIDATION":
+                account.risk = RiskState.RED
+                account.risk_reasons = tuple(margin["reasons"])
+            elif margin["status"] == "MARGIN_BREACH_HALT":
+                account.risk = RiskState.HALT
+                account.halt_reason = "MODELED_MAINTENANCE_MARGIN_BREACH"
+            account.verify()
+            return {
+                "status": "FUNDING_POSTED",
+                "signed_amount": event["amount"],
+                "margin": margin,
+                "forced_exit_assumed": False,
+            }
         if kind == "SIMULATED_DECISION":
             from .pm03_account import Instrument
             from .pm03_execution import CostModel, MarketObservation, execute_targets
@@ -313,6 +368,14 @@ class PaperJournal:
                 manifest, snapshot, last_at, cursor, prior_sha = row
                 if clock(event["event_at"]) < clock(last_at):
                     raise ValueError("PAPER_EVENT_OUT_OF_ORDER")
+                if event.get("kind") == "FUNDING":
+                    prior_funding = db.execute(
+                        "SELECT event_id FROM funding_claims "
+                        "WHERE run_id=? AND instrument=? AND interval_id=?",
+                        (run_id, event.get("instrument"), event.get("interval_id")),
+                    ).fetchone()
+                    if prior_funding is not None:
+                        raise ValueError("DUPLICATE_FUNDING_INTERVAL")
                 rulebook = Rulebook.from_dict(json.loads(manifest)["rulebook"])
                 account = Account.from_snapshot(rulebook, json.loads(snapshot))
                 self._apply(account, event)
@@ -337,6 +400,11 @@ class PaperJournal:
                     "UPDATE runs SET snapshot=?,snapshot_sha=?,last_event_at=?,cursor=? WHERE run_id=?",
                     (_json(post), post_sha, event["event_at"], cursor + 1, run_id),
                 )
+                if event.get("kind") == "FUNDING":
+                    db.execute(
+                        "INSERT INTO funding_claims VALUES (?,?,?,?)",
+                        (run_id, event["instrument"], event["interval_id"], event_id),
+                    )
                 db.execute("COMMIT")
             except Exception:
                 db.execute("ROLLBACK")
@@ -359,6 +427,7 @@ class PaperJournal:
         prior_sha = digest(account.snapshot())
         prior_at = manifest["started_at"]
         last_result: dict | None = None
+        funding_events: list[tuple[str, str, str]] = []
         rows = db.execute(
             "SELECT seq,event_id,event_at,input,input_sha,prior_sha,post_sha,chain_sha "
             "FROM events WHERE run_id=? ORDER BY seq",
@@ -367,6 +436,8 @@ class PaperJournal:
         for expected_seq, entry in enumerate(rows, 1):
             seq, event_id, at, payload, input_sha, before, after, chain_sha = entry
             event = json.loads(payload)
+            if event.get("kind") == "FUNDING":
+                funding_events.append((event["instrument"], event["interval_id"], event_id))
             if (
                 seq != expected_seq
                 or event.get("event_at") != at
@@ -383,6 +454,15 @@ class PaperJournal:
                 raise ValueError("PAPER_JOURNAL_DIVERGENCE")
             prior_sha = after
             prior_at = at
+        funding_claims = db.execute(
+            "SELECT instrument,interval_id,event_id FROM funding_claims "
+            "WHERE run_id=? ORDER BY instrument,interval_id,event_id",
+            (run_id,),
+        ).fetchall()
+        if len(funding_events) != len(set(funding_events)) or (
+            sorted(funding_events) != funding_claims
+        ):
+            raise ValueError("FUNDING_RECEIPT_REPLAY_DIVERGENCE")
         if (
             cursor != len(rows)
             or prior_sha != snapshot_sha
