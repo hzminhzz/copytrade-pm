@@ -4,6 +4,9 @@ import asyncio
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 import json
+import subprocess
+import sys
+import time
 
 import pytest
 
@@ -12,6 +15,7 @@ from copytrade_pm.pm_forward_observer import (
     capture_shared_observer_cycle,
     exclusive_observer_lease,
     run_readonly_observer_epochs,
+    run_readonly_observer_service,
     source_native_inventory,
 )
 from copytrade_pm.pm_forward_source_campaign import _ALIAS
@@ -64,6 +68,54 @@ def test_observer_process_lease_exclusive_and_reversible(tmp_path):
     with exclusive_observer_lease(journal):
         assert (journal.root / "paper-observer.lock").stat().st_mode & 0o077 == 0
     assert not journal.source_status("S035")["paper_admitted"]
+
+
+def test_real_second_process_refused_and_sigkill_releases_lease(tmp_path):
+    journal = PaperJournal(tmp_path / "private")
+    ready = tmp_path / "ready"
+    child_source = """
+import sys, time
+from pathlib import Path
+from copytrade_pm.pm_forward_journal import PaperJournal
+from copytrade_pm.pm_forward_observer import exclusive_observer_lease
+journal = PaperJournal(Path(sys.argv[1]))
+with exclusive_observer_lease(journal):
+    Path(sys.argv[2]).write_text("locked")
+    time.sleep(20)
+"""
+    child = subprocess.Popen(
+        [sys.executable, "-c", child_source, str(journal.root), str(ready)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    try:
+        for _ in range(150):
+            if ready.is_file() or child.poll() is not None:
+                break
+            time.sleep(0.02)
+        assert ready.is_file(), child.stderr.read().decode() if child.poll() is not None else ""
+        with pytest.raises(ValueError, match="PAPER_OBSERVER_ALREADY_RUNNING_FOR_JOURNAL"):
+            with exclusive_observer_lease(journal):
+                pytest.fail("second process obtained protected observer lease")
+        child.kill()
+        child.wait(timeout=5)
+        with exclusive_observer_lease(journal):
+            assert journal.source_status("S035")["cursor"] == 0
+    finally:
+        if child.poll() is None:
+            child.kill()
+        child.communicate(timeout=5)
+
+
+def test_observer_refuses_world_readable_lock(tmp_path):
+    journal = PaperJournal(tmp_path / "private")
+    lock = journal.root / "paper-observer.lock"
+    lock.write_text("bad")
+    lock.chmod(0o644)
+    with pytest.raises(ValueError, match="PAPER_OBSERVER_LEASE_PERMISSION_INVALID"):
+        with exclusive_observer_lease(journal):
+            pytest.fail("unprotected lease accepted")
+    assert lock.read_text() == "bad"
 
 
 def test_observer_refuses_symlinked_lock_file(tmp_path):
@@ -340,6 +392,96 @@ def test_supervisor_marks_partial_channels_degraded_but_stays_no_trade():
         assert result["epochs"][0]["gap_before_epoch"] is False
         assert result["status"] == "BLOCKED_NO_TRADE"
         assert result["paper_observed"] is False
+
+    asyncio.run(run())
+
+
+def test_unbounded_observer_service_graceful_stop_and_bounded_reports():
+    async def run():
+        stop = asyncio.Event()
+        outputs = []
+        called = 0
+
+        async def capture():
+            nonlocal called
+            called += 1
+            if called == 1:
+                raise ConnectionError("websocket outage")
+            if called == 3:
+                stop.set()
+            return {
+                "status": "BLOCKED_NO_TRADE",
+                "order_route": "NONE",
+                "native_inventory": {"observed_native_market_count": 22},
+                "market_failures": [],
+                "source_capture_gaps": [],
+                "market_shards": [{"status": "BOUNDED_CAPTURE_ENDED"}],
+            }
+
+        waits = []
+
+        async def wait_for_stop(event, seconds):
+            waits.append(seconds)
+            assert not event.is_set()
+            return False
+
+        result = await run_readonly_observer_service(
+            run_cycle=capture,
+            pause_seconds=30,
+            cycle_timeout_seconds=120,
+            stop=stop,
+            report=outputs.append,
+            wait_for_stop=wait_for_stop,
+        )
+        assert result["epochs"] == 3
+        assert result["failed_epochs"] == 1
+        assert waits == [30, 30]
+        assert [entry["status"] for entry in outputs] == [
+            "DEGRADED_OBSERVER_FAILURE",
+            "BLOCKED_NO_TRADE",
+            "BLOCKED_NO_TRADE",
+        ]
+        assert result["status"] == "OBSERVER_STOPPED_NOT_PAPER_RUNNING"
+        assert len(outputs) == result["epochs"]
+        assert all(row["order_route"] == "NONE" for row in outputs)
+        assert all(row["financial_events_committed"] == 0 for row in outputs)
+        assert not any(row["protected_worker_attested"] for row in outputs)
+
+    asyncio.run(run())
+
+
+def test_unbounded_service_rejects_unsafe_cadence_without_capture():
+    async def run():
+        with pytest.raises(ValueError, match="PAPER_OBSERVER_SERVICE_CADENCE_UNSAFE"):
+            await run_readonly_observer_service(
+                run_cycle=lambda: pytest.fail("unexpected capture"),
+                pause_seconds=0,
+                stop=asyncio.Event(),
+                report=lambda row: pytest.fail("unexpected report"),
+            )
+
+    asyncio.run(run())
+
+
+def test_unbounded_service_rejects_unsafe_cycle_timeout():
+    async def run():
+        stop = asyncio.Event()
+        logs = []
+
+        async def slow_capture():
+            await asyncio.sleep(3600)
+
+        # Never allow an unbounded service cycle without a conservative
+        # cancellation budget; validation occurs before network use.
+        with pytest.raises(ValueError, match="PAPER_OBSERVER_SERVICE_CYCLE_TIMEOUT_UNSAFE"):
+            await run_readonly_observer_service(
+                run_cycle=slow_capture,
+                pause_seconds=30,
+                cycle_timeout_seconds=1,
+                stop=stop,
+                report=logs.append,
+            )
+        assert logs == []
 
     asyncio.run(run())
 

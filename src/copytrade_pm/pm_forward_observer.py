@@ -18,6 +18,7 @@ import fcntl
 from datetime import UTC, datetime
 import json
 import os
+import signal
 from pathlib import Path
 import sqlite3
 import stat
@@ -368,6 +369,97 @@ async def run_readonly_observer_epochs(
     }
 
 
+async def run_readonly_observer_service(
+    *,
+    run_cycle: Callable[[], Awaitable[dict]],
+    pause_seconds: float,
+    stop: asyncio.Event,
+    report: Callable[[dict], None],
+    cycle_timeout_seconds: float = 600,
+    wait_for_stop: Callable[[asyncio.Event, float], Awaitable[bool]] | None = None,
+) -> dict:
+    """Unbounded *observer-only* loop, bounded memory and graceful stop.
+
+    No financial worker status is ever emitted. The per-epoch report belongs
+    in an independently retained service log; raw source and market evidence
+    remain in their SQLite tapes. This does not authorize service install.
+    """
+    if not 30 <= pause_seconds <= 3600:
+        raise ValueError("PAPER_OBSERVER_SERVICE_CADENCE_UNSAFE")
+    if not 30 <= cycle_timeout_seconds <= 3600:
+        raise ValueError("PAPER_OBSERVER_SERVICE_CYCLE_TIMEOUT_UNSAFE")
+    epochs = 0
+    failures = 0
+    while not stop.is_set():
+        epochs += 1
+        try:
+            result = await asyncio.wait_for(run_cycle(), timeout=cycle_timeout_seconds)
+            if result.get("status") != "BLOCKED_NO_TRADE" or result.get("order_route") != "NONE":
+                raise ValueError("PAPER_OBSERVER_SERVICE_FINANCIAL_PROMOTION_REFUSED")
+            degraded = (
+                bool(result.get("market_failures"))
+                or bool(result.get("source_capture_gaps"))
+                or any(
+                    shard.get("status") == "DEGRADED" for shard in result.get("market_shards", [])
+                )
+            )
+            event = {
+                "epoch": epochs,
+                "status": "DEGRADED_OBSERVER_EVIDENCE" if degraded else "BLOCKED_NO_TRADE",
+                "observed_native_market_count": result["native_inventory"][
+                    "observed_native_market_count"
+                ],
+                "capture_gaps": (
+                    len(result.get("market_failures", []))
+                    + len(result.get("source_capture_gaps", []))
+                    + sum(
+                        shard.get("status") == "DEGRADED"
+                        for shard in result.get("market_shards", [])
+                    )
+                ),
+            }
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            failures += 1
+            event = {
+                "epoch": epochs,
+                "status": "DEGRADED_OBSERVER_FAILURE",
+                "reason": type(exc).__name__ + ":" + str(exc)[:130],
+            }
+        # No unbounded in-memory report list. A failed sink stops the observer
+        # instead of silently losing its runtime failure evidence.
+        report(
+            {
+                "schema": "paper_readonly_observer_service_epoch_v1",
+                **event,
+                "protected_worker_attested": False,
+                "source_nav_attested": False,
+                "trade_volume_complete": False,
+                "financial_events_committed": 0,
+                "paper_observed": False,
+                "order_route": "NONE",
+            }
+        )
+        if stop.is_set():
+            break
+        if wait_for_stop is None:
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=pause_seconds)
+            except TimeoutError:
+                pass
+        else:
+            await wait_for_stop(stop, pause_seconds)
+    return {
+        "status": "OBSERVER_STOPPED_NOT_PAPER_RUNNING",
+        "epochs": epochs,
+        "failed_epochs": failures,
+        "protected_worker_attested": False,
+        "paper_observed": False,
+        "order_route": "NONE",
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Finite shared P1/P14 public-only observation; NO TRADE or financial events"
@@ -377,6 +469,8 @@ def main() -> None:
     parser.add_argument("--secondary-dir", type=Path, required=True)
     parser.add_argument("--state-root", type=Path, required=True)
     parser.add_argument("--epochs", type=int, default=1)
+    parser.add_argument("--service-cadence-seconds", type=float, default=60)
+    parser.add_argument("--service-cycle-timeout-seconds", type=float, default=600)
     parser.add_argument("--seconds-per-account", type=float, default=5)
     parser.add_argument("--max-source-frames", type=int, default=10)
     parser.add_argument("--market-duration-seconds", type=float, default=10)
@@ -391,8 +485,8 @@ def main() -> None:
     journal = PaperJournal(args.state_root)
 
     async def run() -> dict:
-        return await run_readonly_observer_epochs(
-            run_cycle=lambda: capture_shared_observer_cycle(
+        async def capture() -> dict:
+            return await capture_shared_observer_cycle(
                 registry_db=args.registry,
                 primary_dir=args.primary_dir,
                 secondary_dir=args.secondary_dir,
@@ -402,7 +496,22 @@ def main() -> None:
                 market_duration_seconds=args.market_duration_seconds,
                 max_market_updates=args.max_market_updates,
                 market_shard_size=args.market_shard_size,
-            ),
+            )
+
+        if args.epochs == 0:
+            stop = asyncio.Event()
+            loop = asyncio.get_running_loop()
+            loop.add_signal_handler(signal.SIGTERM, stop.set)
+            loop.add_signal_handler(signal.SIGINT, stop.set)
+            return await run_readonly_observer_service(
+                run_cycle=capture,
+                pause_seconds=args.service_cadence_seconds,
+                cycle_timeout_seconds=args.service_cycle_timeout_seconds,
+                stop=stop,
+                report=lambda row: print(json.dumps(row, sort_keys=True), flush=True),
+            )
+        return await run_readonly_observer_epochs(
+            run_cycle=capture,
             epochs=args.epochs,
             pause_seconds=args.pause_seconds,
         )

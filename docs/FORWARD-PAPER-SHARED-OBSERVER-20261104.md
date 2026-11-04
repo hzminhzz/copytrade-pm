@@ -24,6 +24,8 @@ uv run --extra source --extra market-stream --group dev copytrade-pm-paper-obser
   --market-duration-seconds 2 --max-market-updates 3 --market-shard-size 8
 ```
 
+An optional engineering-only `--epochs 0 --service-cadence-seconds 60 --service-cycle-timeout-seconds 600` mode loops without accumulating unbounded in-memory reports, emits one JSON status line per epoch to stdout for an external service-log consumer, and handles SIGINT/SIGTERM. Each capture has a hard timeout, faults produce a negative `DEGRADED_OBSERVER_FAILURE` record, and a failed stdout/report sink terminates the loop. This is **not a protected release or an independently signed paper-worker heartbeat**, and it was not started as an unattended VPS service. The minimum cadence is 30 seconds and the cycle timeout must be 30–3600 seconds. Crash recovery relies on SHA-linked private tapes and a fresh source/CCXT trade-cache epoch, not an invented continuous window.
+
 The command is opt-in. It takes an exclusive, mode-0600, no-symlink process lease at `paper-observer.lock` under the private journal root. A second process targeting the same journal is refused before it opens any source/market connection; the lease releases on normal return or process death. This **does not** establish a privileged protected service identity. Store private market/account observations outside Git and protected by Linux 0700 directories and 0600 database files. The CLI can open public WebSockets and persistent local journal files, but has **no broker client, order/cancel route, private credentials, or service manager calls**. Do not run concurrent writers for the same journal. The independent release preflight remains `BLOCKED`.
 
 ## Real bounded canary evidence — 2026-11-04
