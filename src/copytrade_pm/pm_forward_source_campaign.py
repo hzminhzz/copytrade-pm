@@ -149,6 +149,81 @@ async def observe_frozen_portfolio_readonly(
     }
 
 
+async def observe_shared_frozen_sources_readonly(
+    *,
+    registry_db: Path,
+    primary_dir: Path,
+    secondary_dir: Path,
+    journal: PaperJournal,
+    seconds_per_wallet: float = 8,
+    max_frames: int = 10,
+    include_collateral: bool = True,
+    info: Callable = _guarded_info,
+    connect: Callable[..., Any] | None = None,
+    now: Callable[[], str] = lambda: datetime.now(UTC).isoformat(),
+) -> dict:
+    """Observe the P1/P14 union once; never duplicate the three shared feeds.
+
+    P1 and P14 are distinct frozen portfolio projections, but not distinct
+    source subscriptions. Version and common-address parity are verified
+    before the first network request, and no source is financially admitted.
+    """
+    p1 = audit_frozen_member_resolution(
+        registry_db=registry_db,
+        primary_dir=primary_dir,
+        secondary_dir=secondary_dir,
+        portfolio_id="P1",
+    )
+    p14 = audit_frozen_member_resolution(
+        registry_db=registry_db,
+        primary_dir=primary_dir,
+        secondary_dir=secondary_dir,
+        portfolio_id="P14",
+    )
+    by_alias = {row["alias"]: row for row in p14["members"]}
+    if p1["registry_version"] != p14["registry_version"] or any(
+        row["address_sha256"] != by_alias[row["alias"]]["address_sha256"] for row in p1["members"]
+    ):
+        raise ValueError("P1_P14_SHARED_SOURCE_REGISTRY_IDENTITY_DRIFT")
+    parent = await observe_frozen_portfolio_readonly(
+        portfolio_id="P14",
+        registry_db=registry_db,
+        primary_dir=primary_dir,
+        secondary_dir=secondary_dir,
+        journal=journal,
+        seconds_per_wallet=seconds_per_wallet,
+        max_frames=max_frames,
+        include_subaccounts=True,
+        include_collateral=include_collateral,
+        info=info,
+        connect=connect,
+        now=now,
+    )
+    by_member = {row["member"]: row for row in parent["partial_account_observations"]}
+    return {
+        "schema": "paper_shared_p1_p14_source_capture_v1",
+        "status": "BLOCKED_OBSERVATION_ONLY_NO_TRADE",
+        "registry_version": p14["registry_version"],
+        "unique_source_wallet_count": len(P14),
+        "source_subscription_deduplication": "P14_UNION_CAPTURED_ONCE",
+        "portfolios": {
+            portfolio: {
+                "members": list(members),
+                "unresolved_members": (p1 if portfolio == "P1" else p14)["unresolved_aliases"],
+                "partial_account_observations": [by_member[m] for m in members],
+                "whole_wallet_equity_attested": False,
+                "paper_observed": False,
+                "status": "BLOCKED_NO_TRADE",
+            }
+            for portfolio, members in (("P1", P1), ("P14", P14))
+        },
+        "registry_mutated": False,
+        "paper_admitted": False,
+        "broker_orders": 0,
+        "order_route": "NONE",
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--portfolio", required=True, choices=("P1", "P14"))
