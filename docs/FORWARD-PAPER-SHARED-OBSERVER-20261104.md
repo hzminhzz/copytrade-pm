@@ -24,13 +24,24 @@ uv run --extra source --extra market-stream --group dev copytrade-pm-paper-obser
   --market-duration-seconds 2 --max-market-updates 3 --market-shard-size 8
 ```
 
-An optional engineering-only `--epochs 0 --service-cadence-seconds 60 --service-cycle-timeout-seconds 600` mode loops without accumulating unbounded in-memory reports, emits one JSON status line per epoch to stdout for an external service-log consumer, and handles SIGINT/SIGTERM. Each capture has a hard timeout, faults produce a negative `DEGRADED_OBSERVER_FAILURE` record, and a failed stdout/report sink terminates the loop. This is **not a protected release or an independently signed paper-worker heartbeat**, and it was not started as an unattended VPS service. The minimum cadence is 30 seconds and the cycle timeout must be 30–3600 seconds. Crash recovery relies on SHA-linked private tapes and a fresh source/CCXT trade-cache epoch, not an invented continuous window.
+An optional engineering-only `--epochs 0 --service-cadence-seconds 60 --service-cycle-timeout-seconds 600` mode loops without accumulating unbounded in-memory reports, emits one JSON status line per epoch to stdout for an external service-log consumer, and handles SIGINT/SIGTERM. At each epoch it atomically fsyncs a private local observer heartbeat bound to Linux PID, process start ticks/boot ID and verified SQLite source/quote/collateral journal heads. A failed heartbeat write terminates the service; the epoch output is never silently used as healthy worker evidence. Each capture has a hard timeout, faults produce a negative `DEGRADED_OBSERVER_FAILURE` record, and a failed stdout/report sink terminates the loop. This is **not a protected release or an independently signed paper-worker heartbeat**, and it was not started as an unattended VPS service. The minimum cadence is 30 seconds and the cycle timeout must be 30–3600 seconds. Crash recovery relies on SHA-linked private tapes and a fresh source/CCXT trade-cache epoch, not an invented continuous window.
 
 The command is opt-in. It takes an exclusive, mode-0600, no-symlink process lease at `paper-observer.lock` under the private journal root. A second process targeting the same journal is refused before it opens any source/market connection; the lease releases on normal return or process death. This **does not** establish a privileged protected service identity. Store private market/account observations outside Git and protected by Linux 0700 directories and 0600 database files. The CLI can open public WebSockets and persistent local journal files, but has **no broker client, order/cancel route, private credentials, or service manager calls**. Do not run concurrent writers for the same journal. The independent release preflight remains `BLOCKED`.
 
 ## Real bounded canary evidence — 2026-11-04
 
 Executed the command above, with its explicit isolated private journal root and **one epoch**. The five unique official parent source books each produced one SHA-linked account receipt and one separate first-known spot/vault diagnostic receipt. The read-only native-exposure audit required **8 P1** and **22 P14** signed-instrument markets; the CCXT Pro bounded shard scan yielded **7/8 P1** and **21/22 P14** first-local L2 quote receipts. The missing `para/ANSEM` quote did not pass the spread constraint. The source and market clients were bounded, then closed; this was not continuous feed evidence. P1 and P14 readiness both returned `BLOCKED_NO_TRADE`: frozen membership identity links remain unresolved, complete wallet equity and executable venue-volume coverage remain unverified. The observer supervisor reported zero financial events, zero broker orders, `protected_worker_attested=false` and `paper_observed=false`. The five separately timestamped source observations are not a synchronized account or market snapshot.
+
+## Read-only observer watchdog
+
+The separate test-only read-only inspector can be invoked without initializing any financial-account run:
+
+```bash
+uv run --group dev copytrade-pm-paper-observer-health \
+  --state-root /home/quant/dev/copytrade-pm/data/private/p1p14_shared_observer_20261104
+```
+
+It verifies the locally fsynced `p1p14-public-observer.heartbeat.json`, private file modes, actual Linux PID/start ticks/boot epoch, SHA of the heartbeat envelope, and current SHA-chain heads of the existing source, market quote and spot/vault collateral tapes, using SQLite `mode=ro`. It distinguishes aliases checked from aliases actually having source receipts, separately flags stale/missing source or market observations, and rejects missing/tampered/forged/PID-reused/stale or financially divergent evidence as `UNKNOWN`. Even a valid recent heartbeat is only `DEGRADED_OBSERVER_ONLY`: the producer is coder-writable, the heartbeat is not independently signed, the provider has not attested atomic NAV/volume, and the watchdog does not prove protected OS user or unattended systemd service. No user/system service was installed by this change. The independent WR-07 and FP protected worker health gates remain blocked.
 
 ## Hard limitations
 

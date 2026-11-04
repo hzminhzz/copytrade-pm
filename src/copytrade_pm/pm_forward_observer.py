@@ -503,12 +503,22 @@ def main() -> None:
             loop = asyncio.get_running_loop()
             loop.add_signal_handler(signal.SIGTERM, stop.set)
             loop.add_signal_handler(signal.SIGINT, stop.set)
+            from .pm_forward_observer_health import publish_public_observer_heartbeat
+
+            def report(row: dict) -> None:
+                publish_public_observer_heartbeat(
+                    journal.root,
+                    journal_db=journal.path,
+                    epoch_report=row,
+                )
+                print(json.dumps(row, sort_keys=True), flush=True)
+
             return await run_readonly_observer_service(
                 run_cycle=capture,
                 pause_seconds=args.service_cadence_seconds,
                 cycle_timeout_seconds=args.service_cycle_timeout_seconds,
                 stop=stop,
-                report=lambda row: print(json.dumps(row, sort_keys=True), flush=True),
+                report=report,
             )
         return await run_readonly_observer_epochs(
             run_cycle=capture,
