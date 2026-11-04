@@ -47,6 +47,35 @@ def test_changed_source_marks_dated_status_stale_not_positive() -> None:
     assert result["paper_running"] == "UNKNOWN"
 
 
+def test_registry_first_agent_instructions_are_required() -> None:
+    """Future agents must not rediscover wallets from stale prose or memory."""
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    guide = (ROOT / "docs/WALLET-REGISTRY-AGENT-WORKFLOW.md").read_text(encoding="utf-8")
+    index = (ROOT / "docs/INDEX.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "docs/RUNBOOK.md").read_text(encoding="utf-8")
+    for command in (
+        "copytrade-wallet-registry doctor",
+        "copytrade-wallet-registry status",
+        "copytrade-wallet-registry portfolio --current",
+        "copytrade-wallet-registry wallet --alias",
+        "scripts/registry_release.py verify",
+    ):
+        assert command in guide
+    for invariant in (
+        "MANDATORY REGISTRY-FIRST",
+        "source generation",
+        "OptMem",
+        "SCIENTIFICALLY_QUALIFIED",
+        "TRADING_AUTHORIZED",
+    ):
+        assert invariant in agents + guide
+    for entry in (agents, index, runbook):
+        assert "WALLET-REGISTRY-AGENT-WORKFLOW.md" in entry
+    assert "gemini.phase5/B" in guide and "q3/B" in guide
+    assert "post-seal" in guide
+    assert "PAPER_RUNNING" in guide
+
+
 def test_missing_document_fails_closed(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="required wallet registry document missing"):
         audit.check(tmp_path, current={})

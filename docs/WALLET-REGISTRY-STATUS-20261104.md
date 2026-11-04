@@ -1,5 +1,7 @@
 # SQLite wallet registry — 2026-11-04 engineering checkpoint
 
+**Future agents:** read the [mandatory registry-first workflow](WALLET-REGISTRY-AGENT-WORKFLOW.md) before using counts or source identities from this dated checkpoint. Check the current source generation, as-of, CLI, Git `main`, pinned release, and actual worker evidence separately; never upgrade a status from OptMem or documentation alone.
+
 ## Reviewed hardening of the P0 catalog (schema v8 candidate, not yet released)
 
 [Review fixes and operator migration contract](WALLET-REGISTRY-REVIEW-HARDENING-20261104.md): independent member-set SHA validation, immutable sealed-member triggers, precise source-wallet hash (not a display prefix), historical selection version pinning, rollback target doctor preflight, and append-only privately signed future research selections. The new schema version is **v8 in this code**, but any previously installed on-demand registry release remains independently pinned until controlled activation. No scientific or trading status changes.
