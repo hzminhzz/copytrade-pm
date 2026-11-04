@@ -64,6 +64,7 @@ def _report(
     mode: str,
     *,
     right_censored_source: bool = False,
+    funding_evidence_complete: bool = False,
 ) -> dict:
     account.verify()
     ledger = {
@@ -105,7 +106,7 @@ def _report(
         full_minute_coverage=True,
         complete_source_book=True,
         complete_equity=True,
-        complete_funding=True,
+        complete_funding=funding_evidence_complete,
         intrabar_order_known=True,
         right_censored=right_censored_source or unfilled,
     )
@@ -136,6 +137,7 @@ def replay_fixture(
     hedge_break_loss: Decimal = ZERO,
     stressed_liquidity_loss: Decimal = ZERO,
     right_censored_source: bool = False,
+    funding_evidence_complete: bool = False,
 ) -> dict:
     """Replay synthetic fixture minutes and optional source-book intent updates.
 
@@ -384,4 +386,5 @@ def replay_fixture(
         journal,
         mode,
         right_censored_source=right_censored_source,
+        funding_evidence_complete=funding_evidence_complete,
     )

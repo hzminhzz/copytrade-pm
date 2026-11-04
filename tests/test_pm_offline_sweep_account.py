@@ -249,6 +249,7 @@ def test_exact_synthetic_target_with_confirmed_terms_is_fixture_only():
         ],
         costs=costs(),
         k_by_manager={"a": D("1")},
+        funding_evidence_complete=True,
     )
     assert result["ledger"]["stage_passed"] is True
     assert result["certification"]["verdict"] == "PASS"
@@ -265,10 +266,26 @@ def test_synthetic_right_censor_prevents_fixture_target_pass():
         costs=costs(),
         k_by_manager={"a": D("1")},
         right_censored_source=True,
+        funding_evidence_complete=True,
     )
     assert result["ledger"]["stage_passed"] is True
     assert result["certification"]["verdict"] == "UNKNOWN"
     assert result["certification"]["reason"] == "OPEN_RISK_OR_UNMATURED_EVENTS"
+
+
+def test_missing_funding_evidence_prevents_synthetic_target_certification():
+    rule = replace(rules(), account_terms_confirmed=True)
+    result = replay_fixture(
+        rulebook=rule,
+        minutes=[minute(0, updates=[update()]), minute(1, price="1200")],
+        costs=costs(),
+        k_by_manager={"a": D("1")},
+        funding_evidence_complete=False,
+    )
+    assert result["ledger"]["stage_passed"] is True
+    assert result["certification"]["verdict"] == "UNKNOWN"
+    assert result["certification"]["status"] == "INSUFFICIENT_ACCOUNT_EVIDENCE"
+    assert result["contractual_real_verdict"] == "UNKNOWN"
 
 
 def test_screen_only_never_produces_certified_contract_result():

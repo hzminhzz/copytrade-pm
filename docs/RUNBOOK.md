@@ -28,7 +28,7 @@ For account finance, use a **sealed synthetic fixture** as the nested manifest
 with `kind=SEALED_SYNTHETIC_PM03` plus exact `study_manifest_sha256`,
 `delays_minutes=[0,1,2,5,10]`, `clock_basis` and a stable `study_id`.
 The nested study must pin book/equity/receipt (if prospective fixture),
-rulebook/cost/risk and native-day `data.parquet` and `source.json` hashes.
+rulebook/cost/risk and native-day `data.parquet` and `source.json` hashes. It also requires explicit `synthetic_funding_evidence_complete: true|false` to distinguish a frozen zero-funding fixture assumption from an unknown funding path. `false` forces UNKNOWN for target certification.
 Valid independently specified *non-flat* opening books are accepted if fully
 priced and source NAV is actually as-of; unpriced hedge legs are **BLOCKED**.
 One manager without admission blocks only its scenario; independent scenarios

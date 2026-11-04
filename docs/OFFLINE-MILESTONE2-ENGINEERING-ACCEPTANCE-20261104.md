@@ -17,7 +17,7 @@ chronological money/risk transitions; produce immutable, restart-safe
 scenario/ledger hashes; and correctly return typed `BLOCKED`,
 `UNKNOWN` and `AMBIGUOUS` for incomplete or impossible inputs.
 Fixtures must test positive and negative paths including full book,
-source equity, funding, margin, daily/trailing floor, pending residual,
+source equity, explicit synthetic funding completeness (never inferred zero), margin, daily/trailing floor, pending residual,
 partial execution, odd source timestamps, multiple DEXes, and exact
 inclusive thresholds. Tests/CI, native-market optional deps, security
 and compatibility checks, build and benchmark evidence are required.

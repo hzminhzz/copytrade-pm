@@ -66,9 +66,11 @@ def _software_sha() -> str:
         "pm_offline_receipts.py",
         "pm_offline_market.py",
         "pm_offline_account.py",
+        "pm_offline_certification.py",
         "pm_offline_cache.py",
         "pm03_account.py",
         "pm03_execution.py",
+        "pm03_risk.py",
     )
     digest = sha256()
     for name in modules:
@@ -451,6 +453,7 @@ def run_synthetic_fixture_study(
                             tape["source_right_censored_by_manager"].get(pm, 0) > 0
                             for pm in scenario["k_by_account"]
                         ),
+                        funding_evidence_complete=doc["synthetic_funding_evidence_complete"],
                     )
                 except ManifestBlocked as exc:
                     return (

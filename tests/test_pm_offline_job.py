@@ -153,6 +153,25 @@ def test_real_source_sha_change_fails_closed(tmp_path):
         )
 
 
+def test_same_sealed_study_cannot_publish_a_conflicting_financial_result(tmp_path, monkeypatch):
+    from copytrade_pm import pm_offline_job as target
+
+    job, root, cache = _fixture_job(tmp_path)
+    first = run_offline_job(job, input_root=root, market_root=root, cache_root=cache)
+    original = target.run_synthetic_fixture_study
+
+    def divergent(*args, **kwargs):
+        good = original(*args, **kwargs)
+        good["scenarios"][0]["fees"] = "1000000"
+        good["logical_sha256"] = "a" * 64
+        return good
+
+    monkeypatch.setattr(target, "run_synthetic_fixture_study", divergent)
+    with pytest.raises(ManifestBlocked, match="IMMUTABLE_CACHE_KEY_CONFLICT"):
+        run_offline_job(job, input_root=root, market_root=root, cache_root=cache)
+    assert first["status"] == "COMPLETE_ENGINEERING_FIXTURE"
+
+
 def test_nested_manifest_hash_mismatch_prevents_promotion(tmp_path):
     job, root, cache = _fixture_job(tmp_path)
     file = root / "study.json"

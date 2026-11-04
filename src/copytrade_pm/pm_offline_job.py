@@ -123,8 +123,13 @@ def run_offline_job(
             or sorted(manifest["delays_minutes"]) != DELAYS
         ):
             raise ManifestInvalid("NESTED_STUDY_CLOCK_OR_DELAY_MISMATCH")
+        market_lineage = sha256(_encode(result["market_day_shas"])).hexdigest()
+        sealed_inputs = job["study_manifest_sha256"]
+        sealed_market = market_lineage
+        software_identity = result["software_sha256"]
         evidence = {
             "input_manifest_sha256": job["study_manifest_sha256"],
+            "market_day_lineage_sha256": market_lineage,
             "replay_logical_sha256": result["logical_sha256"],
             "source_tape_sha256": result["source_tape_sha256"],
             "software_sha256": result["software_sha256"],
@@ -160,6 +165,19 @@ def run_offline_job(
         )
         if historical["batch_parquet_sha256"] != native["batch_parquet_sha256"]:
             raise ManifestBlocked("REAL_ORACLE_SOURCE_AND_NATIVE_TAPE_CONFLICT")
+        sealed_inputs = historical["source_collection_sha256"]
+        sealed_market = native["market_fingerprint_sha256"]
+        software_identity = sha256(
+            b"".join(
+                (Path(__file__).resolve().parent / path).read_bytes()
+                for path in (
+                    "pm_offline_job.py",
+                    "pm_offline_oracle.py",
+                    "pm_offline_oracle_market.py",
+                    "pm_offline_repository.py",
+                )
+            )
+        ).hexdigest()
         evidence = {
             "source_collection_sha256": historical["source_collection_sha256"],
             "eligible_tape_sha256": historical["batch_parquet_sha256"],
@@ -206,7 +224,9 @@ def run_offline_job(
         "job_report",
         {
             "job": digest,
-            "result": sha256(output).hexdigest(),
+            "input": sealed_inputs,
+            "market": sealed_market,
+            "software": software_identity,
         },
         version=REPORT,
         content=output,

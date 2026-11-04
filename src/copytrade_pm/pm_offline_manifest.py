@@ -151,6 +151,7 @@ class Study:
                 "risk_policy",
                 "follower_initial_equity",
                 "source_equity_max_age_minutes",
+                "synthetic_funding_evidence_complete",
             },
             {"scenarios", "synthetic_fixture"},
         )
@@ -169,6 +170,8 @@ class Study:
             raise ManifestInvalid("UNKNOWN_RESULT_MODE")
         if "synthetic_fixture" in doc and type(doc["synthetic_fixture"]) is not bool:
             raise ManifestInvalid("INVALID_FIXTURE_DECLARATION")
+        if type(doc["synthetic_funding_evidence_complete"]) is not bool:
+            raise ManifestInvalid("INVALID_SYNTHETIC_FUNDING_COMPLETENESS")
         delays = doc["delays_minutes"]
         if (
             not isinstance(delays, list)

@@ -1,5 +1,31 @@
 # Offline Polars 2.x real historical-oracle evidence — 2026-11-04
 
+## Single-manifest engineering acceptance (owner-approved Option A)
+
+The production-independent read-only public interface is
+`python -m copytrade_pm.pm_offline_job` with
+[the SHA-pinned HL94 historical-oracle job](OFFLINE-HL94-ORACLE-JOB-20261104.json).
+A verified 90-day run emitted the immutable
+`pm_offline_research_job_report_v1` result with report SHA
+`3141e4acb2df842025f880403d9dd4be2702c6811917bcb7949546dbdc6cbd1a`:
+`COMPLETE_HISTORICAL_ORACLE_SCREEN_ONLY`,
+`engineering_path_verified=true`,
+`financial_status=BLOCKED_MISSING_ATOMIC_BOOK_ASOF_NAV_AND_REAL_FIRST_KNOWN`,
+`financial_certified_real=false`, `scientifically_qualified=false`.
+This is engineering verification of source/market screening, **not**
+real PM-03 contractual P&L.
+
+A six-run warm-cache replay after the first report publication produced
+exactly the same report SHA; measured wall seconds
+`[1.552521,1.247195,0.987402,1.220082,1.059701,0.951829]`,
+median `1.139892s`, largest sample `1.552521s`, single process
+peak RSS `262508 KiB`. This is six opportunistic runs on a shared VPS,
+not an established distributional p95, not a cold-disk trial and not an
+old PM-01 financial-simulation speedup. Cache hit was sealed on the five
+subsequent runs. The source/market status and missing evidence stayed
+unchanged. See [engineering versus scientific qualification](OFFLINE-MILESTONE2-ENGINEERING-ACCEPTANCE-20261104.md).
+
+
 **Scope:** read-only historical source normalization, per-fill delay batching and exact native Hyperliquid 1-minute **market-context screening**. This is **not** first-known receipt evidence, a verified full-account source book, real follower execution, PM-03 contractual P&L, scientific qualification, or authorization to trade. Related: [approved specification #78](https://github.com/hzminhzz/copytrade-pm/issues/78), [milestone #2](https://github.com/hzminhzz/copytrade-pm/milestone/2), [draft PR #92](https://github.com/hzminhzz/copytrade-pm/pull/92).
 
 ## Recovered original source directories (read-only)

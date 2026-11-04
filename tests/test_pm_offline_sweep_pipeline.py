@@ -175,6 +175,7 @@ def sample(tmp_path, *, managers=5, fixture=True):
         "mode": "CERTIFIED",
         "follower_initial_equity": "10000",
         "source_equity_max_age_minutes": 1440,
+        "synthetic_funding_evidence_complete": True,
         "synthetic_fixture": fixture,
         "sources": symbols,
         "market_days": [
@@ -281,6 +282,22 @@ def test_unbounded_worker_count_fails_closed(tmp_path):
         run_synthetic_fixture_study(
             path, input_root=root, market_root=root, cache_root=cache, workers=8
         )
+
+
+def test_pm03_code_fingerprint_change_invalidates_scenario_cache(tmp_path, monkeypatch):
+    import copytrade_pm.pm_offline_sweep as module
+
+    path, root, cache, _ = sample(tmp_path)
+    first = run_synthetic_fixture_study(path, input_root=root, market_root=root, cache_root=cache)
+    assert first["cache_hits"] == 0
+    monkeypatch.setattr(module, "_software_sha", lambda: "b" * 64)
+    changed = run_synthetic_fixture_study(path, input_root=root, market_root=root, cache_root=cache)
+    assert changed["cache_hits"] == 0
+    assert changed["tape_cache_hits"] == 0
+    assert changed["logical_sha256"] != first["logical_sha256"]
+    assert changed["scenarios"] == first["scenarios"]
+    warm = run_synthetic_fixture_study(path, input_root=root, market_root=root, cache_root=cache)
+    assert warm["cache_hits"] == 15
 
 
 def test_crash_mid_sweep_resumes_immutable_completed_scenarios(tmp_path, monkeypatch):

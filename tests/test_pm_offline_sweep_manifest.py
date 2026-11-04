@@ -67,6 +67,7 @@ def fixture(tmp_path: Path):
         "risk_policy": risk,
         "follower_initial_equity": "10000",
         "source_equity_max_age_minutes": 1440,
+        "synthetic_funding_evidence_complete": True,
     }
 
 
