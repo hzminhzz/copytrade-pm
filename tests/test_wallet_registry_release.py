@@ -10,6 +10,8 @@ from hashlib import sha256
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
+import sys
 import sqlite3
 import stat
 
@@ -335,6 +337,62 @@ def test_crash_after_pointer_swap_can_repair_to_last_committed_release(
     # This repairs only the release pointer, without deleting the next
     # staged revision or modifying the authoritative inventory.
     assert (control / "releases" / uncommitted).is_dir()
+
+
+def test_process_crash_between_pointer_and_state_is_repairable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    control = tmp_path / "owner" / "release-control"
+    control.parent.mkdir(mode=0o700)
+    control.mkdir(mode=0o700)
+    (control / "releases").mkdir(mode=0o700)
+    old, uncommitted = "e" * 40, "f" * 40
+    old_root = control / "releases" / old
+    old_root.mkdir(mode=0o700)
+    (old_root / "checked.py").write_bytes(b"original")
+    fingerprint = {"checked.py": sha256(b"original").hexdigest()}
+    release.atomic_current(old, control=control)
+    state = control / "release-state.json"
+    original_state = {"current": old, "files": fingerprint}
+    state.write_text(json.dumps(original_state))
+    state.chmod(0o600)
+    script = """
+import importlib.util, os, pathlib, sys
+spec=importlib.util.spec_from_file_location("reg_release_child",sys.argv[1])
+module=importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+root=pathlib.Path(sys.argv[2])
+module.CONTROL=root
+module.STATE=root/"release-state.json"
+orig_pointer=module.atomic_current
+orig_revision=module.active_revision
+module.atomic_current=lambda revision:orig_pointer(revision,control=root)
+module.active_revision=lambda:orig_revision(root)
+module.commit_release(sys.argv[3],{"current":sys.argv[3]},after_switch=lambda:os._exit(47))
+"""
+    child = subprocess.run(
+        [sys.executable, "-c", script, str(SCRIPT), str(control), uncommitted],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    assert child.returncode == 47, child.stderr
+    assert release.active_revision(control) == uncommitted
+    assert json.loads(state.read_text()) == original_state
+
+    pointer, revision = release.atomic_current, release.active_revision
+    monkeypatch.setattr(release, "CONTROL", control)
+    monkeypatch.setattr(release, "RELEASES", control / "releases")
+    monkeypatch.setattr(release, "STATE", state)
+    monkeypatch.setattr(release, "atomic_current", lambda value: pointer(value, control=control))
+    monkeypatch.setattr(release, "active_revision", lambda: revision(control))
+    monkeypatch.setattr(release, "services", lambda: {"tracker": {"pid": "100"}})
+    with pytest.raises(ValueError, match="mismatch"):
+        release.verify()
+    assert release.repair()["result"] == "LAST_COMMITTED_POINTER_RESTORED"
+    assert revision(control) == old
+    assert json.loads(state.read_text()) == original_state
 
 
 def test_pointer_repair_rejects_tampered_committed_release(
