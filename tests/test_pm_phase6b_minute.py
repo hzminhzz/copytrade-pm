@@ -4,10 +4,12 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 import json
 
-import polars as pl
+import pytest
 
 from copytrade_pm.pm_phase6b import fingerprint
 from copytrade_pm.pm_phase6b_minute import audit_one_day, expected_minutes
+
+pl = pytest.importorskip("polars", reason="Phase 6B Parquet tests require market extra")
 
 
 def _date_root(root: Path) -> Path:

@@ -2,11 +2,12 @@
 
 import json
 
-import polars as pl
 import pytest
 
 from copytrade_pm.pm_phase6b import WALLETS, fingerprint
 from copytrade_pm.pm_phase6b_blocked import SCENARIOS, POLICIES, run
+
+pl = pytest.importorskip("polars", reason="Phase 6B Parquet tests require market extra")
 
 
 def test_blocked_scenario_contract(tmp_path):
