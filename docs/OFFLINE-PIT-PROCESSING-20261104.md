@@ -13,7 +13,8 @@ certificate. See [baseline](OFFLINE-PIT-BASELINE-20261104.md) and
 | `pm_offline_source` | Atomic verified initial book, exact same-millisecond chain or typed ambiguity, strict all-DEX/account identities and as-of positive equity, stable digest | Independent signed source/receipt producer and source/equity snapshot adapter |
 | `pm_offline_eligibility` | Polars 2.1 lazy strict next-bar, event-specific eligibility, stable streaming/in-memory hash, right-censor | Connect whole-book source tape; independently verified real receipt SHA and maturity |
 | `pm_offline_market` | Native day Parquet SHA; exact namespace + minute join; prior completed bar volume; ex-post volume separate | Source market-day manifest reconciliation; resource-bounded hot partitions; full minute MTM; source calendar/session |
-| `pm_offline_cache`, `pm_offline_derived_cache` | Owner-private fsynced immutable SHA objects, independently sealed source-book/equity and native fixture market panels, per-fill tapes and per-scenario outputs; source/market/cost dependency isolation, corrupt-object fail-closed and SIGKILL restart tests | Optional month/week hot read-only numeric arrays (not yet implemented); real 90d market context already cached end-to-end |
+| `pm_offline_cache`, `pm_offline_derived_cache` | Owner-private fsynced immutable SHA objects, independently sealed source-book/equity and native fixture market panels, per-fill tapes and per-scenario outputs; source/market/cost dependency isolation, corrupt-object fail-closed and SIGKILL restart tests | Real 90d context is cached; original native source immutable |
+| `pm_offline_hot_market` | Optional SHA-qualified native 7-day calendar week to compact 10,080-row little-endian numeric panel, owner-private immutable bytes, read-only OS memory map across processes, exact UTC open and prior completed base-volume lookup; missing/invalid day BLOCKED | Optional prewarm/worker read interface; Float64 data remains SCREEN_ONLY, never exact financial certification |
 | `pm_offline_account` | Fixture-only sequential PM-03 Decimal Account, PM-03 classifier/execute_targets, source-equity sizing, frozen per-manager intents, explicit funding-complete assumption or UNKNOWN, minute marks, gross-before-net veto, exact first target/breach times and PM03 snapshot SHA | Real source/native bars/funding/contract receipts and multi-day persistent account/restart audit |
 | `pm_offline_certification` | Synthetic PM-03 Decimal exact inclusive floor/target verdict; SCREEN_ONLY never PASS; censor/unfilled residual and missing source/rulebook evidence UNKNOWN/AMBIGUOUS | Real qualified source and executable cost/funding paths before any real financial verdict |
 | `pm_offline_intents`, `pm_offline_receipts` | Causal whole-account opening and per-fill eligible last-book intent, true as-of source equity at execution, source-ID/clock-matched SHA-local prospective fixture receipts | Receipt presence alone is not an external attestation; real 94-wallet inputs lack signed independent NAV/receipt evidence |
@@ -127,11 +128,7 @@ source/market invalidation tests, partial reduction, overnight funding,
 subcent inclusive floor tests and original PM-03 compatibility tests
 demonstrate the engineering correction.
 
-**Remaining true engineering boundary:** an optional independently reused
-week/month hot-market numeric array interface is not yet delivered.
-The measured full native context remains reproducibly cached, with
-~0.9s warm report time. Do not claim original #85 week/month-array
-acceptance solely because the bounded current-study cache works.
+**Hot weekly cache:** independent verified BTC week 2026-10-19–25 UTC was compiled into 10,080 rows / 485,609 bytes with read-only mmap and exact source-sidecar SHA. Initial observed wall 0.260344s, warm mapping 0.002481s and 0.001780s; SHA `5a16af43ee151d6b5d9a44db04830443d9ed1c1e9104d41578ca4e9bc30f347f`. The 7-day layout was selected after bounded-source profiling; the default 90-day oracle context still uses its existing fast, output-parity-verified cache. Both are SCREEN_ONLY and never imply executable L2 liquidity. No protected native files are rewritten.
 Scientific qualification also remains unavailable without independently
 as-of source NAV, complete historical book and real receipts.
 

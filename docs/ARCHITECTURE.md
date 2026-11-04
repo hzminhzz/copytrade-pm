@@ -20,6 +20,7 @@ fee, funding, drawdown and HALT authority.
 One failing portfolio scenario returns `PARTIAL` with typed BLOCKED reason
 and does not poison unrelated completed scenarios. Report and input SHA
 are stable across worker counts and separate process restarts.
+Optional `pm_offline_hot_market` derives a seven-day read-only, OS memory-mapped Int64 UTC/Float64 OHLCV numeric panel from precisely seven SHA-verified native daily source partitions. The default real 90-day native context cache remains optimized and unchanged. Hot-week arrays are screening-only and cannot authorize a PM-03 contractual PASS/BREACH or execution depth assumption.
 A complete 90-day read-only real-data run produced report SHA
 `3141e4acb2df842025f880403d9dd4be2702c6811917bcb7949546dbdc6cbd1a`
 with `financial_status=BLOCKED_MISSING_ATOMIC_BOOK_ASOF_NAV_AND_REAL_FIRST_KNOWN`.

@@ -46,6 +46,25 @@ uv run --group dev ruff format --check src tests
 uv build --offline
 ```
 
+Optional **read-only hot native 7-day numeric panel**, for research worker
+memory mapping when full SHA-verified daily Parquet exists:
+
+```bash
+uv run --extra market --group dev python -m copytrade_pm.pm_offline_hot_market \
+  --market-root /home/quant/dev/quant/ml4t-data/.data/store \
+  --cache-root /home/quant/.cache/copytrade-polars-hot-week-20261104 \
+  --instrument hyperliquid:mainnet:perp:default:BTC \
+  --week-start 2026-10-19T00:00:00+00:00
+```
+
+A valid week has exactly **10,080 UTC minute bars**. It requires all
+seven independently SHA-valid native days and returns a private, read-only
+`numpy.memmap` with Float64 OHLCV and Int64 UTC-minute timestamps.
+Missing/partial native day returns BLOCKED, not interpolated data;
+the first weekly minute has no in-week prior capacity. This optional
+screening-only view is **not** an execution order book, fixed-point P&L
+or a replacement for the default full-study native context cache.
+
 All original wallet files, market lake partitions, frozen PM-01 36 wallets and
 Forward-Paper T+300s scheduler remain unmodified. No orders, merges,
 protected service restarts or deployments are authorized.

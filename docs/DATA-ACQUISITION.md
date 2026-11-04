@@ -208,6 +208,11 @@ per-day SHA-256 `source.json` sidecar. 6,985 of 19,440 source-observed
 instrument-days are verified complete, 90 partial, 12,365 missing; only
 44/216 markets have all 90 days. Read the original files in place and
 publish only sanitized SHA-bound research artifacts to a private cache.
+A derived owner-private SHA-sealed numeric week may be built from seven
+complete native day partitions via `pm_offline_hot_market`; this is
+read-only, and missing/partial source days are BLOCKED rather than
+backfilled. The hot panel stores Int64 UTC timestamps and Float64
+screening OHLCV; it cannot attest executable liquidity.
 A current wallet `equity` number in a source JSON is not historical
 time-varying NAV or independently known-at receipt. Do not backfill,
 timestamp or fabricate those missing source facts.

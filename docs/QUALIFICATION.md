@@ -13,7 +13,10 @@ test when source facts are genuinely absent.
 `SCIENTIFICALLY QUALIFIED` instead needs independently authenticated
 prospective first-known events, historical source NAV/full account-book,
 funding, matched executable follower and control outcomes, OOS/holdouts,
-uncertainty, actual account terms and risk authorization. The public
+uncertainty, actual account terms and risk authorization. The optional native weekly `numpy.memmap` screen cache is an
+immutable, exact-minute market-data view, not an executable L2 book or
+permission to convert mid/open screening prices into certified
+follower P&L. The public
 90-day oracle-only job retains `financial_certified_real=false` and
 `scientifically_qualified=false` despite correctly matching native 1m
 context. Synthetic simulated `PASS`/`BREACH` cannot be promoted.
