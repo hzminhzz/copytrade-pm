@@ -1,0 +1,10 @@
+{
+  "schema": "pm_offline_research_job_v1",
+  "study_id": "hl94-90d-oracle-screen-20261104",
+  "kind": "HISTORICAL_ORACLE_NATIVE",
+  "clock_basis": "HISTORICAL_ORACLE",
+  "delays_minutes": [0, 1, 2, 5, 10],
+  "start": "2026-08-05T00:00:00+00:00",
+  "end": "2026-11-03T00:00:00+00:00",
+  "source_collection_sha256": "1deefe08279936770e896f0521664cf0ee1976bc0eecec78d5c615cb8799117d"
+}

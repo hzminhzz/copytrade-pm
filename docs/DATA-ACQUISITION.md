@@ -166,3 +166,53 @@ For a failed acquisition or incomplete source, follow [blocker recovery](BLOCKER
 - Do **not** promote a downloaded day, completed page, or synthetic follower replay to a real profit-challenge pass probability.
 
 **Next:** [RUNBOOK](RUNBOOK.md) for the exact read-only replay and PM-02/03 handoffs; [QUALIFICATION](QUALIFICATION.md) for approval gates.
+
+## Offline source/PIT manifest boundary (2026-11-04)
+
+No vendor acquisition was performed for Polars milestone #2 draft PR #92.
+The new `pm_offline_manifest` accepts SHA-sealed source-book and equity
+files, native Hyperliquid day Parquet, frozen cost/risk/contract files and an
+explicit clock basis. It hashes in bounded chunks rather than reading an
+entire large market day into memory. Same-millisecond position continuity,
+every declared hedge leg, positive fresh source equity and exact
+DEX-qualified native market identities are mandatory.
+
+A historical HyperX event's exchange timestamp is
+`HISTORICAL_ORACLE` **only**. It is not a follower decision-time receipt.
+`PROSPECTIVE_FIRST_KNOWN` cannot be derived from vendor history and
+requires separate immutable independently verified local receipts. Synthetic
+`atomic_source_verified` and `source_verified` fixture flags are
+**not independent source attestations**; the real importer and its
+per-snapshot lineage are still outstanding. The currently available fixture
+runner refuses all non-fixture studies, nonflat initial source books and
+cross-DEX accounts without a consolidated complete-book anchor.
+
+Native 1m open is a retrospective execution-price diagnostic; *same-bar*
+realized volume is not PIT-known. Only completed preceding volume may be
+used for conservative capacity estimates and even that is **not L2**,
+adverse-selection or achievable fill proof. Do not import Binance/Bybit
+prices as Hyperliquid native or create missing market days by interpolation.
+
+## 90-day real offline Polars source inventory, read-only (2026-11-04)
+
+Read [the verified historical-oracle audit](OFFLINE-PIT-REAL-ORACLE-20261104.md)
+before inferring source capacity or real financial results. The owner has
+94 archived original research JSON files across 19 primary, 55 broader
+and 20 Nansen accounts, with 500,168 total raw fills. The stricter
+2026-08-05 to 2026-11-03 UTC end-exclusive window contains 450,172
+supported unique perp fills. Older rows are excluded and spot-style `@...`
+coin codes are **not** substituted for perps.
+
+Canonical native 1m Parquet is in the adjacent `ml4t-data` lake, with a
+per-day SHA-256 `source.json` sidecar. 6,985 of 19,440 source-observed
+instrument-days are verified complete, 90 partial, 12,365 missing; only
+44/216 markets have all 90 days. Read the original files in place and
+publish only sanitized SHA-bound research artifacts to a private cache.
+A derived owner-private SHA-sealed numeric week may be built from seven
+complete native day partitions via `pm_offline_hot_market`; this is
+read-only, and missing/partial source days are BLOCKED rather than
+backfilled. The hot panel stores Int64 UTC timestamps and Float64
+screening OHLCV; it cannot attest executable liquidity.
+A current wallet `equity` number in a source JSON is not historical
+time-varying NAV or independently known-at receipt. Do not backfill,
+timestamp or fabricate those missing source facts.

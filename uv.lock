@@ -102,7 +102,7 @@ dev = [
 requires-dist = [
     { name = "cryptography", specifier = ">=46.0" },
     { name = "pandas", marker = "extra == 'market'", specifier = ">=2.3" },
-    { name = "polars", marker = "extra == 'market'", specifier = ">=1.20" },
+    { name = "polars", marker = "extra == 'market'", specifier = ">=2.0,<3" },
     { name = "websockets", marker = "extra == 'source'", specifier = "==15.0.1" },
 ]
 provides-extras = ["market", "source"]
