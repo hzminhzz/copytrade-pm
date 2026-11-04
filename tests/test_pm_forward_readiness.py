@@ -14,7 +14,7 @@ from copytrade_pm.pm_forward_source_observation import (
     append_public_scope,
     read_public_all_dex_scope,
 )
-from test_pm_e4_prospective import WALLET, sample_state
+from test_pm_e4_prospective import sample_state
 from test_pm_forward_ccxt_market import BTC, at, ccxt_market, orderbook
 from test_pm_forward_registry_identity import prepare
 from test_pm_forward_tape import diagnostic
@@ -25,10 +25,13 @@ def _setup(tmp_path):
     registry, primary, secondary = prepare(tmp_path)
     source = PaperJournal(tmp_path / "source")
     market = PaperJournal(tmp_path / "market")
+    parent_address = json.loads(next(primary.glob("S035-ENA_0x*.json")).read_text())["address"]
+    native_state = sample_state()
+    native_state["user"] = parent_address
     book = read_public_all_dex_scope(
         alias="S035",
-        address=WALLET,
-        frame={"channel": "allDexsClearinghouseState", "data": sample_state()},
+        address=parent_address,
+        frame={"channel": "allDexsClearinghouseState", "data": native_state},
         dex_catalog=[None, {"name": "xyz"}],
         discovered_subaccounts=None,
         first_known_at=(datetime.fromtimestamp(1793294400, UTC) + timedelta(seconds=2)).isoformat(),
@@ -105,6 +108,41 @@ def test_readiness_audits_diagnostic_collateral_chain_without_promoting_nav(tmp_
             )
     with pytest.raises(ValueError, match="PAPER_COLLATERAL_READONLY_CHAIN_DIVERGENCE"):
         audit(roots, "P1")
+
+
+def test_subaccount_latest_receipt_cannot_replace_parent_and_hedges_stay_visible(tmp_path):
+    roots = _setup(tmp_path)
+    _, primary, _, source, _ = roots
+    parent = json.loads(next(primary.glob("S035-ENA_0x*.json")).read_text())["address"]
+    child_address = "0x" + "f" * 40
+    child_state = sample_state()
+    child_state["user"] = child_address
+    child_state["clearinghouseStates"][1][1]["assetPositions"][0]["position"]["coin"] = "xyz:MU"
+    child = read_public_all_dex_scope(
+        alias="S035",
+        address=child_address,
+        frame={"channel": "allDexsClearinghouseState", "data": child_state},
+        dex_catalog=[None, {"name": "xyz"}],
+        discovered_subaccounts=None,
+        first_known_at=(datetime.fromtimestamp(1793294400, UTC) + timedelta(seconds=3)).isoformat(),
+    )
+    append_public_scope(source, alias="S035", seq=2, receipt=child)
+    observed = audit(roots, "P1")
+    first = observed["source"][0]
+    assert first["first_local_receipts"] == 2
+    assert first["observed_distinct_account_count"] == 2
+    assert first["observed_subaccount_receipt_count"] == 1
+    assert first["parent_receipt_present"] is True
+    assert first["last_first_known_at"] != child["first_known_at"]
+    assert "NON_ATOMIC_SUBACCOUNT_OBSERVATIONS" in first["reason_codes"]
+    assert "SOURCE_REGISTRY_ADDRESS_IDENTITY_MISMATCH" not in first["reason_codes"]
+    assert "hyperliquid/mainnet:perp:xyz/MU" in {
+        entry["instrument"] for entry in observed["market"]
+    }
+    assert observed["status"] == "BLOCKED_NO_TRADE"
+    assert not first["admitted"]
+    assert first["collateral_diagnostics"]["status"] == "NOT_CAPTURED"
+    assert parent.lower() != child_address
 
 
 def test_readiness_raises_on_tampered_source_chain(tmp_path):

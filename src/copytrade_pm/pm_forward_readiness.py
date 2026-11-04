@@ -51,6 +51,7 @@ def _source(db: sqlite3.Connection, alias: str) -> dict:
     ).fetchall()
     prior = "0" * 64
     last = None
+    latest_by_account: dict[str, dict] = {}
     for expected, (seq, receipt_id, raw, sha, previous, chain) in enumerate(rows, 1):
         receipt = json.loads(raw)
         if (
@@ -69,9 +70,21 @@ def _source(db: sqlite3.Connection, alias: str) -> dict:
             != digest({k: v for k, v in book.items() if k != "snapshot_sha"})
         ):
             raise ValueError("PAPER_SOURCE_READONLY_BOOK_TAMPERED")
+        account = book.get("account_id")
+        if not isinstance(account, str) or len(account) != 64:
+            raise ValueError("PAPER_SOURCE_READONLY_ACCOUNT_ID_INVALID")
+        # A wallet tape may carry a parent plus one or more subaccounts.
+        # Keep each account's latest first-known receipt separately rather
+        # than falsely choosing the newest child as the parent NAV.
+        latest_by_account[account] = receipt
         prior = chain
         last = receipt
-    return {"cursor": len(rows), "receipt": last, "head_sha": prior}
+    return {
+        "cursor": len(rows),
+        "receipt": last,
+        "account_receipts": latest_by_account,
+        "head_sha": prior,
+    }
 
 
 def _collateral(db: sqlite3.Connection, account_sha: str) -> dict:
@@ -200,7 +213,14 @@ def audit_live_paper_readiness(
                     ):
                         reasons.append("COLLATERAL_SCOPE_STALE_OR_MISSING")
                 reasons.append("COLLATERAL_SCOPE_NOT_ATOMIC_NAV")
-            receipt = source["receipt"]
+            receipt = source["account_receipts"].get(identity_sha[member])
+            child_receipts = {
+                key: row
+                for key, row in source["account_receipts"].items()
+                if key != identity_sha[member]
+            }
+            if child_receipts:
+                reasons.append("NON_ATOMIC_SUBACCOUNT_OBSERVATIONS")
             if receipt is None:
                 reasons.append("NO_FIRST_LOCAL_WALLET_RECEIPT")
                 source_event = None
@@ -218,9 +238,17 @@ def audit_live_paper_readiness(
                 # A strictly parent-only snapshot cannot create whole-wallet NAV.
                 if receipt.get("status") == "BLOCKED_INCOMPLETE_WHOLE_WALLET":
                     reasons.append("PARENT_ONLY_ACCOUNT_SCOPE")
+            # Distinct child accounts must contribute their signed exposure
+            # instruments to the requested market universe, even if those
+            # per-account receipts cannot be assembled into atomic NAV.
+            for child in child_receipts.values():
+                required_market.update(child["source_book"]["positions"])
             sources.append(
                 {
                     "member": member,
+                    "observed_distinct_account_count": len(source["account_receipts"]),
+                    "observed_subaccount_receipt_count": len(child_receipts),
+                    "parent_receipt_present": receipt is not None,
                     "first_local_receipts": source["cursor"],
                     "last_first_known_at": source_event,
                     "head_sha": source["head_sha"],
