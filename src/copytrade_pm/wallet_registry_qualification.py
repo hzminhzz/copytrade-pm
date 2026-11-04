@@ -42,7 +42,15 @@ def status(con: sqlite3.Connection) -> dict:
             "trading_authorized": False,
             "positive_verdicts_supported": False,
         }
+    has_proofs = con.execute(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='qualification_proofs'"
+    ).fetchone()[0]
+    signed_negative = (
+        con.execute("SELECT COUNT(*) FROM qualification_proofs").fetchone()[0] if has_proofs else 0
+    )
     return {
+        "signed_negative_proofs_indexed": signed_negative,
+        "reviewer_independence": "NOT_ESTABLISHED_BY_SIGNATURE_ALONE",
         "registry_science_integrity": "FAIL_CLOSED",
         "recorded_research_blocked_or_negative": sum(by_type.values()),
         "scientifically_qualified": "NOT_ESTABLISHED",

@@ -31,6 +31,7 @@ import json, sys
 from copytrade_pm.pm_forward_journal import PaperJournal
 from copytrade_pm.pm_forward_paper import PaperCampaign, PaperManifest
 from copytrade_pm.pm_forward_portfolios import P1, P14, PaperPortfolioView
+from copytrade_pm.pm_forward_status import paper_operator_status
 from copytrade_pm.pm03_rules import propr_rulebook
 
 root, expected_sha, portfolio_name = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
@@ -54,6 +55,12 @@ journal = PaperJournal(root)
 campaign = PaperCampaign(journal=journal)
 view = PaperPortfolioView(campaign)
 view.register(frozen, manifest)
+before = paper_operator_status(
+    root/"paper-events.sqlite3", run_id="wr_fp_cross_contract", as_of=at
+)
+assert before["health"] == "NOT_RUNNING"
+assert before["real_worker_evidence"] is False
+assert before["paper_admitted"] is False
 campaign.record_event(
     "wr_fp_cross_contract",
     "halt-only",
@@ -62,7 +69,17 @@ campaign.record_event(
 restored = journal.restore("wr_fp_cross_contract")
 assert restored["cursor"] == 1 and restored["account"]["risk"] == "HALT"
 assert view.status(portfolio_name)["worker_status"] == "NOT_RUNNING"
-print(json.dumps({"run_id": "wr_fp_cross_contract", "cursor": 1}))
+after = paper_operator_status(
+    root/"paper-events.sqlite3", run_id="wr_fp_cross_contract",
+    as_of=datetime.now(timezone.utc).isoformat()
+)
+assert after["health"] == "HALT" and after["real_worker_evidence"] is False
+assert after["paper_admitted"] is False
+print(json.dumps({
+    "run_id": "wr_fp_cross_contract", "cursor": 1,
+    "operator_before": before["health"], "operator_after": after["health"],
+    "real_worker_evidence": after["real_worker_evidence"],
+}))
 """
 
 
@@ -81,6 +98,16 @@ def main() -> int:
         raise SystemExit("FP frozen portfolio and journal modules unavailable")
     fp_head = _git(fp_root, "rev-parse", "HEAD")
     fp_dirty = bool(_git(fp_root, "status", "--porcelain"))
+    contract_files = (
+        "src/copytrade_pm/pm_forward_journal.py",
+        "src/copytrade_pm/pm_forward_paper.py",
+        "src/copytrade_pm/pm_forward_portfolios.py",
+        "src/copytrade_pm/pm_forward_status.py",
+        "src/copytrade_pm/pm03_rules.py",
+        "src/copytrade_pm/pm03_account.py",
+    )
+    if _git(fp_root, "diff", "--name-only", "HEAD", "--", *contract_files):
+        raise SystemExit("Selected FP journal/status contract modules have uncommitted changes")
     with closing(reg.connect(args.registry_db, False)) as con:
         selected = selections.select_asof(con, args.portfolio, "9999-12-31T23:59:59+00:00")
     if not selected.get("definition_sha256"):
@@ -124,6 +151,9 @@ def main() -> int:
             or observed.get("fp_portfolio_sha256") != fp_sha
             or observed.get("order_route") != "NONE"
             or observed.get("scientifically_qualified") is not False
+            or child.get("operator_before") != "NOT_RUNNING"
+            or child.get("operator_after") != "HALT"
+            or child.get("real_worker_evidence") is not False
             or before != after
         ):
             raise SystemExit("FP/WR dual-SHA contract smoke failed")
@@ -133,6 +163,7 @@ def main() -> int:
                     "smoke": "PASS",
                     "fp_head": fp_head,
                     "fp_dirty_worktree": fp_dirty,
+                    "fp_contract_modules_clean": True,
                     "portfolio": args.portfolio,
                     "fp_portfolio_sha256": fp_sha,
                     "registry_definition_sha256": selected["definition_sha256"],
@@ -140,6 +171,8 @@ def main() -> int:
                     "read_only_source_unchanged": True,
                     "registry_mutated": False,
                     "worker_state": observed["state"],
+                    "fp_operator_before": child["operator_before"],
+                    "fp_operator_after": child["operator_after"],
                     "financial_replay_verified": False,
                     "source_identity_proven": False,
                     "scientifically_qualified": False,

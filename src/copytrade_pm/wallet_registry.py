@@ -21,6 +21,7 @@ import fcntl
 
 from . import wallet_registry_portfolios as portfolio_contract
 from . import wallet_registry_qualification as qualification_contract
+from . import wallet_registry_science_proofs as scientific_proofs
 from . import wallet_registry_runs as paper_contract
 
 ADDRESS = re.compile(r"0x[0-9a-fA-F]{40}\Z")
@@ -475,6 +476,7 @@ def apply(db: Path, snapshot: dict, when: str) -> dict:
                 + portfolio_contract.SEALED_DDL
                 + paper_contract.RUN_DDL
                 + qualification_contract.DDL
+                + scientific_proofs.DDL
             )
             with con:
                 con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(1,?)", (when,))
@@ -482,6 +484,7 @@ def apply(db: Path, snapshot: dict, when: str) -> dict:
                 con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(3,?)", (when,))
                 con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(4,?)", (when,))
                 con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(5,?)", (when,))
+                con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(6,?)", (when,))
             previous = con.execute(
                 "SELECT value FROM snapshot_meta WHERE key='manifest_sha256'"
             ).fetchone()
@@ -499,6 +502,7 @@ def apply(db: Path, snapshot: dict, when: str) -> dict:
                 con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(3,?)", (when,))
                 con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(4,?)", (when,))
                 con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(5,?)", (when,))
+                con.execute("INSERT OR IGNORE INTO schema_migrations VALUES(6,?)", (when,))
                 ids = {}
                 for addr in sorted(all_addresses):
                     con.execute(
@@ -928,6 +932,11 @@ def cli(argv: list[str] | None = None) -> int:
     )
     paper.add_argument("--run-id", help="run ID when a paper journal has multiple runs")
     paper.add_argument("--apply", action="store_true", help="index in private registry only")
+    science = sub.add_parser("qualification")
+    science.add_argument("--attestation-file", type=Path)
+    science.add_argument("--evidence-file", type=Path)
+    science.add_argument("--auditor-public-key-file", type=Path)
+    science.add_argument("--apply", action="store_true", help="index verified negative only")
     args = parser.parse_args(argv)
     if args.command == "sync":
         snapshot = collect(args.root, args.tracker_env, args.decision_repo)
@@ -1105,6 +1114,44 @@ def cli(argv: list[str] | None = None) -> int:
                         if con.execute("PRAGMA foreign_key_check").fetchall():
                             raise ValueError("paper observation foreign-key error")
             print(json.dumps(paper_contract.sanitized(observed), sort_keys=True))
+    elif args.command == "qualification":
+        files = (
+            args.attestation_file,
+            args.evidence_file,
+            args.auditor_public_key_file,
+        )
+        if all(value is None for value in files):
+            if args.apply:
+                raise ValueError("qualification --apply requires independent signed evidence")
+            with closing(connect(args.db, False)) as con:
+                summary = qualification_contract.status(con)
+            print(json.dumps(summary, sort_keys=True))
+        else:
+            if any(value is None for value in files):
+                raise ValueError("three private signed negative evidence files required")
+            now = datetime.now(timezone.utc)
+            record = scientific_proofs.inspect_negative(*files, now=now)
+            with closing(connect(args.db, False)) as con:
+                known = con.execute(
+                    "SELECT 1 FROM wallets WHERE venue='hyperliquid' AND network='mainnet' "
+                    "AND address=?",
+                    (record["wallet"],),
+                ).fetchone()
+            if not known:
+                raise ValueError("negative evidence target wallet is not registered")
+            result = scientific_proofs.public_result(record)
+            if args.apply:
+                with private_lock(args.db):
+                    # Verify all private source bytes under the writer lock,
+                    # without backdating the evidence's first-known import time.
+                    again = scientific_proofs.inspect_negative(*files, now=now)
+                    if again != record:
+                        raise ValueError("private signed scientific evidence changed before import")
+                    with closing(connect(args.db, True)) as con, con:
+                        result.update(scientific_proofs.store_negative(con, record))
+            else:
+                result["stored"] = False
+            print(json.dumps(result, sort_keys=True))
     elif args.command == "portfolio":
         names = [args.name] if args.name else list(PORTFOLIOS)
         cutoff = asof_cutoff(args.asof)

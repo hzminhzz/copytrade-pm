@@ -52,6 +52,17 @@ All source database bytes remained unchanged during the read; no synthetic
 run was indexed in the owner-private live registry. Neither exercise proves
 source account completeness, genuine prospective evidence or future alpha.
 
+**Later FP-11 negative-status cross-check (2026-11-04):** the same P1 and
+P14 synthetic journals were checked against the current FP
+`paper_operator_status_v1` implementation. Before HALT, its private
+read-only report was `NOT_RUNNING`; after a committed synthetic PM03 HALT,
+it reported `HALT`. In both states `real_worker_evidence=false` and
+`paper_admitted=false`, while WR's journal-only liveness stayed
+`NOT_RUNNING`. The FP worktree was otherwise dirty with parallel source
+research: the six journal/status contract modules were checked unchanged
+relative to its current HEAD, but this is still a local smoke, not a
+deployed independent worker publisher.
+
 Reproduce this cross-branch contract (requires an FP branch checkout):
 
 ```bash
@@ -110,6 +121,6 @@ paper programs exist.
 ## Boundaries still open
 
 - FP-10 (#67) has a **verified journal/portfolio SHA read-only adapter** against the actual FP-02 writer implementation, but still needs genuine supervised worker-status/transport/quote heartbeat publication and an isolation test under registry outage. There is no live/demo provider deployment from this change.
-- WR-08 (#51) requires independently verified scientific attestation; no prospective matched outcome is imported, and `SCIENTIFICALLY_QUALIFIED` remains NOT_ESTABLISHED. SQLite v5 triggers now restrict research verdict writes to `UNQUALIFIED`, `BLOCKED` or `NOT_ESTABLISHED`, preventing any unreviewed positive/authorized promotion through this inventory. A verified signoff producer is still unavailable.
+- WR-08 (#51) has a [signed negative-only evidence importer](WALLET-REGISTRY-SIGNED-NEGATIVE-EVIDENCE-20261104.md); independently verified *positive* scientific attestation remains unavailable; no prospective matched outcome is imported, and `SCIENTIFICALLY_QUALIFIED` remains NOT_ESTABLISHED. SQLite v5 triggers now restrict research verdict writes to `UNQUALIFIED`, `BLOCKED` or `NOT_ESTABLISHED`, preventing any unreviewed positive/authorized promotion through this inventory. A verified signoff producer is still unavailable.
 - WR-10/11 require full independent fault matrix, backup/restore and controlled activation signoff. A successful fixture/mock status is **engineering** evidence only.
 - Any production order route is out of scope and rejected by this paper-only contract.
