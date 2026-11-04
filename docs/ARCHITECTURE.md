@@ -2,6 +2,10 @@
 
 **Scope:** the mainline research architecture, updated during the 2026-11-01 PR17 recovery; see [the dated disposition](RECOVERY-DISPOSITION-2026-11-01.md) for exact commits and verification. This repository was history-filtered from `hyperliquid-expert-ensemble` (see [PROVENANCE](PROVENANCE.md)). It is **not** the production wallet tracker or Telegram consensus engine. Its research code must never import a live broker/order gateway. Read [INDEX](INDEX.md) first.
 
+## Private registry boundary (2026-11-04, partial implementation)
+
+The optional `copytrade_pm.wallet_registry` module builds an owner-private SQLite **inventory** from research roster CSVs, deployed tracker desired list and read-only subscription database. It does not own subscription writes, tracker admission, source equities, financial positions, execution, scientific qualification or risk authorization. See [the operational checkpoint](WALLET-REGISTRY-STATUS-20261104.md) for what has actually been verified; a preliminary imported database is not a completed WR-01–WR-12 activation.
+
 ## Responsibility boundaries
 
 | Boundary | Owner | Inputs → outputs | Authority |
