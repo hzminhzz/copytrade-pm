@@ -50,6 +50,8 @@ VERIFY_FILES = (
     "src/copytrade_pm/wallet_registry.py",
     "src/copytrade_pm/wallet_registry_portfolios.py",
     "src/copytrade_pm/wallet_registry_catalog.py",
+    "src/copytrade_pm/wallet_registry_signed_catalog.py",
+    "docs/WALLET-REGISTRY-REVIEW-HARDENING-20261104.md",
     "docs/decisions/2026-11-04-gemini-phase6-portfolio-freeze-v2.json",
     "src/copytrade_pm/wallet_registry_fp_journal.py",
     "src/copytrade_pm/wallet_registry_runs.py",
@@ -508,8 +510,16 @@ def _rollback_locked() -> dict:
         if prior not in history:
             raise ValueError("missing previous release fingerprint")
         check_release(RELEASES / prior, {"files": history[prior]})
-        # The old source may be stale; an old pointer is never a promise of
-        # source health or qualification. No registry DB restore is performed.
+        # A code-pointer rollback must first pass the previous release's own
+        # doctor on CURRENT SQLite and CURRENT input SHAs. It is not a DB
+        # migration/restore, and never switches to an incompatible CLI.
+        try:
+            _installed_doctor(RELEASES / prior)
+        except Exception as exc:
+            raise ValueError(
+                "rollback target fails current registry/source compatibility; "
+                "preserve active release and arrange reviewed offline DB recovery"
+            ) from exc
     service_parity(before_services, services())
     commit_release(
         prior,

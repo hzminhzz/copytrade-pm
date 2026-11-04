@@ -1,5 +1,9 @@
 # SQLite wallet registry — 2026-11-04 engineering checkpoint
 
+## Reviewed hardening of the P0 catalog (schema v8 candidate, not yet released)
+
+[Review fixes and operator migration contract](WALLET-REGISTRY-REVIEW-HARDENING-20261104.md): independent member-set SHA validation, immutable sealed-member triggers, precise source-wallet hash (not a display prefix), historical selection version pinning, rollback target doctor preflight, and append-only privately signed future research selections. The new schema version is **v8 in this code**, but any previously installed on-demand registry release remains independently pinned until controlled activation. No scientific or trading status changes.
+
 ## P0 research-catalog integration (Gemini Portfolio Freeze V2)
 
 **Frozen v2 correction:** the registry-only v7 importer previously retrofilled NULL membership wallet IDs inside historical sealed P1/P14 selections using Phase-4 aliases known later than the original selection. A tested source patch prevents any further cross-version member rewrite; future alias resolution is an as-of join, not an in-place mutation. The currently installed registry-only release remains pinned independently and is **not upgraded** by merely committing this patch. Its already-mutated private historical rows require a separate reviewed recovery/repair decision; paper admission and independently attested full account NAV remain blocked. See [paper boundary contract](WALLET-REGISTRY-PAPER-CONTRACT-20261104.md).

@@ -35,6 +35,8 @@ uv run --group dev copytrade-wallet-registry paper
 
 Every root directory is `0700`, the inventory and backup are `0600`. Activation, verification, rollback and repair use a shared owner-private `operator.lock` with nonblocking filesystem locks; a concurrent operator must retry rather than race the pointer. File and directory metadata changes are fsynced. Activation and rollback restore **both** the original pointer and committed state on ordinary post-switch exceptions. The controller verifies the tracked source fingerprints and the **installed pinned release** with `uv run --offline --frozen --no-dev`. It checks restored backup SQLite integrity and foreign keys before changing the `current` pointer. No network install is authorized; unavailable offline dependencies fail the release. No existing service unit, timer, release, source or broker database is replaced.
 
+**Rollback compatibility correction:** after any schema/source-generation change, the previous release must pass its own pinned read-only `doctor` against the **current** SQLite and source generation before the release pointer can be rolled back. In particular, a historical v6 release cannot be assumed compatible with a v7/v8 inventory. An incompatible target is rejected without switching the pointer. Restoring a verified SQLite backup is a **separate reviewed offline operation**, not an automatic consequence of code rollback. See [review hardening](WALLET-REGISTRY-REVIEW-HARDENING-20261104.md).
+
 To reverse **only the pointer**:
 
 ```bash

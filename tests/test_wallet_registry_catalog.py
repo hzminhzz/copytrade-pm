@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 from contextlib import closing
 from copy import deepcopy
+from hashlib import sha256
 from pathlib import Path
 
 import pytest
@@ -18,6 +19,12 @@ REPO = Path(__file__).resolve().parents[1]
 AFTER = "2026-11-05T00:00:00+00:00"
 BEFORE = "2026-11-04T08:00:00+00:00"
 WHALE = "0x5f94" + "0" * 36
+
+
+@pytest.fixture(autouse=True)
+def _pin_synthetic_whale_for_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Unit fixtures must never need the real owner-private full wallet address.
+    monkeypatch.setattr(cat, "WHALE_ADDRESS_SHA256", sha256(WHALE.encode()).hexdigest())
 
 
 def _private_file(path: Path) -> Path:
@@ -104,7 +111,7 @@ def test_new_portfolios_are_queryable_without_overwriting_legacy_versions(
             con.execute("SELECT COUNT(DISTINCT portfolio_id) FROM portfolio_seals").fetchone()[0]
             == 11
         )
-        assert con.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == 7
+        assert con.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == 8
         current = cat.list_selection(con, AFTER)
         assert current["selection_state"] == "OWNER_APPROVED_RESEARCH_ONLY"
         assert current["portfolios"][0]["portfolio_id"] == "gemini.phase4/E6"
@@ -188,6 +195,14 @@ def test_already_retrofilled_membership_never_backdates_alias_first_known(tmp_pa
     reg.apply(db, baseline, BEFORE)
     reg.apply(db, snapshot, AFTER)
     with closing(reg.connect(db, True)) as con, con:
+        # Simulate already-corrupt legacy v7 rows despite new sealed-table
+        # immutability guards, strictly inside this disposable fixture.
+        for name in (
+            "guard_sealed_membership_update",
+            "guard_sealed_membership_delete",
+            "guard_sealed_membership_insert",
+        ):
+            con.execute(f'DROP TRIGGER IF EXISTS "{name}"')
         for name in ("P1", "P14"):
             aliases = con.execute(
                 "SELECT member_alias FROM portfolio_memberships WHERE portfolio_id=? AND version=2",

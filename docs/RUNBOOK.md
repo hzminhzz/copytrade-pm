@@ -18,6 +18,8 @@ uv run --frozen --group dev copytrade-wallet-registry paper
 uv run --frozen --group dev copytrade-wallet-registry sync --dry-run
 ```
 
+For the reviewed seal/rollback protections and the strictly manual future signed selection importer, see [registry hardening](WALLET-REGISTRY-REVIEW-HARDENING-20261104.md). No new signed selection is automatically admitted from a report; a real externally reviewed signature and key fingerprint are required.
+
 The canonical [wallet status](WALLET-STATUS.md), [registry checkpoint](WALLET-REGISTRY-STATUS-20261104.md), [paper boundary](WALLET-REGISTRY-PAPER-CONTRACT-20261104.md), [negative-only evidence contract](WALLET-REGISTRY-SIGNED-NEGATIVE-EVIDENCE-20261104.md) and [release runbook](WALLET-REGISTRY-RELEASE-RUNBOOK.md) describe read-only source collection and reversible private sync. `paper` reads independently owned FP SQLite in `mode=ro` and rejects unsupported legacy JSONL; without genuine PID/transport/quote and journal evidence, RUNNING is UNKNOWN. No raw addresses, broker orders, trading authorization, automatic source subscription, independent science signoff or forced paper activation is implied.
 
 ## 0. Preflight, source of truth, safe worktree
