@@ -743,14 +743,10 @@ def apply(db: Path, snapshot: dict, when: str) -> dict:
                         alias: ids[address]
                         for alias, address in snapshot.get("catalog_aliases", {}).items()
                     }
-                    # Source-to-identity resolution is an additive index, not
-                    # a rewrite of sealed portfolio membership or its SHA.
-                    for alias, wallet_id in alias_ids.items():
-                        con.execute(
-                            "UPDATE portfolio_memberships SET wallet_id=? "
-                            "WHERE member_alias=? AND wallet_id IS NULL",
-                            (wallet_id, alias),
-                        )
+                    # Subsequent alias evidence is not a retroactive identity
+                    # fact at the original source-selection time. Preserve
+                    # historical membership rows, including NULL wallet_id;
+                    # resolve aliases as-of at read time instead.
                     catalog.store_selection(con, snapshot["catalog_v2"], alias_ids, when)
                 for key, value in (
                     ("manifest_sha256", manifest),

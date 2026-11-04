@@ -166,10 +166,16 @@ def select_asof(con, portfolio_id: str, cutoff: str) -> dict:
     ).fetchall()
     from . import wallet_registry_catalog as catalog
 
-    resolved = [
-        wallet_id is not None and catalog.resolve_alias(con, alias, cutoff) == wallet_id
-        for alias, wallet_id in members
-    ]
+    resolved = []
+    for alias, frozen_wallet_id in members:
+        # Match later first-known alias evidence as-of without rewriting
+        # any frozen membership or backdating its source-known timestamp.
+        known_id = catalog.resolve_alias(con, alias, cutoff)
+        if frozen_wallet_id is not None and known_id is not None and frozen_wallet_id != known_id:
+            raise ValueError("frozen portfolio member identity conflicts with observed alias")
+        # Even an already-populated frozen ID is not sufficient if the
+        # registry cannot establish its alias mapping at this as-of cutoff.
+        resolved.append(known_id is not None)
     return {
         "portfolio_id": portfolio_id,
         "version": version,
