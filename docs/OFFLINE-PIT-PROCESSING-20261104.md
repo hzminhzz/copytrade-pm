@@ -14,6 +14,12 @@ certificate. See [baseline](OFFLINE-PIT-BASELINE-20261104.md) and
 | `pm_offline_eligibility` | Polars 2.1 lazy strict next-bar, event-specific eligibility, stable streaming/in-memory hash, right-censor | Connect whole-book source tape; independently verified real receipt SHA and maturity |
 | `pm_offline_market` | Native day Parquet SHA; exact namespace + minute join; prior completed bar volume; ex-post volume separate | Source market-day manifest reconciliation; resource-bounded hot partitions; full minute MTM; source calendar/session |
 | `pm_offline_cache` | Owner-private immutable SHA object keys, fsync hardlink sealed metadata, error on corruption, content-sensitive dependencies and size/disk floor | Actual compiled tape/market worker integration, restart process fault/memory benchmark |
+| `pm_offline_account` | Fixture-only sequential PM-03 Decimal Account + PM-03 execute_targets, whole-source-equity target sizing and per-minute risk marks | Integrate only verified source/market tapes and funding/contract receipts; account-lifecycle SHA journal and exact certification |
+
+The PM-03 fixture adapter uses `Account`, `evaluate`, `mark`, `verify`, and
+`execute_targets` from the existing PM-03 modules; it is not a competing
+ledger or a real-data runner. Its summary is always labeled `SYNTHETIC_PM03_*`
+and its source fixture completeness flag is not an independent attestation.
 
 All files are new offline-only modules. Frozen PM-01 v2, PM-03,
 PM-04, wallet registry and forward-paper modules are unmodified.
@@ -47,7 +53,7 @@ uv run --group dev ruff check src tests
 uv run --group dev ruff format --check src tests
 ```
 
-Until the account replay, exact financial certification, full manifest-to-report
+Until the verified-data account replay, exact financial certification, full manifest-to-report
 and end-to-end cold/warm private benchmarks are built and verified, Issues
 #81–#90 retain open or partial status. No new trades, external network source
 calls, protected service edits, private data commits or runtime restarts.
