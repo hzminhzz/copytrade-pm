@@ -175,3 +175,28 @@ scenario-minutes and 2 workers). It does not meet representative
 See [baseline](OFFLINE-PIT-BASELINE-20261104.md),
 [partial engineering checkpoint](OFFLINE-PIT-PROCESSING-20261104.md),
 [operator runbook](RUNBOOK.md) and [qualification gates](QUALIFICATION.md).
+
+## Read-only real-data Polars historical-oracle adapter (2026-11-04, PR #92)
+
+`pm_offline_repository` inspects owner-local ignored JSON files from three
+research cohorts and the canonical adjacent ML4T Hyperliquid Parquet lake. It
+reports aggregate source completeness, SHA-checked native-day coverage and
+explicit unsupported/spot coins, but **never** converts a single current
+wallet-equity scalar into historical NAV or receipt times.
+
+`pm_offline_oracle` normalizes only verified namespace-qualified perpetual
+fills into SHA-addressed source and per-fill delay tapes, 0/1/2/5/10 minutes;
+its time clock is explicitly `HISTORICAL_ORACLE`. It provides grouping and
+right-censor counts only, not PM-03 follower targets.
+
+`pm_offline_oracle_market` joins those sealed candidates against SHA-verified
+native 1m Hyperliquid opening prices and *prior completed-minute* base volume
+in bounded per-instrument Polars queries. Missing/partial/invalid market days
+are reported as unmatched, never substituted. The optimized market join
+retains byte-identical tapes versus a simpler day-by-day reference on the
+same 377,130-event full 90-day sample.
+
+None of these imports a broker, changes paper or registry ownership, or
+authorizes a real follower P&L. A complete source NAV/atomic opening book
+and independently timestamped receipt producer are **still required** for
+real PM-03 financial certification. See [dated audit and benchmarks](OFFLINE-PIT-REAL-ORACLE-20261104.md).

@@ -260,3 +260,42 @@ addresses, account rules, paid vendor pages or a raw market lake to Git.
 The cache is private 0700/0600 with 8 MiB maximum fixture artifact,
 1 GiB minimum free scratch and up to 2 workers. A corrupted/partial cache
 entry is not a cache hit; a completed scenario resumes by its pinned SHA.
+
+## Real local Polars 2.x historical timing and native-market audit (2026-11-04)
+
+The commands below are **offline, read-only against original sources**.
+They compile a `HISTORICAL_ORACLE` diagnostic, **never real financial
+or scientific qualification**. Adapt `RESEARCH_ROOT` and `NATIVE_LAKE`
+to the installed source paths; do not move the dirty main checkout's data
+into a Git worktree, and never write to the lake.
+
+```bash
+RESEARCH_ROOT=/home/quant/dev/copytrade-pm/data
+NATIVE_LAKE=/home/quant/dev/quant/ml4t-data/.data/store
+PRIVATE_CACHE=/home/quant/.cache/copytrade-polars-oracle-dev-20261104
+START=2026-08-05T00:00:00+00:00
+END=2026-11-03T00:00:00+00:00
+
+uv run --extra market --group dev python -m copytrade_pm.pm_offline_repository \
+  --source-root "$RESEARCH_ROOT" --market-root "$NATIVE_LAKE" \
+  --start "$START" --end "$END" --verify-market-sha
+uv run --extra market --group dev python -m copytrade_pm.pm_offline_oracle \
+  --source-root "$RESEARCH_ROOT" --cache-root "$PRIVATE_CACHE" \
+  --start "$START" --end "$END" --engine streaming
+uv run --extra market --group dev python -m copytrade_pm.pm_offline_oracle_market \
+  --source-root "$RESEARCH_ROOT" --market-root "$NATIVE_LAKE" \
+  --cache-root "$PRIVATE_CACHE" --start "$START" --end "$END"
+```
+
+The five-delay tape is a sealed, source-SHA-addressed private Parquet. Native
+market joins validate Parquet-day and metadata fingerprints even on warm
+cache; a changed upstream day creates a new dependent cache identity. The
+full study requires up to 4,088 instrument-day scans (maximum admitted 6,000)
+and initially uses hundreds of MiB of process RAM; check disk/swap
+headroom before scaling. Re-run with `--instrument
+hyperliquid:mainnet:perp:default:BTC` to audit a bounded subset.
+No fee, follower equity, drawdown, execution or contract PASS/BREACH is
+reported by these historical-only diagnostics.
+
+Detailed counts and reproducible output hashes:
+[real-data audit](OFFLINE-PIT-REAL-ORACLE-20261104.md).

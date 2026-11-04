@@ -97,3 +97,23 @@ fixed point is available. No contractual real PASS/BREACH is permitted
 from the current synthetic runner. A passing engineering suite is not an
 independent prospective causal study, scientifically qualified return,
 owner-approved risk, deployment or live order authorization.
+
+## Real 90-day Polars compiler versus real follower qualification (2026-11-04)
+
+The [real-data offline audit](OFFLINE-PIT-REAL-ORACLE-20261104.md)
+verified 450,172 retrospective perp fills and 322,970/377,130 batch
+observations matched to native exact minute open + preceding completed
+volume **screening context**. These are genuine local source/market bytes,
+**not** 322,970 independently executable fills or realized leader/follower
+trades. A bar's open and previous volume do not establish L2 depth, price
+impact, successful follower funding or copytrade permission.
+
+A source file's present-day equity scalar is not an historical NAV tape.
+No independent historical first-known timestamps or atomic initial
+whole-account books were verified for these 94 JSON inputs.
+`HISTORICAL_ORACLE_BATCH_SCREEN_ONLY` and
+`HISTORICAL_ORACLE_NATIVE_SCREEN_ONLY` therefore cannot produce a
+PM-03 financial PASS/BREACH, probability, qualified alpha or risk
+authorization. Only the existing PM-03 Decimal account may certify
+contractual equity/floor outcomes after full independently evidenced
+source, native execution, funding and rulebook prerequisites pass.

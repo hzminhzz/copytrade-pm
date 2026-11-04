@@ -89,3 +89,14 @@ the existing PM-01 benchmark has different oracle policy, workload and
 accounting. An independently comparable 90d/500k fills/13M 1m bar
 benchmark, memory/spill and p50/p95 are still BLOCKED by incomplete
 real-data source/equity/receipt and native sidecar evidence.
+
+## Real local source and native alignment added after synthetic checkpoint
+
+The prior sections cover the synthetic-only manifest/PM-03 fixture.
+Additional read-only, **real-source** modules now provide a strict
+90-day retrospective historical-oracle fill cache and SHA-verified native
+market matching without pretending real first-known or historical
+source equity exists. The detailed counts, source/tape/market SHA,
+same-input optimized versus original join timings and remaining
+financial gate are in the [2026-11-04 real source audit](OFFLINE-PIT-REAL-ORACLE-20261104.md). The source/market adapters remain
+independent of the synthetic PM-03 fixture and Forward-Paper policy.

@@ -192,3 +192,22 @@ realized volume is not PIT-known. Only completed preceding volume may be
 used for conservative capacity estimates and even that is **not L2**,
 adverse-selection or achievable fill proof. Do not import Binance/Bybit
 prices as Hyperliquid native or create missing market days by interpolation.
+
+## 90-day real offline Polars source inventory, read-only (2026-11-04)
+
+Read [the verified historical-oracle audit](OFFLINE-PIT-REAL-ORACLE-20261104.md)
+before inferring source capacity or real financial results. The owner has
+94 archived original research JSON files across 19 primary, 55 broader
+and 20 Nansen accounts, with 500,168 total raw fills. The stricter
+2026-08-05 to 2026-11-03 UTC end-exclusive window contains 450,172
+supported unique perp fills. Older rows are excluded and spot-style `@...`
+coin codes are **not** substituted for perps.
+
+Canonical native 1m Parquet is in the adjacent `ml4t-data` lake, with a
+per-day SHA-256 `source.json` sidecar. 6,985 of 19,440 source-observed
+instrument-days are verified complete, 90 partial, 12,365 missing; only
+44/216 markets have all 90 days. Read the original files in place and
+publish only sanitized SHA-bound research artifacts to a private cache.
+A current wallet `equity` number in a source JSON is not historical
+time-varying NAV or independently known-at receipt. Do not backfill,
+timestamp or fabricate those missing source facts.
