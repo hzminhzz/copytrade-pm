@@ -48,6 +48,7 @@ GROUPS = {
     "copytrade-pm-paper-observe": ("paper.observer", "paper", "PROTECTED_MUTATION"),
     "copytrade-pm-paper-observer-health": ("paper.observer_health", "paper", "READ_ONLY"),
     "copytrade-pm": ("operations.cli", "operations", "READ_ONLY"),
+    "copytrade-pm-agent-eval": ("agent.trace.eval", "operations", "READ_ONLY"),
 }
 # These are reviewed, individual operations, not default safety assertions
 # for the broader parent executable. No subcommand inherits READ_ONLY.
