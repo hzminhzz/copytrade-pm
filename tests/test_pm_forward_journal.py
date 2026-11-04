@@ -3,6 +3,8 @@
 from contextlib import closing
 from dataclasses import replace
 from decimal import Decimal
+import fcntl
+import os
 import sqlite3
 
 import pytest
@@ -91,6 +93,34 @@ def test_verified_online_backup_restore_and_exclusive_destination(tmp_path) -> N
         original.backup(tmp_path / "backup")
     with pytest.raises(ValueError, match="PAPER_BACKUP_SELF_OVERWRITE"):
         original.backup(original.root)
+
+
+def test_second_writer_refused_without_partial_effect(tmp_path) -> None:
+    journal = PaperJournal(tmp_path / "paper")
+    journal.register(manifest("run_1", "acct_1"))
+    fd = os.open(journal.root / "paper-events.lock", os.O_RDWR)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with pytest.raises(ValueError, match="PAPER_JOURNAL_BUSY_OR_UNAVAILABLE"):
+            journal.append("run_1", "blocked", {"kind": "HALT", "event_at": LATER})
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+    assert journal.restore("run_1")["cursor"] == 0
+
+
+def test_50_account_isolation_and_reopen(tmp_path) -> None:
+    journal = PaperJournal(tmp_path / "paper")
+    for index in range(50):
+        journal.register(manifest(f"run_{index}", f"acct_{index}"))
+    for index in range(0, 50, 2):
+        journal.append(f"run_{index}", "halt", {"kind": "HALT", "event_at": LATER})
+    reopened = PaperJournal(journal.root)
+    for index in range(50):
+        state = reopened.restore(f"run_{index}")
+        assert state["account"]["cash"] == "10000"
+        assert state["cursor"] == (1 if index % 2 == 0 else 0)
+        assert state["account"]["risk"] == ("HALT" if index % 2 == 0 else "GREEN")
 
 
 def test_tampering_detected_and_dir_private(tmp_path) -> None:
