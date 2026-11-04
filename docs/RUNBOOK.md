@@ -2,6 +2,10 @@
 
 **Scope:** the installed `copytrade-pm/main` commands checked against source/`--help` on 2026-10-31. Operations are offline by default; explicitly flagged acquisition commands can call paid/rate-limited vendors. **No live trading authority.** Begin with [INDEX](INDEX.md); for wallet fill acquisition and exact market sources read [DATA-ACQUISITION](DATA-ACQUISITION.md).
 
+## Mandatory agent lookup contract (registry-first)
+
+Before answering or changing any wallet/portfolio/evaluation status, **MUST** follow [the registry-first agent workflow](WALLET-REGISTRY-AGENT-WORKFLOW.md). Run `copytrade-wallet-registry doctor` and `status` first, bind the result to the current source generation SHA/as-of, then query `portfolio --current`, namespace-qualified `portfolio`, `wallet --alias`, `cohort`, `paper` and independently verified worker evidence as the question requires. Inspect `scripts/registry_release.py verify` separately from `git log` or a merged PR; a merged source hotfix does not automatically update the pinned registry-only consumer. On stale/missing source or post-seal identity, fail closed without inventing a running/qualified/authorized wallet. OptMem is a pointer to this rule, not the current dataset.
+
 ## Research portfolio selection and private registry (2026-11-04)
 
 New **research selection** follows [Gemini Phase 6 Portfolio Freeze V2](decisions/2026-11-04-gemini-phase6-portfolio-freeze-v2.md) and [V2 JSON](decisions/2026-11-04-gemini-phase6-portfolio-freeze-v2.json): E6 primary five-pod, E2 three-pod challenger, P1 baseline and P14 archived from new selections. All share $600 *nominal* model risk budget and a $10,000 virtual comparison basis. Gemini fixed `k` values are **not** executable follower sizing. Original P1/P14 FP paper experiments, PM01 frozen cohort and production runtime remain untouched; new studies require prospective registration and independent safeguards.
@@ -12,10 +16,12 @@ For the private SQLite read-only metadata registry (not execution/equity/qualifi
 uv run --frozen --group dev copytrade-wallet-registry status
 uv run --frozen --group dev copytrade-wallet-registry doctor
 uv run --frozen --group dev copytrade-wallet-registry portfolio
+uv run --frozen --group dev copytrade-wallet-registry portfolio --current
 uv run --frozen --group dev copytrade-wallet-registry portfolio E6
 uv run --frozen --group dev copytrade-wallet-registry wallet --alias W083
 uv run --frozen --group dev copytrade-wallet-registry paper
 uv run --frozen --group dev copytrade-wallet-registry sync --dry-run
+uv run --frozen --group dev python scripts/registry_release.py verify
 ```
 
 The canonical [wallet status](WALLET-STATUS.md), [registry checkpoint](WALLET-REGISTRY-STATUS-20261104.md), [paper boundary](WALLET-REGISTRY-PAPER-CONTRACT-20261104.md), [negative-only evidence contract](WALLET-REGISTRY-SIGNED-NEGATIVE-EVIDENCE-20261104.md) and [release runbook](WALLET-REGISTRY-RELEASE-RUNBOOK.md) describe read-only source collection and reversible private sync. `paper` reads independently owned FP SQLite in `mode=ro` and rejects unsupported legacy JSONL; without genuine PID/transport/quote and journal evidence, RUNNING is UNKNOWN. No raw addresses, broker orders, trading authorization, automatic source subscription, independent science signoff or forced paper activation is implied.
