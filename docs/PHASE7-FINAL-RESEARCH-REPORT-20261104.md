@@ -138,6 +138,49 @@ Observed market OHLCV and retroactive source position paths do not verify execut
 - Price movement caused by waiting, market impact, per-market trading constraints and participation capacity remain unmeasured; therefore neither 2m nor 5m is scientifically proven economically optimal from these outputs. A slightly lower 10m modeled turnover cost does not prove better 10m execution.
 - Compare to the original frozen 94-wallet job: its delay cases are **per-fill retrospective eligible next-minute screens**, not these non-resetting batches. The two results must not be conflated.
 
+### V.a — SHA-verified next-minute open, rather than leader-price proxy (Phase 7 continuation)
+
+A separate versioned research result now joins the *same retrospective first-event batch deadlines* to the repository's existing SHA-verifying native daily market adapter. Execution-clock policy is **strict next complete UTC minute after first-event eligibility**. The reported `next_open_float_screen_only` is a native OHLCV minute **open**, never a bid/ask trade or first-known follower receipt. The prior completed minute's base volume, not the current/future bar's volume, supplies a conservative 5% **screening** participation comparison.
+
+Across the wallet sources actually available, the run generated **21,773 batch candidates across all five delays and 351 unique instrument-day keys**, including 327 SHA-verified complete native days, 3 declared partial days and 21 unavailable days. Candidate rows are never populated from missing days. The original E6 CM-002 source remains unobserved and excluded from all complete-economics claims.
+
+| Frozen-k retrospective delay | E2 matched / total | E2 matched notional | E2 native 10bps | E6 known legs matched / total | E6 known-legs native 10bps |
+|---|---:|---:|---:|---:|---:|
+| 0m | 8,527 / 8,787 | $874,740 | $874.74 | 15,393 / 17,838 | $529.42 |
+| 1m | 922 / 940 | $843,695 | $843.69 | 1,099 / 1,154 | $510.79 |
+| 2m | 860 / 878 | $829,206 | $829.21 | 997 / 1,044 | $502.11 |
+| **5m** | **767 / 784** | **$779,883** | **$779.88** | **864 / 905** | **$472.21** |
+| 10m | 715 / 732 | $760,778 | $760.78 | 796 / 832 | $460.70 |
+
+**Capacity-specific audit at the frozen 5-minute policy:** E2 has **60** matched orders above 5% of the completed *previous-minute base volume*, and **3** matched orders with zero prior-minute volume. The corresponding E6 **known-leg-only** counts are **49** above threshold and **6** with zero prior-minute volume. The values refer to *model-k-scaled follower base quantity*, not unscaled leader order size. These conditions are research feasibility warnings; actual participation capacity requires reliable quote-side spread, depth, impact and order-book trades.
+
+**Unmodeled / not proved:** full execution cost, broker fee tiers, funding, first-known receipt delay, true next-minute bid/ask liquidity and partial-fill probabilities, protective stop-order first passage, and CM-002's remaining execution orders. The matched notional *excludes missing-day candidates*, so the figures are not complete-portfolio lifetime costs and should not be subtracted from already net Gemini results. A 5m window can reduce order count sharply while still leaving material gross traded notional and high same-minute liquidity participation.
+
+Source evidence: owner-private immutable `/home/quant/.local/share/copytrade/reports/phase7_native_open_20261104_v1.json`, SHA256 `03f6f91dcf2f6a061aa79ce776ffd53575abbc802f64cef0c66b53ae69047076`. The included native-market fingerprint is `1fb1b8df8c2286df4ca5d2d4092a75ecc7926be96ca7713e733884a06c960df7`. Reproduce with `uv run --frozen --group dev --extra market python scripts/phase7_native_open_screen.py` from this research branch; this is a separate read-only **SCREEN_ONLY** path, not a version of the mainline full-account replay or a source for scientific qualification.
+
+### V.b — CM-002 historical CSV salvage (strictly secondary evidence)
+
+The original Phase-4 **HL108 CSV already contained 7,202 CM-002 rows**, although no exact `startPosition` chain or exchange trade IDs were available. To avoid silently omitting a selected E6 member, a **separate opt-in research job** now reads this existing, SHA-pinned file without calling a provider. It validates CM-002's exact owner-private address against the versioned roster. It retains all rows as independent *CSV observations* because same-second rows cannot be deduplicated against native trade IDs.
+
+Of these 7,202 source rows, **5,887** are supported 90-day default-perp second-precision event records; **1,305** are outside default-perp DEX scope and **10** fall outside the requested study window. The 1,305 unsupported DEX fills (not necessarily zero exposure) are excluded from all calculations; **none** may be interpreted as flat.
+
+**What changes with these lower-confidence observations:**
+
+| 5m retrospective native-open screen | E2 (stronger raw-TID source) | E6 with second-precision CM-002 supplement |
+|---|---:|---:|
+| Candidate batches | 784 | **2,012** |
+| Matched exact native opens | 767 | **1,826** |
+| Matched coverage | 97.83% | **90.76%** |
+| Matched follower-notional proxy | $779,883 | **$487,235** |
+| Illustrative matched-only 10bps fee | $779.88 | **$487.24** |
+| Above 5% previous-minute participation | 60 | **72** |
+| Zero previous-minute volume | 3 | **13** |
+| Missing exact native day / partial day | 14 / 3 | **178 / 8** |
+
+**Interpretation:** CM-002 may contribute many small batches and significantly more missing-market cases even though its frozen `k=0.00231` makes its *modeled notional* contribution modest. These are separate **coverage tiers**; a second-precision CSV event is not a certified exchange fill, source holding, time-known follower intent or economic return. **E6 remains scientifically incomplete**, and Phase 6A's optimistic stop/DD claims remain unverified. Do not use this secondary tape as a substitute for real CM-002 initial books, funding, NAV or first-known receipts.
+
+Private SHA result: `/home/quant/.local/share/copytrade/reports/phase7_secondary_cm002_native_open_20261104_v1.json`; SHA256 `a9d3ecb7c711fc92bb01b4a56e1d35b6d91e2083a5ccd9fca4624be6b193c1a6`. Reproduce separately using `uv run --frozen --group dev --extra market python scripts/phase7_secondary_cm002_screen.py`; the primary `phase7_native_open_20261104_v1.json` remains unchanged and never mixes weak-source rows.
+
 ## VI. Additional candidate investigation and exclusions
 
 The existing bounded 13-wallet *Stage 1* source-turnover screen evaluated **285 three-wallet** and **1,242 five-wallet** combinations with top-ten tables in [the Phase 7 stage report](PHASE7-NATIVE-MINUTE-EXPOSURE-20261104.md). Those rankings measure **gross traded coin composition**, not holding risk, source-equity fitness, matched losses or actual available liquidity. The first-ranked three-wallet screen was `C021-NEAR + ACT34 + ACT39`; the first five-wallet screen was `C021-NEAR + VS030 + ACT34 + N19 + ACT39`. **No selection from these lists is promoted to a recommended alternative.** In particular, a wallet trading one asset with little overlap may *appear* diversified just because its coin is different; that is insufficient to establish economic independence.
@@ -165,11 +208,13 @@ Scripts (isolated research PR only, without changes to PM03 financial authority)
 uv run --extra market --group dev python scripts/phase7_native_exposure.py --cap-coins 30
 uv run --extra market --group dev python scripts/phase7_conditional_stress.py --cap-coins 12
 uv run --extra market --group dev python scripts/phase7_delay_cost_screen.py
+uv run --extra market --group dev python scripts/phase7_native_open_screen.py
+uv run --extra market --group dev python scripts/phase7_secondary_cm002_screen.py
 uv run --extra market --group dev python scripts/phase7_universe_screen.py
 uv run --extra market --group dev python scripts/phase7_candidate_screen.py /home/quant/.local/share/copytrade/reports/phase7_universe_20261104_v2.json
 ```
 
-All scripts are read-only except explicit new, non-overwriting research `--output` files. Dataset SHA, privacy and source-alias mappings remain owner-private. This report contains **no raw on-chain address map**.
+All scripts are read-only except explicit new, non-overwriting research `--output` files. Private alias-to-address binding is now exact-match against the separate Gemini identity evidence (especially the ambiguously named whale), with missing evidence failing closed. Dataset SHA, privacy and source-alias mappings remain owner-private. This report contains **no raw on-chain address map**.
 
 | Owner-private artifact | SHA-256 |
 |---|---|
@@ -178,6 +223,8 @@ All scripts are read-only except explicit new, non-overwriting research `--outpu
 | `phase7_native_exposure_20261104_v1.json` | `28acb92b37936888339304109963d6c14911055b0492ad65c07bca7ca7379713` |
 | `phase7_conditional_stress_20261104_v3.json` | `e6a38c47dac15ba249f076d7831b470590670285af3da35922b68f45f0dacf9a` |
 | `phase7_delay_cost_20261104_v1.json` | `ba778e6094e9b69186fc1a2617cde3b3c8f221ace3c4915d602933c9ee16299b` |
+| `phase7_native_open_20261104_v1.json` and reproducibility check `v2` | `03f6f91dcf2f6a061aa79ce776ffd53575abbc802f64cef0c66b53ae69047076` |
+| `phase7_secondary_cm002_native_open_20261104_v1.json` | `a9d3ecb7c711fc92bb01b4a56e1d35b6d91e2083a5ccd9fca4624be6b193c1a6` |
 
 **Missing for faithful PM03 account certification:** independent first-known source receipts, atomic initial whole books for every DEX/subaccount, a historical time-series source NAV/collateral/funding ledger, verified liquidity/quote-side and fill latency, user-approved broker rules and independent matured matched follower/control outcomes. None should be fabricated to make a prettier portfolio report.
 

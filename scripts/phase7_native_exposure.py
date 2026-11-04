@@ -3,6 +3,7 @@
 Reconstructs only source position intervals whose two endpoint fills agree.
 Uses historical native minute close marks; never interprets event time as receipt.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -28,31 +29,59 @@ PORTFOLIOS = {
     "E3": ["ACT04", "CM-002", "S053-HYPE"],
     "P14": ["S035-ENA", "S051-BTC", "S053-HYPE", "S064-xyz:BRENTOIL", "Whale_0x5f94"],
 }
+
+
 def _load_private_aliases() -> dict[str, str]:
-    """Resolve approved names from owner-private roster, never from Git."""
+    """Resolve names by exact private identity evidence and the dated source roster.
+
+    In particular, a generic display label plus a four-hex address prefix is
+    NEVER sufficient to bind the frozen whale. Missing private proof fails closed.
+    """
     roster = BASE / "docs/HL108_QUALIFIED_ROSTER_SUMMARY_20261103.csv"
     if not roster.is_file():
         return {}
+    private_evidence = BASE / "data/private/gemini_phase3_phase4_eligibility_20261104.json"
+    if private_evidence.is_file():
+        payload = json.loads(private_evidence.read_text())
+        identities = payload.get("wallets", {})
+        if not isinstance(identities, dict):
+            raise ValueError("INVALID_PRIVATE_IDENTITY_EVIDENCE")
+    else:
+        identities = {}
     synonym = {
-        "S035-ENA": "W016", "S051-BTC": "W080", "S053-HYPE": "W083",
+        "S035-ENA": "W016",
+        "S051-BTC": "W080",
+        "S053-HYPE": "W083",
         "S064-xyz:BRENTOIL": "W100",
+        "Whale_0x5f94": "HL Perps Whale",
     }
     requested = set(x for members in PORTFOLIOS.values() for x in members)
     resolved: dict[str, str] = {}
     with roster.open(newline="") as handle:
         for row in csv.DictReader(handle):
-            address = row.get("address", "").lower()
+            address = str(row.get("address", "")).lower()
             if not address.startswith("0x") or len(address) != 42:
                 continue
             for alias in requested:
                 expected = synonym.get(alias, alias)
-                same_alias = row.get("alias") == expected
-                whale = alias == "Whale_0x5f94" and row.get("alias") == "HL Perps Whale" \
-                    and address.startswith(alias.split("_")[-1])
-                if same_alias or whale:
-                    if alias in resolved and resolved[alias] != address:
-                        raise ValueError(f"conflicting private alias {alias}")
-                    resolved[alias] = address
+                if row.get("alias") != expected:
+                    continue
+                evidence = identities.get(expected)
+                if alias == "Whale_0x5f94" and not isinstance(evidence, dict):
+                    continue  # no source-of-truth exact match
+                if isinstance(evidence, dict):
+                    exact = str(evidence.get("address", "")).lower() == address
+                    if alias == "Whale_0x5f94" and not exact:
+                        continue  # same generic label belongs to another whale
+                    if (
+                        evidence.get("identity_status") != "PASS_PRIVATE_SOURCE_ROSTER"
+                        or evidence.get("excluded") is not False
+                        or not exact
+                    ):
+                        raise ValueError("CONFLICTING_PRIVATE_SOURCE_IDENTITY")
+                if alias in resolved and resolved[alias] != address:
+                    raise ValueError("CONFLICTING_SOURCE_ROSTER_ALIAS")
+                resolved[alias] = address
     return resolved
 
 
@@ -61,7 +90,11 @@ ALIASES = _load_private_aliases()
 
 def source_files(root: Path) -> dict[str, Path]:
     found = {}
-    for directory in ("wallet_fills_90d", "broader_active_inventory_fills_90d", "nansen_smart_money_fills_90d"):
+    for directory in (
+        "wallet_fills_90d",
+        "broader_active_inventory_fills_90d",
+        "nansen_smart_money_fills_90d",
+    ):
         for path in (root / directory).glob("*.json"):
             # Require exact byte-backed source address, not a filename, prefix
             # substring, or ambiguous vendor display name.
@@ -93,9 +126,13 @@ def consistent_intervals(raw: list[dict]) -> tuple[list[dict], dict]:
         try:
             starting = float(f["startPosition"])
             size = float(f["sz"])
-            if not all(map(math.isfinite, (starting, size))) or size <= 0 or f["side"] not in ("B", "A"):
+            if (
+                not all(map(math.isfinite, (starting, size)))
+                or size <= 0
+                or f["side"] not in ("B", "A")
+            ):
                 continue
-        except (KeyError, TypeError, ValueError):
+        except KeyError, TypeError, ValueError:
             continue
         groups[coin].append((int(ms), i, starting, size if f["side"] == "B" else -size))
         eligible += 1
@@ -136,6 +173,7 @@ def native_marks(coin: str, start_ms: int, end_ms: int) -> pl.DataFrame | None:
     first = datetime.fromtimestamp(start_ms / 1000, tz=timezone.utc).date()
     last = datetime.fromtimestamp((end_ms - 1) / 1000, tz=timezone.utc).date()
     from datetime import timedelta
+
     day, paths = first, []
     while day <= last:
         folder = directory / f"year={day.year}" / f"month={day.month:02d}" / f"day={day.day:02d}"
@@ -148,19 +186,25 @@ def native_marks(coin: str, start_ms: int, end_ms: int) -> pl.DataFrame | None:
                 actual = hashlib.sha256(parquet.read_bytes()).hexdigest()
                 if claimed == actual and manifest.get("bars") == 1440:
                     paths.append(str(parquet))
-            except (OSError, ValueError, TypeError):
+            except OSError, ValueError, TypeError:
                 pass  # missing or unverifiable day is not native evidence
         day += timedelta(days=1)
     if not paths:
         return None
     try:
-        bars = pl.scan_parquet(paths, hive_partitioning=False).select(
-            pl.col("timestamp").dt.replace_time_zone("UTC").dt.cast_time_unit("ms").alias("ts"),
-            pl.col("close").cast(pl.Float64).alias("close"),
-        ).filter(
-            (pl.col("ts").dt.epoch("ms") >= start_ms)
-            & (pl.col("ts").dt.epoch("ms") < end_ms)
-        ).collect().sort("ts").unique(subset=["ts"], keep="first")
+        bars = (
+            pl.scan_parquet(paths, hive_partitioning=False)
+            .select(
+                pl.col("timestamp").dt.replace_time_zone("UTC").dt.cast_time_unit("ms").alias("ts"),
+                pl.col("close").cast(pl.Float64).alias("close"),
+            )
+            .filter(
+                (pl.col("ts").dt.epoch("ms") >= start_ms) & (pl.col("ts").dt.epoch("ms") < end_ms)
+            )
+            .collect()
+            .sort("ts")
+            .unique(subset=["ts"], keep="first")
+        )
         return bars.with_columns(pl.col("ts").dt.epoch("ms").alias("ms")).select("ms", "close")
     except Exception:
         return None
@@ -174,7 +218,10 @@ def evaluate(root: Path, cap_coins: int = 30) -> dict:
     counts = {}
     for alias in ALIASES:
         if alias not in paths:
-            counts[alias] = {"source_status": "NO_RAW_START_POSITION_SOURCE", "supported_nonflat_intervals": 0}
+            counts[alias] = {
+                "source_status": "NO_RAW_START_POSITION_SOURCE",
+                "supported_nonflat_intervals": 0,
+            }
             continue
         path = paths[alias]
         source_shas[alias] = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -206,25 +253,34 @@ def evaluate(root: Path, cap_coins: int = 30) -> dict:
         for alias, evs in by_wallet.items():
             frame = pl.DataFrame(evs).sort("start_ms")
             # Nonoverlapping intervals; mark bars only when source position is proven through the NEXT fill.
-            marked = bars.join_asof(frame, left_on="ms", right_on="start_ms", strategy="backward").filter(
-                pl.col("ms") < pl.col("end_ms")
-            ).select("ms", "close", "qty").with_columns(
-                (pl.col("qty") * pl.col("close")).alias("signed_notional")
+            marked = (
+                bars.join_asof(frame, left_on="ms", right_on="start_ms", strategy="backward")
+                .filter(pl.col("ms") < pl.col("end_ms"))
+                .select("ms", "close", "qty")
+                .with_columns((pl.col("qty") * pl.col("close")).alias("signed_notional"))
             )
             if marked.is_empty():
                 continue
-            marked = marked.with_columns(
-                pl.col("ms").shift(1).alias("prev_ms"),
-                pl.col("close").shift(1).alias("prev_close"),
-                pl.col("qty").shift(1).alias("prev_qty"),
-            ).with_columns(
-                pl.when(
-                    (pl.col("ms") - pl.col("prev_ms") == 60_000)
-                    & ((pl.col("qty") - pl.col("prev_qty")).abs() <= 1e-10)
-                ).then(pl.col("qty") * (pl.col("close") - pl.col("prev_close")))
-                .otherwise(None).alias("hold_only_one_minute_change_usd")
-            ).drop("prev_ms", "prev_close", "prev_qty")
-            observations.setdefault(alias, []).append(marked.with_columns(pl.lit(coin).alias("coin")))
+            marked = (
+                marked.with_columns(
+                    pl.col("ms").shift(1).alias("prev_ms"),
+                    pl.col("close").shift(1).alias("prev_close"),
+                    pl.col("qty").shift(1).alias("prev_qty"),
+                )
+                .with_columns(
+                    pl.when(
+                        (pl.col("ms") - pl.col("prev_ms") == 60_000)
+                        & ((pl.col("qty") - pl.col("prev_qty")).abs() <= 1e-10)
+                    )
+                    .then(pl.col("qty") * (pl.col("close") - pl.col("prev_close")))
+                    .otherwise(None)
+                    .alias("hold_only_one_minute_change_usd")
+                )
+                .drop("prev_ms", "prev_close", "prev_qty")
+            )
+            observations.setdefault(alias, []).append(
+                marked.with_columns(pl.lit(coin).alias("coin"))
+            )
 
     summary = {}
     combined_marks = {}
@@ -250,17 +306,21 @@ def evaluate(root: Path, cap_coins: int = 30) -> dict:
             "peak_gross_usd": round(grouped["gross"].max(), 2),
             "max_concurrent_coins": grouped["open_coin_count"].max(),
             "hold_only_marked_minutes": grouped.filter(pl.col("hold_only_valid_coins") > 0).height,
-            "worst_one_minute_hold_only_change_usd": round(grouped.filter(pl.col("hold_only_valid_coins") > 0)["hold_only_change"].min(), 2),
+            "worst_one_minute_hold_only_change_usd": round(
+                grouped.filter(pl.col("hold_only_valid_coins") > 0)["hold_only_change"].min(), 2
+            ),
             "source_sha256": source_shas[alias],
         }
     pair_stats = {}
     for a, b in itertools.combinations(combined_marks, 2):
-        joined = combined_marks[a].join(
-            combined_marks[b], on=["ms", "coin"], how="inner", suffix="_other"
-        ).filter((pl.col("signed_notional") != 0) & (pl.col("signed_notional_other") != 0))
+        joined = (
+            combined_marks[a]
+            .join(combined_marks[b], on=["ms", "coin"], how="inner", suffix="_other")
+            .filter((pl.col("signed_notional") != 0) & (pl.col("signed_notional_other") != 0))
+        )
         if joined.is_empty():
             continue
-        agreement = (pl.col("signed_notional") * pl.col("signed_notional_other") > 0)
+        agreement = pl.col("signed_notional") * pl.col("signed_notional_other") > 0
         pair_stats[f"{a}|{b}"] = {
             "same_coin_overlap_minutes": joined.height,
             "same_direction_overlap_minutes": joined.filter(agreement).height,
@@ -269,8 +329,10 @@ def evaluate(root: Path, cap_coins: int = 30) -> dict:
         }
     portfolio_stats = {}
     for name, members in PORTFOLIOS.items():
-        pair_names = [f"{a}|{b}" if f"{a}|{b}" in pair_stats else f"{b}|{a}"
-            for a, b in itertools.combinations(members, 2)]
+        pair_names = [
+            f"{a}|{b}" if f"{a}|{b}" in pair_stats else f"{b}|{a}"
+            for a, b in itertools.combinations(members, 2)
+        ]
         available = [pair_stats[p] for p in pair_names if p in pair_stats]
         matching = sum(x["same_direction_overlap_minutes"] for x in available)
         opposing = sum(x["opposite_direction_overlap_minutes"] for x in available)
@@ -280,13 +342,23 @@ def evaluate(root: Path, cap_coins: int = 30) -> dict:
             "member_coverage": coverage,
             "pair_comparisons_observed": len(available),
             "pair_comparisons_expected": len(pair_names),
-            "same_direction_share_of_observed_same_coin_pair_minutes": round(matching / (matching + opposing), 4) if matching + opposing else None,
+            "same_direction_share_of_observed_same_coin_pair_minutes": round(
+                matching / (matching + opposing), 4
+            )
+            if matching + opposing
+            else None,
             "same_direction_pair_minutes": matching,
             "opposite_direction_pair_minutes": opposing,
             "full_account_follower_pnl": None,
             "max_trailing_dd": None,
         }
-    return {"scope": "CONDITIONAL_SOURCE_POSITION_CHAIN_NOT_ACCOUNT_EQUITY", "window_utc": ["2026-08-05", "2026-11-03"], "wallets": summary, "portfolios": portfolio_stats, "pair_overlap": pair_stats}
+    return {
+        "scope": "CONDITIONAL_SOURCE_POSITION_CHAIN_NOT_ACCOUNT_EQUITY",
+        "window_utc": ["2026-08-05", "2026-11-03"],
+        "wallets": summary,
+        "portfolios": portfolio_stats,
+        "pair_overlap": pair_stats,
+    }
 
 
 def main() -> None:
