@@ -58,6 +58,44 @@ New observed overlap diagnostic: S053-HYPE and Whale_0x5f94 had 138,910 supporte
 
 **Retain the currently approved E6 primary / E2 challenger / P1 baseline. No changes or activation.** The new evidence is not sufficient to replace a frozen portfolio, choose a superior five-wallet combination, or certify source/follower economics.
 
-The requested 10+10 ranked candidate study, full candidate-universe risk scoreboard, cost/delay economic sweeps, 14 contractual shock tests, completeness-adjusted portfolio ranking, independent effective bets, and robustness are **not completed** in this result. Neither missing values nor incomplete coverage have been converted to zeros or synthetic PASS outcomes. Phase 6B private risk artifacts and open PR #74 are separate existing work and are not merged/overwritten.
+The **10+10 Stage-1 candidate shortlists** and 188-address source inventory below are now completed as **screen-only** results. A financially evaluated 10+10 ranking, full risk-quality scoreboard, cost/delay economic sweeps, 14 contractual shock tests, completeness-adjusted portfolio ranking, independent effective bets, and robustness are **not completed** in this result. Neither missing values nor incomplete coverage have been converted to zeros or synthetic PASS outcomes. Phase 6B private risk artifacts and open PR #74 are separate existing work and are not merged/overwritten.
 
 To reproduce, execute the script above with the same immutable source inputs. Compare the resulting JSON hash before drawing conclusions; never insert the owner-private addresses into a public research summary.
+
+## Bounded Stage 1 — 188-wallet address-canonical source inventory
+
+The separate first-stage scan combines original 94-source JSON files, the HL108 report with 108 addresses, and the Phase5 50-address cohort, deduplicating **by 42-character address**, not by display alias. There are **188 distinct addresses**: 56 provisional source/activity candidates, 77 WATCH and 55 REJECT under the **screen-only** rules. This inventory is an independent research source view, not a claim that the authoritative installed SQLite registry has 188 members. The latter has a separate 158-wallet research cohort and 264-monitor roster at its verified generation.
+
+The screen accounts for 40 distinct days, retrospective last-fill age, main-perp fraction, churn, and the 47-address private prop-firm denylist (22 owner research exclusions + 25 additional model-conditional prop restrictions, **not 47 permanent research exclusions**). It flags missing as-of current equity, incomplete source books and absent native-market per-wallet coverage. `CANDIDATE_UNVERIFIED` is **not** a risk-quality grade or account-eligibility certificate. Static vendor `equity` fields are not historical NAV; no alternative manager has been promoted.
+
+Private SHA-sealed inventory: `/home/quant/.local/share/copytrade/reports/phase7_universe_20261104_v2.json`, SHA256 `2cef0d3a2c28de70a1991043a58de45fc226d6a8ec56b22960c5133909da45ff`.
+
+## Bounded Stage 1 — 10 + 10 screen-only combination candidates
+
+The bounded screen selects 13 of the provisional candidates for low-same-coin **gross traded notional composition**; removes rejected wallets, any unsupported HIP-3/spot namespace and hardcoded retrospective frozen benchmark overrides; and enumerates 285 three-wallet + 1,242 five-wallet combinations (fixed 90-day history, known from Gemini: **not OOS**). `score_screen_only` is a transparent heuristic favoring heterogeneous traded coins and manageable churn; **do not interpret the numbers as portfolio downside risk, effective independent bets, alpha or follower economics.** In particular source **fill turnover does not equal actual simultaneously held exposure** and may reward missing inventory or market-risk correlation. The exact frozen E2/E6/P1/E3/P14 are evaluated separately as mandatory controls, regardless of the screen result.
+
+| Rank (screen only) | 3-wallet aliases | 5-wallet aliases |
+| --- | --- | --- |
+| 1 | C021-NEAR, ACT34, ACT39 | C021-NEAR, VS030, ACT34, N19, ACT39 |
+| 2 | ACT34, N19, ACT39 | C021-NEAR, ACT34, N001-HYPE, N19, ACT39 |
+| 3 | ACT34, N001-HYPE, ACT39 | C021-NEAR, VS035, ACT34, N19, ACT39 |
+| 4 | C021-NEAR, ACT34, W031 | C021-NEAR, ACT34, H23, N19, ACT39 |
+| 5 | C021-NEAR, VS035, ACT34 | C021-NEAR, VS030, ACT34, N001-HYPE, ACT39 |
+| 6 | VS030, ACT34, ACT39 | C021-NEAR, ACT34, H23, N001-HYPE, ACT39 |
+| 7 | ACT34, H23, ACT39 | C021-NEAR, VS035, ACT34, N001-HYPE, ACT39 |
+| 8 | C021-NEAR, VS030, ACT34 | ACT34, H23, N001-HYPE, N19, ACT39 |
+| 9 | VS035, ACT34, N19 | C021-NEAR, ACT34, N19, ACT39, W031 |
+| 10 | C021-NEAR, ACT34, N19 | VS030, ACT34, N001-HYPE, N19, ACT39 |
+
+Private immutable candidate result: `/home/quant/.local/share/copytrade/reports/phase7_candidate_screen_20261104_v4.json`, SHA256 `f36d0fa4ac807d8d570cffb76387e990a6bb62073541fbd5dd3cce1190e3547f`.
+
+Existing frozen controls from this same cheap screen: E2 mean pair gross fill-turnover overlap 0.2445; E6 0.2487. **These near-equal retrospective fill-turnover scores do not overturn either portfolio or establish a better alternative**. Missing historical source-equity, risk-budget scaling, mark-to-market comparison for shortlisted candidates, costs, and stop conditions are still gating.
+
+Reproduce first-stage inventory and cheap combination shortlists:
+
+```bash
+uv run --extra market --group dev python scripts/phase7_universe_screen.py --output /home/quant/.local/share/copytrade/reports/phase7_universe_YOUR_NEW_VERSION.json
+uv run --extra market --group dev python scripts/phase7_candidate_screen.py /home/quant/.local/share/copytrade/reports/phase7_universe_YOUR_NEW_VERSION.json --output /home/quant/.local/share/copytrade/reports/phase7_candidates_YOUR_NEW_VERSION.json
+```
+
+Use fresh, nonexisting output paths; both entrypoints refuse immutable report overwrites. No owner-private rows or address mappings are added to the PR.
