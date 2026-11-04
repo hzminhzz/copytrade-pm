@@ -27,6 +27,30 @@ Do **not** infer active workers from these selection records. Keep paper source 
 
 ## WR-07 — provisional consumer for FP-10
 
+**Important live coordination note (2026-11-04): draft FP PR #73 already defines
+`paper_run_manifest_v1` and `paper_run_status_v1` with DIFFERENT field
+envelopes from this provisional registry projection. This is a KNOWN CONTRACT
+MISMATCH, NOT A VALID SHARED v1:**
+
+| Field / source | FP-01/FP-02 in draft PR #73 | Registry provisional reader in PR #57 |
+| --- | --- | --- |
+| Portfolio digest | `portfolio_sha` | `portfolio_definition_sha256` + `portfolio_version` |
+| Policy/release | `policy_sha`, `release_sha`, `market_manifest_sha`, `selected_at`, `started_at` | Not yet shared as primary run attestation |
+| Financial journal | Private WAL/FULL `paper-events.sqlite3` and `PaperJournal` | Presence-check of private `events.jsonl`; never opened for replay |
+| Worker status | `worker_status=NOT_RUNNING`, `admission=BLOCKED`, no durable worker heartbeat yet | Requires worker PID/start ticks, worker/feed/quote heartbeat |
+| Financial authority | PM03 Account + own `PaperJournal` | Registry **never** owns financial state |
+
+**Decision:** do not invent live worker status, rename FP fields under PR #73,
+write into the paper journal, or treat a matching schema label as validated
+cross-program integration. A dedicated synthetic regression confirms that
+FP-01/FP-02's NOT_RUNNING/BLOCKED prototype returns UNKNOWN/INVALID_SCHEMA
+in the provisional registry adapter. FP-10 #67 must reconcile one exact
+authoritative schema at the publisher/registry boundary when the independently
+built forward-paper runtime reaches its integration gate; both projects remain
+isolated until that review. The rest of this section specifies the current
+**registry-only experimental projection**, not the agreed final FP-10 protocol.
+
+
 A distinct paper worker must publish owner-private **0600**, bounded JSON files in a **0700** directory, with no symlinks:
 
 - `manifest.json`, schema `paper_run_manifest_v1`: unique `run_id`, `portfolio_id`, `portfolio_version`, exact `portfolio_definition_sha256`, separate `account_id`, `journal_name="events.jsonl"`, `environment="PAPER"`, `order_route="NONE"`.

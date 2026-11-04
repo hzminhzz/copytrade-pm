@@ -186,6 +186,55 @@ def test_registry_indexes_distinct_paper_runs_with_account_isolation(
         assert con.execute("SELECT COUNT(*) FROM portfolio_runs").fetchone()[0] == 1
 
 
+def test_concurrent_fp01_v1_schema_is_not_mistaken_for_running_publisher(
+    tmp_path: Path,
+) -> None:
+    """FP PR73 defines an in-memory v1 that is NOT a durable worker projection.
+
+    The schema names are shared but the envelope is not yet compatible; fail
+    closed until FP-10 coordinates a verified publisher/registry adapter.
+    """
+    run_dir, selection = _payloads(tmp_path, run_id="fp73-compat")
+    manifest = {
+        "schema": "paper_run_manifest_v1",
+        "run_id": "fp73-compat",
+        "account_id": "isolated-demo-only",
+        "portfolio_sha": selection["definition_sha256"],
+        "market_manifest_sha": "b" * 64,
+        "release_sha": "c" * 64,
+        "selected_at": "2026-11-04T03:30:00+00:00",
+        "started_at": "2026-11-04T03:30:00+00:00",
+        "rulebook": {},
+        "policy_sha": "d" * 64,
+        "order_route": "NONE",
+        "evidence_class": "FORWARD_PAPER_SIMULATED_v1",
+    }
+    status = {
+        "schema": "paper_run_status_v1",
+        "run_id": "fp73-compat",
+        "account_id": "isolated-demo-only",
+        "manifest_sha": "a" * 64,
+        "release_sha": "c" * 64,
+        "portfolio_sha": selection["definition_sha256"],
+        "policy_sha": "d" * 64,
+        "order_route": "NONE",
+        "evidence_class": "FORWARD_PAPER_SIMULATED_v1",
+        "worker_status": "NOT_RUNNING",
+        "admission": "BLOCKED",
+        "blockers": ["NO_PROSPECTIVE_SOURCE_ADMISSION", "WORKER_NOT_STARTED"],
+        "cursor": 0,
+        "journal_head_sha": None,
+    }
+    _private_write(run_dir / "manifest.json", json.dumps(manifest).encode())
+    _private_write(run_dir / "status.json", json.dumps(status).encode())
+    (run_dir / "events.jsonl").unlink()
+    _private_write(run_dir / "paper-events.sqlite3", b"synthetic")
+    report = runs.inspect_run(run_dir, selection, now=NOW)
+    assert report["state"] == "UNKNOWN"
+    assert report["reason"] == "INVALID_SCHEMA"
+    assert report["trading_authorized"] is False
+
+
 def test_missing_worker_status_is_unknown_not_running(tmp_path: Path) -> None:
     run_dir, selection = _payloads(tmp_path)
     (run_dir / "status.json").unlink()
