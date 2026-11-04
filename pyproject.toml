@@ -32,6 +32,7 @@ copytrade-pm-paper-status = "copytrade_pm.pm_forward_status:main"
 copytrade-pm-paper-report = "copytrade_pm.pm_forward_report:main"
 copytrade-pm-paper-preflight = "copytrade_pm.pm_forward_release:main"
 copytrade-pm-market-ccxt = "copytrade_pm.pm_forward_ccxt_market:main"
+copytrade-pm-market-stream = "copytrade_pm.pm_forward_market_stream:main"
 
 [build-system]
 requires = ["hatchling"]

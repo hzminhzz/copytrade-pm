@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from contextlib import closing, contextmanager
 from dataclasses import dataclass
+from decimal import Decimal
 import fcntl
 import json
 import os
@@ -75,6 +76,23 @@ class PaperJournal:
                     known_at TEXT NOT NULL,
                     PRIMARY KEY (instrument, seq),
                     UNIQUE (instrument, quote_id)
+                );
+                CREATE TABLE IF NOT EXISTS market_trade_heads (
+                    instrument TEXT PRIMARY KEY,
+                    cursor INTEGER NOT NULL,
+                    known_at TEXT NOT NULL,
+                    chain_sha TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS market_trade_batches (
+                    instrument TEXT NOT NULL REFERENCES market_trade_heads(instrument),
+                    seq INTEGER NOT NULL,
+                    batch_sha TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    prior_sha TEXT NOT NULL,
+                    chain_sha TEXT NOT NULL,
+                    known_at TEXT NOT NULL,
+                    PRIMARY KEY (instrument, seq),
+                    UNIQUE (instrument, batch_sha)
                 );
                 CREATE TABLE IF NOT EXISTS source_receipts (
                     source_id TEXT NOT NULL,
@@ -772,6 +790,202 @@ class PaperJournal:
         }
 
     @staticmethod
+    def _validate_market_trade_batch(batch: dict) -> None:
+        if not isinstance(batch, dict):
+            raise ValueError("PAPER_CCXT_TRADE_BATCH_INVALID")
+        if (
+            batch.get("schema") != "paper_ccxt_trade_cache_observation_v1"
+            or not isinstance(batch.get("instrument"), str)
+            or not batch["instrument"]
+            or not isinstance(batch.get("stream_epoch"), str)
+            or not batch["stream_epoch"]
+            or batch.get("broker_order_route") != "NONE"
+            or batch.get("trade_volume_complete") is not False
+            or batch.get("executable_volume_base") is not None
+            or batch.get("paper_observed") is not False
+        ):
+            raise ValueError("PAPER_CCXT_TRADE_EVIDENCE_UNTRUSTED")
+        try:
+            known = clock(batch["first_known_at"])
+            rows = batch["trades"]
+            baseline = batch["status"] == "BASELINE_RETROSPECTIVE_NOT_ELIGIBLE"
+            if not isinstance(rows, list) or (baseline and rows):
+                raise ValueError
+            if batch["status"] not in (
+                "BASELINE_RETROSPECTIVE_NOT_ELIGIBLE",
+                "PARTIAL_LOCAL_TRADES",
+            ):
+                raise ValueError
+            if batch["new_local_trade_count"] != len(rows):
+                raise ValueError
+            if number(batch["observed_volume_base"]) != sum(
+                (number(row["amount_base"]) for row in rows), Decimal("0")
+            ):
+                raise ValueError
+            seen = set()
+            for row in rows:
+                if (
+                    row.get("instrument") != batch["instrument"]
+                    or row.get("broker_order_route") != "NONE"
+                    or row.get("provider_signed") is not False
+                    or row.get("source") != "CCXT_PRO_HYPERLIQUID_PUBLIC_TRADES"
+                    or not isinstance(row.get("native_trade_id"), str)
+                    or not row["native_trade_id"]
+                    or row["native_trade_id"] in seen
+                    or number(row["price"]) <= 0
+                    or number(row["amount_base"]) <= 0
+                    or clock(row["source_event_at"]) > clock(row["first_known_at"])
+                    or clock(row["first_known_at"]) != known
+                ):
+                    raise ValueError
+                seen.add(row["native_trade_id"])
+        except ValueError, TypeError, KeyError:
+            raise ValueError("PAPER_CCXT_TRADE_BATCH_INVALID") from None
+
+    def append_market_trade_batch(self, batch: dict) -> dict:
+        """Immutable partial observed trades, never executable volume evidence."""
+        self._validate_market_trade_batch(batch)
+        instrument = batch["instrument"]
+        batch_sha = digest(batch)
+        received = batch["first_known_at"]
+        with self._writer() as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                duplicate = db.execute(
+                    "SELECT batch_sha FROM market_trade_batches WHERE instrument=? AND batch_sha=?",
+                    (instrument, batch_sha),
+                ).fetchone()
+                if duplicate is not None:
+                    db.execute("COMMIT")
+                    return {
+                        "status": "DUPLICATE_PARTIAL_TRADE_OBSERVATION",
+                        "batch_sha": batch_sha,
+                    }
+                head = db.execute(
+                    "SELECT cursor,known_at,chain_sha FROM market_trade_heads WHERE instrument=?",
+                    (instrument,),
+                ).fetchone()
+                if head:
+                    cursor, prior_time, prior_sha = head
+                    if clock(received) < clock(prior_time):
+                        raise ValueError("PAPER_CCXT_TRADE_KNOWN_TIME_REGRESSION")
+                    prior = db.execute(
+                        "SELECT batch_sha,prior_sha,chain_sha,payload "
+                        "FROM market_trade_batches WHERE instrument=? AND seq=?",
+                        (instrument, cursor),
+                    ).fetchone()
+                    if (
+                        prior is None
+                        or prior[2] != prior_sha
+                        or prior[2] != digest([instrument, cursor, prior[0], prior[1]])
+                        or digest(json.loads(prior[3])) != prior[0]
+                    ):
+                        raise ValueError("PAPER_CCXT_TRADE_TAPE_DIVERGENCE")
+                    previous_epoch = json.loads(prior[3])["stream_epoch"]
+                    if previous_epoch != batch["stream_epoch"] and batch["status"] != (
+                        "BASELINE_RETROSPECTIVE_NOT_ELIGIBLE"
+                    ):
+                        raise ValueError("PAPER_CCXT_TRADE_EPOCH_NOT_BASELINED")
+                else:
+                    cursor, prior_sha = 0, "0" * 64
+                    if batch["status"] != "BASELINE_RETROSPECTIVE_NOT_ELIGIBLE":
+                        raise ValueError("PAPER_CCXT_TRADE_EPOCH_NOT_BASELINED")
+                seq = cursor + 1
+                chain_sha = digest([instrument, seq, batch_sha, prior_sha])
+                if head:
+                    db.execute(
+                        "UPDATE market_trade_heads SET cursor=?,known_at=?,chain_sha=? "
+                        "WHERE instrument=?",
+                        (seq, received, chain_sha, instrument),
+                    )
+                else:
+                    db.execute(
+                        "INSERT INTO market_trade_heads VALUES (?,?,?,?)",
+                        (instrument, seq, received, chain_sha),
+                    )
+                db.execute(
+                    "INSERT INTO market_trade_batches VALUES (?,?,?,?,?,?,?)",
+                    (
+                        instrument,
+                        seq,
+                        batch_sha,
+                        _json(batch),
+                        prior_sha,
+                        chain_sha,
+                        received,
+                    ),
+                )
+                db.execute("COMMIT")
+            except Exception:
+                db.execute("ROLLBACK")
+                raise
+        return {
+            "status": "RECORDED_PARTIAL_TRADES_ONLY",
+            "instrument": instrument,
+            "cursor": seq,
+            "batch_sha": batch_sha,
+            "head_sha": chain_sha,
+            "executable_volume_base": None,
+        }
+
+    def market_trade_status(self, instrument: str) -> dict:
+        from contextlib import closing
+
+        uri = "file:" + str(self.path.resolve()) + "?mode=ro"
+        with closing(sqlite3.connect(uri, uri=True, timeout=0)) as db:
+            db.execute("PRAGMA query_only=ON")
+            rows = db.execute(
+                "SELECT seq,batch_sha,payload,prior_sha,chain_sha,known_at "
+                "FROM market_trade_batches WHERE instrument=? ORDER BY seq",
+                (instrument,),
+            ).fetchall()
+            head = db.execute(
+                "SELECT cursor,known_at,chain_sha FROM market_trade_heads WHERE instrument=?",
+                (instrument,),
+            ).fetchone()
+        previous = "0" * 64
+        known_at = None
+        epochs: list[str] = []
+        observed_count = 0
+        for seq, (ordinal, sha, raw, prior, chain, known) in enumerate(rows, 1):
+            batch = json.loads(raw)
+            self._validate_market_trade_batch(batch)
+            if (
+                ordinal != seq
+                or digest(batch) != sha
+                or batch["instrument"] != instrument
+                or batch["first_known_at"] != known
+                or (known_at is not None and clock(known) < clock(known_at))
+                or prior != previous
+                or chain != digest([instrument, seq, sha, prior])
+            ):
+                raise ValueError("PAPER_CCXT_TRADE_TAPE_DIVERGENCE")
+            if batch["stream_epoch"] not in epochs:
+                if batch["status"] != "BASELINE_RETROSPECTIVE_NOT_ELIGIBLE":
+                    raise ValueError("PAPER_CCXT_TRADE_EPOCH_NOT_BASELINED")
+                epochs.append(batch["stream_epoch"])
+            previous, known_at = chain, known
+            observed_count += batch["new_local_trade_count"]
+        if (head is None and rows) or (
+            head is not None
+            and (head[0] != len(rows) or head[1] != known_at or head[2] != previous)
+        ):
+            raise ValueError("PAPER_CCXT_TRADE_HEAD_DIVERGENCE")
+        return {
+            "schema": "paper_ccxt_trade_tape_status_v1",
+            "instrument": instrument,
+            "cursor": len(rows),
+            "head_sha": previous,
+            "stream_epochs": len(epochs),
+            "locally_observed_trade_count": observed_count,
+            "last_received_at": known_at,
+            "trade_volume_complete": False,
+            "executable_volume_base": None,
+            "paper_observed": False,
+            "order_route": "NONE",
+        }
+
+    @staticmethod
     def _validate_market_quote(quote: dict) -> None:
         from .pm_forward_ccxt_market import SCHEMA, verify_l2_evidence
 
@@ -986,6 +1200,14 @@ class PaperJournal:
             markets = [
                 row[0] for row in source.execute("SELECT instrument FROM market_quote_heads")
             ]
+            trade_markets = [
+                row[0] for row in source.execute("SELECT instrument FROM market_trade_heads")
+            ]
+        for market in trade_markets:
+            original = self.market_trade_status(market)
+            copied = recovered.market_trade_status(market)
+            if original["head_sha"] != copied["head_sha"]:
+                raise ValueError("PAPER_BACKUP_MARKET_TRADES_MISMATCH")
         for market in markets:
             original = self.market_quote_status(market)
             copied = recovered.market_quote_status(market)
