@@ -2,6 +2,10 @@
 
 **Use this for “get wallet fills,” “new wallet,” “fix gaps,” “get 1m OHLCV,” or “start forward capture.”** Read [INDEX](INDEX.md) and [ARCHITECTURE](ARCHITECTURE.md) first. No commands in this guide authorize orders. Offline auditing is distinct from vendor/SDK downloads. Live source snapshot inspected 2026-10-31; private paths can change.
 
+## Current inventory index (2026-11-04, partial release)
+
+The owner-private SQLite [wallet registry checkpoint](WALLET-REGISTRY-STATUS-20261104.md) indexes the 158-wallet research cohort and deployed tracker configuration as **metadata only**. The `copytrade-wallet-registry doctor` command checks live source fingerprints, including the frozen 36-wallet evidence references and tracker ledger identity. It does **not** download fills, reconstruct whole-book equity, enroll trackers, change existing source files, or certify follower trading. Keep original HyperX/Parquet/ledger sources authoritative. Its deployment/acceptance remains incomplete under issues #44–#55.
+
 ## Recovery operations added 2026-11-01
 
 [The dated disposition](RECOVERY-DISPOSITION-2026-11-01.md) pins the new evidence
