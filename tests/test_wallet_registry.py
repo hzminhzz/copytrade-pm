@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 from contextlib import closing
+from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
 
@@ -361,6 +362,46 @@ def test_indexed_ledger_observes_without_claiming_admission(tmp_path: Path) -> N
         connection.commit()
     with pytest.raises(ValueError, match="cursor"):
         registry.observation_ledger_identity(db)
+
+
+def test_recent_outbox_and_positive_receipt_still_cannot_prove_wallet_admission(
+    tmp_path: Path,
+) -> None:
+    """WR-05: source activity and generic receipt status are not admission gates."""
+    path = tmp_path / "tracker-ledger.sqlite"
+    now = datetime.now(timezone.utc).isoformat()
+    with closing(sqlite3.connect(path)) as con:
+        con.executescript("""
+            CREATE TABLE ledger_meta(
+                ledger_id TEXT, current_seq INTEGER, retention_floor INTEGER
+            );
+            CREATE TABLE outbox_events(
+                seq INTEGER PRIMARY KEY, wallet_id TEXT, kind TEXT, known_at TEXT
+            );
+            CREATE INDEX idx_outbox_wallet ON outbox_events(wallet_id);
+            CREATE TABLE receipts(
+                receipt_id INTEGER PRIMARY KEY,source TEXT,source_key TEXT,
+                payload TEXT,received_at TEXT,status TEXT
+            );
+            CREATE INDEX idx_receipts_status ON receipts(status);
+            INSERT INTO ledger_meta VALUES('one',1,0);
+        """)
+        con.execute(
+            "INSERT INTO outbox_events VALUES(?,?,?,?)",
+            (1, address(1), "ACCOUNT_SNAPSHOT", now),
+        )
+        con.execute(
+            "INSERT INTO receipts VALUES(?,?,?,?,?,?)",
+            (1, "PROVIDER", "unverified-source-key", "{}", now, "SUCCESS"),
+        )
+        con.commit()
+    observation = registry.observe_ledger(path, {address(1)})
+    assert observation["recent_outbox_observation_1h"] == 1
+    assert observation["stale_outbox_observation"] == 0
+    assert observation["no_indexed_event"] == 0
+    assert observation["runtime_admitted"] == "UNKNOWN"
+    assert observation["receipt_health"] == "UNKNOWN"
+    assert observation["scientifically_qualified"] == "NOT_ESTABLISHED"
 
 
 def test_asof_and_backup_restore(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
