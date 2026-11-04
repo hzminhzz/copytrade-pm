@@ -165,49 +165,98 @@ def consistent_intervals(raw: list[dict]) -> tuple[list[dict], dict]:
     }
 
 
-def native_marks(coin: str, start_ms: int, end_ms: int) -> pl.DataFrame | None:
-    directory = MARKET / f"crypto_futures_ohlcv_1m_HYPERLIQUID_{coin}_PERP"
-    if not directory.is_dir():
-        return None
-    # Exact day paths and source sidecar are required; no unverified cached reshaping.
-    first = datetime.fromtimestamp(start_ms / 1000, tz=timezone.utc).date()
-    last = datetime.fromtimestamp((end_ms - 1) / 1000, tz=timezone.utc).date()
+def native_marks_with_audit(
+    coin: str, start_ms: int, end_ms: int
+) -> tuple[pl.DataFrame | None, dict]:
+    """SHA-verify each canonical 1m day with the shared strict market verifier.
+
+    Mixed original seven-column and enriched nine-column day schemas must
+    not poison the entire market. Each independent day is validated first,
+    including exchange, DEX, symbol, OHLC and unique UTC minute timestamps.
+    Invalid/missing days are excluded *with reason*, never forward-filled.
+    """
+    from collections import Counter
     from datetime import timedelta
 
-    day, paths = first, []
+    from copytrade_pm.pm_offline_manifest import ManifestBlocked, ManifestInvalid
+    from copytrade_pm.pm_offline_market import _verified_day
+
+    if not isinstance(coin, str) or not coin or ":" in coin or coin.startswith("@"):
+        raise ManifestInvalid("UNSUPPORTED_NATIVE_COIN")
+    if (
+        type(start_ms) is not int
+        or type(end_ms) is not int
+        or not START_MS <= start_ms < end_ms <= END_MS
+    ):
+        raise ManifestInvalid("INVALID_NATIVE_MARK_WINDOW")
+    first = datetime.fromtimestamp(start_ms / 1000, tz=timezone.utc).date()
+    last = datetime.fromtimestamp((end_ms - 1) / 1000, tz=timezone.utc).date()
+    instrument = f"hyperliquid:mainnet:perp:default:{coin}"
+    statuses: Counter[str] = Counter()
+    source_hash = hashlib.sha256()
+    frames: list[pl.DataFrame] = []
+    day = first
     while day <= last:
-        folder = directory / f"year={day.year}" / f"month={day.month:02d}" / f"day={day.day:02d}"
-        parquet = folder / "data.parquet"
-        sidecar = folder / "source.json"
-        if parquet.exists() and sidecar.exists():
+        midnight = datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
+        try:
+            frame, parquet_sha, sidecar_sha = _verified_day(MARKET, instrument, midnight)
+        except ManifestBlocked as exc:
+            statuses[exc.code] += 1
+        except OSError, ValueError, TypeError, pl.exceptions.PolarsError:
+            statuses["INVALID_NATIVE_DAY_READ"] += 1
+        else:
+            # The shared verifier checks each row, SHA, symbol and timezone.
+            # Require the full 1,440-minute grid AND its claimed sidecar bar
+            # count before accepting coverage; partial candles do not count.
+            folder = (
+                MARKET
+                / f"crypto_futures_ohlcv_1m_HYPERLIQUID_{coin}_PERP"
+                / f"year={day.year:04d}/month={day.month:02d}/day={day.day:02d}"
+            )
             try:
-                manifest = json.loads(sidecar.read_text())
-                claimed = manifest.get("sha256")
-                actual = hashlib.sha256(parquet.read_bytes()).hexdigest()
-                if claimed == actual and manifest.get("bars") == 1440:
-                    paths.append(str(parquet))
+                sidecar_bytes = (folder / "source.json").read_bytes()
+                if hashlib.sha256(sidecar_bytes).hexdigest() != sidecar_sha:
+                    statuses["NATIVE_SIDECAR_CHANGED_DURING_READ"] += 1
+                    day += timedelta(days=1)
+                    continue
+                declared = json.loads(sidecar_bytes).get("bars")
             except OSError, ValueError, TypeError:
-                pass  # missing or unverifiable day is not native evidence
+                statuses["INVALID_NATIVE_DAY_SIDECAR"] += 1
+                day += timedelta(days=1)
+                continue
+            if type(declared) is not int or declared != 1440 or frame.height != 1440:
+                statuses["PARTIAL_NATIVE_DAY"] += 1
+                day += timedelta(days=1)
+                continue
+            statuses["VERIFIED_NATIVE_DAY"] += 1
+            source_hash.update(f"{day.isoformat()}:{parquet_sha}:{sidecar_sha}\n".encode())
+            frames.append(
+                frame.select(
+                    pl.col("timestamp").dt.epoch("ms").alias("ms"),
+                    pl.col("close").cast(pl.Float64).alias("close"),
+                ).filter((pl.col("ms") >= start_ms) & (pl.col("ms") < end_ms))
+            )
         day += timedelta(days=1)
-    if not paths:
-        return None
-    try:
-        bars = (
-            pl.scan_parquet(paths, hive_partitioning=False)
-            .select(
-                pl.col("timestamp").dt.replace_time_zone("UTC").dt.cast_time_unit("ms").alias("ts"),
-                pl.col("close").cast(pl.Float64).alias("close"),
-            )
-            .filter(
-                (pl.col("ts").dt.epoch("ms") >= start_ms) & (pl.col("ts").dt.epoch("ms") < end_ms)
-            )
-            .collect()
-            .sort("ts")
-            .unique(subset=["ts"], keep="first")
-        )
-        return bars.with_columns(pl.col("ts").dt.epoch("ms").alias("ms")).select("ms", "close")
-    except Exception:
-        return None
+    audit = {
+        "requested_days": (last - first).days + 1,
+        "day_statuses": dict(sorted(statuses.items())),
+        "source_day_fingerprint_sha256": source_hash.hexdigest()
+        if statuses["VERIFIED_NATIVE_DAY"]
+        else None,
+        "verified_bar_count": 0,
+    }
+    if not frames:
+        return None, audit
+    marks = pl.concat(frames, how="vertical").sort("ms")
+    if marks["ms"].n_unique() != marks.height:
+        raise ManifestBlocked("DUPLICATE_VERIFIED_NATIVE_MINUTE")
+    audit["verified_bar_count"] = marks.height
+    return marks, audit
+
+
+def native_marks(coin: str, start_ms: int, end_ms: int) -> pl.DataFrame | None:
+    """Compatibility: verified native closes; audit callers use named helper."""
+    return native_marks_with_audit(coin, start_ms, end_ms)[0]
 
 
 def evaluate(root: Path, cap_coins: int = 30) -> dict:

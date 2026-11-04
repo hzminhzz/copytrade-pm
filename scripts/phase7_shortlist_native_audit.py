@@ -21,7 +21,7 @@ if __package__:
         END_MS,
         START_MS,
         consistent_intervals,
-        native_marks,
+        native_marks_with_audit,
     )
 else:
     from phase7_native_exposure import (
@@ -29,12 +29,12 @@ else:
         END_MS,
         START_MS,
         consistent_intervals,
-        native_marks,
+        native_marks_with_audit,
     )
 
 MINUTE_MS = 60_000
 MAX_WALLETS = 20
-MAX_COIN_BUDGET = 5
+MAX_COIN_BUDGET = 40
 
 
 def complete_minute_bins(interval: dict) -> int:
@@ -85,7 +85,7 @@ def inspect_wallet(
     payload: dict,
     source_sha: str,
     *,
-    max_coins: int = 3,
+    max_coins: int = MAX_COIN_BUDGET,
 ) -> dict:
     intervals, detail = consistent_intervals(payload.get("fills", []))
     by_coin = defaultdict(list)
@@ -105,11 +105,12 @@ def inspect_wallet(
         end = min(END_MS, max(row["end_ms"] for row in records))
         if end <= first:
             continue
-        bars = native_marks(coin, first, end)
+        bars, market_audit = native_marks_with_audit(coin, first, end)
         if bars is None or bars.is_empty():
             missing_native.append(coin)
-            continue
-        total, unique = observed_interval_bars(records, bars)
+            total, unique = 0, 0
+        else:
+            total, unique = observed_interval_bars(records, bars)
         supported += total
         matched += unique
         coins.append(
@@ -118,6 +119,8 @@ def inspect_wallet(
                 "verified_full_minute_intervals": total,
                 "unique_minutes": unique,
                 "source_position_minutes": duration[coin],
+                "unverified_position_minutes": duration[coin] - total,
+                "native_market_day_audit": market_audit,
             }
         )
     return {
@@ -139,6 +142,11 @@ def inspect_wallet(
         "verified_lower_bound_fraction_all_chain_minutes": round(supported / possible, 4)
         if possible
         else None,
+        "unscanned_coins_due_to_limit": sorted(set(by_coin) - set(chosen)),
+        "unscanned_chain_minutes_due_to_limit": possible - audited_possible,
+        "unverified_chain_minutes_in_scanned_coins": audited_possible - supported,
+        "coins_audited": len(chosen),
+        "all_known_main_perp_coins_scanned": len(chosen) == len(by_coin),
         "by_coin": coins,
         "continuous_90d_book": False,
         "historical_source_nav": None,
@@ -150,7 +158,8 @@ def run(
     candidate_json: Path,
     source_root: Path,
     *,
-    max_coins: int = 3,
+    max_coins: int = MAX_COIN_BUDGET,
+    wallet_alias: str | None = None,
 ) -> dict:
     if not 1 <= max_coins <= MAX_COIN_BUDGET:
         raise ValueError("INVALID_NATIVE_COIN_BUDGET")
@@ -172,8 +181,12 @@ def run(
         for row in cohort.get(name, [])
         for address, name in zip(row["canonical_addresses"], row["members"], strict=True)
     }
+    if wallet_alias is not None and wallet_alias not in set(wallet_by_address.values()):
+        raise ValueError("WALLET_ALIAS_NOT_IN_FROZEN_SCREEN")
     rows = {}
     for address, alias in sorted(wallet_by_address.items(), key=lambda kv: kv[1]):
+        if wallet_alias is not None and alias != wallet_alias:
+            continue
         source = private.get(address)
         if source is None:
             rows[alias] = {"scope": "MISSING_PRIVATE_SOURCE_JSON", "risk_budget_follower_pnl": None}
@@ -181,6 +194,10 @@ def run(
             rows[alias] = inspect_wallet(source["payload"], source["sha256"], max_coins=max_coins)
     combos = {}
     for key in ("top10_screen_three", "top10_screen_five"):
+        if wallet_alias is not None:
+            # The unobserved peers in a targeted audit cannot be called failed.
+            combos[key] = []
+            continue
         combos[key] = [
             {
                 "members": item["members"],
@@ -205,7 +222,10 @@ def run(
             for item in cohort[key]
         ]
     return {
-        "schema": "phase7_stage1_native_chain_audit_v1",
+        "schema": "phase7_stage1_native_chain_audit_v2",
+        "audit_scope": "SINGLE_WALLET" if wallet_alias is not None else "FULL_SHORTLIST",
+        "audit_wallet_alias": wallet_alias,
+        "max_coins_per_wallet": max_coins,
         "source_stage1_sha256": hashlib.sha256(candidate_json.read_bytes()).hexdigest(),
         "study_window_start_ms": START_MS,
         "study_window_end_ms_exclusive": END_MS,
@@ -220,10 +240,16 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("screen_json", type=Path)
     parser.add_argument("--source-root", type=Path, default=BASE / "data")
-    parser.add_argument("--max-coins", type=int, default=3)
+    parser.add_argument("--max-coins", type=int, default=MAX_COIN_BUDGET)
+    parser.add_argument("--wallet-alias", type=str)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
-    result = run(args.screen_json, args.source_root, max_coins=args.max_coins)
+    result = run(
+        args.screen_json,
+        args.source_root,
+        max_coins=args.max_coins,
+        wallet_alias=args.wallet_alias,
+    )
     encoded = json.dumps(result, indent=2, sort_keys=True) + "\n"
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -245,6 +271,9 @@ def main() -> None:
                             "verified_full_minute_chain_bars",
                             "native_coverage_of_top_source_chain_minutes",
                             "verified_lower_bound_fraction_all_chain_minutes",
+                            "unscanned_chain_minutes_due_to_limit",
+                            "unverified_chain_minutes_in_scanned_coins",
+                            "coins_audited",
                         )
                     }
                     for alias, metrics in result["wallets"].items()

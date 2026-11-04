@@ -4,6 +4,7 @@
 **Prepared:** 2026-11-04 UTC. **Repository:** `hzminhzz/copytrade-pm`.
 **Report classification:** **FINAL AVAILABLE-EVIDENCE / CONDITIONAL**, not a certified whole-account historical replay.
 **Decision state:** RESEARCH ONLY; existing Gemini-V2 E6/E2 freeze **PRESERVED**, no worker activation, no broker orders and no scientific qualification.
+**2026-11-05 addendum:** The Stage-1 native-chain completeness figures were corrected after a strict mixed-schema reader repair and native market backfill. The [dated correction](PHASE7-NATIVE-COVERAGE-REPAIR-20261105.md) supersedes earlier *data-coverage* claims (not the original conditional market-shock snapshots, which are versioned historical outputs).
 
 ## Executive decision
 
@@ -185,7 +186,7 @@ Private SHA result: `/home/quant/.local/share/copytrade/reports/phase7_secondary
 
 **Corrected Stage-1 V5, superseding V4:** An eligibility audit found the old 13-wallet turnover screen unintentionally favored CSV-only wallets lacking any source-position anchors while over-excluding wallets with small HIP-3 side activity. The corrected screen requires source-fill `startPosition` evidence, ≥80% default-perp fill rows, ≥60% supported default-perp traded notional, and exact private exclusions. It normalizes *only supported main-perp turnover*, evaluates **118 three-wallet** and **210 five-wallet** new exploratory combinations from **10 provisional wallets**, and retains the older 285/1,242 attempts in the historical multiple-testing count. The top V5 three-wallet combination by this **nonfinancial turnover diversity heuristic** is `W030 + S053-HYPE + ACT33`; the top five-wallet candidate is `N059-BNB + W030 + S053-HYPE + C021-NEAR + ACT33`. Neither earns a financial qualification. See [the stage report](PHASE7-NATIVE-MINUTE-EXPOSURE-20261104.md) for all 10+10 aliases and source hashes.
 
-**Independent stricter native-minute check:** The SHA-verified full-minute position-chain audit covers **8 unique wallets** appearing in the V5 top-10 lists. At a five-coin budget, lower-bound verified coverage of *all reconstructed main-perp position-chain minutes* ranges from **100% ACT33** and **93.97% S053-HYPE** to **22.88% S035-ENA** and **26% W017**. W030 is **69.96%**, C021-NEAR **47.22%**, N059-BNB **47.77%**, ACT40 **60.59%**. **None of the 10 three-wallet or 10 five-wallet combinations has every member above an illustrative 80% verified-chain-minute threshold.** This is a diagnostic reference, not a new promotion policy. Source chains are not complete wallet books, so even 100% of known-chain minutes cannot certify economic follower coverage. No alternative is established as materially stronger than E6/E2.
+**2026-11-05 native coverage correction:** The earlier five-coin audit (22.88% reported for S035-ENA) was artificially limited by its coin cap, a Polars mixed-day-schema reader failure and absent native historical days. A SHA-verified day-by-day read across **all 26 S035-ENA source coins**, plus a bounded immutable CHD native candle/trade backfill, now verifies **789,986 of the identical 792,866 chain leg-minutes (99.64%)**. The remaining **2,880** are the two PENDLE days with one missing minute each, and remain unknown. All eight shortlisted wallets now have at least **86.13%** verified native coverage *of their reconstructed source position chains*. **All 20** selected 10+10 combinations therefore meet the previously used illustrative **80% chain-data coverage diagnostic**, reversing the earlier **0/20** finding. This is **not** complete whole-wallet history, a first-known PIT follower dataset, a profitability result or scientific selection. No alternative is independently established as materially stronger than frozen E6/E2 on follower economics. See the [full dated root-cause and SHA audit](PHASE7-NATIVE-COVERAGE-REPAIR-20261105.md); the older private five-coin report is preserved as an immutable, **superseded** screen, not rewritten.
 
 Phase 5 B is worth an **independent five-pod paper comparison**, but the Phase 6B source/instrument coverage and conditional shock results make its Gemini 0.46% trailing DD **not independently testable**. P14 remains archived, particularly because the HIP-3 BRENTOIL leg is not in this main-perp-only analysis. Keep previously owner-rejected 22 and currently prop-firm-disallowed additional 25 excluded from allocation.
 
@@ -214,7 +215,7 @@ uv run --extra market --group dev python scripts/phase7_native_open_screen.py
 uv run --extra market --group dev python scripts/phase7_secondary_cm002_screen.py
 uv run --extra market --group dev python scripts/phase7_universe_screen.py
 uv run --extra market --group dev python scripts/phase7_candidate_screen.py /home/quant/.local/share/copytrade/reports/phase7_universe_20261104_v2.json
-uv run --extra market --group dev python scripts/phase7_shortlist_native_audit.py /home/quant/.local/share/copytrade/reports/phase7_candidate_screen_20261104_v5.json --max-coins 5
+uv run --extra market --group dev python scripts/phase7_shortlist_native_audit.py /home/quant/.local/share/copytrade/reports/phase7_candidate_screen_20261104_v5.json --max-coins 40
 ```
 
 All scripts are read-only except explicit new, non-overwriting research `--output` files. Private alias-to-address binding is now exact-match against the separate Gemini identity evidence (especially the ambiguously named whale), with missing evidence failing closed. Dataset SHA, privacy and source-alias mappings remain owner-private. This report contains **no raw on-chain address map**.
@@ -224,7 +225,11 @@ All scripts are read-only except explicit new, non-overwriting research `--outpu
 | `phase7_universe_20261104_v2.json` | `2cef0d3a2c28de70a1991043a58de45fc226d6a8ec56b22960c5133909da45ff` |
 | `phase7_candidate_screen_20261104_v4.json` (**SUPERSEDED**) | `f36d0fa4ac807d8d570cffb76387e990a6bb62073541fbd5dd3cce1190e3547f` |
 | `phase7_candidate_screen_20261104_v5.json` (**corrected current candidate screen**) | `3c6d144d358fc3bca140e6fe8e008245915f11f549840ec610dfa26bc2a8732a` |
-| `phase7_shortlist_native_chain_20261104_v2.json` (**5-coin source-chain audit**) | `2854c61019bee26a0a11c5d6ff00dcee89e7291ea4cdf49b12ba3b04941b847e` |
+| `phase7_shortlist_native_chain_20261104_v2.json` (**SUPERSEDED 5-coin audit**) | `2854c61019bee26a0a11c5d6ff00dcee89e7291ea4cdf49b12ba3b04941b847e` |
+| `phase7_s035_full_coin_native_chain_20261105_v3.json` (**S035 99.64% verified**) | `1e6ccf9b55fbacc16196e7c23b4de0d78c1a9059326a14e2a4f1fba4e600b275` |
+| `phase7_shortlist_native_chain_20261105_full_v1.json` (**eight-wallet full-coin audit**) | `c31d4aed34ce04d424aeda92fa9395ea893191897c84f4625698341f63e19c19` |
+| `phase7_chd_market_admission_20261105_v1.json` (**102 new verified candle days**) | `67840b51bc357484d3480e8e58994faa83d993283a038e512ee80aca5cba8ebb` |
+| `phase7_chd_trade_admission_20261105_v1.json` (**15 new verified trade-bar days**) | `e13c6a418cb4dc02297a1bd23c9fc8af483b05fddac535fd85738d86ca30c306` |
 | `phase7_native_exposure_20261104_v1.json` | `28acb92b37936888339304109963d6c14911055b0492ad65c07bca7ca7379713` |
 | `phase7_conditional_stress_20261104_v3.json` | `e6a38c47dac15ba249f076d7831b470590670285af3da35922b68f45f0dacf9a` |
 | `phase7_delay_cost_20261104_v1.json` | `ba778e6094e9b69186fc1a2617cde3b3c8f221ace3c4915d602933c9ee16299b` |

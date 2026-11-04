@@ -91,28 +91,29 @@ Private immutable **V5** screened candidate result: `/home/quant/.local/share/co
 
 ### Independent native-minute evidence audit on corrected V5 shortlist
 
-A separate SHA-verified, *full-minute-inside-source-position-chain* audit inspected the top-five main-perp source chains of the eight unique wallets appearing in the 10+10 combinations. These are source intervals from adjacent consistent fill `startPosition`, not fully reconciled source account positions. Exact one-minute OHLCV source day SHA was checked; missing instruments or uncovered coins are not zeroed.
+**2026-11-05 correction:** The preliminary five-coin audit materially understated native market coverage. It was capped at five coins per wallet (but divided by all source leg-minutes), and a mixed 7-/9-column daily Parquet scan silently failed whole instruments despite valid SHA-verifiable market days. The independent, whole-coin repair uses the project's strict day-by-day SHA/UTC/OHLC verifier and an audited, non-overwriting CryptoHFTData historical backfill. See [the full cause, provenance, conservative remaining gaps and reproducibility](PHASE7-NATIVE-COVERAGE-REPAIR-20261105.md). Prior private 2026-11-04 SHA evidence remains immutable as a **superseded calculation**, not a falsified source.
 
-| Shortlisted wallet | Native-verified fraction of ALL reconstructed main-perp chain-minutes, lower bound |
-| --- | ---: |
-| ACT33 | 100.00% |
-| S053-HYPE | 93.97% |
-| W030 | 69.96% |
-| ACT40 | 60.59% |
-| N059-BNB | 47.77% |
-| C021-NEAR | 47.22% |
-| W017 | 26.00% |
-| S035-ENA | 22.88% |
+| Wallet | Superseded 5-coin result | Corrected all-coin, strict native day verified chain leg-minutes |
+| --- | ---: | ---: |
+| ACT33 | 100.00% | **100.00%** |
+| C021-NEAR | 47.22% | **100.00%** |
+| S053-HYPE | 93.97% | **99.87%** |
+| S035-ENA | 22.88% | **99.64%** |
+| ACT40 | 60.59% | **93.97%** |
+| N059-BNB | 47.77% | **93.20%** |
+| W017 | 26.00% | **89.25%** |
+| W030 | 69.96% | **86.13%** |
 
-**None of the 10 three-wallet or 10 five-wallet preliminary combinations has every member over an illustrative 80% verified chain-minute lower-bound.** The 80% value is a diagnostic completeness benchmark, **not** a newly authorized scientific qualification rule. These figures do not measure unknown initial books, intra-minute fills, HIP-3, collateral, funding, realized follower PnL or full 90-day coverage. Most importantly, 100% of **the audited source chain** does not mean 100% coverage of the true source's risk.
+**Correction to the earlier conclusion:** all **20/20** retrospective top-10 three-/five-wallet combinations now satisfy the *illustrative* all-member 80% **source-chain-native-data completeness** screen, not zero. This is **NOT** complete wallet-book/PIT coverage, an authorization rule, scientific alpha evidence, or support for an alternative portfolio promotion. S035-ENA has **789,986/792,866 (99.64%)** verified source leg-minutes with **2,880** still unverified, all in two incomplete PENDLE days (1,439/1,440 bars each). We do not interpolate their missing minutes or claim missing positions flat.
 
-Private SHA-bound native-chain audit (max five coins per wallet): `/home/quant/.local/share/copytrade/reports/phase7_shortlist_native_chain_20261104_v2.json`, SHA256 `2854c61019bee26a0a11c5d6ff00dcee89e7291ea4cdf49b12ba3b04941b847e`. No alternative qualifies to displace E6/E2; cost/portfolio DD/alpha/true holdout comparison remains UNKNOWN.
+New owner-private whole-coin report: `/home/quant/.local/share/copytrade/reports/phase7_shortlist_native_chain_20261105_full_v1.json`, SHA256 `c31d4aed34ce04d424aeda92fa9395ea893191897c84f4625698341f63e19c19`. Superseded five-coin report: `phase7_shortlist_native_chain_20261104_v2.json`, SHA256 `2854c61019bee26a0a11c5d6ff00dcee89e7291ea4cdf49b12ba3b04941b847e`. No alternative has verified follower economics to displace E6/E2; cost/portfolio DD/alpha/true OOS comparison remains UNKNOWN.
 
 Reproduce first-stage inventory and cheap combination shortlists:
 
 ```bash
 uv run --extra market --group dev python scripts/phase7_universe_screen.py --output /home/quant/.local/share/copytrade/reports/phase7_universe_YOUR_NEW_VERSION.json
 uv run --extra market --group dev python scripts/phase7_candidate_screen.py /home/quant/.local/share/copytrade/reports/phase7_universe_YOUR_NEW_VERSION.json --output /home/quant/.local/share/copytrade/reports/phase7_candidates_YOUR_NEW_VERSION.json
+uv run --extra market --group dev python scripts/phase7_shortlist_native_audit.py /home/quant/.local/share/copytrade/reports/phase7_candidate_screen_20261104_v5.json --max-coins 40 --output /home/quant/.local/share/copytrade/reports/phase7_chain_YOUR_NEW_VERSION.json
 ```
 
 SHA reproducibility: the private V5 and V6 candidate screen reports are byte-identical (`3c6d144d358fc3bca140e6fe8e008245915f11f549840ec610dfa26bc2a8732a`); the 5-coin native-chain V2 and V3 audits are byte-identical (`2854c61019bee26a0a11c5d6ff00dcee89e7291ea4cdf49b12ba3b04941b847e`). Use fresh, nonexisting output paths; both entrypoints refuse immutable report overwrites. No owner-private rows or address mappings are added to the PR.
