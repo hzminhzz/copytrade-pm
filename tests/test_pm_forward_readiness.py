@@ -2,6 +2,7 @@
 
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
+from hashlib import sha256
 import json
 import sqlite3
 
@@ -16,6 +17,7 @@ from copytrade_pm.pm_forward_source_observation import (
 from test_pm_e4_prospective import WALLET, sample_state
 from test_pm_forward_ccxt_market import BTC, at, ccxt_market, orderbook
 from test_pm_forward_registry_identity import prepare
+from test_pm_forward_tape import diagnostic
 from copytrade_pm.pm_forward_ccxt_market import parse_ccxt_book, parse_ccxt_market
 
 
@@ -64,6 +66,8 @@ def test_all_approved_portfolios_stay_blocked_on_partial_source_and_registry(tmp
     assert len(p1["registry"]["unresolved_aliases"]) == 3
     assert len(p14["registry"]["unresolved_aliases"]) == 5
     assert p1["source"][0]["admitted"] is False
+    assert p1["source"][0]["collateral_diagnostics"]["cursor"] == 0
+    assert "COLLATERAL_DIAGNOSTICS_MISSING" in p1["source"][0]["reason_codes"]
     assert p1["source_wallet_equity_attested"] is False
     assert p1["trade_volume_complete"] is False
     assert p1["order_route"] == "NONE"
@@ -75,6 +79,32 @@ def test_all_approved_portfolios_stay_blocked_on_partial_source_and_registry(tmp
     assert source.path.read_bytes() == source_before
     assert market.path.read_bytes() == market_before
     assert "0x" not in json.dumps(p1["source"])
+
+
+def test_readiness_audits_diagnostic_collateral_chain_without_promoting_nav(tmp_path):
+    roots = _setup(tmp_path)
+    _, primary, _, source, _ = roots
+    address = json.loads(next(primary.glob("S035-ENA_0x*.json")).read_text())["address"]
+    report = diagnostic()
+    report["account_address_sha256"] = sha256(address.lower().encode()).hexdigest()
+    source.append_collateral_diagnostic(report)
+    before = source.collateral_scope_status(report["account_address_sha256"])
+    observed = audit(roots, "P1")
+    first = observed["source"][0]
+    assert first["collateral_diagnostics"]["cursor"] == 1
+    assert first["collateral_diagnostics"]["head_sha"] == before["head_sha"]
+    assert first["collateral_diagnostics"]["status"] == "DIAGNOSTIC_ONLY_NOT_NAV"
+    assert "COLLATERAL_SCOPE_NOT_ATOMIC_NAV" in first["reason_codes"]
+    assert first["admitted"] is False
+    assert source.collateral_scope_status(report["account_address_sha256"]) == before
+    with closing(sqlite3.connect(source.path)) as db:
+        with db:
+            db.execute(
+                "UPDATE source_scope_receipts SET chain_sha=? WHERE account_sha=?",
+                ("f" * 64, report["account_address_sha256"]),
+            )
+    with pytest.raises(ValueError, match="PAPER_COLLATERAL_READONLY_CHAIN_DIVERGENCE"):
+        audit(roots, "P1")
 
 
 def test_readiness_raises_on_tampered_source_chain(tmp_path):

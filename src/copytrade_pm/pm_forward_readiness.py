@@ -74,6 +74,51 @@ def _source(db: sqlite3.Connection, alias: str) -> dict:
     return {"cursor": len(rows), "receipt": last, "head_sha": prior}
 
 
+def _collateral(db: sqlite3.Connection, account_sha: str) -> dict:
+    """Verify optional diagnostic-only SHA chain; never authorize equity."""
+    try:
+        rows = db.execute(
+            "SELECT seq,receipt_id,payload,payload_sha,prior_sha,chain_sha "
+            "FROM source_scope_receipts WHERE account_sha=? ORDER BY seq",
+            (account_sha,),
+        ).fetchall()
+    except sqlite3.OperationalError as exc:
+        if "no such table" not in str(exc):
+            raise
+        return {
+            "cursor": 0,
+            "head_sha": "0" * 64,
+            "last_spot_known_at": None,
+            "last_vault_known_at": None,
+            "status": "SCHEMA_NOT_AVAILABLE",
+        }
+    prior = "0" * 64
+    spot_known = vault_known = None
+    for expected, (seq, receipt_id, raw, sha, old, chain) in enumerate(rows, 1):
+        report = json.loads(raw)
+        PaperJournal._check_collateral_diagnostic(report)
+        if (
+            seq != expected
+            or receipt_id != sha
+            or digest(report) != sha
+            or report.get("account_address_sha256") != account_sha
+            or old != prior
+            or chain != digest([account_sha, seq, sha, prior])
+        ):
+            raise ValueError("PAPER_COLLATERAL_READONLY_CHAIN_DIVERGENCE")
+        latest = {row["scope"]: row for row in report["observations"]}
+        spot_known = latest["spotClearinghouseState"]["first_known_at"]
+        vault_known = latest["userVaultEquities"]["first_known_at"]
+        prior = chain
+    return {
+        "cursor": len(rows),
+        "head_sha": prior,
+        "last_spot_known_at": spot_known,
+        "last_vault_known_at": vault_known,
+        "status": "DIAGNOSTIC_ONLY_NOT_NAV" if rows else "NOT_CAPTURED",
+    }
+
+
 def _market(db: sqlite3.Connection, instrument: str) -> dict:
     rows = db.execute(
         "SELECT seq,quote_id,payload,payload_sha,prior_sha,chain_sha,event_at,known_at "
@@ -142,7 +187,19 @@ def audit_live_paper_readiness(
         for member in expected:
             alias = _ALIAS[member]
             source = _source(db, alias)
+            collateral = _collateral(db, identity_sha[member])
             reasons: list[str] = []
+            if collateral["cursor"] == 0:
+                reasons.append("COLLATERAL_DIAGNOSTICS_MISSING")
+            else:
+                for field in ("last_spot_known_at", "last_vault_known_at"):
+                    known = collateral[field]
+                    if (
+                        known is None
+                        or not 0 <= (now - clock(known)).total_seconds() <= max_source_age_seconds
+                    ):
+                        reasons.append("COLLATERAL_SCOPE_STALE_OR_MISSING")
+                reasons.append("COLLATERAL_SCOPE_NOT_ATOMIC_NAV")
             receipt = source["receipt"]
             if receipt is None:
                 reasons.append("NO_FIRST_LOCAL_WALLET_RECEIPT")
@@ -167,6 +224,7 @@ def audit_live_paper_readiness(
                     "first_local_receipts": source["cursor"],
                     "last_first_known_at": source_event,
                     "head_sha": source["head_sha"],
+                    "collateral_diagnostics": collateral,
                     "admitted": not reasons,
                     "reason_codes": sorted(set(reasons)),
                 }
