@@ -112,6 +112,15 @@ class PaperCampaign:
         self._journal.append(run_id, event_id, event)
         return self.status(run_id)
 
+    def record_source_decision(self, run_id: str, event_id: str, event: dict) -> dict:
+        """Public causal source-to-account seam with one SQLite transaction."""
+        if self._journal is None:
+            raise ValueError("PAPER_JOURNAL_REQUIRED")
+        if run_id not in self._runs:
+            raise ValueError("UNKNOWN_PAPER_RUN")
+        self._journal.consume_source_effect(run_id, event_id, event)
+        return self.status(run_id)
+
     def status(self, run_id: str) -> dict:
         manifest, account = self._runs[run_id]
         persisted = self._journal.restore(run_id) if self._journal is not None else None
@@ -135,4 +144,5 @@ class PaperCampaign:
             "account": persisted["account"] if persisted is not None else account.snapshot(),
             "cursor": persisted["cursor"] if persisted is not None else 0,
             "journal_head_sha": persisted["journal_head_sha"] if persisted is not None else None,
+            "source_cursors": persisted["source_cursors"] if persisted is not None else {},
         }

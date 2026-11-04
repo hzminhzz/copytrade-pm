@@ -67,6 +67,15 @@ class PaperJournal:
                     PRIMARY KEY (source_id, seq),
                     UNIQUE (source_id, receipt_id)
                 );
+                CREATE TABLE IF NOT EXISTS account_source_cursors (
+                    run_id TEXT NOT NULL REFERENCES runs(run_id),
+                    source_id TEXT NOT NULL,
+                    seq INTEGER NOT NULL,
+                    receipt_sha TEXT NOT NULL,
+                    event_id TEXT NOT NULL,
+                    PRIMARY KEY (run_id, source_id, seq),
+                    UNIQUE (run_id, event_id)
+                );
                 CREATE TABLE IF NOT EXISTS events (
                     run_id TEXT NOT NULL REFERENCES runs(run_id),
                     seq INTEGER NOT NULL,
@@ -339,71 +348,157 @@ class PaperJournal:
                 raise
         return self.restore(manifest.run_id)
 
-    def append(self, run_id: str, event_id: str, event: dict) -> dict:
-        if not event_id or len(event_id) > 128:
+    @staticmethod
+    def _validate_event(event_id: str, event: dict) -> None:
+        if not isinstance(event_id, str) or not event_id or len(event_id) > 128:
             raise ValueError("INVALID_PAPER_EVENT_ID")
         if not isinstance(event, dict) or not isinstance(event.get("event_at"), str):
             raise ValueError("INVALID_PAPER_EVENT")
         clock(event["event_at"])
+
+    def _append_locked(
+        self, db: sqlite3.Connection, run_id: str, event_id: str, event: dict
+    ) -> bool:
+        """Append a PM-03 effect inside the CALLER'S transaction, never commit here."""
+        self._verify(db, run_id)
         input_sha = digest(event)
+        old = db.execute(
+            "SELECT input_sha FROM events WHERE run_id=? AND event_id=?",
+            (run_id, event_id),
+        ).fetchone()
+        if old:
+            if old[0] != input_sha:
+                raise ValueError("CONFLICTING_PAPER_EVENT")
+            return False
+        row = db.execute(
+            "SELECT manifest,snapshot,last_event_at,cursor,snapshot_sha FROM runs WHERE run_id=?",
+            (run_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError("UNKNOWN_PAPER_RUN")
+        manifest, snapshot, last_at, cursor, prior_sha = row
+        if clock(event["event_at"]) < clock(last_at):
+            raise ValueError("PAPER_EVENT_OUT_OF_ORDER")
+        if event.get("kind") == "FUNDING":
+            prior_funding = db.execute(
+                "SELECT event_id FROM funding_claims "
+                "WHERE run_id=? AND instrument=? AND interval_id=?",
+                (run_id, event.get("instrument"), event.get("interval_id")),
+            ).fetchone()
+            if prior_funding is not None:
+                raise ValueError("DUPLICATE_FUNDING_INTERVAL")
+        rulebook = Rulebook.from_dict(json.loads(manifest)["rulebook"])
+        account = Account.from_snapshot(rulebook, json.loads(snapshot))
+        self._apply(account, event)
+        post = account.snapshot()
+        post_sha = digest(post)
+        chain_sha = digest([run_id, cursor + 1, event_id, input_sha, prior_sha, post_sha])
+        db.execute(
+            "INSERT INTO events VALUES (?,?,?,?,?,?,?,?,?)",
+            (
+                run_id,
+                cursor + 1,
+                event_id,
+                event["event_at"],
+                _json(event),
+                input_sha,
+                prior_sha,
+                post_sha,
+                chain_sha,
+            ),
+        )
+        db.execute(
+            "UPDATE runs SET snapshot=?,snapshot_sha=?,last_event_at=?,cursor=? WHERE run_id=?",
+            (_json(post), post_sha, event["event_at"], cursor + 1, run_id),
+        )
+        if event.get("kind") == "FUNDING":
+            db.execute(
+                "INSERT INTO funding_claims VALUES (?,?,?,?)",
+                (run_id, event["instrument"], event["interval_id"], event_id),
+            )
+        return True
+
+    def append(self, run_id: str, event_id: str, event: dict) -> dict:
+        self._validate_event(event_id, event)
+        if "source_ref" in event:
+            raise ValueError("SOURCE_REF_REQUIRES_ATOMIC_CONSUME")
+        with self._writer() as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                self._append_locked(db, run_id, event_id, event)
+                db.execute("COMMIT")
+            except Exception:
+                db.execute("ROLLBACK")
+                raise
+        return self.restore(run_id)
+
+    def consume_source_effect(self, run_id: str, event_id: str, event: dict) -> dict:
+        """Commit a source's next cursor and its simulated account effect atomically.
+
+        The shared source receipt must already exist and be SHA/clock matched.
+        Repeated source receipts may be independently consumed by separate
+        virtual accounts, never twice in the same account.
+        """
+        self._validate_event(event_id, event)
+        ref = event.get("source_ref")
+        if event.get("kind") != "SIMULATED_DECISION" or not isinstance(ref, dict):
+            raise ValueError("SOURCE_EFFECT_EVENT_REQUIRED")
+        source_id = ref.get("source_id")
+        seq = ref.get("sequence")
+        sha = ref.get("receipt_sha")
+        if not isinstance(source_id, str) or not source_id or type(seq) is not int or seq < 1:
+            raise ValueError("INVALID_SOURCE_REFERENCE")
+        if not isinstance(sha, str) or len(sha) != 64:
+            raise ValueError("INVALID_SOURCE_REFERENCE")
         with self._writer() as db:
             db.execute("BEGIN IMMEDIATE")
             try:
                 self._verify(db, run_id)
-                old = db.execute(
-                    "SELECT input_sha FROM events WHERE run_id=? AND event_id=?",
-                    (run_id, event_id),
+                source_row = db.execute(
+                    "SELECT payload,receipt_sha FROM source_receipts WHERE source_id=? AND seq=?",
+                    (source_id, seq),
                 ).fetchone()
-                if old:
-                    if old[0] != input_sha:
-                        raise ValueError("CONFLICTING_PAPER_EVENT")
-                    db.execute("COMMIT")
-                    return self._verify(db, run_id)
-                row = db.execute(
-                    "SELECT manifest,snapshot,last_event_at,cursor,snapshot_sha FROM runs WHERE run_id=?",
-                    (run_id,),
+                if source_row is None:
+                    raise ValueError("SOURCE_RECEIPT_NOT_PRESENT")
+                raw, actual_sha = source_row
+                if digest(json.loads(raw)) != actual_sha or sha != actual_sha:
+                    raise ValueError("SOURCE_RECEIPT_SHA_MISMATCH")
+                receipt = json.loads(raw)
+                book = event.get("source_book")
+                if not isinstance(book, dict) or (
+                    receipt.get("payload_sha") != book.get("snapshot_sha")
+                    or source_id != book.get("wallet_id")
+                    or receipt.get("source_event_at") != book.get("source_event_at")
+                    or receipt.get("first_known_at") != book.get("first_known_at")
+                ):
+                    raise ValueError("SOURCE_BOOK_RECEIPT_BINDING_MISMATCH")
+                if not (
+                    clock(receipt["source_event_at"])
+                    <= clock(receipt["first_known_at"])
+                    <= clock(receipt["captured_at"])
+                    <= clock(event["event_at"])
+                    <= clock(event["hypothetical_fill_at"])
+                ):
+                    raise ValueError("SOURCE_EFFECT_CLOCK_VIOLATION")
+                prior = db.execute(
+                    "SELECT seq,receipt_sha,event_id FROM account_source_cursors "
+                    "WHERE run_id=? AND source_id=? ORDER BY seq DESC LIMIT 1",
+                    (run_id, source_id),
                 ).fetchone()
-                if row is None:
-                    raise ValueError("UNKNOWN_PAPER_RUN")
-                manifest, snapshot, last_at, cursor, prior_sha = row
-                if clock(event["event_at"]) < clock(last_at):
-                    raise ValueError("PAPER_EVENT_OUT_OF_ORDER")
-                if event.get("kind") == "FUNDING":
-                    prior_funding = db.execute(
-                        "SELECT event_id FROM funding_claims "
-                        "WHERE run_id=? AND instrument=? AND interval_id=?",
-                        (run_id, event.get("instrument"), event.get("interval_id")),
-                    ).fetchone()
-                    if prior_funding is not None:
-                        raise ValueError("DUPLICATE_FUNDING_INTERVAL")
-                rulebook = Rulebook.from_dict(json.loads(manifest)["rulebook"])
-                account = Account.from_snapshot(rulebook, json.loads(snapshot))
-                self._apply(account, event)
-                post = account.snapshot()
-                post_sha = digest(post)
-                chain_sha = digest([run_id, cursor + 1, event_id, input_sha, prior_sha, post_sha])
-                db.execute(
-                    "INSERT INTO events VALUES (?,?,?,?,?,?,?,?,?)",
-                    (
-                        run_id,
-                        cursor + 1,
-                        event_id,
-                        event["event_at"],
-                        _json(event),
-                        input_sha,
-                        prior_sha,
-                        post_sha,
-                        chain_sha,
-                    ),
-                )
-                db.execute(
-                    "UPDATE runs SET snapshot=?,snapshot_sha=?,last_event_at=?,cursor=? WHERE run_id=?",
-                    (_json(post), post_sha, event["event_at"], cursor + 1, run_id),
-                )
-                if event.get("kind") == "FUNDING":
+                expected = prior[0] + 1 if prior else 1
+                if prior and seq == prior[0]:
+                    if prior[1:] != (sha, event_id):
+                        raise ValueError("SOURCE_ALREADY_CONSUMED")
+                    if self._append_locked(db, run_id, event_id, event):
+                        raise ValueError("SOURCE_ALREADY_CONSUMED")
+                elif seq != expected:
+                    raise ValueError("SOURCE_RUN_SEQUENCE_GAP")
+                else:
+                    if not self._append_locked(db, run_id, event_id, event):
+                        raise ValueError("SOURCE_EVENT_ID_REUSED")
                     db.execute(
-                        "INSERT INTO funding_claims VALUES (?,?,?,?)",
-                        (run_id, event["instrument"], event["interval_id"], event_id),
+                        "INSERT INTO account_source_cursors VALUES (?,?,?,?,?)",
+                        (run_id, source_id, seq, sha, event_id),
                     )
                 db.execute("COMMIT")
             except Exception:
@@ -429,6 +524,8 @@ class PaperJournal:
         prior_at = manifest["started_at"]
         last_result: dict | None = None
         funding_events: list[tuple[str, str, str]] = []
+        source_links: list[tuple[str, int, str, str]] = []
+        source_cursors: dict[str, int] = {}
         rows = db.execute(
             "SELECT seq,event_id,event_at,input,input_sha,prior_sha,post_sha,chain_sha "
             "FROM events WHERE run_id=? ORDER BY seq",
@@ -439,6 +536,38 @@ class PaperJournal:
             event = json.loads(payload)
             if event.get("kind") == "FUNDING":
                 funding_events.append((event["instrument"], event["interval_id"], event_id))
+            ref = event.get("source_ref")
+            if ref is not None:
+                if not isinstance(ref, dict) or event.get("kind") != "SIMULATED_DECISION":
+                    raise ValueError("SOURCE_CURSOR_REPLAY_DIVERGENCE")
+                sid = ref.get("source_id")
+                source_seq = ref.get("sequence")
+                source_sha = ref.get("receipt_sha")
+                if (
+                    not isinstance(sid, str)
+                    or type(source_seq) is not int
+                    or (source_seq != source_cursors.get(sid, 0) + 1)
+                ):
+                    raise ValueError("SOURCE_CURSOR_REPLAY_DIVERGENCE")
+                source_row = db.execute(
+                    "SELECT payload,receipt_sha FROM source_receipts WHERE source_id=? AND seq=?",
+                    (sid, source_seq),
+                ).fetchone()
+                if source_row is None or source_row[1] != source_sha:
+                    raise ValueError("SOURCE_CURSOR_REPLAY_DIVERGENCE")
+                receipt = json.loads(source_row[0])
+                book = event.get("source_book")
+                if (
+                    digest(receipt) != source_sha
+                    or not isinstance(book, dict)
+                    or receipt.get("payload_sha") != book.get("snapshot_sha")
+                    or receipt.get("source_event_at") != book.get("source_event_at")
+                    or receipt.get("first_known_at") != book.get("first_known_at")
+                    or receipt.get("source_id") != book.get("wallet_id")
+                ):
+                    raise ValueError("SOURCE_CURSOR_REPLAY_DIVERGENCE")
+                source_cursors[sid] = source_seq
+                source_links.append((sid, source_seq, source_sha, event_id))
             if (
                 seq != expected_seq
                 or event.get("event_at") != at
@@ -464,6 +593,13 @@ class PaperJournal:
             sorted(funding_events) != funding_claims
         ):
             raise ValueError("FUNDING_RECEIPT_REPLAY_DIVERGENCE")
+        saved_links = db.execute(
+            "SELECT source_id,seq,receipt_sha,event_id FROM account_source_cursors "
+            "WHERE run_id=? ORDER BY source_id,seq",
+            (run_id,),
+        ).fetchall()
+        if sorted(source_links) != saved_links:
+            raise ValueError("SOURCE_CURSOR_REPLAY_DIVERGENCE")
         if (
             cursor != len(rows)
             or prior_sha != snapshot_sha
@@ -480,6 +616,7 @@ class PaperJournal:
             "account": account.snapshot(),
             "journal_head_sha": rows[-1][-1] if rows else "0" * 64,
             "last_event_result": last_result,
+            "source_cursors": source_cursors,
         }
 
     def append_source_receipt(
