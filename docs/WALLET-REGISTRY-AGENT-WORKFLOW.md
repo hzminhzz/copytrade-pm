@@ -17,6 +17,12 @@ The Git decision is the **immutable selection source**; the owner-private SQLite
 
 ## Required read-only sequence
 
+First discover the matching owner with `copytrade-pm capabilities show
+portfolio.current` or `copytrade-pm capabilities show wallet.lookup` and
+[the agent-native guide](AGENT-NATIVE-OPERATIONS.md). Unified queries do not
+replace the independent registry `doctor`, release or paper-worker checks.
+
+
 From a clean checkout or an isolated worktree of `hzminhzz/copytrade-pm`, compare the actual Git revision with the remote before trusting code or a dated note:
 
 ```bash

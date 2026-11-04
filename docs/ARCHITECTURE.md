@@ -1,5 +1,16 @@
 # Architecture: evidence, manager governance, shadow account
 
+## Agent-native discovery seam (2026-11-04)
+
+[Agent-native operations](AGENT-NATIVE-OPERATIONS.md) introduces a machine-readable
+capability directory and read-only orchestration facade. The new interface
+delegates to existing domain authorities: wallet registry for indexed identities,
+PM-03 for finance, prospective journal/heartbeat for paper, Polars job for
+research, and installed Git/release tooling for respective observations.
+No new database or financial authority is introduced. Unavailable runtime
+sources are explicitly `UNKNOWN`; a research selection is never worker state.
+
+
 ## Offline milestone #2 complete engineering vs independent science (2026-11-04)
 
 [Owner-approved engineering acceptance](OFFLINE-MILESTONE2-ENGINEERING-ACCEPTANCE-20261104.md)

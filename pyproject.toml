@@ -15,6 +15,7 @@ market-stream = ["ccxt==4.5.91"]
 dev = ["pytest>=8.3", "ruff>=0.8"]
 
 [project.scripts]
+copytrade-pm = "copytrade_pm.pm_operations:main"
 copytrade-pm-replay = "copytrade_pm.pm_fill_replay:main"
 copytrade-pm-rank = "copytrade_pm.pm_manager:main"
 copytrade-pm-handoff = "copytrade_pm.pm_handoff:main"
