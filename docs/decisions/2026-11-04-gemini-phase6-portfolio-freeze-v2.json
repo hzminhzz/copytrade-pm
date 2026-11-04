@@ -1,0 +1,143 @@
+{
+  "schema": "gemini_research_portfolio_priority_v2",
+  "decision_date_utc": "2026-11-04",
+  "decision_authority": "user_approved",
+  "scope": "NEW_FORWARD_PAPER_RESEARCH_ONLY",
+  "status": "SELECTION_SAVED_NOT_REGISTERED_OR_DEPLOYED",
+  "base_revision": "ba2716de871d7999b8b4498ce514292529a84254",
+  "source": {
+    "report": "Hyperliquid_Phase6A_Phase3_and_Phase4_Portfolio_Survival_Report_20261104.pdf",
+    "study": "Phase 6A extension: retrospective 90d risk and survival",
+    "source_metrics_are": "GEMINI_CONDITIONAL_SIMULATIONS_NOT_INDEPENDENT_FOLLOWER_PNL",
+    "identity_crosscheck": "docs/PHASE4_PROPR_SIMULATION_RESULTS_108_WALLETS_20261103.csv and docs/HL108_TOP25_WALLETS_FILLS_FOR_GEMINI.csv"
+  },
+  "research_contract": {
+    "virtual_initial_equity_usd": 10000,
+    "equal_nominal_risk_budget_usd": 600,
+    "policy_candidate": "P2_flatten",
+    "policy_evidence": "RESEARCH_SIMULATION_NOT_VERIFIED_BROKER_EXECUTION",
+    "account_supervisor_terms_verified": false,
+    "manual_activation_allowed": false,
+    "trading_authorized": false,
+    "execution_first_signal_delay_seconds": 300,
+    "source_equity_relative_whole_book_required": true,
+    "phase6a_static_k_is_order_sizing_authority": false,
+    "first_local_receipt_required": true,
+    "future_study_registered": false,
+    "future_start_utc": null,
+    "reported_return_is_not_prospective_alpha": true
+  },
+  "new_forward_paper_priority": ["E6", "E2", "P1", "E3", "B_phase5"],
+  "portfolios": {
+    "E6": {
+      "priority": 1,
+      "state": "PRIMARY_FORWARD_PAPER_RESEARCH",
+      "source_phase": "4",
+      "pod_count": 5,
+      "nominal_total_risk_budget_usd": 600,
+      "nominal_pod_budget_usd": 120,
+      "gemini_modeled_pod_daily_flatten_usd": 60,
+      "gemini_p2_modeled_net_return_pct": "14.76",
+      "gemini_p2_modeled_trailing_dd_pct": "2.73",
+      "gemini_p2_modeled_daily_dd_pct": "1.48",
+      "members": [
+        {"wallet": "ACT04", "canonical_alias": "ACT04", "gemini_k_10k_reference": "0.00257"},
+        {"wallet": "W083", "canonical_alias": "S053-HYPE", "gemini_k_10k_reference": "0.02825"},
+        {"wallet": "W080", "canonical_alias": "S051-BTC", "gemini_k_10k_reference": "0.02908"},
+        {"wallet": "CM-002", "canonical_alias": "CM-002", "gemini_k_10k_reference": "0.00231"},
+        {"wallet": "HL Perps Whale", "canonical_alias": "Whale_0x5f94", "gemini_k_10k_reference": "0.00029"}
+      ]
+    },
+    "E2": {
+      "priority": 2,
+      "state": "THREE_POD_FORWARD_PAPER_CHALLENGER",
+      "source_phase": "4",
+      "pod_count": 3,
+      "nominal_total_risk_budget_usd": 600,
+      "nominal_pod_budget_usd": 200,
+      "gemini_modeled_pod_daily_flatten_usd": 100,
+      "gemini_p2_modeled_net_return_pct": "18.92",
+      "gemini_p2_modeled_trailing_dd_pct": "4.31",
+      "gemini_p2_modeled_daily_dd_pct": "2.42",
+      "members": [
+        {"wallet": "ACT04", "canonical_alias": "ACT04", "gemini_k_10k_reference": "0.00428"},
+        {"wallet": "W083", "canonical_alias": "S053-HYPE", "gemini_k_10k_reference": "0.04708"},
+        {"wallet": "W080", "canonical_alias": "S051-BTC", "gemini_k_10k_reference": "0.04847"}
+      ]
+    },
+    "P1": {
+      "priority": 3,
+      "state": "INCUMBENT_HISTORICAL_BASELINE_NO_NEW_PROMOTION",
+      "original_decision": "docs/decisions/2026-11-02-gemini-selected-three-pod.md",
+      "nominal_total_risk_budget_usd": 600,
+      "pod_count": 3,
+      "members": [
+        {"wallet": "W016", "canonical_alias": "S035-ENA"},
+        {"wallet": "W080", "canonical_alias": "S051-BTC"},
+        {"wallet": "W083", "canonical_alias": "S053-HYPE"}
+      ]
+    },
+    "P14": {
+      "priority": null,
+      "state": "ARCHIVED_PREVIOUS_FIVE_POD_CHALLENGER",
+      "original_decision": "docs/decisions/2026-11-03-gemini-phase3-adoption-180d.md",
+      "nominal_total_risk_budget_usd": 600,
+      "pod_count": 5,
+      "members": [
+        {"wallet": "W016", "canonical_alias": "S035-ENA"},
+        {"wallet": "W080", "canonical_alias": "S051-BTC"},
+        {"wallet": "W083", "canonical_alias": "S053-HYPE"},
+        {"wallet": "W100", "canonical_alias": "S064-xyz:BRENTOIL"},
+        {"wallet": "HL Perps Whale", "canonical_alias": "Whale_0x5f94"}
+      ]
+    },
+    "E3": {
+      "priority": 4,
+      "state": "OPTIONAL_DEFENSIVE_RESEARCH_RESERVE",
+      "source_phase": "4",
+      "nominal_total_risk_budget_usd": 600,
+      "pod_count": 3,
+      "source_k_complete": false,
+      "members": [
+        {"wallet": "ACT04", "canonical_alias": "ACT04"},
+        {"wallet": "W083", "canonical_alias": "S053-HYPE"},
+        {"wallet": "CM-002", "canonical_alias": "CM-002"}
+      ]
+    },
+    "B_phase5": {
+      "priority": 5,
+      "state": "SEPARATE_PHASE5_COMPARISON_NOT_SELECTED",
+      "original_source": "owner-private frozen Phase 5 eligibility manifest",
+      "nominal_total_risk_budget_usd": null,
+      "pod_count": 5,
+      "members": [
+        {"wallet": "N01", "canonical_alias": "N01"},
+        {"wallet": "N07", "canonical_alias": "N07"},
+        {"wallet": "N02", "canonical_alias": "N02"},
+        {"wallet": "N05", "canonical_alias": "N05"},
+        {"wallet": "ACT08", "canonical_alias": "ACT08"}
+      ]
+    },
+    "P16": {
+      "priority": null,
+      "state": "LEGACY_OPTIONAL_CONTROL_NOT_SELECTED",
+      "original_decision": "docs/decisions/2026-11-03-gemini-phase3-adoption-180d.md",
+      "pod_count": 4
+    },
+    "P15": {
+      "priority": null,
+      "state": "DEFERRED_HIGHER_RISK_NO_PROMOTION",
+      "original_decision": "docs/decisions/2026-11-03-gemini-phase3-adoption-180d.md",
+      "pod_count": 5,
+      "nominal_total_risk_budget_usd": 1000
+    }
+  },
+  "preservation": {
+    "previous_p1_p14_frozen_identifiers_unchanged": true,
+    "phase5_abc_and_pm01_36_unchanged": true,
+    "existing_FP09_P1_P14_trial_unchanged": true,
+    "combo2_unchanged": true,
+    "production_tracker_and_ensemble_unchanged": true,
+    "new_portfolio_activation_requires_separate_verified_identity_and_pit_receipts": true
+  }
+}
