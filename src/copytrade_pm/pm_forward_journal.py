@@ -411,7 +411,8 @@ class PaperJournal:
                 raise
         return self.restore(run_id)
 
-    def _verify(self, db: sqlite3.Connection, run_id: str) -> dict:
+    @staticmethod
+    def _verify(db: sqlite3.Connection, run_id: str) -> dict:
         row = db.execute(
             "SELECT manifest,manifest_sha,snapshot,snapshot_sha,last_event_at,cursor FROM runs WHERE run_id=?",
             (run_id,),
@@ -446,7 +447,7 @@ class PaperJournal:
                 or clock(at) < clock(prior_at)
             ):
                 raise ValueError("PAPER_JOURNAL_DIVERGENCE")
-            last_result = self._apply(account, event)
+            last_result = PaperJournal._apply(account, event)
             expected_post = digest(account.snapshot())
             if after != expected_post or chain_sha != digest(
                 [run_id, seq, event_id, input_sha, before, after]
