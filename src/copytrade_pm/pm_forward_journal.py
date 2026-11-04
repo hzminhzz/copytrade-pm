@@ -184,6 +184,32 @@ class PaperJournal:
             if any(not q.supported or q.volume_base is None for q in obs.values()):
                 account.risk = RiskState.RED
                 return {"status": "BLOCKED", "reason": "INCOMPLETE_MARKET"}
+            from .pm_forward_market import market_contract_reasons
+
+            market_reasons: list[str] = []
+            market_contracts = event.get("market_contracts")
+            if not isinstance(market_contracts, dict):
+                market_contracts = {}
+            targets = account.external_targets(proposed)
+            for instrument in sorted(set(targets) | expected_keys):
+                quote = obs.get(instrument)
+                if quote is None:
+                    market_reasons.append("MARKET_MISSING_QUOTE")
+                    continue
+                market_reasons.extend(
+                    market_contract_reasons(
+                        market_contracts.get(instrument.key),
+                        instrument=instrument,
+                        observed_quality=quote.quality,
+                        decision_at=decision_at,
+                        target_quantity=targets.get(instrument, number("0")),
+                        costs_sha=digest(event["costs"]),
+                    )
+                )
+            if market_reasons:
+                account.risk = RiskState.RED
+                account.risk_reasons = tuple(sorted(set(market_reasons)))
+                return {"status": "BLOCKED_MARKET", "reason_codes": list(account.risk_reasons)}
             account.mark({k: q.mark for k, q in obs.items()}, decision_at)
             evidence = RiskEvidence(
                 trusted=True,

@@ -54,8 +54,10 @@ def admit_source_book(
     if (
         not isinstance(census, list)
         or not census
-        or len(census) != len(set(census))
+        or not all(isinstance(k, str) and k for k in census)
         or not isinstance(observed_dexes, list)
+        or not all(isinstance(k, str) and k for k in observed_dexes)
+        or len(census) != len(set(census))
         or set(census) != set(observed_dexes)
     ):
         reasons.append("SOURCE_DEX_CENSUS_INCOMPLETE")
@@ -64,6 +66,8 @@ def admit_source_book(
     if (
         not isinstance(subs, list)
         or not isinstance(observed_subs, list)
+        or not all(isinstance(k, str) and k for k in subs)
+        or not all(isinstance(k, str) and k for k in observed_subs)
         or len(set(subs)) != len(subs)
         or set(subs) != set(observed_subs)
     ):

@@ -47,6 +47,8 @@ def test_full_fixture_admits_but_retro_rest_sequential_does_not() -> None:
             {"dex_census": ["mainnet:perp:default", "mainnet:perp:xyz"]},
             "SOURCE_DEX_CENSUS_INCOMPLETE",
         ),
+        ({"dex_census": [{"bad": "unhashable"}]}, "SOURCE_DEX_CENSUS_INCOMPLETE"),
+        ({"subaccounts": [{"bad": "unhashable"}]}, "SOURCE_SUBACCOUNT_CENSUS_INCOMPLETE"),
         ({"hedges_complete": False}, "SOURCE_HEDGES_INCOMPLETE"),
         ({"spot_scope_known": False}, "SOURCE_SPOT_UNKNOWN"),
         ({"vault_scope_known": False}, "SOURCE_VAULT_UNKNOWN"),

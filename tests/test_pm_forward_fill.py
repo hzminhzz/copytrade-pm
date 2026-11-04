@@ -40,7 +40,28 @@ def _source_book() -> dict:
 
 
 def _decision() -> dict:
+    costs = {
+        "fee_bps": "2",
+        "full_spread_bps": "4",
+        "slippage_bps": "1",
+        "impact_bps_at_full_participation": "4",
+        "max_participation": "0.1",
+        "max_age_seconds": 300,
+        "latency_seconds": 1,
+    }
+    market = {
+        "schema": "paper_market_contract_v1",
+        "instrument": BTC.key,
+        "quality": "SYNTHETIC",
+        "costs_sha": digest(costs),
+        "session_open": True,
+        "market_permitted": True,
+        "first_known_at": T,
+        "quantity_step": "0.01",
+        "minimum_quantity": "0.01",
+    }
     return {
+        "market_contracts": {BTC.key: {**market, "contract_sha": digest(market)}},
         "source_book": _source_book(),
         "kind": "SIMULATED_DECISION",
         "event_at": T,
@@ -61,15 +82,7 @@ def _decision() -> dict:
                 "supported": True,
             }
         ],
-        "costs": {
-            "fee_bps": "2",
-            "full_spread_bps": "4",
-            "slippage_bps": "1",
-            "impact_bps_at_full_participation": "4",
-            "max_participation": "0.1",
-            "max_age_seconds": 300,
-            "latency_seconds": 1,
-        },
+        "costs": costs,
     }
 
 
