@@ -6,7 +6,36 @@
 
 For **new** forward-paper selection, the owner-approved [Gemini Phase 6A Portfolio Freeze V2](decisions/2026-11-04-gemini-phase6-portfolio-freeze-v2.md) and its [JSON roster](decisions/2026-11-04-gemini-phase6-portfolio-freeze-v2.json) prioritize E6 (five wallets) and E2 (three wallets), both on an equal $600 *nominal* model risk budget and a $10,000 virtual reference. P1 remains the baseline; P14 is preserved, but no longer the selected new five-pod challenger. Those reference Gemini fixed `k` values **are not executable sizing**. Actual source-equity-relative whole-book sizing, PIT receipts and PM03/PM04 authority remain mandatory.
 
-The preexisting P1/P14 FP-09 worker scope, Trader Intelligence proposed study, private WR-06 records, PM-01/Phase 5 frozen cohorts, Combo 2 and running services **must not be silently reconfigured**. Start E6/E2 only via a separately versioned future observation/paper campaign after wallet identity/parent/subaccount verification, genuine P2_flatten safety acceptance, and independent ledger registration. No live orders, Propr terms mutation or funded activation is authorized by the V2 research preference.
+The new *read-only* registry CLI `copytrade-wallet-registry priority` exposes E6/E2; legacy sealed `portfolio P1` and `portfolio P14` queries separately expose `new_research_priority_v2` without changing the underlying WR selection or FP portfolio SHA. The preexisting P1/P14 FP-09 worker scope, Trader Intelligence proposed study, private WR-06 records, PM-01/Phase 5 frozen cohorts, Combo 2 and running services **must not be silently reconfigured**. Start E6/E2 only via a separately versioned future observation/paper campaign after wallet identity/parent/subaccount verification, genuine P2_flatten safety acceptance, and independent ledger registration. No live orders, Propr terms mutation or funded activation is authorized by the V2 research preference.
+
+## Owner-private wallet registry (partial WR release, 2026-11-04)
+
+Use the [dated canonical wallet status](WALLET-STATUS.md) and [registry checkpoint](WALLET-REGISTRY-STATUS-20261104.md)
+and [paper boundary](WALLET-REGISTRY-PAPER-CONTRACT-20261104.md) for dated
+research/config/subscriber counts and sealed P1/P14/A/B/C/Combo2 definitions.
+This inventory is **not** a source-account book, broker, scientific signoff,
+or runtime subscription authority. From the registry feature worktree:
+
+```bash
+uv run --group dev copytrade-wallet-registry doctor
+uv run --group dev copytrade-wallet-registry status
+uv run --group dev copytrade-wallet-registry portfolio P1
+uv run --group dev copytrade-wallet-registry paper
+# Mutates ONLY the new private inventory after explicit backup/review:
+uv run --group dev copytrade-wallet-registry sync --dry-run
+```
+
+The `paper` command reads independently owned FP `PaperJournal` SQLite WAL
+in `mode=ro` with `query_only`, checks FP's own portfolio SHA against the explicitly bound **separate** WR sealed selection SHA and frozen aliases/risk,
+manifest/snapshot hashes and bounded recent chain, and refuses unsupported
+legacy JSONL v1 projections. It **cannot** certify worker PID, transport
+heartbeat or quote freshness until FP publishes these independently. A zero
+registered-run count does not prove no independent paper worker exists. P1/P14
+selections are *research-only* until independently verified account-run files
+are published. Do not register fake paper runs or restart tracker/ensemble
+to make a count nonzero. A verified SQLite backup and controlled private
+`sync --apply` are reversible; there is no registry timer installed.
+Owner-private scientific review records have a [negative-only Ed25519 + evidence SHA import](WALLET-REGISTRY-SIGNED-NEGATIVE-EVIDENCE-20261104.md), which never qualifies a wallet or authorizes trading. A signature does not prove auditor independence. The pinned [read-only registry release and rollback runbook](WALLET-REGISTRY-RELEASE-RUNBOOK.md) documents owner-approved, Git-SHA-pinned on-demand activation, preflight and recovery without touching existing services. The registry draft PR #57 is not final cross-program scientific/paper acceptance.
 
 ## 0. Preflight, source of truth, safe worktree
 
