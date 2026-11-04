@@ -25,6 +25,15 @@ def test_two_portfolio_report_reconciles_account_and_no_alpha(tmp_path) -> None:
     result = build_report(journal.path, ("P1", "P14"), as_of="2026-11-04T04:08:00+00:00")
     assert sha256(journal.path.read_bytes()).hexdigest() == sha_before
     assert result["matched_p1_p14"].startswith("NOT_QUALIFIED")
+    compared = result["matched_model_comparison"]
+    assert compared["status"] == "SYNTHETIC_MATCHED_OUTPUT_ONLY_NO_PROSPECTIVE_COVERAGE"
+    assert compared["model_event_clocks_aligned"] is True
+    assert D(compared["model_event_return_dispersion_bps"]) >= 0
+    assert compared["real_tracking_error"] == "NOT_ESTIMABLE_WITHOUT_MATCHED_PROSPECTIVE_PAPER"
+    assert not compared["paper_observed"] and not compared["scientifically_qualified"]
+    assert compared["p14_minus_p1_model_pnl"] == str(
+        D(result["runs"][1]["net_modeled_pnl"]) - D(result["runs"][0]["net_modeled_pnl"])
+    )
     assert not result["alpha_claim"] and not result["challenge_pass_probability_claim"]
     first, second = result["runs"]
     assert first["evidence_class"] == second["evidence_class"] == "FORWARD_PAPER_SIMULATED_v1"
@@ -77,6 +86,42 @@ def test_opt_in_2x_3x_cost_stress_replays_same_sealed_events_readonly(tmp_path) 
     assert D(highest["total_fees"]) >= D(higher["total_fees"])
     assert not higher["paper_observed"] and not highest["scientifically_qualified"]
     assert report["alpha_claim"] is False
+
+
+def test_matched_model_cost_scenarios_remain_unqualified(tmp_path) -> None:
+    journal, campaign, policies, book, receipt = _setup(tmp_path)
+    for run_id, qty in (("P1", "0.3"), ("P14", "0.16")):
+        event = paper_signal(run_id, 60, digest(policies[run_id]), book, qty)
+        event["source_ref"] = {"source_id": "S035", "sequence": 1, "receipt_sha": digest(receipt)}
+        campaign.record_source_decision(run_id, "signal", event)
+        campaign.record_event(run_id, "due", paper_tick(run_id, 360, digest(policies[run_id])))
+    report = build_report(
+        journal.path,
+        ("P14", "P1"),
+        as_of="2026-11-04T04:08:00+00:00",
+        cost_stress=True,
+    )
+    compared = report["matched_model_comparison"]
+    assert compared["status"].startswith("SYNTHETIC_MATCHED")
+    for factor in ("2x", "3x"):
+        assert compared["scenario_p14_minus_p1_model_pnl"][factor] != "NOT_COMPUTED"
+        p14 = next(x for x in report["runs"] if x["run_id"] == "P14")
+        p1 = next(x for x in report["runs"] if x["run_id"] == "P1")
+        expected = D(p14[f"cost_sensitivity_{factor}"]["net_modeled_pnl"]) - D(
+            p1[f"cost_sensitivity_{factor}"]["net_modeled_pnl"]
+        )
+        assert D(compared["scenario_p14_minus_p1_model_pnl"][factor]) == expected
+    assert compared["real_tracking_error"].startswith("NOT_ESTIMABLE")
+
+
+def test_unaligned_model_timelines_do_not_fabricate_tracking_error(tmp_path) -> None:
+    journal, campaign, policies, _, _ = _setup(tmp_path)
+    campaign.record_event("P1", "tick", paper_tick("P1", 10, digest(policies["P1"])))
+    report = build_report(journal.path, ("P1", "P14"), as_of="2026-11-04T04:01:00+00:00")
+    compared = report["matched_model_comparison"]
+    assert compared["model_event_clocks_aligned"] is False
+    assert compared["model_event_return_dispersion_bps"] is None
+    assert compared["real_tracking_error"].startswith("NOT_ESTIMABLE")
 
 
 def test_report_refuses_future_event_from_past_asof(tmp_path) -> None:

@@ -166,6 +166,76 @@ def report_one(
     }
 
 
+def _matched_modeled_p1_p14(rows: list[dict]) -> dict:
+    """Compare sealed synthetic model outputs only; never manufacture live TE."""
+    from .pm_forward_portfolios import P1, P14
+
+    if len(rows) != 2 or {item["run_id"] for item in rows} != {"P1", "P14"}:
+        return {
+            "status": "NOT_MATCHED_P1_P14_RUNS",
+            "paper_observed": False,
+            "real_tracking_error": "UNKNOWN",
+        }
+    by_id = {item["run_id"]: item for item in rows}
+    p1, p14 = by_id["P1"], by_id["P14"]
+    if p1["portfolio_sha"] != P1.sha or p14["portfolio_sha"] != P14.sha:
+        raise ValueError("PAPER_MATCHED_FROZEN_PORTFOLIO_IDENTITY_MISMATCH")
+    a, b = p1["timeline"], p14["timeline"]
+    aligned = len(a) == len(b) and all(x["at"] == y["at"] for x, y in zip(a, b))
+    modeled_dispersion = None
+    if aligned and len(a) >= 3:
+        diffs = []
+        for index in range(1, len(a)):
+            old_a = number(a[index - 1]["equity"])
+            old_b = number(b[index - 1]["equity"])
+            if old_a <= 0 or old_b <= 0:
+                aligned = False
+                break
+            model_return_a = (number(a[index]["equity"]) - old_a) / old_a
+            model_return_b = (number(b[index]["equity"]) - old_b) / old_b
+            diffs.append((model_return_b - model_return_a) * Decimal("10000"))
+        if aligned and len(diffs) >= 2:
+            center = sum(diffs, Decimal("0")) / Decimal(len(diffs))
+            sample_variance = sum(
+                ((delta - center) ** 2 for delta in diffs), Decimal("0")
+            ) / Decimal(len(diffs) - 1)
+            modeled_dispersion = str(sample_variance.sqrt())
+    scenarios = {}
+    for factor in (2, 3):
+        left = p1[f"cost_sensitivity_{factor}x"]
+        right = p14[f"cost_sensitivity_{factor}x"]
+        if (
+            isinstance(left, dict)
+            and isinstance(right, dict)
+            and ("net_modeled_pnl" in left and "net_modeled_pnl" in right)
+        ):
+            scenarios[f"{factor}x"] = str(
+                number(right["net_modeled_pnl"]) - number(left["net_modeled_pnl"])
+            )
+        else:
+            scenarios[f"{factor}x"] = "NOT_COMPUTED"
+    return {
+        "status": "SYNTHETIC_MATCHED_OUTPUT_ONLY_NO_PROSPECTIVE_COVERAGE",
+        "evidence_class": "FORWARD_PAPER_SIMULATED_v1",
+        "p1_model_equity": p1["financial_state"]["equity"],
+        "p14_model_equity": p14["financial_state"]["equity"],
+        "p14_minus_p1_model_pnl": str(
+            number(p14["net_modeled_pnl"]) - number(p1["net_modeled_pnl"])
+        ),
+        "p14_minus_p1_model_drawdown": str(
+            number(p14["max_observed_model_drawdown"]) - number(p1["max_observed_model_drawdown"])
+        ),
+        "model_event_clocks_aligned": aligned,
+        "model_event_return_dispersion_bps": modeled_dispersion if aligned else None,
+        "not_annualized": True,
+        "scenario_p14_minus_p1_model_pnl": scenarios,
+        "real_tracking_error": "NOT_ESTIMABLE_WITHOUT_MATCHED_PROSPECTIVE_PAPER",
+        "real_coverage": "UNKNOWN",
+        "scientifically_qualified": False,
+        "paper_observed": False,
+    }
+
+
 def build_report(
     db_path: Path, run_ids: tuple[str, ...], *, as_of: str, cost_stress: bool = False
 ) -> dict:
@@ -183,6 +253,7 @@ def build_report(
         "run_count": len(rows),
         "runs": rows,
         "matched_p1_p14": "NOT_QUALIFIED_NO_INDEPENDENT_PROSPECTIVE_COVERAGE",
+        "matched_model_comparison": _matched_modeled_p1_p14(rows),
         "cost_sensitivity_status": (
             "SYNTHETIC_REPLAY_ONLY_NO_ALPHA" if cost_stress else "NOT_COMPUTED"
         ),
