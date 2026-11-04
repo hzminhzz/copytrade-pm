@@ -80,7 +80,11 @@ def classify(
         reasons.append("UNKNOWN_ACCOUNT_OR_MARKET")
     if not evidence.market_coverage_valid or evidence.pending_unknown_orders:
         reasons.append("MISSING_COVERAGE_OR_PENDING")
-    if evidence.input_status not in {"RESEARCH_SYNTHETIC", "PROSPECTIVE_OBSERVED"}:
+    if evidence.input_status not in {
+        "RESEARCH_SYNTHETIC",
+        "PROSPECTIVE_OBSERVED",
+        "FORWARD_PAPER_SIMULATED_v1",
+    }:
         reasons.append("HINDSIGHT_OR_UNKNOWN_SIGNAL")
     if evidence.input_status == "PROSPECTIVE_OBSERVED" and not evidence.pm02_qualified:
         reasons.append("PM02_ZERO_QUALIFICATION")

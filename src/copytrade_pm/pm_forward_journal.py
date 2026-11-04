@@ -86,25 +86,122 @@ class PaperJournal:
             os.close(fd)
 
     @staticmethod
-    def _apply(account: Account, event: dict) -> None:
+    def _apply(account: Account, event: dict) -> dict:
         kind = event.get("kind")
         if kind == "HALT":
             account.risk = RiskState.HALT
             account.halt_reason = event.get("reason") or "PAPER_OPERATOR_HALT"
-        elif kind == "MARK":
+            return {"status": "HALT_LATCHED"}
+        if kind == "MARK":
             if not event.get("state_known", False):
                 account.risk = RiskState.HALT
                 account.halt_reason = "UNKNOWN_PAPER_MARK"
-            else:
-                from .pm03_account import Instrument
+                return {"status": "HALT_UNKNOWN_MARK"}
+            from .pm03_account import Instrument
 
-                account.mark(
-                    {Instrument.parse(k): number(v) for k, v in event["prices"].items()},
-                    event["event_at"],
+            account.mark(
+                {Instrument.parse(k): number(v) for k, v in event["prices"].items()},
+                event["event_at"],
+            )
+            account.verify()
+            return {"status": "MARKED"}
+        if kind == "SIMULATED_DECISION":
+            from .pm03_account import Instrument
+            from .pm03_execution import CostModel, MarketObservation, execute_targets
+            from .pm03_risk import RiskEvidence, RiskPolicy, classify
+
+            if event.get("evidence_class") != "FORWARD_PAPER_SIMULATED_v1":
+                raise ValueError("PAPER_WRONG_EVIDENCE_CLASS")
+            if event.get("order_route") != "NONE":
+                raise ValueError("PAPER_ORDER_ROUTE_FORBIDDEN")
+            if event.get("fixture_attested") is not True:
+                raise ValueError("PAPER_SOURCE_ADMISSION_MISSING")
+            if not account.rulebook.confirmed:
+                raise ValueError("PAPER_RULEBOOK_UNCONFIRMED")
+            decision_at = event["event_at"]
+            obs = {}
+            for entry in event["observations"]:
+                instrument = Instrument.parse(entry["instrument"])
+                if instrument in obs:
+                    raise ValueError("PAPER_DUPLICATE_MARKET")
+                quote = MarketObservation(
+                    instrument=instrument,
+                    event_at=entry["source_at"],
+                    first_known_at=entry["first_known_at"],
+                    mark=number(entry["mark"]),
+                    volume_base=number(entry["volume_base"])
+                    if entry.get("volume_base") is not None
+                    else None,
+                    quality=entry.get("quality", "SYNTHETIC"),
+                    supported=entry["supported"],
                 )
-                account.verify()
-        else:
-            raise ValueError("PAPER_EVENT_NOT_SUPPORTED")
+                quote.validate(decision_at)
+                obs[instrument] = quote
+            proposed = {
+                pm: {Instrument.parse(k): number(q) for k, q in book.items()}
+                for pm, book in event["proposed"].items()
+            }
+            shocks = tuple(
+                {Instrument.parse(k): number(v) for k, v in scenario.items()}
+                for scenario in event["shocks"]
+            )
+            expected_keys = set(account.quantities)
+            expected_keys |= {
+                instrument
+                for book in account.pm_quantities.values()
+                for instrument, q in book.items()
+                if q
+            }
+            if expected_keys - set(obs):
+                account.risk = RiskState.HALT
+                account.halt_reason = "MISSING_EXISTING_POSITION_MARK"
+                return {"status": "BLOCKED", "reason": account.halt_reason}
+            if any(not q.supported or q.volume_base is None for q in obs.values()):
+                account.risk = RiskState.RED
+                return {"status": "BLOCKED", "reason": "INCOMPLETE_MARKET"}
+            account.mark({k: q.mark for k, q in obs.items()}, decision_at)
+            evidence = RiskEvidence(
+                trusted=True,
+                account_state_known=True,
+                market_state_known=True,
+                market_coverage_valid=True,
+                pending_unknown_orders=False,
+                input_status="FORWARD_PAPER_SIMULATED_v1",
+                pm02_qualified=False,
+            )
+            decision = classify(
+                account,
+                proposed,
+                {k: q.mark for k, q in obs.items()},
+                shocks,
+                evidence,
+                RiskPolicy(),
+            )
+            args = event["costs"]
+            costs = CostModel(
+                fee_bps=number(args["fee_bps"]),
+                full_spread_bps=number(args["full_spread_bps"]),
+                slippage_bps=number(args["slippage_bps"]),
+                impact_bps_at_full_participation=number(args["impact_bps_at_full_participation"]),
+                max_participation=number(args["max_participation"]),
+                max_age_seconds=args["max_age_seconds"],
+                latency_seconds=args["latency_seconds"],
+            )
+            fill = execute_targets(
+                account,
+                decision["approved"],
+                obs,
+                costs,
+                decision_at=decision_at,
+                hypothetical_fill_at=event["hypothetical_fill_at"],
+                permitted=decision["approved_new_risk"],
+            )
+            return {
+                "risk": decision["state"],
+                "reasons": decision["reason_codes"],
+                "execution": fill,
+            }
+        raise ValueError("PAPER_EVENT_NOT_SUPPORTED")
 
     def register(self, manifest: PaperManifest) -> dict:
         initial = Account.start(manifest.rulebook, manifest.started_at).snapshot()
@@ -210,6 +307,7 @@ class PaperJournal:
         account = Account.start(rulebook, manifest["started_at"])
         prior_sha = digest(account.snapshot())
         prior_at = manifest["started_at"]
+        last_result: dict | None = None
         rows = db.execute(
             "SELECT seq,event_id,event_at,input,input_sha,prior_sha,post_sha,chain_sha "
             "FROM events WHERE run_id=? ORDER BY seq",
@@ -226,7 +324,7 @@ class PaperJournal:
                 or clock(at) < clock(prior_at)
             ):
                 raise ValueError("PAPER_JOURNAL_DIVERGENCE")
-            self._apply(account, event)
+            last_result = self._apply(account, event)
             expected_post = digest(account.snapshot())
             if after != expected_post or chain_sha != digest(
                 [run_id, seq, event_id, input_sha, before, after]
@@ -249,6 +347,7 @@ class PaperJournal:
             "last_event_at": last_at,
             "account": account.snapshot(),
             "journal_head_sha": rows[-1][-1] if rows else "0" * 64,
+            "last_event_result": last_result,
         }
 
     def restore(self, run_id: str) -> dict:
