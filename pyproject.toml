@@ -26,6 +26,7 @@ copytrade-pm-source = "copytrade_pm.pm_e4_stream:main"
 copytrade-pm-source-abc = "copytrade_pm.pm_source_rotation:main"
 copytrade-pm-source-audit = "copytrade_pm.pm_e4_source_readiness:main"
 copytrade-pm-combo2-paper = "copytrade_pm.pm_combo2_cli:main"
+copytrade-pm-review-gate = "copytrade_pm.pm_governance:main"
 
 [build-system]
 requires = ["hatchling"]
