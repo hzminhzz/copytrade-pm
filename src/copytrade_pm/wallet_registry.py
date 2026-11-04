@@ -812,6 +812,16 @@ def db_status(db: Path) -> dict:
             "WHERE m.version=(SELECT MAX(c.version) FROM cohorts c "
             "WHERE c.cohort_id=m.cohort_id)"
         ).fetchone()[0]
+        for category, flag in (
+            ("research_desired_overlap", "configured"),
+            ("research_subscribed_overlap", "subscribed"),
+        ):
+            counts[category] = con.execute(
+                "SELECT COUNT(DISTINCT m.wallet_id) FROM cohort_memberships m "
+                f"JOIN monitoring mon ON mon.wallet_id=m.wallet_id AND mon.{flag}=1 "
+                "WHERE m.version=(SELECT MAX(c.version) FROM cohorts c "
+                "WHERE c.cohort_id=m.cohort_id)"
+            ).fetchone()[0]
         counts["runtime_admitted"] = "UNKNOWN"
         sources = {
             key: value
@@ -939,6 +949,8 @@ def cli(argv: list[str] | None = None) -> int:
                     "subscribed",
                     "owner_excluded",
                     "research_owner_excluded_overlap",
+                    "research_desired_overlap",
+                    "research_subscribed_overlap",
                 )
             )
             and stored["source_shas"] == live["source_shas"]

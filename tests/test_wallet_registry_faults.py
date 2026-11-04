@@ -151,6 +151,7 @@ def test_docs_guide_links_exist() -> None:
         "docs/WALLET-REGISTRY-ACCEPTANCE-20261104.md",
         "docs/WALLET-REGISTRY-STATUS-20261104.md",
         "docs/WALLET-REGISTRY-PAPER-CONTRACT-20261104.md",
+        "docs/WALLET-REGISTRY-RELEASE-RUNBOOK.md",
         "docs/WALLET-REGISTRY-SQLITE-ADOPTION-PLAN-20261104.md",
     ):
         assert (root / rel).is_file()

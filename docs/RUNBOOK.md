@@ -29,7 +29,7 @@ selections are *research-only* until independently verified account-run files
 are published. Do not register fake paper runs or restart tracker/ensemble
 to make a count nonzero. A verified SQLite backup and controlled private
 `sync --apply` are reversible; there is no registry timer installed.
-The registry draft PR #57 is not final production acceptance.
+The pinned [read-only registry release and rollback runbook](WALLET-REGISTRY-RELEASE-RUNBOOK.md) documents owner-approved, Git-SHA-pinned on-demand activation, preflight and recovery without touching existing services. The registry draft PR #57 is not final cross-program scientific/paper acceptance.
 
 ## 0. Preflight, source of truth, safe worktree
 
