@@ -740,16 +740,41 @@ def registered_paper_status(con: sqlite3.Connection, *, now: datetime | None = N
     """Revalidate files and worker liveness; cached RUNNING is never authoritative."""
     current = now or datetime.now(timezone.utc)
     records = con.execute(
-        "SELECT run_id,run_root,portfolio_id FROM portfolio_run_evidence ORDER BY run_id LIMIT 501"
+        "SELECT run_id,run_root,portfolio_id,version,portfolio_definition_sha256,"
+        "manifest_sha256,account_ref_sha256,journal_ref_sha256 "
+        "FROM portfolio_run_evidence ORDER BY run_id LIMIT 501"
     ).fetchall()
     if len(records) > 500:
         return [{"state": "UNKNOWN", "reason": "REGISTRY_RUN_BUDGET_EXCEEDED"}]
     results = []
-    for run_id, path, portfolio_id in records:
+    for (
+        run_id,
+        path,
+        portfolio_id,
+        version,
+        seal,
+        manifest_sha,
+        account_sha,
+        journal_sha,
+    ) in records:
         selection = portfolio_contract.select_asof(
             con, portfolio_id, current.astimezone(timezone.utc).isoformat()
         )
-        observed = paper_contract.inspect_run(Path(path), selection, now=current)
+        observed = paper_contract.inspect_run(Path(path), selection, now=current, run_id=run_id)
+        if observed.get("state") != "UNKNOWN" and (
+            observed.get("portfolio_version") != version
+            or observed.get("portfolio_definition_sha256") != seal
+            or observed.get("manifest_sha256") != manifest_sha
+            or observed.get("account_ref_sha256") != account_sha
+            or observed.get("journal_ref_sha256") != journal_sha
+        ):
+            observed = {
+                "state": "UNKNOWN",
+                "reason": "REGISTERED_PAPER_IDENTITY_DRIFT",
+                "order_route": "NONE",
+                "trading_authorized": False,
+                "scientifically_qualified": False,
+            }
         observed["run_id"] = run_id
         results.append(paper_contract.sanitized(observed))
     return results
@@ -886,6 +911,12 @@ def cli(argv: list[str] | None = None) -> int:
     portfolio.add_argument("--asof", help="UTC as-known cutoff")
     paper = sub.add_parser("paper")
     paper.add_argument("--run-dir", type=Path, help="private paper-run directory")
+    paper.add_argument(
+        "--portfolio",
+        choices=tuple(PORTFOLIOS),
+        help="explicit sealed selection for canonical FP journal observation",
+    )
+    paper.add_argument("--run-id", help="run ID when a paper journal has multiple runs")
     paper.add_argument("--apply", action="store_true", help="index in private registry only")
     args = parser.parse_args(argv)
     if args.command == "sync":
@@ -1033,20 +1064,27 @@ def cli(argv: list[str] | None = None) -> int:
                 )
             )
         else:
-            try:
-                manifest, _ = paper_contract._read_private_json(args.run_dir / "manifest.json")
-                selected_name = str(manifest.get("portfolio_id", ""))
-            except OSError, ValueError, UnicodeError, json.JSONDecodeError:
-                selected_name = ""
+            # No unsupported JSONL v1 projection may imitate a paper worker.
+            if not args.portfolio:
+                print(
+                    json.dumps(
+                        {
+                            "state": "UNKNOWN",
+                            "reason": "PORTFOLIO_REQUIRED_FOR_FP_JOURNAL",
+                            "trading_authorized": False,
+                        }
+                    )
+                )
+                return 2
             with closing(connect(args.db, False)) as con:
                 selected = portfolio_contract.select_asof(
-                    con, selected_name, datetime.now(timezone.utc).isoformat()
+                    con, args.portfolio, datetime.now(timezone.utc).isoformat()
                 )
-            observed = paper_contract.inspect_run(args.run_dir, selected)
+            observed = paper_contract.inspect_run(args.run_dir, selected, run_id=args.run_id)
+            if observed.get("state") == "UNKNOWN":
+                print(json.dumps(paper_contract.sanitized(observed), sort_keys=True))
+                return 2
             if args.apply:
-                if observed.get("state") == "UNKNOWN":
-                    print(json.dumps(paper_contract.sanitized(observed), sort_keys=True))
-                    return 2
                 with private_lock(args.db):
                     with closing(connect(args.db, True)) as con, con:
                         paper_contract.store_observation(

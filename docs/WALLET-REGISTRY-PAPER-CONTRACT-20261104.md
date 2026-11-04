@@ -25,56 +25,91 @@ uv run --group dev copytrade-wallet-registry portfolio P14 --asof 2026-11-02T00:
 
 Do **not** infer active workers from these selection records. Keep paper source wallets, current source equity, subaccount book and PM03 risk in their separate authorities.
 
-## WR-07 — provisional consumer for FP-10
+## WR-07 — FP journal interoperability (partial FP-10)
 
-**Important live coordination note (2026-11-04): draft FP PR #73 already defines
-`paper_run_manifest_v1` and `paper_run_status_v1` with DIFFERENT field
-envelopes from this provisional registry projection. This is a KNOWN CONTRACT
-MISMATCH, NOT A VALID SHARED v1:**
+**Resolved for journal identity and accounting separation (2026-11-04):** the
+registry now natively reads FP draft PR #73's authoritative owner-private
+`paper-events.sqlite3` using SQLite `mode=ro` and `query_only`. It does not
+rewrite FP's `paper_run_manifest_v1`, import its financial writer module, or
+substitute an `events.jsonl` journal.
 
-| Field / source | FP-01/FP-02 in draft PR #73 | Registry provisional reader in PR #57 |
+| Source | Exact FP authority | Registry read-only interpretation |
 | --- | --- | --- |
-| Portfolio digest | `portfolio_sha` | `portfolio_definition_sha256` + `portfolio_version` |
-| Policy/release | `policy_sha`, `release_sha`, `market_manifest_sha`, `selected_at`, `started_at` | Not yet shared as primary run attestation |
-| Financial journal | Private WAL/FULL `paper-events.sqlite3` and `PaperJournal` | Presence-check of private `events.jsonl`; never opened for replay |
-| Worker status | `worker_status=NOT_RUNNING`, `admission=BLOCKED`, no durable worker heartbeat yet | Requires worker PID/start ticks, worker/feed/quote heartbeat |
-| Financial authority | PM03 Account + own `PaperJournal` | Registry **never** owns financial state |
+| Selection | FP `PaperPortfolioView` requires `portfolio_sha` = `FrozenPaperPortfolio.sha` (`frozen_paper_portfolio_v1`) | Registry recomputes that **distinct FP SHA** and compares it to FP manifest, then binds the exact approved P1/P14 aliases, $600 total nominal risk and source-known time to a **separate WR-06 `wallet_portfolio_definition_v1` SHA**; no wallet-address identity assumption |
+| Manifest | `run_id`, `account_id`, policy/release/market SHA, `selected_at`, `started_at`, paper-only route | Canonical JSON digest must equal FP `runs.manifest_sha`; account and clocks validated, raw account redacted |
+| Finance | PM-03 `Account` and private WAL/FULL `PaperJournal`, tables `runs` and `events` | `runs.snapshot_sha`, cursor, last event time and bounded recent event chain checked; **not** a full independent economic replay |
+| Worker | FP `PaperCampaign.status` currently reports `worker_status=NOT_RUNNING`, `admission=BLOCKED`; no durable heartbeat producer | Native journal observations are **NOT_RUNNING** (`FP_JOURNAL_ONLY_WORKER_UNVERIFIED`) even if events exist. No healthy/active worker claim |
+| Ownership | FP journal owns real paper-account state; registry is metadata | Registry writes only to its own private index on explicit `paper --apply` and cannot alter cursor, cash, HALT, position or P&L |
 
-**Decision:** do not invent live worker status, rename FP fields under PR #73,
-write into the paper journal, or treat a matching schema label as validated
-cross-program integration. A dedicated synthetic regression confirms that
-FP-01/FP-02's NOT_RUNNING/BLOCKED prototype returns UNKNOWN/INVALID_SCHEMA
-in the provisional registry adapter. FP-10 #67 must reconcile one exact
-authoritative schema at the publisher/registry boundary when the independently
-built forward-paper runtime reaches its integration gate; both projects remain
-isolated until that review. The rest of this section specifies the current
-**registry-only experimental projection**, not the agreed final FP-10 protocol.
+The actual FP `FrozenPaperPortfolio` + `PaperPortfolioView` +
+`PaperCampaign` + `PaperJournal` integration was exercised against
+FP PR #73 commit `8a6ee5e` for **both P1 and P14**. Each completely
+synthetic $10k portfolio registered through FP's own SHA gate and committed
+a test HALT event. WR independently checked the canonical FP manifest SHA,
+its own distinct source-known definition SHA, the exact explicit alias bridge,
+cursor 1 and the recent event hash chain, returning **NOT_RUNNING**.
+All source database bytes remained unchanged during the read; no synthetic
+run was indexed in the owner-private live registry. Neither exercise proves
+source account completeness, genuine prospective evidence or future alpha.
 
-
-A distinct paper worker must publish owner-private **0600**, bounded JSON files in a **0700** directory, with no symlinks:
-
-- `manifest.json`, schema `paper_run_manifest_v1`: unique `run_id`, `portfolio_id`, `portfolio_version`, exact `portfolio_definition_sha256`, separate `account_id`, `journal_name="events.jsonl"`, `environment="PAPER"`, `order_route="NONE"`.
-- `status.json`, schema `paper_run_status_v1`: exact matching run/portfolio SHA/account ID, `worker_state` (RUNNING/HALTED/DEGRADED/STOPPED), `worker_pid`, `worker_start_ticks` (Linux /proc process start token), UTC `heartbeat_at`, `transport_heartbeat_at`, `quote_heartbeat_at`, monotonic `journal_seq`, 64-digit `journal_head_sha256` (publisher-reported).
-- `events.jsonl`: present as the publisher's owner-private **0600** journal path. This registry never opens, replays, truncates, mutates or claims to verify its economic events.
-
-The adapter is **one-way and observational**. It compares the run manifest to the registry's sealed selection, enforces per-run/account identity, a stable worker process and fresh heartbeats (90s worker, 120s transport/quotes). A long-lived wallet holding period is not a lost transport heartbeat. An absent file, changed selection, no journal, PID reuse, malformed source, stale heartbeat or missing transport results in `UNKNOWN`, `STALE` or `DEGRADED` — never a silent `PAPER_RUNNING_OBSERVED`.
+Reproduce this cross-branch contract (requires an FP branch checkout):
 
 ```bash
-# No writer:
-uv run --group dev copytrade-wallet-registry paper
-uv run --group dev copytrade-wallet-registry paper --run-dir /owner-private/paper/run-id
-# Explicitly index one already independently launched valid run.
-# Writes ONLY to the private registry, never to the paper worker/journal.
-uv run --group dev copytrade-wallet-registry paper --run-dir /owner-private/paper/run-id --apply
+uv run --group dev python scripts/verify_wr_fp_journal_contract.py \
+  --fp-worktree /home/quant/.devspace/worktrees/copytrade-pm-569e8bef \
+  --portfolio P1
+uv run --group dev python scripts/verify_wr_fp_journal_contract.py \
+  --fp-worktree /home/quant/.devspace/worktrees/copytrade-pm-569e8bef \
+  --portfolio P14
 ```
 
-The `paper` list command re-checks files and PID state on **each read**, not just stored timestamps; results are bounded to 500 registered runs. Reports omit raw private paths and account/journal IDs, exposing only their SHA-256 fingerprints. Even a matching file and PID do **not** certify economic P&L, source-account completeness, legitimate data capture, scientific qualification, demo execution or trading authorization. An optional paper worker must be delivered and its schema contract tested separately by FP-09/FP-10 before this can be called production-integrated.
+```bash
+# Canonical FP source. Explicit portfolio choice prevents guessed identity:
+uv run --group dev copytrade-wallet-registry paper \
+  --portfolio P1 --run-id <existing-run-id> \
+  --run-dir /owner-private/forward-paper/run-root
 
-**No registered run** means `global_running_count=UNKNOWN`, not proof that all portfolios have stopped.
+# Only after separate operator review: index an already-existing FP run in
+# the owner-private inventory. NO writes to FP, tracker or broker.
+uv run --group dev copytrade-wallet-registry paper \
+  --portfolio P1 --run-id <existing-run-id> \
+  --run-dir /owner-private/forward-paper/run-root --apply
+```
+
+A missing/stale/unsafe source, inconsistent **FP and WR** portfolio SHAs, mismatched P1/P14 aliases/risk, unreconciled event
+clock, changed account identity, or event chain/hash defect fails closed to
+UNKNOWN. Reports expose only redacted identities and hashes, never raw
+account names or journal paths. The observer scans at most 64 recent events
+per run and explicitly labels this **bounded hash-tail validation**, not
+full journal replay or certified economics. A run with no verified worker
+heartbeat remains NOT_RUNNING regardless of its historical cursor.
+
+**FP-10 remains partly open:** FP-09/FP-11 must establish the real independent
+paper worker and a durable status/heartbeat publisher (including transport
+and quote freshness). Only then may the registry consume the authoritative
+worker status and independently confirm `PAPER_RUNNING_OBSERVED`. Without it,
+`global_running_count=UNKNOWN` and no scientific qualification or trade
+authorization is possible. Work proceeds in separate WR and FP branches.
+
+
+**Deprecated prototype removed:** the earlier `manifest.json` +
+`status.json` + `events.jsonl` v1 path was never an FP financial journal.
+It is now rejected (`UNSUPPORTED_LEGACY_PROJECTION_OR_MISSING_JOURNAL`)
+even if it claims a recent heartbeat and RUNNING. The canonical FP SQLite
+journal is the only supported source for this reader. A later independent
+worker-status publisher must specify its own reconciled versioned projection;
+do not reuse these incompatible prototype fields as though they were FP v1.
+
+`paper` re-reads the private SQLite source at every query (bounded to 500
+registered runs), compares indexed manifest/account/journal identities and
+fails closed when they drift. It does **not** query or alter paper journal
+financial state outside read-only indexed rows. Zero registered runs means
+`global_running_count=UNKNOWN`, not proof that no independently managed
+paper programs exist.
 
 ## Boundaries still open
 
-- FP-10 (#67) must verify the actual independently built forward-paper publisher writes this exact schema, hashes the same definition and remains operational if the inventory is unavailable. There is no paper runtime or demo provider deployment from this change.
+- FP-10 (#67) has a **verified journal/portfolio SHA read-only adapter** against the actual FP-02 writer implementation, but still needs genuine supervised worker-status/transport/quote heartbeat publication and an isolation test under registry outage. There is no live/demo provider deployment from this change.
 - WR-08 (#51) requires independently verified scientific attestation; no prospective matched outcome is imported, and `SCIENTIFICALLY_QUALIFIED` remains NOT_ESTABLISHED. SQLite v5 triggers now restrict research verdict writes to `UNQUALIFIED`, `BLOCKED` or `NOT_ESTABLISHED`, preventing any unreviewed positive/authorized promotion through this inventory. A verified signoff producer is still unavailable.
 - WR-10/11 require full independent fault matrix, backup/restore and controlled activation signoff. A successful fixture/mock status is **engineering** evidence only.
 - Any production order route is out of scope and rejected by this paper-only contract.

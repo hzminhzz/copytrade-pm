@@ -19,8 +19,11 @@ uv run --group dev copytrade-wallet-registry paper
 uv run --group dev copytrade-wallet-registry sync --dry-run
 ```
 
-The `paper` command revalidates optional already-published private paper-run
-manifests, Linux worker PID/starttime, and transport/quote heartbeats. A zero
+The `paper` command reads independently owned FP `PaperJournal` SQLite WAL
+in `mode=ro` with `query_only`, checks FP's own portfolio SHA against the explicitly bound **separate** WR sealed selection SHA and frozen aliases/risk,
+manifest/snapshot hashes and bounded recent chain, and refuses unsupported
+legacy JSONL v1 projections. It **cannot** certify worker PID, transport
+heartbeat or quote freshness until FP publishes these independently. A zero
 registered-run count does not prove no independent paper worker exists. P1/P14
 selections are *research-only* until independently verified account-run files
 are published. Do not register fake paper runs or restart tracker/ensemble
