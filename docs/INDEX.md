@@ -6,6 +6,7 @@
 
 | Goal | Authoritative guide | Contains |
 | --- | --- | --- |
+| Plan a private SQLite wallet registry without changing live observation, fills, or trading | [2026-11-04 SQLite wallet registry adoption plan](WALLET-REGISTRY-SQLITE-ADOPTION-PLAN-20261104.md) | Dated 158/215/150 inventory, source authority, schema, read-only adapters, migration phases WR-01–WR-07, acceptance and rollback; **plan only, not implemented** |
 | Pick up the selected Gemini portfolio and prepare demo/paper rollout | [2026-11-02 three-wallet decision](decisions/2026-11-02-gemini-selected-three-pod.md) | **S053-HYPE / S051-BTC / S035-ENA**, decision scope, sizing direction, rollout gates; not deployed |
 | Review Gemini's other proposed combinations | [2026-11-03 alternative portfolio registry](decisions/2026-11-03-gemini-alternative-portfolios.md) | Four alternate three-pod sets and five distinct five-pod sets (including two risk budgets); all unselected |
 | Continue the Phase 3 paper-research decisions and planned 180-day evidence extension | [2026-11-03 Phase 3 adoption decision](decisions/2026-11-03-gemini-phase3-adoption-180d.md) | P1 primary, P14 equal-risk challenger, optional P16; P15 deferred; 180-day data **not yet fetched** |
