@@ -293,6 +293,48 @@ def test_release_lock_rejects_symlink_and_nonprivate_lock_file(
             pass
 
 
+def test_verify_detects_interrupted_rollback_with_missing_pointer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    control = tmp_path / "owner" / "release-control"
+    control.parent.mkdir(mode=0o700)
+    control.mkdir(mode=0o700)
+    (control / "releases").mkdir(mode=0o700)
+    committed = "a" * 40
+    pinned = control / "releases" / committed
+    pinned.mkdir(mode=0o700)
+    (pinned / "registry.py").write_bytes(b"trusted")
+    metadata = control / "release-state.json"
+    metadata.write_text(
+        json.dumps(
+            {
+                "current": committed,
+                "files": {"registry.py": sha256(b"trusted").hexdigest()},
+            }
+        )
+    )
+    metadata.chmod(0o600)
+    pointer = release.atomic_current
+    current = release.active_revision
+    monkeypatch.setattr(release, "CONTROL", control)
+    monkeypatch.setattr(release, "RELEASES", control / "releases")
+    monkeypatch.setattr(release, "STATE", metadata)
+    monkeypatch.setattr(release, "atomic_current", lambda rev: pointer(rev, control=control))
+    monkeypatch.setattr(release, "active_revision", lambda: current(control))
+    monkeypatch.setattr(release, "_installed_doctor", lambda _: None)
+    monkeypatch.setattr(release, "readonly_source_health", lambda: {"source": "unchanged"})
+    monkeypatch.setattr(release, "services", lambda: {"tracker": {"pid": "100"}})
+
+    # A hard exit after atomic_current(None) during rollback leaves an
+    # old committed state but no symlink. Treat it as divergence, not a
+    # legitimate cleanly uninstalled release.
+    with pytest.raises(ValueError, match="mismatch"):
+        release.verify()
+    assert release.repair()["result"] == "LAST_COMMITTED_POINTER_RESTORED"
+    assert current(control) == committed
+    assert release.verify()["result"] == "ACTIVE_READ_ONLY_VERIFIED"
+
+
 def test_crash_after_pointer_swap_can_repair_to_last_committed_release(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

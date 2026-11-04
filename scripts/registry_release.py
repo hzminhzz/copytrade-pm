@@ -468,9 +468,11 @@ def verify() -> dict:
 
 def _verify_locked() -> dict:
     rev = active_revision()
-    if rev is None:
-        return {"result": "NO_RELEASE_POINTER"}
     state = _json(STATE)
+    if rev is None:
+        if state and state.get("current") is not None:
+            raise ValueError("active release state/pointer mismatch after interrupted rollback")
+        return {"result": "NO_RELEASE_POINTER"}
     if state.get("current") != rev:
         raise ValueError("active release state/pointer mismatch")
     check_release(RELEASES / rev, {"files": state["files"]})

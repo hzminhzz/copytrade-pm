@@ -47,7 +47,7 @@ uv run --group dev python scripts/registry_release.py repair
 uv run --group dev python scripts/registry_release.py verify
 ```
 
-`repair` is deliberately narrower than `rollback`: if a process was killed between the two atomic pointer/state renames, the normal `verify` fails closed. With an intact committed state and matching prior source hashes, repair restores only the pointer recorded in that last committed state. Missing metadata or a tampered pinned release stops repair for manual inspection; it never chooses a new release from an uncommitted symlink. Crash recovery and same-process error recovery are independently fault-tested.
+`repair` is deliberately narrower than `rollback`: if a process was killed between the two atomic pointer/state renames (including rollback to a missing pointer), the normal `verify` fails closed. With an intact committed state and matching prior source hashes, repair restores only the pointer recorded in that last committed state. Missing metadata or a tampered pinned release stops repair for manual inspection; it never chooses a new release from an uncommitted symlink. Crash recovery and same-process error recovery are independently fault-tested.
 
 Rollback never modifies the inventory database or other service. With no previously active release, `verify` returns `NO_RELEASE_POINTER`. Source generation and registry backups are preserved for independent recovery; a previous release remains under `releases/<sha>`. To restore an actual damaged registry SQLite database requires a **separate reviewed offline recovery**, not the pointer rollback. Do not overwrite a healthy current inventory with an older backup simply to satisfy an acceptance checkbox.
 
