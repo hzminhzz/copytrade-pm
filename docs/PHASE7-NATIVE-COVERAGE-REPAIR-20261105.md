@@ -38,6 +38,38 @@ The original S035 raw-fill source hash remains `c86377cca8fce3c3e8cbd0de84063b42
 
 The **earlier claim that none of the 10 three-wallet and 10 five-wallet shortlist combinations has all members above an illustrative 80% known-chain-native-data threshold is superseded**. With the corrected bounded full-coin read and new source days, **all 20 pass that *coverage-only* diagnostic**. Do not reinterpret it as 80% continuous wallet-book coverage, a new qualification rule, independent discovery, predictive skill or a portfolio recommendation. Their screen ranks are still hindsight-derived from at least 1,875 exploratory combinations and are *not* OOS economic evidence.
 
+## 2026-11-05 continuation — complete-day recovery for all eight shortlisted wallets
+
+A **separate immutable** follow-up used the `ml4t-data` writer, not the copytrade consumer, to stage and admit **197 additional fully validated 1,440-minute UTC daily Parquet partitions**: 190 in the first bounded plan and 7 in a disjoint second plan. Both enforced exact `hyperliquid_futures` provenance and SHA-256, preserved all existing source days, and accepted neither incomplete vendor days nor any fictitious zero-volume market marks.
+
+The vendor naming mismatch `KPEPE` versus canonical Hyperliquid `kPEPE` was specifically resolved using the venue's official meta name and dated in-minute price witnesses, **without renormalizing quantity or price**. The vendor name is retained separately in each source sidecar. This is not a general case-insensitive alias policy.
+
+| Shortlisted source wallet | Initial repaired all-coin coverage | Current native full-day verified source-chain coverage |
+|---|---:|---:|
+| ACT33 | 100.00% | **100.00%** |
+| C021-NEAR | 100.00% | **100.00%** |
+| N059-BNB | 93.20% | **100.00%** |
+| W017 | 89.25% | **100.00%** |
+| S053-HYPE | 99.87% | **99.87%** |
+| S035-ENA | 99.64% | **99.64%** |
+| ACT40 | 93.97% | **98.89%** |
+| W030 | 86.13% | **98.53%** |
+
+**Current minimum: 98.53%**, compared with **86.13%** in the initial all-coin cut and the misleading **22.88% S035** from the originally capped, broken reader. Four of eight are fully market-covered **only within their already reconstructed source-position intervals**, not across their entire true accounts. Full underlying-position source book, source NAV, funding, first-known follower receipts, and economic results remain UNKNOWN. The previously frozen source-chain denominators and source-fill SHA identities are unchanged. The historical retrospective candidate pool remains multiple-testing contaminated; **no portfolio is re-ranked or promoted**.
+
+Current conservative unresolved source-chain **leg-minutes**: W030 **5,651** (including two kPEPE incomplete days, TAO/LINK partial days); ACT40 **5,558** (three XTEN incomplete days plus LINK/PONS partial days); S035-ENA **2,880** (two PENDLE 1,439/1,440 days); S053-HYPE **330** (PONS partial day). The other four have zero missing known-chain native leg-minutes. A single missing raw bar on a day does not justify inventing a day's worth of fills or replacing a SHA-immutable canonical source; the strict day contract still leaves the entire affected source-chain day unverified.
+
+**New immutable owner-private results:**
+
+| Evidence path (under `/home/quant/.local/share/copytrade/reports/`) | SHA-256 |
+|---|---|
+| `phase7_shortlist_native_chain_20261105_full_v3.json` — after first 190 new days | `4bb5a6cbd6e97052617273c014bef69fabd4f45b5c75a60d9ecf7a1050f7655d` |
+| `phase7_shortlist_native_chain_20261105_full_v4.json` — **current accepted** eight-wallet screen, byte-identical reproducibility repeat `v5` | `3fc4af49ce376214a2610a9b94696a7ecdfa56bb4021bbd7276f097ae4de035a` |
+| `phase7_shortlist_gap_staging_20261105_b/admission_manifest.json` — first 190 source days | `210ca7c6a5c9d0cfe7fcb84463bcb588cd32d110c05153933fb07d1e75b71ad0` |
+| `phase7_shortlist_gap_staging_20261105_c/admission_manifest.json` — 7 disjoint source days | `45556d94ec5babe2b651aeb2d7e1293771db6600f9fa7c9ceb2a6b3c84574ce5` |
+
+The bounded writer and source-symbol plan live in the separate `ml4t-data` feature branch, with [separate upstream-base market-data PR #42](https://github.com/hzminhzz/ml4t-data-project/pull/42) (documented runbook in `docs/PHASE7-HL-1M-GAP-RECOVERY-20261105.md`). **No broker, portfolio freeze, user registry, Telegram tracker or paper worker was changed.**
+
 ## Immutable owner-private evidence and reproducibility
 
 | Evidence path (under `/home/quant/.local/share/copytrade/reports/`) | SHA-256 |
