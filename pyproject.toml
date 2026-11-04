@@ -28,6 +28,7 @@ copytrade-pm-source-audit = "copytrade_pm.pm_e4_source_readiness:main"
 copytrade-pm-combo2-paper = "copytrade_pm.pm_combo2_cli:main"
 copytrade-pm-review-gate = "copytrade_pm.pm_governance:main"
 copytrade-pm-paper-status = "copytrade_pm.pm_forward_status:main"
+copytrade-pm-paper-report = "copytrade_pm.pm_forward_report:main"
 
 [build-system]
 requires = ["hatchling"]

@@ -29,7 +29,9 @@ def test_fresh_transport_and_quiet_wallet_not_disconnect(tmp_path):
         market_quote_at="2026-11-04T04:04:55+00:00",
         last_wallet_trade_at="2026-11-02T04:04:55+00:00",
     )
-    assert state["health"] == "OBSERVATION_HEALTHY"
+    assert state["health"] == "DEGRADED"
+    assert "WORKER_IDENTITY_UNATTESTED" in state["reasons"]
+    assert state["real_worker_evidence"] is False
     assert state["quiet_wallet_not_automatic_disconnect"]
     degraded = paper_operator_status(
         j.path,

@@ -56,14 +56,16 @@ def paper_operator_status(
         health = "STALE"
         reasons = ["WORKER_HEARTBEAT_STALE"]
     else:
-        reasons = []
+        # Caller-supplied PID/timestamps are not independent OS or signed
+        # heartbeat attestation. Never elevate an unverifiable worker to healthy.
+        reasons = ["WORKER_IDENTITY_UNATTESTED"]
         if transport_age is None or transport_age > 90:
             reasons.append("TRANSPORT_NOT_HEALTHY")
         if snapshot_age is None or snapshot_age > 180:
             reasons.append("SOURCE_SNAPSHOT_STALE_OR_MISSING")
         if market_age is None or market_age > 90:
             reasons.append("MARKET_QUOTE_STALE_OR_MISSING")
-        health = "DEGRADED" if reasons else "OBSERVATION_HEALTHY"
+        health = "DEGRADED"
     if state["account"]["risk"] == "HALT":
         health = "HALT"
         reasons.append("PM03_HALT_LATCHED")
