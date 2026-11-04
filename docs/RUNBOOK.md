@@ -2,6 +2,12 @@
 
 **Scope:** the installed `copytrade-pm/main` commands checked against source/`--help` on 2026-10-31. Operations are offline by default; explicitly flagged acquisition commands can call paid/rate-limited vendors. **No live trading authority.** Begin with [INDEX](INDEX.md); for wallet fill acquisition and exact market sources read [DATA-ACQUISITION](DATA-ACQUISITION.md).
 
+## Current research portfolio selection (2026-11-04)
+
+For **new** forward-paper selection, the owner-approved [Gemini Phase 6A Portfolio Freeze V2](decisions/2026-11-04-gemini-phase6-portfolio-freeze-v2.md) and its [JSON roster](decisions/2026-11-04-gemini-phase6-portfolio-freeze-v2.json) prioritize E6 (five wallets) and E2 (three wallets), both on an equal $600 *nominal* model risk budget and a $10,000 virtual reference. P1 remains the baseline; P14 is preserved, but no longer the selected new five-pod challenger. Those reference Gemini fixed `k` values **are not executable sizing**. Actual source-equity-relative whole-book sizing, PIT receipts and PM03/PM04 authority remain mandatory.
+
+The new *read-only* registry CLI `copytrade-wallet-registry priority` exposes E6/E2; legacy sealed `portfolio P1` and `portfolio P14` queries separately expose `new_research_priority_v2` without changing the underlying WR selection or FP portfolio SHA. The preexisting P1/P14 FP-09 worker scope, Trader Intelligence proposed study, private WR-06 records, PM-01/Phase 5 frozen cohorts, Combo 2 and running services **must not be silently reconfigured**. Start E6/E2 only via a separately versioned future observation/paper campaign after wallet identity/parent/subaccount verification, genuine P2_flatten safety acceptance, and independent ledger registration. No live orders, Propr terms mutation or funded activation is authorized by the V2 research preference.
+
 ## Owner-private wallet registry (partial WR release, 2026-11-04)
 
 Use the [dated canonical wallet status](WALLET-STATUS.md) and [registry checkpoint](WALLET-REGISTRY-STATUS-20261104.md)

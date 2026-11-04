@@ -20,6 +20,7 @@ from .trader_intelligence_research import (
     FollowerEpisode,
     MatchedMarketControl,
     matched_benchmark,
+    require_matched_market_control,
 )
 
 POLICIES = (
@@ -160,6 +161,7 @@ def walkforward_diagnostic(
         # Aggregate per candidate using the *same existing* selection logic.
         chosen = {policy: [] for policy in POLICIES}
         missing = {policy: 0 for policy in POLICIES}
+        member_by_episode = {c.outcome_episode_id: c for c in members}
         for cut in members:
             single = matched_benchmark(
                 (cut,),
@@ -182,17 +184,7 @@ def walkforward_diagnostic(
                 if control is None:
                     absent += 1
                     continue
-                if control.candidate_episode_id != label.episode_id:
-                    raise ValueError("CONTROL_EPISODE_IDENTITY_MISMATCH")
-                if control.policy_sha256 != label.policy_sha256:
-                    raise ValueError("CONTROL_EXECUTION_POLICY_MISMATCH")
-                if (
-                    label.net_r is None
-                    or label.hypothetical_exit_at is None
-                    or utc(control.outcome_known_at) < utc(label.hypothetical_exit_at)
-                ):
-                    absent += 1
-                    continue
+                require_matched_market_control(member_by_episode[label.episode_id], label, control)
                 day = utc(label.observation_at).date().isoformat()
                 by_day[day].append(Decimal(label.net_r) - Decimal(control.control_net_r))
                 matched_count += 1
@@ -229,7 +221,7 @@ def walkforward_diagnostic(
     if len(assigned) != len(candidates):
         raise ValueError("CANDIDATE_OUTSIDE_DECLARED_FOLDS")
     return WalkForwardEvidence(
-        schema="ti_matched_walkforward_diagnostic_v1",
+        schema="ti_matched_walkforward_diagnostic_v2",
         qualification="NOT_SCIENTIFICALLY_QUALIFIED",
         reason="HOLDOUT_REGISTRATION_AND_INDEPENDENT_ECONOMICS_NOT_ATTESTED",
         plan_sha256=plan_sha256,

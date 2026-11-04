@@ -1,6 +1,9 @@
 """Follower economics: stop/gap, latency, missing marks and skill selection bias."""
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+
+import pytest
 from hashlib import sha256
 
 from copytrade_pm.trader_intelligence import (
@@ -123,6 +126,20 @@ def test_interior_market_gap_fails_closed():
     assert outcomes[0].status == "INTERIOR_MARKET_GAP"
     assert outcomes[0].net_r is None
     assert outcomes[0].outcome_known_at is None
+
+
+def test_missing_first_actionable_minute_cannot_move_entry_to_later_candle():
+    observed = tuple(b for b in bars() if b.start_at != (AT + timedelta(minutes=5)).isoformat())
+    outcome = follower_replay(snapshot(), observed, policy())[0]
+    assert outcome.status == "STALE_FOLLOWER_ENTRY"
+    assert outcome.net_r is None and outcome.hypothetical_entry_at is None
+
+
+def test_equivalent_utc_bar_timestamps_are_duplicates():
+    source = bars()
+    duplicate = replace(source[0], start_at=source[0].start_at.replace("+00:00", "Z"))
+    with pytest.raises(ValueError, match="DUPLICATE_MINUTE_BAR"):
+        follower_replay(snapshot(), (*source, duplicate), policy())
 
 
 def test_replay_idempotent_after_restart_and_bars_reordered():
