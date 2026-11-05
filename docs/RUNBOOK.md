@@ -2,7 +2,7 @@
 
 ## 2026-11-05 opt-in public wallet trade canary and UTC scheduler
 
-Follow [public market-wide trade acquisition, first-known receipt, UTC policy, and blocked paper execution](FORWARD-PAPER-PUBLIC-TRADES-20261105.md) for `copytrade-pm-public-trades --mode observe` and `--mode plan` examples. The new capability is `source.public_trades`; query `copytrade-pm capabilities show source.public_trades` and registry `doctor` first. The CLI writes **only a new owner-private research journal**, not the installed observer, production tracker, or PM-03 financial events. Run the documented tests and preserve the existing protected P1/P14 NO_TRADE state.
+Follow [public market-wide trade acquisition, first-known receipt, UTC policy, and blocked paper execution](FORWARD-PAPER-PUBLIC-TRADES-20261105.md) for `copytrade-pm-public-trades --mode observe` and `--mode plan` examples. The new capability is `source.public_trades`; query `copytrade-pm capabilities show source.public_trades` and registry `doctor` first. To test other pairs use repeated `--instrument` or the example `--market-file docs/FORWARD-PAPER-MARKET-EXAMPLE-20261105.json` (13 native/HIP-3 markets), with bounded `--parallel-shards 2` and per-market receipt diagnostics. Up to 128 explicit symbols are partitioned into shards of eight; all-market coverage remains UNKNOWN until independently reconciled. The CLI writes **only a new owner-private research journal**, not the installed observer, production tracker, or PM-03 financial events. Run the documented tests and preserve the existing protected P1/P14 NO_TRADE state.
 
 ## Authoritative SQLite metadata inventory (2026-11-05)
 

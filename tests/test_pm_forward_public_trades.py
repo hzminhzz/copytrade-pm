@@ -16,9 +16,12 @@ from copytrade_pm.pm_forward_journal import PaperJournal
 from copytrade_pm.pm_forward_quote_execution import preview_top_level_paper_cost
 from copytrade_pm.pm_forward_public_trades import (
     capture_bounded_native_trades,
+    capture_sharded_native_trades,
+    load_public_market_allowlist,
     native_coin,
     normalize_native_trade,
     plan_latest_public_utc_bucket,
+    plan_sharded_utc_buckets,
     registry_watched_addresses,
 )
 from test_pm_forward_batch import admission
@@ -368,6 +371,126 @@ def test_bounded_ws_baselines_first_batch_and_persists_provisional(tmp_path, mon
         )["gap_count"]
         >= 1
     )
+
+
+def test_shard_fanout_preserves_all_markets_and_reports_each_feed(tmp_path, monkeypatch):
+    monkeypatch.setattr(journal_module, "datetime", FixedDateTime)
+    instruments = tuple(
+        Instrument("hyperliquid", "mainnet:perp:default", f"C{i}") for i in range(11)
+    )
+
+    class MultiMarketFakeWS:
+        def __init__(self):
+            self.coins = []
+            self.frames = None
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+        async def send(self, raw):
+            self.coins.append(json.loads(raw)["subscription"]["coin"])
+
+        async def recv(self):
+            if self.frames is None:
+                self.frames = [
+                    json.dumps({"channel": "trades", "data": [{**trade(1, 10), "coin": c}]})
+                    for c in self.coins
+                ] + [
+                    json.dumps({"channel": "trades", "data": [{**trade(2, 20), "coin": c}]})
+                    for c in self.coins
+                ]
+            if self.frames:
+                return self.frames.pop(0)
+            await asyncio.sleep(1)
+
+    journal = PaperJournal(tmp_path / "private")
+    result = asyncio.run(
+        capture_sharded_native_trades(
+            instruments=instruments,
+            watched={BUYER: "wallet:17"},
+            journal=journal,
+            duration_seconds=0.5,
+            max_frames=30,
+            max_parallel_shards=2,
+            connect=lambda *_args, **_kwargs: MultiMarketFakeWS(),
+            now=lambda: known(240),
+        )
+    )
+    assert result["status"] == "PROVISIONAL_OBSERVATION_ONLY"
+    assert result["market_count"] == 11
+    assert result["shard_count"] == 2
+    assert result["baseline_markets"] == 11
+    assert result["new_wallet_receipts"] == 11
+    assert result["all_markets_baselined"] is True
+    assert result["coverage_complete"] is False
+    assert result["paper_admitted"] is False
+    assert result["financial_events_committed"] == 0
+    assert len(result["market_stats"]) == 11
+    plan = plan_sharded_utc_buckets(
+        instruments=instruments,
+        wallet_keys=("wallet:17",),
+        journal=journal,
+        as_of=known(301),
+    )
+    assert plan["market_count"] == 11
+    assert plan["shard_count"] == 2
+    assert plan["result_count"] == 11
+    assert plan["financial_events_committed"] == 0
+    for instrument in instruments:
+        assert result["market_stats"][instrument.key]["active_messages"] == 1
+        assert journal.audit_public_wallet_trade_tape("wallet:17", instrument.key)["receipts"] == 1
+
+
+def test_inactive_market_is_not_mislabeled_as_covered(tmp_path):
+    eth = Instrument("hyperliquid", "mainnet:perp:default", "ETH")
+    ws = FakeWS([json.dumps({"channel": "trades", "data": [trade(1, 10)]})])
+    journal = PaperJournal(tmp_path / "private")
+    result = asyncio.run(
+        capture_bounded_native_trades(
+            instruments=(BTC, eth),
+            watched={BUYER: "wallet:17"},
+            journal=journal,
+            duration_seconds=0.5,
+            max_frames=1,
+            connect=lambda *_args, **_kwargs: ws,
+            now=lambda: known(240),
+        )
+    )
+    assert result["baseline_markets"] == 1
+    assert result["all_markets_baselined"] is False
+    assert result["market_stats"][BTC.key]["status"] == "BASELINE_ONLY"
+    assert result["market_stats"][eth.key]["status"] == "NO_MARKET_FRAMES"
+    assert result["coverage_complete"] is False
+    assert result["paper_admitted"] is False
+
+
+def test_market_allowlist_sha_and_bounded_shards(tmp_path):
+    market = tmp_path / "markets.json"
+    data = {
+        "schema": "paper_public_market_allowlist_v1",
+        "instruments": [BTC.key, "hyperliquid/mainnet:perp:default/ETH"],
+    }
+    market.write_text(json.dumps(data))
+    assert [x.key for x in load_public_market_allowlist(market)] == data["instruments"]
+    market.write_text(json.dumps({**data, "instruments": data["instruments"] * 2}))
+    with pytest.raises(ValueError, match="DUPLICATE"):
+        load_public_market_allowlist(market)
+    market.write_text(json.dumps({**data, "instruments": ["hyperliquid/mainnet:perp:default/@1"]}))
+    with pytest.raises(ValueError, match="INVALID_NATIVE_COIN"):
+        load_public_market_allowlist(market)
+    market.write_text(
+        json.dumps(
+            {
+                **data,
+                "instruments": [f"hyperliquid/mainnet:perp:default/T{i}" for i in range(129)],
+            }
+        )
+    )
+    with pytest.raises(ValueError, match="LIMIT"):
+        load_public_market_allowlist(market)
 
 
 def test_registry_only_sealed_resolves_and_exclusions_fail_closed(tmp_path):

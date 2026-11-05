@@ -8,6 +8,14 @@ The current owner-private SQLite metadata contains **2 prop-firm-excluded wallet
 
 With E2 and native BTC, the one-shot WebSocket canary successfully received **10 frames**, excluded one uncertain baseline batch, and produced **0 matched watched-wallet fills** during the ten-second window. Its isolated private SQLite journal has **2 gap/baseline records**, **0 candidate trade receipts**, **0 financial events**, **0 registered paper runs**, and `PRAGMA integrity_check=ok`; its directory is mode 0700 and database 0600. The subsequent `--mode plan` completed with **0 buckets**, no quote or paper execution, and `financial_events_committed=0`. This is transport smoke evidence only, not fill completeness or follower profitability.
 
+## Multi-market scaling and observed public feed — 2026-11-05
+
+The original 7-pair BTC/ETH/SOL/HYPE/ENA/ZEC/NEAR canary received **122 WS frames**, baseline-captured all seven markets and matched **0 watched-wallet sides**. The updated sharded collector then received **83 frames across two concurrent shards**, successfully baselining all **10** default-perp markets in [the example allowlist](FORWARD-PAPER-MARKET-EXAMPLE-20261105.json): BTC, ETH, SOL, HYPE, ENA, ZEC, NEAR, XRP, SUI, TAO. Each had at least one **post-baseline** public trade message. Separately, a 16-second HIP-3 canary received **24 frames** with post-baseline observations for `xyz:BRENTOIL`, `xyz:GOLD`, `xyz:SILVER`, after verifying these names against official live `/info` `meta` (`dex=xyz`).
+
+The two new private journals had, respectively, **20** and **6** baseline/end gap records, **0 matched wallet-fill receipts**, **0 financial events**, SQLite `integrity_check=ok`, private directory 0700 and SQLite file 0600. The watchlist was the union of SQLite-sealed P1 and E2; two excluded E6 members remain outside the observer. These are **bounded connectivity/cross-market routing tests**, not proof that all exchange trades or all source-wallet actions were captured. A catalog including 70–100 markets requires an explicit complete selection; do not infer a watched wallet's market exposure from its display alias alone.
+
+The official protocol supports `trades` subscriptions by native `coin` name, including prefixed HIP-3 markets, and `/info` `meta` for universe discovery. See the [exchange WebSocket subscription contract](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket/subscriptions) and the [official Python SDK public metadata implementation](https://github.com/hyperliquid-dex/hyperliquid-python-sdk/blob/master/hyperliquid/info.py).
+
 ## Why this capability exists
 
 The existing `pm_forward_source_stream.py` subscribes to `allDexsClearinghouseState` for bounded *account snapshots*. An account snapshot cannot prove the sequence of intermediate fills or round-trip turnover. Hyperliquid public `trades` frames identify the two counterparties (`users=[buyer, seller]`), price, size, native market and trade ID. Filtering these events by addresses resolved from the authoritative SQLite wallet registry can observe candidate changes for many wallets without dedicating a user-specific WS slot to each.
@@ -62,24 +70,28 @@ uv run --frozen --group dev copytrade-wallet-registry portfolio gemini.phase4/E6
 uv run --frozen --group dev copytrade-pm-public-trades --help
 ```
 
-For a **new** owner-private state root with mode 0700 and no existing protected paper journal, a scoped, read-only Hyperliquid trade observation (writes local provisional evidence only):
+For a **new** owner-private state root (mode 0700) separate from all protected journals, use the [13-market example allowlist](FORWARD-PAPER-MARKET-EXAMPLE-20261105.json) for a bounded observer run. This public catalog is an **example**, not an authoritative, comprehensive watched-wallet market roster:
+
 ```bash
 uv run --frozen --extra source --group dev copytrade-pm-public-trades \
   --mode observe \
   --registry /home/quant/.local/share/copytrade/registry/wallet_registry.sqlite \
-  --portfolio gemini.phase4/E6 \
-  --instrument hyperliquid/mainnet:perp:default/BTC \
+  --portfolio P1 --portfolio gemini.phase4/E2 \
+  --market-file docs/FORWARD-PAPER-MARKET-EXAMPLE-20261105.json \
   --state-root /home/quant/.local/share/copytrade/reports/public-trade-candidate \
-  --duration-seconds 10 --max-frames 100
+  --parallel-shards 2 --duration-seconds 20 --max-frames 500
 ```
 
-To run **one** UTC scheduling read over that same isolated provisional tape, without exchange activity:
+`--instrument` can be supplied repeatedly instead of `--market-file`. All selections must use native `hyperliquid/mainnet:perp:default/COIN` or HIP-3 `hyperliquid/mainnet:perp:DEX/COIN` identities, not spot symbols or CCXT unified strings. The CLI strictly validates the allowlist, refuses duplicates, and supports **up to 128 explicitly selected markets**, split into ≤8 subscriptions per WebSocket and ≤4 concurrently running shards. It never silently drops an omitted market, and reports `NO_MARKET_FRAMES`, `BASELINE_ONLY` or `ACTIVE_AFTER_BASELINE` per market. `max-frames` and `duration-seconds` bound **each shard**, not a continuous daemon. Unsupported/incomplete universes stay blocked.
+
+To run **one** immutable UTC scheduling pass across those markets and the same wallets, without exchange activity or financial paper fills:
+
 ```bash
 uv run --frozen --group dev copytrade-pm-public-trades \
   --mode plan --timing-policy UTC_BUCKET_CLOSE \
   --registry /home/quant/.local/share/copytrade/registry/wallet_registry.sqlite \
-  --portfolio gemini.phase4/E6 \
-  --instrument hyperliquid/mainnet:perp:default/BTC \
+  --portfolio P1 --portfolio gemini.phase4/E2 \
+  --market-file docs/FORWARD-PAPER-MARKET-EXAMPLE-20261105.json \
   --state-root /home/quant/.local/share/copytrade/reports/public-trade-candidate
 ```
 

@@ -2,7 +2,7 @@
 
 ## Public trade observation capability (2026-11-05)
 
-`source.public_trades` / `copytrade-pm-public-trades` is a reviewed `PROTECTED_MUTATION` CLI (because it creates a local private evidence journal). It reads canonical portfolio identity from SQLite, subscribes read-only to bounded public Hyperliquid market trades (`--mode observe`), or seals provisional five-minute UTC buckets with quote as-of checks (`--mode plan`). Both modes retain `order_route=NONE`, `paper_admitted=false`, `financial_events_committed=0`. This is NOT a protected financial paper-worker capability and must never claim source NAV or active follower trading. See [the detailed source/clock contract](FORWARD-PAPER-PUBLIC-TRADES-20261105.md).
+`source.public_trades` / `copytrade-pm-public-trades` is a reviewed `PROTECTED_MUTATION` CLI (because it creates a local private evidence journal). It reads canonical portfolio identity from SQLite, subscribes read-only to bounded public Hyperliquid market trades (`--mode observe`), or seals provisional five-minute UTC buckets with quote as-of checks (`--mode plan`). Market selection is explicit: repeated `--instrument` or the versioned `--market-file` JSON, up to 128 native default/HIP-3 perps in bounded eight-market WS shards. The new live canary checked 10 default markets and three HIP-3 markets; neither establishes complete watchlist market coverage. Both modes retain `order_route=NONE`, `paper_admitted=false`, `financial_events_committed=0`. This is NOT a protected financial paper-worker capability and must never claim source NAV or active follower trading. See [the detailed source/clock contract](FORWARD-PAPER-PUBLIC-TRADES-20261105.md).
 
 ## Architecture decision (2026-11-04)
 

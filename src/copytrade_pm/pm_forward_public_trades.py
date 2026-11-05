@@ -26,19 +26,54 @@ from .pm_forward_journal import PaperJournal
 from .pm_forward_portfolios import _verify_sealed_definition_sha
 
 ADDRESS = re.compile(r"0x[0-9a-f]{40}\Z")
-MAX_NATIVE_MARKETS = 8
+MAX_NATIVE_MARKETS = 8  # per WebSocket, not across the operator's full market universe
+MAX_TOTAL_MARKETS = 128
+MAX_PARALLEL_SHARDS = 4
 MAX_FRAME_BYTES = 2_000_000
+NATIVE_TOKEN = re.compile(r"[A-Za-z0-9_.-]{1,64}\Z")
+NATIVE_DEX = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
 
 
 def native_coin(instrument: Instrument) -> str:
     if instrument.venue != "hyperliquid" or not instrument.market.startswith("mainnet:perp:"):
         raise ValueError("PUBLIC_TRADE_NOT_HYPERLIQUID_PERP")
     dex = instrument.market.removeprefix("mainnet:perp:")
-    if not dex or not instrument.symbol or ":" in instrument.symbol:
+    if NATIVE_DEX.fullmatch(dex) is None or NATIVE_TOKEN.fullmatch(instrument.symbol) is None:
         raise ValueError("PUBLIC_TRADE_INVALID_NATIVE_COIN")
     if dex == "default":
         return instrument.symbol
     return dex + ":" + instrument.symbol
+
+
+def _bounded_market_universe(instruments: tuple[Instrument, ...]) -> tuple[Instrument, ...]:
+    if not instruments or len(instruments) > MAX_TOTAL_MARKETS:
+        raise ValueError("PUBLIC_TRADE_MARKET_UNIVERSE_LIMIT")
+    coins = [native_coin(instrument) for instrument in instruments]
+    if len(coins) != len(set(coins)):
+        raise ValueError("PUBLIC_TRADE_DUPLICATE_MARKET")
+    return tuple(sorted(instruments, key=lambda inst: inst.key))
+
+
+def load_public_market_allowlist(path: Path) -> tuple[Instrument, ...]:
+    """Read an explicit versioned perp-only market selection, never infer from CSV."""
+    path = Path(path)
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > 64_000:
+        raise ValueError("PUBLIC_TRADE_MARKET_ALLOWLIST_UNAVAILABLE")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if (
+            not isinstance(payload, dict)
+            or payload.get("schema") != "paper_public_market_allowlist_v1"
+        ):
+            raise ValueError("PUBLIC_TRADE_MARKET_ALLOWLIST_SCHEMA_INVALID")
+        keys = payload.get("instruments")
+        if not isinstance(keys, list) or not keys or len(keys) > MAX_TOTAL_MARKETS:
+            raise ValueError("PUBLIC_TRADE_MARKET_UNIVERSE_LIMIT")
+        if not all(isinstance(key, str) for key in keys):
+            raise ValueError("PUBLIC_TRADE_MARKET_ALLOWLIST_ID_INVALID")
+        return _bounded_market_universe(tuple(Instrument.parse(key) for key in keys))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError("PUBLIC_TRADE_MARKET_ALLOWLIST_UNREADABLE") from exc
 
 
 def registry_watched_addresses(
@@ -166,16 +201,23 @@ def normalize_native_trade(
     ):
         raise ValueError("PUBLIC_TRADE_STREAM_EPOCH_INVALID")
 
+    matched = [
+        (address, side, qty)
+        for address, side, qty in ((buyer, "BUY", size), (seller, "SELL", -size))
+        if address in watched
+    ]
+    if not matched:
+        # Validate the public trade above, but avoid expensive watchlist/raw
+        # hashing for every unrelated exchange trade across many markets.
+        return []
     first_known_at = clock(first_known_at).astimezone(UTC).isoformat(timespec="microseconds")
     trade_sha = digest(dict(raw))
     # Bind each receipt to the complete in-memory SQLite-resolved watchlist.
     # Numeric registry wallet IDs are generation-local, not global identities.
     watchlist_sha = digest(sorted(watched.items()))
     results = []
-    for address, side, qty in ((buyer, "BUY", size), (seller, "SELL", -size)):
-        wallet_key = watched.get(address)
-        if wallet_key is None:
-            continue
+    for address, side, qty in matched:
+        wallet_key = watched[address]
         if not wallet_key.startswith("wallet:") or not wallet_key[7:].isdecimal():
             raise ValueError("PUBLIC_TRADE_NOT_CANONICAL_REGISTRY_WALLET")
         results.append(
@@ -213,6 +255,7 @@ async def capture_bounded_native_trades(
     max_frames: int = 500,
     connect: Callable[..., Any] | None = None,
     now: Callable[[], str] = lambda: datetime.now(UTC).isoformat(timespec="microseconds"),
+    journal_write_lock: asyncio.Lock | None = None,
 ) -> dict:
     """Shared public WS (no per-user subscriptions), strictly bounded and gap-aware."""
     if not instruments or len(instruments) > MAX_NATIVE_MARKETS:
@@ -231,6 +274,24 @@ async def capture_bounded_native_trades(
 
     epoch = uuid4().hex
     baselined: set[str] = set()
+    stats = {
+        inst.key: {
+            "frames": 0,
+            "baseline_messages": 0,
+            "active_messages": 0,
+            "public_trade_rows": 0,
+            "matched_wallet_sides": 0,
+            "new_wallet_receipts": 0,
+        }
+        for inst in instruments
+    }
+
+    async def _journal_call(action: Callable[..., Any], **kwargs: Any) -> dict:
+        if journal_write_lock is None:
+            return await asyncio.to_thread(action, **kwargs)
+        async with journal_write_lock:
+            return await asyncio.to_thread(action, **kwargs)
+
     received = accepted = matches = 0
     started = monotonic()
     failure = None
@@ -277,13 +338,21 @@ async def capture_bounded_native_trades(
                 if not isinstance(rows, list) or not rows:
                     raise ValueError("PUBLIC_TRADE_WS_BATCH_INVALID")
                 baseline_coins = set()
+                received_coins = set()
                 for trade in rows:
                     if not isinstance(trade, dict) or trade.get("coin") not in markets:
                         raise ValueError("PUBLIC_TRADE_UNSUBSCRIBED_COIN")
+                    received_coins.add(trade["coin"])
                     if trade["coin"] not in baselined:
                         baseline_coins.add(trade["coin"])
+                for coin in received_coins:
+                    stats[markets[coin].key]["frames"] += 1
+                    if coin in baseline_coins:
+                        stats[markets[coin].key]["baseline_messages"] += 1
+                    elif envelope.get("isSnapshot") is not True:
+                        stats[markets[coin].key]["active_messages"] += 1
                 for coin in sorted(baseline_coins):
-                    await asyncio.to_thread(
+                    await _journal_call(
                         journal.append_public_trade_gap,
                         instrument=markets[coin].key,
                         stream_epoch=epoch,
@@ -291,28 +360,32 @@ async def capture_bounded_native_trades(
                         reason="INITIAL_BASELINE",
                     )
                 baselined.update(baseline_coins)
-                events = []
+                by_instrument: dict[str, list[dict]] = {}
                 for trade in rows:
-                    if not isinstance(trade, dict) or trade.get("coin") not in markets:
-                        raise ValueError("PUBLIC_TRADE_UNSUBSCRIBED_COIN")
                     coin = trade["coin"]
-                    # Discard the entire first batch for each market, not just
-                    # its first trade. Reconnect snapshots are not first-known.
+                    # Discard the whole first batch per market, not just its first trade.
                     if coin in baseline_coins or envelope.get("isSnapshot") is True:
                         continue
-                    events.extend(
-                        normalize_native_trade(
-                            trade,
-                            instrument=markets[coin],
-                            watched=watched,
-                            first_known_at=known,
-                            stream_epoch=epoch,
-                        )
+                    inst = markets[coin]
+                    stats[inst.key]["public_trade_rows"] += 1
+                    events = normalize_native_trade(
+                        trade,
+                        instrument=inst,
+                        watched=watched,
+                        first_known_at=known,
+                        stream_epoch=epoch,
                     )
-                if events:
-                    result = await asyncio.to_thread(journal.append_public_wallet_trades, events)
-                    accepted += result["new_receipts"]
-                    matches += len(events)
+                    stats[inst.key]["matched_wallet_sides"] += len(events)
+                    by_instrument.setdefault(inst.key, []).extend(events)
+                for inst_key in sorted(by_instrument):
+                    events = by_instrument[inst_key]
+                    if events:
+                        result = await _journal_call(
+                            journal.append_public_wallet_trades, events=events
+                        )
+                        accepted += result["new_receipts"]
+                        matches += len(events)
+                        stats[inst_key]["new_wallet_receipts"] += result["new_receipts"]
     except asyncio.CancelledError:
         failure = "DISCONNECT"
         raise
@@ -322,7 +395,7 @@ async def capture_bounded_native_trades(
     finally:
         closed_at = now()
         for inst in instruments:
-            await asyncio.to_thread(
+            await _journal_call(
                 journal.append_public_trade_gap,
                 instrument=inst.key,
                 stream_epoch=epoch,
@@ -338,6 +411,20 @@ async def capture_bounded_native_trades(
         "matched_wallet_sides": matches,
         "new_wallet_receipts": accepted,
         "baseline_markets": len(baselined),
+        "all_markets_baselined": len(baselined) == len(markets),
+        "market_stats": {
+            inst.key: {
+                **stats[inst.key],
+                "status": (
+                    "ACTIVE_AFTER_BASELINE"
+                    if stats[inst.key]["active_messages"] > 0
+                    else "BASELINE_ONLY"
+                    if inst.key in {markets[c].key for c in baselined}
+                    else "NO_MARKET_FRAMES"
+                ),
+            }
+            for inst in sorted(instruments, key=lambda inst: inst.key)
+        },
         "coverage_complete": False,
         "whole_wallet_nav_attested": False,
         "paper_admitted": False,
@@ -435,13 +522,136 @@ def plan_latest_public_utc_bucket(
     }
 
 
+async def capture_sharded_native_trades(
+    *,
+    instruments: tuple[Instrument, ...],
+    watched: Mapping[str, str],
+    journal: PaperJournal,
+    duration_seconds: float = 10,
+    max_frames: int = 500,
+    max_parallel_shards: int = 2,
+    connect: Callable[..., Any] | None = None,
+    now: Callable[[], str] = lambda: datetime.now(UTC).isoformat(timespec="microseconds"),
+) -> dict:
+    """Capture up to 128 explicit perp markets in bounded <=8-market WS shards.
+
+    The shared SQLite writer lock serializes journal appends. Each shard keeps
+    its own first-known transport epoch and explicit baseline/reconnect gaps.
+    Partial failure propagates, never returns an 'all markets' success.
+    """
+    selected = _bounded_market_universe(instruments)
+    if not 1 <= max_parallel_shards <= MAX_PARALLEL_SHARDS:
+        raise ValueError("PUBLIC_TRADE_SHARD_CONCURRENCY_INVALID")
+    chunks = [
+        selected[start : start + MAX_NATIVE_MARKETS]
+        for start in range(0, len(selected), MAX_NATIVE_MARKETS)
+    ]
+    gate = asyncio.Semaphore(max_parallel_shards)
+    writer = asyncio.Lock()
+
+    async def _capture(shard_index: int, shard: tuple[Instrument, ...]) -> dict:
+        async with gate:
+            report = await capture_bounded_native_trades(
+                instruments=shard,
+                watched=watched,
+                journal=journal,
+                duration_seconds=duration_seconds,
+                max_frames=max_frames,
+                connect=connect,
+                now=now,
+                journal_write_lock=writer,
+            )
+        return {
+            "shard_index": shard_index,
+            "instruments": [inst.key for inst in shard],
+            "report": report,
+        }
+
+    shards = await asyncio.gather(*(_capture(index, chunk) for index, chunk in enumerate(chunks)))
+    stats = {}
+    for shard in shards:
+        stats.update(shard["report"]["market_stats"])
+    return {
+        "schema": "paper_public_market_wallet_trade_sharded_capture_v1",
+        "status": "PROVISIONAL_OBSERVATION_ONLY",
+        "market_selection_sha": digest([inst.key for inst in selected]),
+        "watchlist_sha": digest(sorted(watched.items())),
+        "market_count": len(selected),
+        "shard_count": len(shards),
+        "max_markets_per_shard": MAX_NATIVE_MARKETS,
+        "max_parallel_shards": max_parallel_shards,
+        "baseline_markets": sum(s["report"]["baseline_markets"] for s in shards),
+        "all_markets_baselined": all(s["report"]["all_markets_baselined"] for s in shards),
+        "frames_received": sum(s["report"]["frames_received"] for s in shards),
+        "matched_wallet_sides": sum(s["report"]["matched_wallet_sides"] for s in shards),
+        "new_wallet_receipts": sum(s["report"]["new_wallet_receipts"] for s in shards),
+        "market_stats": dict(sorted(stats.items())),
+        "shard_reports": [
+            {
+                "shard_index": s["shard_index"],
+                "instruments": s["instruments"],
+                "stream_epoch": s["report"]["stream_epoch"],
+                "frames_received": s["report"]["frames_received"],
+                "baseline_markets": s["report"]["baseline_markets"],
+            }
+            for s in shards
+        ],
+        "coverage_complete": False,
+        "whole_wallet_nav_attested": False,
+        "paper_admitted": False,
+        "financial_events_committed": 0,
+        "order_route": "NONE",
+    }
+
+
+def plan_sharded_utc_buckets(
+    *,
+    instruments: tuple[Instrument, ...],
+    wallet_keys: tuple[str, ...],
+    journal: PaperJournal,
+    as_of: str,
+    timing_policy: str = "UTC_BUCKET_CLOSE",
+) -> dict:
+    """Run all selected market UTC observations; one fixed as-of for all shards."""
+    selected = _bounded_market_universe(instruments)
+    reports = [
+        plan_latest_public_utc_bucket(
+            journal=journal,
+            instruments=selected[start : start + MAX_NATIVE_MARKETS],
+            wallet_keys=wallet_keys,
+            as_of=as_of,
+            timing_policy=timing_policy,
+        )
+        for start in range(0, len(selected), MAX_NATIVE_MARKETS)
+    ]
+    return {
+        "schema": "paper_public_utc_bucket_sharded_scheduler_v1",
+        "market_selection_sha": digest([inst.key for inst in selected]),
+        "market_count": len(selected),
+        "shard_count": len(reports),
+        "as_of": as_of,
+        "timing_policy": timing_policy,
+        "window_start_at": reports[0]["window_start_at"],
+        "due_at": reports[0]["due_at"],
+        "buckets": [bucket for report in reports for bucket in report["buckets"]],
+        "result_count": sum(report["result_count"] for report in reports),
+        "whole_wallet_nav_attested": False,
+        "market_capacity_attested": False,
+        "financial_events_committed": 0,
+        "paper_running": False,
+        "order_route": "NONE",
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Read-only provisional public wallet trades; NO paper fills"
     )
     parser.add_argument("--registry", type=Path, required=True)
     parser.add_argument("--portfolio", action="append", required=True)
-    parser.add_argument("--instrument", action="append", required=True)
+    market_selection = parser.add_mutually_exclusive_group(required=True)
+    market_selection.add_argument("--instrument", action="append")
+    market_selection.add_argument("--market-file", type=Path)
     parser.add_argument("--state-root", type=Path, required=True)
     parser.add_argument("--mode", choices=("observe", "plan"), default="observe")
     parser.add_argument(
@@ -451,20 +661,25 @@ def main() -> None:
     )
     parser.add_argument("--duration-seconds", type=float, default=10)
     parser.add_argument("--max-frames", type=int, default=500)
+    parser.add_argument("--parallel-shards", type=int, default=2)
     args = parser.parse_args()
     if not args.state_root.is_absolute() or any(
         part in {".devspace", ".git"} for part in args.state_root.resolve().parts
     ):
         parser.error("state root must be an absolute private non-worktree path")
+    instruments = (
+        load_public_market_allowlist(args.market_file)
+        if args.market_file
+        else _bounded_market_universe(tuple(Instrument.parse(x) for x in args.instrument))
+    )
     watched = registry_watched_addresses(
         args.registry,
         tuple(args.portfolio),
         as_of=datetime.now(UTC).isoformat(),
     )
-    instruments = tuple(Instrument.parse(x) for x in args.instrument)
     journal = PaperJournal(args.state_root)
     if args.mode == "plan":
-        report = plan_latest_public_utc_bucket(
+        report = plan_sharded_utc_buckets(
             journal=journal,
             instruments=instruments,
             wallet_keys=tuple(sorted(set(watched.values()))),
@@ -473,12 +688,13 @@ def main() -> None:
         )
     else:
         report = asyncio.run(
-            capture_bounded_native_trades(
+            capture_sharded_native_trades(
                 instruments=instruments,
                 watched=watched,
                 journal=journal,
                 duration_seconds=args.duration_seconds,
                 max_frames=args.max_frames,
+                max_parallel_shards=args.parallel_shards,
             )
         )
     print(json.dumps(report, sort_keys=True))
