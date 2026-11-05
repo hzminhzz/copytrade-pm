@@ -1,5 +1,7 @@
 # ML4T-66 protected 3-pod copytrade backtest — correction
 
+**SUPERSEDED for modeling and portfolio metrics by [6 November replay hardening](ML4T-66-PROTECTED-REPLAY-HARDENING-20261106.md)**. The following numbers are preserved strictly as a dated *prior-version* reproducibility record; do not rank wallets or contracts from them.
+
 **Executed on VPS:** 2026-11-05. **Research-only; not qualified follower returns, not an authorized execution plan.**
 
 The previous `ML4T-66-PORTFOLIO-BACKTEST-20261105.md` used an *unprotected* standalone historical source-fill replay. Its Explorer $6,148.94 loss was a **post-evaluation-failure, after-stop counterfactual**, not the result of the owner's specified portfolio construction.

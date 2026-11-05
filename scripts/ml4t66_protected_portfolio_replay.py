@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from hashlib import sha256
 import json
+import math
 import os
 from pathlib import Path
 
@@ -110,6 +111,28 @@ def execute(
     pod.fees_slip_usd += notional * cost_bps / 10000
 
 
+def volume_capacity_available(
+    panels: dict,
+    coin: str,
+    minute: int,
+    abs_qty: float,
+    max_participation: float | None,
+    used: dict[str, float],
+) -> bool:
+    """Use only *completed prior-minute* native base-volume, never current bar.
+
+    This is a hypothetical participation test, not a broker fill/depth proof.
+    """
+    if max_participation is None:
+        return True
+    if minute < 1 or "volume" not in panels[coin]:
+        return False
+    volume = float(panels[coin]["volume"][minute - 1])
+    if not math.isfinite(volume) or volume <= 0:
+        return False
+    return abs_qty + used.get(coin, 0.0) <= max_participation * volume + EPSILON
+
+
 def portfolio_equity(pods: dict[str, Pod]) -> float:
     return START_USD + sum(p.current_pnl for p in pods.values())
 
@@ -159,12 +182,32 @@ def protected(
     pod_daily_limit: float | None = None,
     mark_mode: str = "close",
     contract_rule: dict | None = None,
+    max_gross_usd: float | None = None,
+    max_market_usd: float | None = None,
+    max_participation: float | None = None,
 ) -> dict:
     """Run chronological cash/position replay. Do NOT clamp a prior PnL path."""
-    if budget_usd <= 0 or (pod_daily_limit is not None and pod_daily_limit <= 0):
+    if (
+        not math.isfinite(budget_usd)
+        or budget_usd <= 0
+        or (
+            pod_daily_limit is not None
+            and (not math.isfinite(pod_daily_limit) or pod_daily_limit <= 0)
+        )
+    ):
         raise ValueError("INVALID_POD_STOP_BUDGET")
-    if cost_bps < 3.5 or mark_mode not in ("close", "adverse"):
+    if not math.isfinite(cost_bps) or cost_bps < 3.5 or mark_mode not in ("close", "adverse"):
         raise ValueError("INVALID_COST_OR_MARKING")
+    if max_gross_usd is not None and (not math.isfinite(max_gross_usd) or max_gross_usd <= 0):
+        raise ValueError("INVALID_PRETRADE_GROSS_CAP")
+    if max_market_usd is not None and (not math.isfinite(max_market_usd) or max_market_usd <= 0):
+        raise ValueError("INVALID_PRETRADE_MARKET_CAP")
+    if max_participation is not None and (
+        not math.isfinite(max_participation) or not 0 < max_participation <= 1
+    ):
+        raise ValueError("INVALID_PARTICIPATION_LIMIT")
+    if not members or len(set(members)) != len(members) or any(not m for m in members):
+        raise ValueError("DUPLICATE_OR_EMPTY_POD_IDS")
     pods = {}
     for member in members:
         scalar = Decimal(attr[member]["static_equity_scalar"])
@@ -173,6 +216,11 @@ def protected(
         )
         pods[member] = Pod(alias=member, k=k)
     by_minute = order_index(batches.filter(pl.col("alias").is_in(members)))
+    # Carry intended source targets through skipped sub-$10 updates.
+    # Without this, a later source close can open a ghost follower short.
+    source_targets: dict[tuple[str, str], float] = {}
+    first_source_trade_index: dict[str, int] = {}
+    pending_reversals_approval: dict[tuple[str, str], int] = {}
     instrument_orders = Counter()
     blocked_orders = Counter()
     stops = []
@@ -191,9 +239,13 @@ def protected(
     max_dd = 0.0
     max_dd_ratio = 0.0
     peak_gross = 0.0
+    peak_simultaneously_nonflat_pods = 0
+    traded_pods_before_target: list[str] | None = None
+    first_overcap_at = None
     last_equity = START_USD
     last_valid = -1
     for i in range(base.MINUTES):
+        used_native_volume: dict[str, float] = {}
         if i % 1440 == 0:
             day_base = previous_equity
             for pod in pods.values():
@@ -219,7 +271,18 @@ def protected(
                         "coin": coin,
                     }
                     break
+                if not volume_capacity_available(
+                    panels, coin, i, abs(qty), max_participation, used_native_volume
+                ):
+                    unknown = {
+                        "at": base._iso_minute(i),
+                        "reason": "UNVERIFIED_FORCED_EXIT_CAPACITY",
+                        "pod": pod.alias,
+                        "coin": coin,
+                    }
+                    break
                 execute(pod, coin, -qty, float(px), cost_bps=cost_bps)
+                used_native_volume[coin] = used_native_volume.get(coin, 0.0) + abs(qty)
                 pod.exit_attempts += 1
                 instrument_orders["risk_exit"] += 1
             if unknown is not None:
@@ -231,13 +294,91 @@ def protected(
         if unknown is not None:
             break
 
-        # Existing target reductions remain hypothetically represented by
-        # non-resetting signed source net deltas. No source new risk after stop.
+        # Risk-gate existing positions at the *current* executable open
+        # BEFORE admitting new source deltas. A gap through the stop must
+        # freeze the pod rather than allow an extra position increase.
+        for pod in pods.values():
+            try:
+                pod.current_pnl = pnl_at(pod, panels, i, field="open")
+            except ValueError as exc:
+                unknown = {"at": base._iso_minute(i), "reason": str(exc), "pod": pod.alias}
+                break
+            if stop_if_needed(pod, i, budget_usd=budget_usd, daily_usd=pod_daily_limit):
+                stops.append(
+                    {
+                        "pod": pod.alias,
+                        "at": base._iso_minute(i),
+                        "reason": pod.reason,
+                        "marked_pnl_at_trigger_usd": round(pod.current_pnl, 2),
+                        "stress_marked_pnl_at_trigger_usd": round(pod.current_pnl, 2),
+                        "high_water_pnl_usd": round(pod.high_water_pnl, 2),
+                        "pending_forced_exit_count": len(pod.holdings),
+                        "trigger_phase": "PRETRADE_OPEN",
+                    }
+                )
+        if unknown is not None:
+            break
+        if contract_rule and not global_halt:
+            open_equity = portfolio_equity(pods)
+            open_peak = eod_peak if contract_rule["eod_trailing"] else max(global_peak, open_equity)
+            open_floor = max(
+                day_base - contract_rule["daily"],
+                open_peak - contract_rule["trailing"],
+            )
+            if open_equity <= open_floor + EPSILON:
+                global_halt = True
+                account_reason = "CONTRACT_FLOOR_BREACH_AT_OPEN"
+                account_at = base._iso_minute(i)
+
+        # PM-04-style conservative broker-net gross protection is an
+        # *optional explicit sensitivity policy*, never an inferred provider
+        # contract limit. Marked overcap exposure halts and exits next open.
+        if not global_halt and (max_gross_usd is not None or max_market_usd is not None):
+            current_open_gross = sum(
+                abs(q) * float(panels[coin]["open"][i])
+                for pod in pods.values()
+                for coin, q in pod.holdings.items()
+            )
+            market_gross_open = {
+                coin: sum(abs(pod.holdings.get(coin, 0.0)) for pod in pods.values())
+                * float(panels[coin]["open"][i])
+                for pod in pods.values()
+                for coin in pod.holdings
+            }
+            if (max_gross_usd is not None and current_open_gross > max_gross_usd + EPSILON) or (
+                max_market_usd is not None
+                and any(g > max_market_usd + EPSILON for g in market_gross_open.values())
+            ):
+                global_halt = True
+                account_reason = "MARKED_GROSS_OR_CONCENTRATION_OVERCAP"
+                account_at = base._iso_minute(i)
+                first_overcap_at = first_overcap_at or account_at
+
+        # Source deltas update the desired source *target* even when an
+        # earlier subminimum order did not execute. Never blindly apply a
+        # later source close as a new follower short.
+        affected: set[tuple[str, str]] = set()
         for alias, coin, raw_delta in by_minute.get(i, []):
-            pod = pods[alias]
-            if global_halt or pod.state != "ACTIVE":
+            key = (alias, coin)
+            if global_halt or pods[alias].state != "ACTIVE":
                 blocked_orders["AFTER_HALT_OR_POD_STOP"] += 1
-                pod.skipped_after_stop += 1
+                pods[alias].skipped_after_stop += 1
+                continue
+            source_targets[key] = source_targets.get(key, 0.0) + raw_delta
+            affected.add(key)
+        # Never infer authorization for an opposite-side opening simply
+        # because an earlier modeled close succeeded.
+        for alias, coin in sorted(affected):
+            pod = pods[alias]
+            key = (alias, coin)
+            if global_halt or pod.state != "ACTIVE":
+                pending_reversals_approval.pop(key, None)
+                continue
+            if key in pending_reversals_approval:
+                if abs(source_targets.get(key, 0.0)) <= EPSILON:
+                    pending_reversals_approval.pop(key, None)
+                else:
+                    blocked_orders["REVERSAL_NEW_RISK_REQUIRES_AUTHORIZATION"] += 1
                 continue
             px = panels[coin]["open"][i]
             if not np.isfinite(px) or px <= 0:
@@ -248,12 +389,76 @@ def protected(
                     "coin": coin,
                 }
                 break
-            delta = raw_delta * pod.k
-            if abs(delta * float(px)) < 10:
+            px = float(px)
+            target = source_targets[key] * pod.k
+            previous_qty = pod.holdings.get(coin, 0.0)
+            if previous_qty * target < -EPSILON:
+                # Match PM-04's fail-closed close-before-reverse contract:
+                # reduce to flat, then keep new opposite-side risk BLOCKED
+                # until separately authorized. No automatic next-bar open.
+                if not volume_capacity_available(
+                    panels, coin, i, abs(previous_qty), max_participation, used_native_volume
+                ):
+                    unknown = {
+                        "at": base._iso_minute(i),
+                        "reason": "UNVERIFIED_SOURCE_REDUCTION_CAPACITY",
+                        "pod": pod.alias,
+                        "coin": coin,
+                    }
+                    break
+                execute(pod, coin, -previous_qty, px, cost_bps=cost_bps)
+                used_native_volume[coin] = used_native_volume.get(coin, 0.0) + abs(previous_qty)
+                instrument_orders["reversal_close"] += 1
+                pending_reversals_approval[key] = i
+                continue
+            delta = target - previous_qty
+            if abs(delta) <= EPSILON:
+                blocked_orders["TARGET_ALREADY_MATCHED"] += 1
+                continue
+            if abs(delta * px) < 10:
                 blocked_orders["BELOW_10USD"] += 1
                 continue
-            execute(pod, coin, delta, float(px), cost_bps=cost_bps)
+            # Project *new* risk conservatively. Reductions are admissible
+            # even above a limit; increases cannot rely on unfilled offsets.
+            added_usd = max(0.0, abs(target) - abs(previous_qty)) * px
+            if added_usd > EPSILON and (max_gross_usd is not None or max_market_usd is not None):
+                current_gross = sum(
+                    abs(q) * float(panels[c]["open"][i])
+                    for other in pods.values()
+                    for c, q in other.holdings.items()
+                )
+                market_gross = sum(
+                    abs(other.holdings.get(coin, 0.0)) * px for other in pods.values()
+                )
+                if (
+                    max_gross_usd is not None
+                    and current_gross + added_usd > max_gross_usd + EPSILON
+                ):
+                    blocked_orders["PRETRADE_GROSS_CAP"] += 1
+                    continue
+                if (
+                    max_market_usd is not None
+                    and market_gross + added_usd > max_market_usd + EPSILON
+                ):
+                    blocked_orders["PRETRADE_MARKET_CAP"] += 1
+                    continue
+            if not volume_capacity_available(
+                panels, coin, i, abs(delta), max_participation, used_native_volume
+            ):
+                if abs(target) < abs(previous_qty) - EPSILON:
+                    unknown = {
+                        "at": base._iso_minute(i),
+                        "reason": "UNVERIFIED_SOURCE_REDUCTION_CAPACITY",
+                        "pod": pod.alias,
+                        "coin": coin,
+                    }
+                    break
+                blocked_orders["PRETRADE_VOLUME_CAP"] += 1
+                continue
+            execute(pod, coin, delta, px, cost_bps=cost_bps)
+            used_native_volume[coin] = used_native_volume.get(coin, 0.0) + abs(delta)
             instrument_orders["source_delta"] += 1
+            first_source_trade_index.setdefault(alias, i)
         if unknown is not None:
             break
 
@@ -316,6 +521,27 @@ def protected(
             for coin, qty in pod.holdings.items():
                 gross += abs(qty) * float(panels[coin]["close"][i])
         peak_gross = max(peak_gross, gross)
+        peak_simultaneously_nonflat_pods = max(
+            peak_simultaneously_nonflat_pods,
+            sum(bool(pod.holdings) for pod in pods.values()),
+        )
+        if not global_halt and (
+            (max_gross_usd is not None and gross > max_gross_usd + EPSILON)
+            or (
+                max_market_usd is not None
+                and any(
+                    sum(abs(pod.holdings.get(coin, 0.0)) for pod in pods.values())
+                    * float(panels[coin]["close"][i])
+                    > max_market_usd + EPSILON
+                    for pod in pods.values()
+                    for coin in pod.holdings
+                )
+            )
+        ):
+            global_halt = True
+            account_reason = "MARKED_GROSS_OR_CONCENTRATION_OVERCAP"
+            account_at = base._iso_minute(i)
+            first_overcap_at = first_overcap_at or account_at
         last_equity = now_equity
         last_valid = i
         global_peak = (
@@ -347,6 +573,7 @@ def protected(
                     )
                     account_at = base._iso_minute(i)
                     target_at = account_at
+                    traded_pods_before_target = sorted(first_source_trade_index)
         if i % 1440 == 1439:
             if now_equity > day_base:
                 green_days += 1
@@ -424,6 +651,27 @@ def protected(
         "max_drawdown_usd_observed": round(max_dd, 2),
         "max_drawdown_pct_from_prior_peak_observed": round(max_dd_ratio * 100, 2),
         "peak_gross_usd": round(peak_gross, 2),
+        "source_trading_pods": sorted(first_source_trade_index),
+        "first_source_trade_utc": {
+            pod: base._iso_minute(minute)
+            for pod, minute in sorted(first_source_trade_index.items())
+        },
+        "max_simultaneously_nonflat_pods": peak_simultaneously_nonflat_pods,
+        "traded_pods_before_target": traded_pods_before_target,
+        "all_members_traded_before_target": (
+            len(traded_pods_before_target) == len(members)
+            if traded_pods_before_target is not None
+            else None
+        ),
+        "max_gross_usd_explicit_scenario": max_gross_usd,
+        "max_market_usd_explicit_scenario": max_market_usd,
+        "max_prior_minute_volume_participation_explicit_scenario": max_participation,
+        "first_marked_overcap_at": first_overcap_at,
+        "outstanding_source_reversals": [
+            {"pod": alias, "coin": coin, "blocked_since": base._iso_minute(since)}
+            for (alias, coin), since in sorted(pending_reversals_approval.items())
+            if pods[alias].state == "ACTIVE"
+        ],
         "account_halt": global_halt,
         "first_follower_unknown": unknown,
         "green_days": green_days,
@@ -454,6 +702,9 @@ def main() -> None:
     parser.add_argument("--pod-dd-usd", type=float, default=200.0)
     parser.add_argument("--pod-daily-usd", type=float, default=None)
     parser.add_argument("--mark-mode", choices=("close", "adverse"), default="close")
+    parser.add_argument("--max-gross-usd", type=float, default=None)
+    parser.add_argument("--max-market-usd", type=float, default=None)
+    parser.add_argument("--max-participation", type=float, default=None)
     args = parser.parse_args()
     if any(c < 3.5 for c in args.cost):
         parser.error("cost must be >= 3.5bps")
@@ -485,10 +736,13 @@ def main() -> None:
                     pod_daily_limit=args.pod_daily_usd,
                     mark_mode=args.mark_mode,
                     contract_rule=rule,
+                    max_gross_usd=args.max_gross_usd,
+                    max_market_usd=args.max_market_usd,
+                    max_participation=args.max_participation,
                 )
                 results.append({"name": name, "delay": d, "cost": cost, **run})
     report = {
-        "schema": "ml4t66_historical_protected_pod_2pct_flatten_replay_v1",
+        "schema": "ml4t66_historical_protected_pod_2pct_flatten_replay_v2",
         "cohort_source_sha256": cohort_sha,
         "source": source,
         "source_inventory": counts,
@@ -507,7 +761,17 @@ def main() -> None:
             "provider_mark_gaps": "FAIL_CLOSED",
             "intrabar_ohlc_stress_is_not_executable": True,
             "full_account_portfolio_with_netting": "CASH_PLUS_INDEPENDENT_POD_BOOKS_NO_BROKER_CROSS_ATTRIBUTION",
-            "pretrade_gross_cap": "NOT_ENFORCED_NO_UNAMBIGUOUS_APPROVED_PROPORTION",
+            "pretrade_gross_cap": args.max_gross_usd,
+            "pretrade_market_cap": args.max_market_usd,
+            "volume_participation_limit": args.max_participation,
+            "volume_capacity_reference": "COMPLETED_PRIOR_1M_BASE_VOLUME_ONLY",
+            "capacity_tca_is_not_broker_depth": True,
+            "pretrade_gross_cap_source": "EXPLICIT_HYPOTHETICAL_SENSITIVITY_ONLY",
+            "gross_cap_monitors_open_and_close": True,
+            "pretrade_pod_loss_check": "NATIVE_CURRENT_OPEN_BEFORE_NEW_SOURCE_ORDER",
+            "source_target": "CUMULATIVE_SIGNED_SOURCE_DELTAS_WITH_10_USD_CATCHUP",
+            "source_reversal": "CLOSE_FIRST_OPPOSITE_SIDE_REQUIRES_SEPARATE_AUTHORIZATION",
+            "pm03_pm04_engine_used_for_actual_account": False,
             "no_liquidation_latency_exceeding_one_minute": "ASSUMED",
         },
         "results": results,

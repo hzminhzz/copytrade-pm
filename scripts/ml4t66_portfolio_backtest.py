@@ -159,38 +159,54 @@ def source_rows(stores: dict, identities: dict, members: set[str]) -> tuple[pl.D
 
 
 def load_native_panels(market_root: Path, coin_first_ms: dict[str, int]) -> tuple[dict, dict]:
-    """Read SHA-verified complete native 1m days from first eligible order onward."""
-    fields = ("open", "close", "low", "high")
+    """Admit exact available SHA-verified minute bars, not invented missing bars.
+
+    A legitimately partial native day (e.g. PONS listing at 03:50 UTC)
+    cannot price unobserved minutes, but must not invalidate later verified
+    minutes that same day.
+    """
+    fields = ("open", "close", "low", "high", "volume")
     price = {}
     diagnostics = {}
     for coin, first_ms in sorted(coin_first_ms.items()):
         panels = {field: np.full(MINUTES, np.nan, np.float64) for field in fields}
         missing = Counter()
         valid_days = 0
+        partial_days = 0
+        absent_minutes = 0
         instrument = native_instrument(coin)
         first_day_index = max(0, (first_ms - START_MS) // 86_400_000)
         for day_index in range(first_day_index, DAYS):
             day = START + timedelta(days=day_index)
             try:
                 frame, _, _ = _verified_day(market_root, instrument, day)
-                if frame.height != 1440:
-                    raise ManifestBlocked("NONCOMPLETE_NATIVE_DAY")
                 ts = frame["timestamp"].dt.epoch("ms").to_numpy()
-                expected = (
-                    START_MS + np.arange(day_index * 1440, (day_index + 1) * 1440) * MINUTE_MS
-                )
-                if not np.array_equal(ts, expected):
-                    raise ManifestBlocked("BAD_NATIVE_FULL_DAY_GRID")
+                day_start_ms = START_MS + day_index * 1440 * MINUTE_MS
+                rel = ts - day_start_ms
+                if (
+                    frame.height > 1440
+                    or np.any(rel < 0)
+                    or np.any(rel >= 1440 * MINUTE_MS)
+                    or np.any(rel % MINUTE_MS)
+                ):
+                    raise ManifestBlocked("BAD_NATIVE_MINUTE_GRID")
+                minute_index = rel // MINUTE_MS + day_index * 1440
+                if len(np.unique(minute_index)) != frame.height:
+                    raise ManifestBlocked("DUPLICATE_NATIVE_MINUTE")
                 for field in fields:
-                    panels[field][day_index * 1440 : (day_index + 1) * 1440] = (
-                        frame[field].to_numpy().astype(np.float64)
-                    )
-                valid_days += 1
+                    panels[field][minute_index] = frame[field].to_numpy().astype(np.float64)
+                if frame.height == 1440:
+                    valid_days += 1
+                else:
+                    partial_days += 1
+                    absent_minutes += 1440 - frame.height
             except (ManifestBlocked, OSError, ValueError, TypeError) as exc:
                 missing[str(getattr(exc, "code", type(exc).__name__))] += 1
         price[coin] = panels
         diagnostics[coin] = {
             "verified_complete_native_days": valid_days,
+            "verified_partial_native_days": partial_days,
+            "sha_verified_missing_minutes_in_partial_days": absent_minutes,
             "days_requested": DAYS - first_day_index,
             "missing_days_by_reason": dict(sorted(missing.items())),
             "native_instrument": instrument,

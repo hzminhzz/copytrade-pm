@@ -8,6 +8,36 @@ import polars as pl
 from scripts import ml4t66_portfolio_backtest as bt
 
 
+def test_sha_verified_partial_market_day_prices_only_exact_observed_minutes(monkeypatch, tmp_path):
+    monkeypatch.setattr(bt, "DAYS", 1)
+    monkeypatch.setattr(bt, "MINUTES", 1440)
+    monkeypatch.setattr(bt, "START_MS", 0)
+    monkeypatch.setattr(bt, "START", datetime(1970, 1, 1, tzinfo=UTC))
+    monkeypatch.setattr(bt, "native_instrument", lambda coin: "native-test")
+    # A partial day starting at 03:50 is valid after that timestamp,
+    # but cannot be silently backfilled during the 230 absent minutes.
+    stamps = [datetime(1970, 1, 1, 3, 50, tzinfo=UTC), datetime(1970, 1, 1, 3, 51, tzinfo=UTC)]
+    frame = pl.DataFrame(
+        {
+            "timestamp": stamps,
+            "open": [100.0, 101.0],
+            "close": [100.0, 102.0],
+            "low": [99.0, 100.0],
+            "high": [102.0, 103.0],
+            "volume": [10.0, 11.0],
+        }
+    )
+    monkeypatch.setattr(bt, "_verified_day", lambda root, inst, day: (frame, "sha", "meta"))
+    panels, audit = bt.load_native_panels(tmp_path, {"PONS": 0})
+    assert np.isnan(panels["PONS"]["open"][229])
+    assert panels["PONS"]["open"][230] == 100.0
+    assert panels["PONS"]["open"][231] == 101.0
+    assert np.isnan(panels["PONS"]["open"][232])
+    assert audit["PONS"]["verified_partial_native_days"] == 1
+    assert audit["PONS"]["verified_complete_native_days"] == 0
+    assert audit["PONS"]["sha_verified_missing_minutes_in_partial_days"] == 1438
+
+
 def test_observed_flat_anchor_censors_earlier_source_activity():
     rows = [
         {"alias": "A", "coin": "BTC", "time": 10, "start_zero_observed": False},
