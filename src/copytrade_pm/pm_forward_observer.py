@@ -439,28 +439,41 @@ async def run_readonly_observer_service(
             elif result.get("status") != "BLOCKED_NO_TRADE" or result.get("order_route") != "NONE":
                 raise ValueError("PAPER_OBSERVER_SERVICE_FINANCIAL_PROMOTION_REFUSED")
             if result is not None:
-                degraded = (
-                    bool(result.get("market_failures"))
-                    or bool(result.get("source_capture_gaps"))
-                    or any(
-                        shard.get("status") == "DEGRADED"
-                        for shard in result.get("market_shards", [])
-                    )
-                )
+                # Aggregate ONLY classified gap counts: no wallet addresses,
+                # vendor error text, private paths, or market identifiers in
+                # the systemd service log. Counts expose the actionable scope.
+                source = result.get("source_capture_gaps", [])
+                shards = result.get("market_shards", [])
+                market_failures = result.get("market_failures", [])
+                classes = {
+                    "source_book_missing": sum(
+                        gap.get("reason") == "NO_ACCOUNT_BOOK_RECEIPT_THIS_EPOCH" for gap in source
+                    ),
+                    "source_capture_error": sum(
+                        gap.get("reason") == "SOURCE_CAPTURE_ERRORS_THIS_EPOCH" for gap in source
+                    ),
+                    "source_other_gap": sum(
+                        gap.get("reason")
+                        not in (
+                            "NO_ACCOUNT_BOOK_RECEIPT_THIS_EPOCH",
+                            "SOURCE_CAPTURE_ERRORS_THIS_EPOCH",
+                        )
+                        for gap in source
+                    ),
+                    "market_shard_degraded": sum(
+                        shard.get("status") == "DEGRADED" for shard in shards
+                    ),
+                    "market_unhandled_failure": len(market_failures),
+                }
+                gaps = sum(classes.values())
                 event = {
                     "epoch": epochs,
-                    "status": "DEGRADED_OBSERVER_EVIDENCE" if degraded else "BLOCKED_NO_TRADE",
+                    "status": "DEGRADED_OBSERVER_EVIDENCE" if gaps else "BLOCKED_NO_TRADE",
                     "observed_native_market_count": result["native_inventory"][
                         "observed_native_market_count"
                     ],
-                    "capture_gaps": (
-                        len(result.get("market_failures", []))
-                        + len(result.get("source_capture_gaps", []))
-                        + sum(
-                            shard.get("status") == "DEGRADED"
-                            for shard in result.get("market_shards", [])
-                        )
-                    ),
+                    "capture_gaps": gaps,
+                    "capture_gap_breakdown": classes,
                 }
         except asyncio.CancelledError:
             raise

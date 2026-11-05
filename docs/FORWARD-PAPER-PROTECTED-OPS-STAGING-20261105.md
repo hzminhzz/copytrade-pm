@@ -44,9 +44,15 @@ uv run --frozen --group dev copytrade-pm capabilities validate
   `order_route=NONE`, and `BLOCKED_NO_FINANCIAL_ADMISSION`.
   It has **no** account-execution code, broker transport or financial ledger write.
 - `copytrade-pm-paper-standby watchdog` independently checks both PID start
-  epochs, boot ID, revision, clock freshness and heartbeat SHA. On any failure,
-  `halt-latch.json` is created atomically and **never automatically cleared**,
-  including after a worker restart.
+  epochs, boot ID, revision, clock freshness and heartbeat SHA. It also verifies
+  its **own previously recorded process epoch**. A watchdog restart, release
+  revision change, corrupted prior status or missing HALT record latches
+  `halt-latch.json`; a corrupt or group-writable HALT record refuses the
+  monitoring cycle. HALT never automatically clears, including after recovery.
+  `alert_required=true` flags the incident in the durable JSON and service
+  logs; **no independent alert delivery channel is installed**.
+  `feed_evidence_status=UNATTESTED_NO_INDEPENDENT_SOURCE_OR_MARKET` explicitly
+  distinguishes standby liveness from feed, NAV and execution readiness.
 - Strict mode requires fixed independent service-account names, root-owned
   exact-SHA release directory, code actually loaded from that release,
   owner-controlled private state and separated monitoring group permissions.
@@ -108,8 +114,11 @@ A legitimate OS administrator must, in this order:
    then start P1 and P14 **standby only** and verify their fresh heartbeats.
    Start watchdog last; inspect `halt-latch.json`, systemd MainPID and
    boot ID independently. Never enable unattended financial paper here.
-6. Perform controlled SIGKILL/restart, stale-feed and tamper tests; verify
-   a new PID does not clear the HALT latch; rehearse rollback to the prior
+6. Perform controlled worker/watchdog SIGKILL/restart and tamper tests; verify
+   a new PID or watchdog restart latches HALT until an independent reset.
+   Independently verify source/quote transport-feed freshness when a trusted
+   protected data channel exists; **this standby code has no such channel**.
+   Rehearse rollback to the prior
    separately trusted release. Record exact before/after unit hashes,
    release revision, worker identities, journal SHA, and rollback outcome.
 7. **Do not activate any financial PM-03/PM-04 worker** until independent
@@ -117,8 +126,11 @@ A legitimate OS administrator must, in this order:
    risk, trusted price, first-known receipts and financial-run admission pass.
 
 A boot-time watchdog HALT is deliberately fail-closed. There is no automated
-HALT reset or cutover in this package. The operator must resolve and verify
-the underlying reason before any future separate, authorized reset procedure.
+HALT reset or cutover in this package. A clean, manual watchdog restart can
+therefore latch HALT as a **conservative** response to a changed process epoch.
+The operator must resolve and verify the underlying reason before any future
+separate, authorized reset procedure. Removing `halt-latch.json` manually
+without independent authorization is not a supported recovery procedure.
 
 ## Verification and rollback boundaries
 

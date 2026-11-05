@@ -204,6 +204,67 @@ def inspect_worker(
     }
 
 
+def _previous_watchdog_reasons(watchdog_root: Path, revision: str, observed_at: str) -> list[str]:
+    """Detect loss of the watchdog process epoch or its persisted HALT record."""
+    previous_path = Path(watchdog_root) / "watchdog-status.json"
+    if not previous_path.exists() and not previous_path.is_symlink():
+        return []
+    try:
+        if (
+            previous_path.stat().st_uid != os.geteuid()
+            or stat.S_IMODE(previous_path.stat().st_mode) & 0o077
+        ):
+            raise StandbyBlocked("WATCHDOG_PREVIOUS_STATUS_UNSAFE_PERMISSIONS")
+        previous = _read_bounded_state(previous_path)
+        if (
+            previous.get("schema") != WATCHDOG_SCHEMA
+            or previous.get("paper_running") is not False
+            or previous.get("order_route") != "NONE"
+            or previous.get("protected_watchdog_attested") is not False
+        ):
+            return ["WATCHDOG_PREVIOUS_STATUS_UNTRUSTED"]
+        if previous.get("revision") != revision:
+            return ["WATCHDOG_RELEASE_REVISION_CHANGED"]
+        if clock(previous["observed_at"]) > clock(observed_at):
+            return ["WATCHDOG_PREVIOUS_STATUS_FUTURE"]
+        previous_process = previous["process_identity"]
+        if previous_process != _process_identity(os.getpid()):
+            return ["WATCHDOG_PROCESS_EPOCH_CHANGED"]
+        if (
+            previous.get("status") == "HALT_LATCHED"
+            and not (Path(watchdog_root) / "halt-latch.json").exists()
+        ):
+            return ["WATCHDOG_PERSISTENT_HALT_RECORD_MISSING"]
+        if previous.get("status") not in ("STANDBY_MONITORED", "HALT_LATCHED"):
+            return ["WATCHDOG_PREVIOUS_STATUS_UNTRUSTED"]
+        return []
+    except StandbyBlocked, OSError, ValueError, KeyError, TypeError:
+        return ["WATCHDOG_PREVIOUS_STATUS_CORRUPT"]
+
+
+def _verify_existing_latch(path: Path) -> None:
+    """Never report monitored standby on a corrupt or substituted HALT latch."""
+    if (
+        path.is_symlink()
+        or not path.is_file()
+        or path.stat().st_uid != os.geteuid()
+        or stat.S_IMODE(path.stat().st_mode) & 0o077
+    ):
+        raise StandbyBlocked("WATCHDOG_LATCH_FILE_UNSAFE")
+    try:
+        payload = _read_bounded_state(path)
+        if (
+            payload.get("schema") != "paper_guarded_halt_latch_v1"
+            or payload.get("manual_reset_required") is not True
+            or payload.get("execution_enabled") is not False
+            or payload.get("order_route") != "NONE"
+        ):
+            raise StandbyBlocked("WATCHDOG_LATCH_SCHEMA_INVALID")
+        clock(payload["at"])
+    except (StandbyBlocked, OSError, ValueError, KeyError, TypeError) as exc:
+        raise StandbyBlocked("WATCHDOG_LATCH_INTEGRITY_FAILURE") from exc
+
+
 def watchdog_cycle(
     *,
     watchdog_root: Path,
@@ -219,6 +280,8 @@ def watchdog_cycle(
         _strict_release(release, revision, "copytrade-paper-watchdog")
     if set(worker_roots) != set(ROLES) or not SHA40.fullmatch(revision):
         raise StandbyBlocked("WATCHDOG_SCOPE_INVALID")
+    observed_at = clock(as_of or datetime.now(UTC).isoformat()).isoformat()
+    previous_reasons = _previous_watchdog_reasons(watchdog_root, revision, observed_at)
     assessments = {
         name: inspect_worker(
             path,
@@ -230,26 +293,35 @@ def watchdog_cycle(
         for name, path in sorted(worker_roots.items())
     }
     latch = Path(watchdog_root) / "halt-latch.json"
-    if any(row["status"] != "ALIVE_STANDBY_ONLY" for row in assessments.values()):
-        if not latch.exists():
-            _write_state(
-                latch,
-                {
-                    "schema": "paper_guarded_halt_latch_v1",
-                    "at": clock(as_of or datetime.now(UTC).isoformat()).isoformat(),
-                    "reasons": {k: v["reasons"] for k, v in assessments.items() if v["reasons"]},
-                    "manual_reset_required": True,
-                    "execution_enabled": False,
-                    "order_route": "NONE",
+    if latch.exists() or latch.is_symlink():
+        _verify_existing_latch(latch)
+    elif previous_reasons or any(
+        row["status"] != "ALIVE_STANDBY_ONLY" for row in assessments.values()
+    ):
+        _write_state(
+            latch,
+            {
+                "schema": "paper_guarded_halt_latch_v1",
+                "at": observed_at,
+                "reasons": {
+                    **{k: v["reasons"] for k, v in assessments.items() if v["reasons"]},
+                    **({"watchdog": previous_reasons} if previous_reasons else {}),
                 },
-            )
+                "manual_reset_required": True,
+                "execution_enabled": False,
+                "order_route": "NONE",
+            },
+        )
     result = {
         "schema": WATCHDOG_SCHEMA,
-        "observed_at": clock(as_of or datetime.now(UTC).isoformat()).isoformat(),
+        "observed_at": observed_at,
         "revision": revision,
         "workers": assessments,
         "status": "HALT_LATCHED" if latch.exists() else "STANDBY_MONITORED",
         "manual_reset_required": latch.exists(),
+        "alert_required": latch.exists(),
+        "watchdog_recovery_reasons": previous_reasons,
+        "feed_evidence_status": "UNATTESTED_NO_INDEPENDENT_SOURCE_OR_MARKET",
         "protected_watchdog_attested": False,
         "paper_running": False,
         "order_route": "NONE",

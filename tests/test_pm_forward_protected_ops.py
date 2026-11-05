@@ -267,6 +267,129 @@ def test_actual_sigkill_then_restart_never_auto_resets_halt(tmp_path):
         child.communicate(timeout=5)
 
 
+def test_same_watchdog_process_can_refresh_without_false_restart_latch(tmp_path):
+    guard, all_roots, _ = standby_two(tmp_path)
+    first = watchdog_cycle(
+        watchdog_root=guard,
+        worker_roots=all_roots,
+        revision=REV,
+        release=tmp_path,
+        strict=False,
+    )
+    second = watchdog_cycle(
+        watchdog_root=guard,
+        worker_roots=all_roots,
+        revision=REV,
+        release=tmp_path,
+        strict=False,
+    )
+    assert first["status"] == second["status"] == "STANDBY_MONITORED"
+    assert second["watchdog_recovery_reasons"] == []
+    assert second["alert_required"] is False
+    assert second["feed_evidence_status"] == "UNATTESTED_NO_INDEPENDENT_SOURCE_OR_MARKET"
+    assert second["paper_running"] is False
+
+
+def test_actual_watchdog_process_restart_latches_manual_halt(tmp_path):
+    guard, all_roots, _ = standby_two(tmp_path)
+    args = [
+        sys.executable,
+        "-m",
+        "copytrade_pm.pm_forward_protected_ops",
+        "watchdog",
+        "--release",
+        str(tmp_path),
+        "--state-root",
+        str(guard),
+        "--p1-root",
+        str(all_roots["P1"]),
+        "--p14-root",
+        str(all_roots["P14"]),
+        "--revision",
+        REV,
+        "--unprotected-canary",
+        "--once",
+    ]
+    initial = subprocess.run(args, capture_output=True, text=True, timeout=10, check=True)
+    assert json.loads(initial.stdout)["status"] == "STANDBY_MONITORED"
+    restarted = subprocess.run(args, capture_output=True, text=True, timeout=10, check=True)
+    report = json.loads(restarted.stdout)
+    assert report["status"] == "HALT_LATCHED"
+    assert report["alert_required"] is True
+    assert report["watchdog_recovery_reasons"] == ["WATCHDOG_PROCESS_EPOCH_CHANGED"]
+    latch = json.loads((guard / "halt-latch.json").read_text())
+    assert latch["manual_reset_required"] is True
+    assert latch["reasons"]["watchdog"] == ["WATCHDOG_PROCESS_EPOCH_CHANGED"]
+    # A third process can never silently treat restored child PIDs as admission.
+    third = subprocess.run(args, capture_output=True, text=True, timeout=10, check=True)
+    assert json.loads(third.stdout)["status"] == "HALT_LATCHED"
+    assert not list(tmp_path.rglob("*.sqlite*"))
+
+
+def test_tampered_watchdog_previous_status_forces_halt(tmp_path):
+    guard, all_roots, now = standby_two(tmp_path)
+    watchdog_cycle(
+        watchdog_root=guard,
+        worker_roots=all_roots,
+        revision=REV,
+        release=tmp_path,
+        strict=False,
+        as_of=now,
+    )
+    previous = guard / "watchdog-status.json"
+    payload = json.loads(previous.read_text())
+    payload["paper_running"] = True
+    previous.write_text(json.dumps(payload))
+    result = watchdog_cycle(
+        watchdog_root=guard,
+        worker_roots=all_roots,
+        revision=REV,
+        release=tmp_path,
+        strict=False,
+        as_of=now,
+    )
+    assert result["status"] == "HALT_LATCHED"
+    assert result["watchdog_recovery_reasons"] == ["WATCHDOG_PREVIOUS_STATUS_CORRUPT"]
+    assert json.loads((guard / "halt-latch.json").read_text())["order_route"] == "NONE"
+
+
+def test_corrupt_or_group_writable_halt_record_cannot_be_cleared(tmp_path):
+    guard, all_roots, now = standby_two(tmp_path)
+    stale = (datetime.fromisoformat(now) + timedelta(seconds=91)).isoformat()
+    watchdog_cycle(
+        watchdog_root=guard,
+        worker_roots=all_roots,
+        revision=REV,
+        release=tmp_path,
+        strict=False,
+        as_of=stale,
+    )
+    latch = guard / "halt-latch.json"
+    payload = json.loads(latch.read_text())
+    payload["manual_reset_required"] = False
+    latch.write_text(json.dumps(payload))
+    with pytest.raises(StandbyBlocked, match="WATCHDOG_LATCH_INTEGRITY_FAILURE"):
+        watchdog_cycle(
+            watchdog_root=guard,
+            worker_roots=all_roots,
+            revision=REV,
+            release=tmp_path,
+            strict=False,
+            as_of=stale,
+        )
+    assert json.loads((guard / "watchdog-status.json").read_text())["status"] == "HALT_LATCHED"
+    os.chmod(latch, 0o660)
+    with pytest.raises(StandbyBlocked, match="WATCHDOG_LATCH_FILE_UNSAFE"):
+        watchdog_cycle(
+            watchdog_root=guard,
+            worker_roots=all_roots,
+            revision=REV,
+            release=tmp_path,
+            strict=False,
+            as_of=stale,
+        )
+
+
 def test_systemd_bundle_pin_sandbox_and_no_install(tmp_path):
     files = render_system_units(REV)
     assert set(files) == set(UNIT_NAMES)
