@@ -11,6 +11,7 @@ from copytrade_pm.pm_forward_registry_identity import (
     P1,
     P14,
     audit_frozen_member_resolution,
+    preview_prospective_reseal,
 )
 
 
@@ -128,6 +129,100 @@ def test_retroactive_v7_alias_backfill_must_not_reseal_historical_membership(tmp
     assert all(member["status"] == "BLOCKED_POST_SEAL_BINDING" for member in report["members"])
     assert report["source_wallet_equity_attested"] is False
     assert report["paper_admitted"] is False
+
+
+def test_new_prospective_preflight_keeps_historical_seals_and_emits_unsigned_research_only(
+    tmp_path,
+):
+    db, primary, secondary = prepare(tmp_path, resolved=True, late_known=True)
+    before = db.read_bytes()
+    earlier = preview_prospective_reseal(
+        registry_db=db,
+        primary_dir=primary,
+        secondary_dir=secondary,
+        portfolio_id="P14",
+        as_of="2026-11-04T12:00:00+00:00",
+    )
+    assert earlier["status"] == "BLOCKED_IDENTITY_INCOMPLETE"
+    assert earlier["unsigned_candidate"] is None
+    assert not earlier["identity_asof_complete"]
+    assert len(earlier["original_aliases_post_seal"]) == 5
+
+    prospective = preview_prospective_reseal(
+        registry_db=db,
+        primary_dir=primary,
+        secondary_dir=secondary,
+        portfolio_id="P14",
+    )
+    assert prospective["status"] == "SIGNER_REVIEW_REQUIRED"
+    assert prospective["identity_asof_complete"] is True
+    assert len(prospective["members"]) == 5
+    assert prospective["unsigned_candidate"]["schema"] == "copytrade_signed_research_selection_v1"
+    assert prospective["unsigned_candidate"]["trading_authorized"] is False
+    assert set(prospective["unsigned_candidate"]["definitions"]) == {
+        "paper.prospective/P14-" + prospective["as_of"][:10].replace("-", "")
+    }
+    assert all(row["alias_known_by_asof"] for row in prospective["members"])
+    assert not prospective["signed_proof_provided"]
+    assert not prospective["operator_approved_new_selection"]
+    assert not prospective["paper_admitted"]
+    assert not prospective["registry_mutated"]
+    assert prospective["order_route"] == "NONE"
+    assert db.read_bytes() == before
+    assert not re.search(r"0x[0-9a-f]{40}", json.dumps(prospective))
+    assert audit(db, primary, secondary, "P14")["status"] == "BLOCKED"
+
+
+def test_prospective_identity_conflict_and_cross_alias_duplicate_refused(tmp_path):
+    db, primary, secondary = prepare(tmp_path, resolved=True, late_known=True)
+    with closing(sqlite3.connect(db)) as conn:
+        with conn:
+            conn.execute(
+                "INSERT INTO wallet_aliases VALUES (?,?,?,?)",
+                ("other", "S035-ENA", 2, "2026-11-05T05:00:00+00:00"),
+            )
+    with pytest.raises(ValueError, match="PROSPECTIVE_ALIAS_IDENTITY_CONFLICT"):
+        preview_prospective_reseal(
+            registry_db=db,
+            primary_dir=primary,
+            secondary_dir=secondary,
+            portfolio_id="P1",
+        )
+    with closing(sqlite3.connect(db)) as conn:
+        with conn:
+            conn.execute("DELETE FROM wallet_aliases WHERE namespace='other'")
+            conn.execute("UPDATE wallet_aliases SET wallet_id=1 WHERE alias='S051-BTC'")
+    with pytest.raises(ValueError, match="PROSPECTIVE_ALIAS_ADDRESS_OR_DUPLICATE_WALLET"):
+        preview_prospective_reseal(
+            registry_db=db,
+            primary_dir=primary,
+            secondary_dir=secondary,
+            portfolio_id="P1",
+        )
+
+
+def test_prospective_refuses_future_or_naive_clocks(tmp_path):
+    from datetime import UTC, datetime, timedelta
+
+    db, primary, secondary = prepare(tmp_path, resolved=True, late_known=True)
+    common = dict(registry_db=db, primary_dir=primary, secondary_dir=secondary, portfolio_id="P1")
+    with pytest.raises(ValueError, match="PROSPECTIVE_PREVIEW_CLOCK_INVALID"):
+        preview_prospective_reseal(**common, as_of="2026-11-05T05:00:00")
+    with pytest.raises(ValueError, match="PROSPECTIVE_PREVIEW_CLOCK_INVALID"):
+        preview_prospective_reseal(
+            **common, as_of=(datetime.now(UTC) + timedelta(hours=1)).isoformat()
+        )
+
+
+def test_prospective_preview_normalizes_date_to_utc_and_enforces_original_known_at(tmp_path):
+    db, primary, secondary = prepare(tmp_path, resolved=True)
+    common = dict(registry_db=db, primary_dir=primary, secondary_dir=secondary, portfolio_id="P1")
+    with pytest.raises(ValueError, match="PROSPECTIVE_CUTOFF_PRECEDES_ORIGINAL_SELECTION"):
+        preview_prospective_reseal(**common, as_of="2026-11-04T03:59:00+00:00")
+    report = preview_prospective_reseal(**common, as_of="2026-11-05T06:00:00+07:00")
+    assert report["status"] == "SIGNER_REVIEW_REQUIRED"
+    assert report["as_of"] == "2026-11-04T23:00:00+00:00"
+    assert set(report["unsigned_candidate"]["definitions"]) == {"paper.prospective/P1-20261104"}
 
 
 def test_conflicting_wallet_link_or_bad_whale_file_fails_closed(tmp_path):

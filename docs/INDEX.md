@@ -1,5 +1,10 @@
 # copytrade-pm handbook — start here
 
+**P1/P14 prospective wallet-identity reseal preflight (2026-11-06):**
+[read-only PIT audit and unsigned research-selection candidate](P1-P14-PROSPECTIVE-RESEAL-PREFLIGHT-20261106.md).
+Original historical seals remain blocked; independent operator signature,
+complete account NAV and market execution evidence are still required.
+
 **SQLite metadata authority (2026-11-05):** The private wallet registry is the
 single source of truth for current wallets, cohorts and saved portfolios.
 [Mandatory registry lookup contract](WALLET-REGISTRY-AGENT-WORKFLOW.md) and
