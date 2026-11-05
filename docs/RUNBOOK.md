@@ -1,5 +1,15 @@
 # Research operator runbook — verified CLI sequence
 
+## Portfolio x prop contract EV comparison (research only)
+
+Use the existing native capability `research.contract_selector`, exposed as
+`copytrade-pm contracts rules` and `copytrade-pm contracts compare`. This
+read-only tool consults the actual sealed portfolio registry and requires a
+complete joint **net follower MTM** per-pod PnL tape. E6/E2 without such
+independent evidence correctly return `BLOCKED` rather than speculative EV.
+See [the full tool input, CLI, stage-risk and limitation contract](CONTRACT-PORTFOLIO-EV-TOOL-20261105.md).
+
+
 ## Public P1/P14 observer-only collection (not financial paper)
 
 The 2026-11-05 [pinned public observer guide](FORWARD-PAPER-PUBLIC-OBSERVER-SERVICE-20261105.md)

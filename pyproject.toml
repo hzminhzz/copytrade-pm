@@ -8,6 +8,7 @@ dependencies = ["cryptography>=46.0"]
 
 [project.optional-dependencies]
 market = ["polars>=2.0,<3", "pandas>=2.3"]
+actuary = ["numpy>=2.0,<3"]
 source = ["websockets==15.0.1"]
 market-stream = ["ccxt==4.5.91"]
 
@@ -24,6 +25,7 @@ copytrade-pm-scope = "copytrade_pm.pm_propr_scope:main"
 copytrade-pm-market-audit = "copytrade_pm.pm_market_audit:main"
 copytrade-pm-research = "copytrade_pm.pm_research:main"
 copytrade-pm-shadow = "copytrade_pm.pm03_cli:main"
+copytrade-pm-actuary = "copytrade_pm.contract_actuary:main"
 copytrade-pm-receipts = "copytrade_pm.pm_prospective_cli:main"
 copytrade-pm-source = "copytrade_pm.pm_e4_stream:main"
 copytrade-pm-source-abc = "copytrade_pm.pm_source_rotation:main"
