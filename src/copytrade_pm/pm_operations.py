@@ -97,15 +97,21 @@ def _generation(db: Path) -> dict:
 
 
 def _doctor(db: Path) -> dict:
-    """Verify indexed generation against actual source files, not index age alone."""
+    """Verify authoritative SQLite integrity; external imports are diagnostic."""
     try:
         sink = io.StringIO()
         with redirect_stdout(sink):
             code = registry.cli(["--db", str(db), "doctor"])
         payload = json.loads(sink.getvalue())
-        if code == 0 and payload["counts_match"] and payload["freshness"] == "CURRENT":
+        if (
+            code == 0
+            and payload.get("authority") == "SQLITE"
+            and payload.get("database_integrity") == "VERIFIED"
+        ):
             state = "VERIFIED"
-        elif code == 2 or not payload.get("counts_match"):
+        elif code == 2 and payload.get("error_type") == "OperationalError":
+            state = "UNKNOWN"  # Missing/unavailable DB is not a stale SQLite snapshot.
+        elif code == 2 or payload.get("database_integrity") == "FAILED":
             state = "STALE"
         else:
             state = "UNKNOWN"
@@ -114,15 +120,22 @@ def _doctor(db: Path) -> dict:
         return result(
             "registry.doctor",
             state,
-            {"counts_match": payload.get("counts_match"), "freshness": payload.get("freshness")},
-            authority="wallet_registry_live_source_parity",
-            error_code="REGISTRY_SOURCE_DRIFT" if state == "STALE" else None,
+            {
+                "database_integrity": payload.get("database_integrity"),
+                "inventory_sha256": payload.get("inventory_sha256"),
+                "indexed_import_clock_freshness": payload.get("indexed_import_clock_freshness"),
+                "unverified_cohort_import_provenance": payload.get(
+                    "unverified_cohort_import_provenance", []
+                ),
+            },
+            authority="sqlite_wallet_registry",
+            error_code="REGISTRY_SQLITE_INTEGRITY_FAILED" if state == "STALE" else None,
         )
     except (ValueError, OSError, KeyError, TypeError, RuntimeError, sqlite3.Error) as exc:
         return result(
             "registry.doctor",
             "UNKNOWN",
-            authority="wallet_registry_live_source_parity",
+            authority="sqlite_wallet_registry",
             error_code="REGISTRY_DOCTOR_UNAVAILABLE",
             limitations=[type(exc).__name__],
         )

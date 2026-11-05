@@ -292,7 +292,7 @@ def test_global_portfolio_winner_requires_identical_pnl_windows(
 
 def test_real_registry_integrity_fail_closed(monkeypatch) -> None:
     monkeypatch.setattr(operations, "_doctor", lambda _: {"status": "STALE"})
-    with pytest.raises(ValueError, match="REGISTRY_SOURCE_PARITY"):
+    with pytest.raises(ValueError, match="REGISTRY_SQLITE_INTEGRITY"):
         selector._registry_identity("gemini.phase4/E6", db=Path("missing"), asof=None)
     with pytest.raises(ValueError, match="NAMESPACE"):
         selector._registry_identity("E6", db=Path("missing"), asof=None)

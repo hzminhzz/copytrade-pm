@@ -66,10 +66,26 @@ When you spawn one, write: `You are a subagent. Don't run memo.`
 
 # copytrade-pm repository rules
 
+## SQLite metadata authority (owner decision, 2026-11-05)
+
+- Owner-private **SQLite is the source of truth** for current wallet inventory,
+  cohort membership, aliases, exclusions, versioned portfolios and indexed
+  research selections. Dated Markdown, CSV, tracker exports and legacy import
+  manifests are provenance/ingestion inputs, never a competing authoritative
+  roster or a reason to delete additive SQLite cohorts.
+- `copytrade-wallet-registry doctor` checks SQLite integrity, foreign keys,
+  registered cohort metadata and deterministic inventory SHA. Optional
+  `doctor --legacy-audit` describes old import-file parity without blocking
+  read-only queries or releases. Report non-SHA cohort provenance separately;
+  unverified import evidence cannot qualify an account.
+- **Financial** PnL, source wallet NAV, paper-worker state and trading authority
+  remain independently evidenced outside inventory SQLite. Do not bypass
+  financial/scientific/OS guards by asserting metadata authority.
+
 ## MANDATORY REGISTRY-FIRST discovery and decision workflow
 
 - For every task involving **wallet lookup, evaluated/watched/excluded wallets, saved/current portfolios, portfolio membership, paper runs, or deployment readiness**, read [the agent registry workflow](docs/WALLET-REGISTRY-AGENT-WORKFLOW.md) and query the **live owner-private versioned registry** before answering, editing, or approving a state. This is not optional and applies to future sessions and other agents. Do not answer such questions from OptMem, stale Markdown, bare alias files, Telegram lists, or an old PR.
-- Read actual `origin/main` and installed release separately. Begin with `uv run --frozen --group dev copytrade-wallet-registry doctor` and `status`; identify the **source generation** SHA/observed-at and reject stale/mismatched counts. Use `portfolio --current` for **new research selection**, `portfolio <qualified-name>` and `wallet --alias <alias>` for stored membership, and `paper` plus independent worker/journal/heartbeat evidence for running claims. Confirm `scripts/registry_release.py verify` when a release is relevant. Missing evidence must be `UNKNOWN` or explicitly historical.
+- Read actual `origin/main` and installed release separately. Begin with `uv run --frozen --group dev copytrade-wallet-registry doctor` and `status`; identify the **SQLite inventory** SHA, import lineage and observation clock separately. Reject SQLite integrity failure; do not reject registered DB cohorts solely because they are absent from legacy CSVs. Use `portfolio --current` for **new research selection**, `portfolio <qualified-name>` and `wallet --alias <alias>` for stored membership, and `paper` plus independent worker/journal/heartbeat evidence for running claims. Confirm `scripts/registry_release.py verify` when a release is relevant. Missing evidence must be `UNKNOWN` or explicitly historical.
 - Treat frozen Git decision SHA, private SQLite materialization, tracker configuration, subscribed accounts, independently operating paper workers, financial books, science and execution authorization as **different authorities**. Version/namespace/as-of every portfolio identity; `q3/B` is not `gemini.phase5/B`. Alias matches known *after* the original P1/P14 selection are **post-seal**, not historical PIT proof. Never retroactively change sealed `wallet_id` rows or promote vendor economics. `SCIENTIFICALLY_QUALIFIED` and `TRADING_AUTHORIZED` remain independent protected gates.
 - This policy is also a **durable OptMem rule**: `memo wake` recovers the pointer to this workflow, but agents must then recheck live Git/registry. Any change to the process must be written to this file, the canonical guide, runbook, documentation audit/tests, and one concise `memo note`; complete requested `memo nap` compression. Do not store temporary wallet counts as permanent authority.
 

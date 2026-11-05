@@ -1,5 +1,13 @@
 # SQLite wallet registry — 2026-11-04 engineering checkpoint
 
+**Later authority update (2026-11-05):** SQLite is the owner-approved source of
+truth for current wallet metadata, cohorts and portfolio registrations.
+The live DB was observed with 164 research wallets, including an additive
+six-wallet `ml4t-top6` cohort; the 158-wallet external CSV set is historical
+import coverage, not a competing authority. The database-only cohort retains
+unverified import provenance. See [the current source-of-truth workflow](WALLET-REGISTRY-AGENT-WORKFLOW.md).
+
+
 **Future agents:** read the [mandatory registry-first workflow](WALLET-REGISTRY-AGENT-WORKFLOW.md) before using counts or source identities from this dated checkpoint. Check the current source generation, as-of, CLI, Git `main`, pinned release, and actual worker evidence separately; never upgrade a status from OptMem or documentation alone.
 
 ## Registry review hardening and live read-only release (2026-11-04)
