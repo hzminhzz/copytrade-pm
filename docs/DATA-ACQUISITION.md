@@ -2,6 +2,10 @@
 
 **Use this for “get wallet fills,” “new wallet,” “fix gaps,” “get 1m OHLCV,” or “start forward capture.”** Read [INDEX](INDEX.md) and [ARCHITECTURE](ARCHITECTURE.md) first. No commands in this guide authorize orders. Offline auditing is distinct from vendor/SDK downloads. Live source snapshot inspected 2026-10-31; private paths can change.
 
+## Research-only ML4T-66 bounded historical recovery (2026-11-05)
+
+For the owner-private SQLite `ml4t-strict-66` cohort, use the [dated batch-recovery and no-trade audit](ML4T-66-BATCH-RECOVERY-20261105.md). `pm_ml4t_batch_recovery` first reconciles six existing local fill datasets by full address, maps HIP-3 exact native markets and emits SHA-sealed private historical-oracle timing diagnostics with 1m/2m/5m latency. `pm_ml4t_public_backfill` is a bounded **optional public read-only historical API collector** (no HyperX key or broker) for addresses genuinely absent from all local source files; every generation is private, receipt-stamped and immutable. Dated audit: 66/66 raw-fill wallet coverage after nine official calls, 27 to 3 missing/incomplete market-day pairs after existing native CHD data-lake writers. Source initial books, PIT NAV and follower PnL remain BLOCKED. Do not register a production portfolio from this historical audit.
+
 ## Official Hyperliquid public API as the forward source (2026-11-05)
 
 **ADOPTED for prospective account observations, NOT independently reconciled
