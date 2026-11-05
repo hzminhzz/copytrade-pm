@@ -21,7 +21,7 @@
 | Core tests | 1,028 passed, 14 skipped |
 | Native market tests | 1,146 passed |
 | `ruff check src tests` | Passed |
-| `ruff format --check src tests` | Failed on two pre-existing mainline files: `src/copytrade_pm/pm_forward_portfolios.py` and `tests/test_pm_forward_portfolios.py` |
+| `ruff format --check src tests` | Baseline failed on two pre-existing mainline files: `src/copytrade_pm/pm_forward_portfolios.py` and `tests/test_pm_forward_portfolios.py`; mechanically repaired on this audit branch, pending rerun |
 | `uv build` | Wheel and sdist built |
 
 Passing these tests demonstrates deterministic engineering behavior only, not real matched follower/control PnL.
