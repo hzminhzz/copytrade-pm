@@ -7,7 +7,7 @@ authority; no fixed-k scaling, broker interface or implied live admission.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import UTC, timedelta
 from decimal import Decimal
 
 from .pm03_account import Instrument, clock, number
@@ -17,6 +17,7 @@ from .pm_forward_admission import Admission
 @dataclass
 class ForwardBatch:
     follower_allocated_equity: Decimal
+    timing_policy: str = "FIRST_SIGNAL_PLUS_5M"
     opened_at: str | None = None
     due_at: str | None = None
     latest: Admission | None = None
@@ -29,6 +30,12 @@ class ForwardBatch:
         self.follower_allocated_equity = number(self.follower_allocated_equity)
         if self.follower_allocated_equity <= 0:
             raise ValueError("INVALID_FOLLOWER_ALLOCATION")
+        if self.timing_policy not in {
+            "FIRST_SIGNAL_PLUS_5M",
+            "UTC_BUCKET_CLOSE",
+            "UTC_BUCKET_PLUS_5M",
+        }:
+            raise ValueError("INVALID_FORWARD_BATCH_TIMING_POLICY")
 
     def ingest(self, admission: Admission, *, first_known_at: str) -> dict:
         clock(first_known_at)
@@ -40,8 +47,19 @@ class ForwardBatch:
         if self.latest_first_known_at and clock(first_known_at) < clock(self.latest_first_known_at):
             raise ValueError("BACKDATED_SOURCE_RECEIPT")
         if self.opened_at is None:
-            self.opened_at = first_known_at
-            self.due_at = (clock(first_known_at) + timedelta(seconds=300)).isoformat()
+            known = clock(first_known_at).astimezone(UTC)
+            if self.timing_policy == "FIRST_SIGNAL_PLUS_5M":
+                self.opened_at = first_known_at
+                self.due_at = (known + timedelta(seconds=300)).isoformat()
+            else:
+                start = known.replace(minute=(known.minute // 5) * 5, second=0, microsecond=0)
+                self.opened_at = start.isoformat()
+                delay = 300 if self.timing_policy == "UTC_BUCKET_CLOSE" else 600
+                self.due_at = (start + timedelta(seconds=delay)).isoformat()
+        if self.timing_policy != "FIRST_SIGNAL_PLUS_5M":
+            bucket_end = clock(self.opened_at) + timedelta(seconds=300)
+            if clock(first_known_at) >= bucket_end:
+                raise ValueError("FORWARD_BATCH_BUCKET_CLOSED")
         self.latest_first_known_at = first_known_at
         self.latest = admission
         self.events_seen += 1

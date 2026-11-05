@@ -1,5 +1,7 @@
 # copytrade-pm handbook — start here
 
+**Forward public market trades (2026-11-05, research-only):** [Causal market-wide wallet fills and UTC bucket planning](FORWARD-PAPER-PUBLIC-TRADES-20261105.md) extend the native SQLite PaperJournal without financial orders. Public trade receipts and top-level quote estimates are provisional; leader NAV, capacity, protected worker activation and forward economics remain BLOCKED. The existing P1/P14 observer is unchanged.
+
 **SQLite metadata authority (2026-11-05):** The private wallet registry is the
 single source of truth for current wallets, cohorts and saved portfolios.
 [Mandatory registry lookup contract](WALLET-REGISTRY-AGENT-WORKFLOW.md) and

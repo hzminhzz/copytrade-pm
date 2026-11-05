@@ -1,5 +1,7 @@
 ## Mandatory native-first capability discovery
 
+**New provisional source capability (2026-11-05):** `copytrade-pm-public-trades` (`source.public_trades`) resolves wallet identity from SQLite and records read-only market-wide trades plus immutable first-known UTC buckets in a NEW private journal. Its evidence is **PROVISIONAL**, not complete source NAV or financial paper authorization. It must never bypass `admit_source_book`, market capacity, PM03/PM04, or protected service approvals. See `docs/FORWARD-PAPER-PUBLIC-TRADES-20261105.md`. Preserve legacy rolling `ForwardBatch` default and keep UTC policies explicit.
+
 Before implementing new functionality, query `copytrade-pm capabilities list`,
 `copytrade-pm capabilities show <id>` and `copytrade-pm capabilities validate`.
 Read the owning module/contracts before adding another implementation; reuse or

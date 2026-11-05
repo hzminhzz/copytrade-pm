@@ -1,5 +1,9 @@
 # Research operator runbook — verified CLI sequence
 
+## 2026-11-05 opt-in public wallet trade canary and UTC scheduler
+
+Follow [public market-wide trade acquisition, first-known receipt, UTC policy, and blocked paper execution](FORWARD-PAPER-PUBLIC-TRADES-20261105.md) for `copytrade-pm-public-trades --mode observe` and `--mode plan` examples. The new capability is `source.public_trades`; query `copytrade-pm capabilities show source.public_trades` and registry `doctor` first. The CLI writes **only a new owner-private research journal**, not the installed observer, production tracker, or PM-03 financial events. Run the documented tests and preserve the existing protected P1/P14 NO_TRADE state.
+
 ## Authoritative SQLite metadata inventory (2026-11-05)
 
 Use `copytrade-wallet-registry doctor` for `authority=SQLITE`,

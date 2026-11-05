@@ -1,5 +1,9 @@
 # Wallet data acquisition and provenance
 
+## Public market-wide trade capture (experimental, 2026-11-05)
+
+[Native public trade first-known receipt and UTC net-delta contract](FORWARD-PAPER-PUBLIC-TRADES-20261105.md) implements an opt-in bounded `trades` WS filter for sealed, SQLite-resolved public wallets, with buyer/seller signatures, per-session baseline exclusion, stream-gap evidence and provisional immutable journals. It is not an authenticated whole-wallet account ledger; a disconnected stream is not a complete timeline, and reported quantities are not PM-03 follower orders. Owner-private address lists are read from SQLite, not from Markdown. Requires independent `userFills`, TWAP, position/NAV and L2-capacity reconciliation before any financial paper admission.
+
 **Use this for “get wallet fills,” “new wallet,” “fix gaps,” “get 1m OHLCV,” or “start forward capture.”** Read [INDEX](INDEX.md) and [ARCHITECTURE](ARCHITECTURE.md) first. No commands in this guide authorize orders. Offline auditing is distinct from vendor/SDK downloads. Live source snapshot inspected 2026-10-31; private paths can change.
 
 ## Official Hyperliquid public API as the forward source (2026-11-05)
