@@ -1,5 +1,9 @@
 # copytrade-pm handbook — start here
 
+**ML4T-66 expanded protected barbell research (2026-11-06):** [66 three-to-five pod comparisons, 45-day separate historical follow-up, $400 co-crash screening and pod-stop/next-open flattening](ML4T66-BARBELL-PROTECTED-OOS-20261106.md). No +10% target, no qualification or trading authority.
+
+**ML4T-66 earlier unmanaged barbell research (2026-11-05):** [8-wallet stress/2m-5m/6-18bps comparison, complete blockers](ML4T66-BARBELL-RESEARCH-20261105.md). Not a portfolio freeze, contract ranking, or trading authorization.
+
 **SQLite metadata authority (2026-11-05):** The private wallet registry is the
 single source of truth for current wallets, cohorts and saved portfolios.
 [Mandatory registry lookup contract](WALLET-REGISTRY-AGENT-WORKFLOW.md) and

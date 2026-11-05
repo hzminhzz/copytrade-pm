@@ -157,6 +157,8 @@ def protected(
     cost_bps: float = 6.0,
     budget_usd: float = DEFAULT_POD_DD_USD,
     pod_daily_limit: float | None = None,
+    pod_budgets_usd: dict[str, float] | None = None,
+    pod_daily_limits_usd: dict[str, float] | None = None,
     mark_mode: str = "close",
     contract_rule: dict | None = None,
 ) -> dict:
@@ -165,6 +167,12 @@ def protected(
         raise ValueError("INVALID_POD_STOP_BUDGET")
     if cost_bps < 3.5 or mark_mode not in ("close", "adverse"):
         raise ValueError("INVALID_COST_OR_MARKING")
+    for policy in (pod_budgets_usd, pod_daily_limits_usd):
+        if policy is not None and (
+            set(policy) != set(members)
+            or any(not np.isfinite(value) or value <= 0 for value in policy.values())
+        ):
+            raise ValueError("INVALID_PER_POD_BUDGETS")
     pods = {}
     for member in members:
         scalar = Decimal(attr[member]["static_equity_scalar"])
@@ -181,6 +189,7 @@ def protected(
     eod_peak = START_USD
     previous_equity = START_USD
     day_base = START_USD
+    day_peak = START_USD
     green_days = 0
     account_reason = None
     account_at = None
@@ -196,6 +205,7 @@ def protected(
     for i in range(base.MINUTES):
         if i % 1440 == 0:
             day_base = previous_equity
+            day_peak = day_base
             for pod in pods.values():
                 pod.day_start_pnl = pod.current_pnl
 
@@ -284,7 +294,11 @@ def protected(
                 compare_value = min(pod.current_pnl, trigger_mark)
                 saved = pod.current_pnl
                 pod.current_pnl = compare_value
-                did_stop = stop_if_needed(pod, i, budget_usd=budget_usd, daily_usd=pod_daily_limit)
+                did_stop = stop_if_needed(
+                    pod, i,
+                    budget_usd=(pod_budgets_usd or {}).get(pod.alias, budget_usd),
+                    daily_usd=(pod_daily_limits_usd or {}).get(pod.alias, pod_daily_limit),
+                )
                 pod.current_pnl = saved
                 if did_stop:
                     stops.append(
@@ -306,6 +320,9 @@ def protected(
             break
 
         now_equity = portfolio_equity(pods)
+        prior_day_peak = day_peak
+        prior_global_peak = global_peak
+        day_peak = max(day_peak, now_equity)
         previous_equity = now_equity
         portfolio_marked_peak = max(portfolio_marked_peak, now_equity)
         drawdown = portfolio_marked_peak - now_equity
@@ -327,23 +344,49 @@ def protected(
             # At today's close, for EOD floors use previously fixed EOD HWM;
             # for continuous trailing, today's marked HWM is effective.
             trail_ref = eod_peak if contract_rule["eod_trailing"] else global_peak
+            day_ref = max(day_base, day_peak) if contract_rule.get("daily_hwm", False) else day_base
             floor = max(
-                day_base - contract_rule["daily"],
+                day_ref - contract_rule["daily"],
                 trail_ref - contract_rule["trailing"],
             )
-            if now_equity <= floor + EPSILON:
+            worst_equity = now_equity
+            prior_day_ref = (max(day_base, prior_day_peak)
+                             if contract_rule.get("daily_hwm", False) else day_base)
+            prior_trail_ref = (eod_peak if contract_rule["eod_trailing"]
+                               else prior_global_peak)
+            prior_floor = max(
+                prior_day_ref - contract_rule["daily"],
+                prior_trail_ref - contract_rule["trailing"],
+            )
+            if contract_rule.get("account_adverse_ohlc", False):
+                try:
+                    stressed = START_USD + sum(
+                        mark_pnl(pod, panels, i, "adverse") for pod in pods.values()
+                    )
+                except ValueError as exc:
+                    unknown = {"at": base._iso_minute(i), "reason": str(exc)}
+                    break
+                worst_equity = min(now_equity, stressed)
+            # OHLC order is unknown: compare adverse range against the
+            # PRE-minute floor, not the floor raised by this bar's close.
+            # The current close is checked against the updated floor.
+            if now_equity <= floor + EPSILON or worst_equity <= prior_floor + EPSILON:
                 global_halt = True
                 account_reason = "CONTRACT_FLOOR_BREACH"
                 account_at = base._iso_minute(i)
             elif now_equity >= START_USD + contract_rule["targets"][0]:
-                if len(contract_rule["targets"]) == 1 and green_days < 5:
+                if (len(contract_rule["targets"]) == 1
+                    and green_days < contract_rule.get("minimum_green_days", 5)):
                     pass
                 else:
                     global_halt = True
                     account_reason = (
                         "PHASE1_TARGET_REACHED_STAGE2_NOT_SIMULATED"
                         if len(contract_rule["targets"]) > 1
-                        else "SPRINT_TARGET_WITH_5_GREEN_DAYS"
+                        else (
+                            "CHALLENGE_TARGET_REACHED" if contract_rule.get("minimum_green_days", 5) == 0
+                            else "SPRINT_TARGET_WITH_5_GREEN_DAYS"
+                        )
                     )
                     account_at = base._iso_minute(i)
                     target_at = account_at
@@ -416,6 +459,8 @@ def protected(
         "portfolio": list(members),
         "pod_trailing_budget_usd": budget_usd,
         "pod_daily_limit_usd": pod_daily_limit,
+        "pod_budgets_usd": pod_budgets_usd,
+        "pod_daily_limits_usd": pod_daily_limits_usd,
         "mark_mode": mark_mode,
         "cost_bps_per_executed_side": cost_bps,
         "terminal_equity_usd": final_equity if allowed else None,
