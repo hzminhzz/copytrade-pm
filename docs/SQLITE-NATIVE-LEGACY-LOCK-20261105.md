@@ -80,6 +80,37 @@ Registration is an explicit backed-up, transactional, generation-checked write. 
 
 **No automatic admission:** native registration does not subscribe a wallet, declare profitable behavior, promote portfolio selection, launch a paper worker, infer source equity or authorize trading. New owner-approved portfolio selections still use the existing signed-selection workflow; protected immutable portfolio versions remain authoritative in SQLite.
 
+## Native append-only owner exclusion decisions (issue #114)
+
+This interface is **separately protected** from cohort registration. It accepts only registered Hyperliquid mainnet addresses as resolved by the current SQLite inventory. It does not accept aliases, database-local wallet IDs, backdated timestamps, revocations or wildcard status changes. The decision file must be reviewed, private (0600 under a 0700 directory) and contain short uppercase reason codes.
+
+Example using a **synthetic address**, not a real blacklist:
+
+    {
+      "schema": "sqlite_wallet_exclusions_v1",
+      "decisions": [
+        {"address": "0x0000000000000000000000000000000000000001", "reason_code": "OWNER_REJECTED"}
+      ]
+    }
+
+The address must already exist in SQLite. The manifest's **raw-byte SHA-256** is an explicit second input, distinct from the live SQLite inventory SHA. No reviewer should apply a decision against changed source bytes or a different inventory generation.
+
+Read-only review:
+
+    uv run --frozen --group dev copytrade-wallet-registry native exclude --manifest PRIVATE_0600_MANIFEST --expected-manifest-sha REVIEWED_RAW_SHA256 --expected-inventory-sha LIVE_SQLITE_INVENTORY_SHA
+
+Protected mutation, only after backup, owner review and explicit cutover authorization:
+
+    uv run --frozen --group dev copytrade-wallet-registry native exclude --manifest PRIVATE_0600_MANIFEST --expected-manifest-sha REVIEWED_RAW_SHA256 --expected-inventory-sha LIVE_SQLITE_INVENTORY_SHA --apply
+
+The writer checks both hashes, existing decisions and unique identities, backs up SQLite, seals exact input bytes under private immutable evidence, then atomically appends evidence_artifacts, evidence_versions and exclusions with the **actual first-known receipt time**. Reapplying the same manifest is idempotent after archive and database-row verification. A different reason for an already excluded wallet fails closed for a separately reviewed policy. A pre-commit error rolls back all database rows. Archived immutable source bytes may remain after an error, but no exclusion or authorization is committed.
+
+The original 22 owner exclusions remain untouched. An exclusion is **not** paper admission, scientific qualification or a command to change tracker subscribers. Revoking earlier exclusions is explicitly out of scope. Read-only wallets list --excluded and as-of filters reflect native decisions without legacy CSV sync.
+
+**Deployment dependency:** this work is stacked on PR #112. Do not apply to production before the base release passes hosted core/market checks, is reviewed/merged/pinned, and the backup-protected legacy lock passes PID and integrity gates. Live blacklist changes need a separate approved manifest. No automatic cleanup is authorized.
+
+[ML4T evidence principles](ML4T-METHODOLOGY-LESSONS.md) guide screening but cannot automatically create exclusion decisions.
+
 ## Acceptance and operational safety
 
 Before merged release or live lock: test core and market suites, Ruff lint/format, build and capability validation; verify no missing docs links; validate `doctor`, private backup integrity, import idempotency, conflict/permission failures, SQLite triggers against legacy writers, original frozen portfolios and live running service PID parity. Confirm the current release pointer remains usable; code merge alone is not deployment. No broker, paper worker or production tracker mutation is part of this work.

@@ -61,6 +61,8 @@ REGISTRY_OPERATIONS = {
     "native lock --apply": "PROTECTED_MUTATION",
     "native register": "READ_ONLY",
     "native register --apply": "PROTECTED_MUTATION",
+    "native exclude": "READ_ONLY",
+    "native exclude --apply": "PROTECTED_MUTATION",
     "doctor": "READ_ONLY",
     "runtime": "READ_ONLY",
     "report --redacted": "READ_ONLY",

@@ -20,6 +20,7 @@ import stat
 
 COHORT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}\Z")
 ALIAS = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}\Z")
+EXCLUSION_REASON = re.compile(r"[A-Z][A-Z0-9_]{2,63}\Z")
 LOCK_KEY = "legacy_import_locked_at"
 
 # Database backstops protect against older package versions bypassing the
@@ -204,9 +205,51 @@ def _manifest(path: Path) -> tuple[str, list[tuple[str, list[str]]], str]:
     return cohort, entries, sha256(raw).hexdigest()
 
 
-def _seal_manifest(db: Path, manifest: Path, expected_sha: str) -> str:
+def _exclusion_manifest(path: Path) -> tuple[list[tuple[str, str]], str]:
+    """Validate a private, additive exclusion decision without backdated clocks."""
+    from . import wallet_registry as reg
+
+    if (
+        not path.is_file()
+        or path.is_symlink()
+        or stat.S_IMODE(path.stat().st_mode) != 0o600
+        or stat.S_IMODE(path.parent.stat().st_mode) != 0o700
+    ):
+        raise PermissionError("PRIVATE_EXCLUSION_MANIFEST_REQUIRED")
+    raw = path.read_bytes()
+    document = json.loads(raw)
+    if not isinstance(document, dict) or set(document) != {"schema", "decisions"}:
+        raise ValueError("INVALID_EXCLUSION_MANIFEST")
+    if document["schema"] != "sqlite_wallet_exclusions_v1":
+        raise ValueError("UNSUPPORTED_EXCLUSION_MANIFEST")
+    decisions = document["decisions"]
+    if not isinstance(decisions, list) or not 1 <= len(decisions) <= 1000:
+        raise ValueError("INVALID_EXCLUSION_DECISIONS")
+    seen: set[str] = set()
+    entries: list[tuple[str, str]] = []
+    for decision in decisions:
+        if not isinstance(decision, dict) or set(decision) != {"address", "reason_code"}:
+            raise ValueError("INVALID_EXCLUSION_DECISION")
+        if not isinstance(decision["address"], str):
+            raise ValueError("INVALID_EXCLUSION_IDENTITY")
+        address = reg.normalize(decision["address"])
+        reason = decision["reason_code"]
+        if not isinstance(reason, str) or not EXCLUSION_REASON.fullmatch(reason):
+            raise ValueError("INVALID_EXCLUSION_REASON_CODE")
+        if address in seen:
+            raise ValueError("DUPLICATE_EXCLUSION_IDENTITY")
+        entries.append((address, reason))
+        seen.add(address)
+    return entries, sha256(raw).hexdigest()
+
+
+def _seal_manifest(
+    db: Path, manifest: Path, expected_sha: str, *, category: str = "native-cohorts"
+) -> str:
     """Immutable, private source reference, never a mutable input path."""
-    location = Path("evidence") / "native-cohorts" / f"{expected_sha}.json"
+    if category not in {"native-cohorts", "native-exclusions"}:
+        raise ValueError("UNSUPPORTED_EVIDENCE_CATEGORY")
+    location = Path("evidence") / category / f"{expected_sha}.json"
     directory = db.parent / location.parent
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     if directory.is_symlink() or stat.S_IMODE(directory.stat().st_mode) != 0o700:
@@ -388,4 +431,187 @@ def register_cohort(
             "backup_verified": True,
             "backup": str(backup_path),
             "applied": True,
+        }
+
+
+def verify_exclusion_archives(db: Path, con: sqlite3.Connection) -> None:
+    """Fail closed when any native exclusion lacks its exact immutable source."""
+    for key, source_sha, path, observed_at in con.execute(
+        "SELECT source_key,sha256,source_path,observed_at FROM evidence_artifacts "
+        "WHERE source_key LIKE 'sqlite_primary:exclusions:%'"
+    ):
+        relative = Path("evidence") / "native-exclusions" / f"{source_sha}.json"
+        if key != f"sqlite_primary:exclusions:{source_sha}" or path != str(relative):
+            raise ValueError("EXCLUSION_EVIDENCE_INTEGRITY_FAILED")
+        archive = db.parent / relative
+        try:
+            decisions, verified_sha = _exclusion_manifest(archive)
+        except (ValueError, PermissionError, OSError, json.JSONDecodeError) as exc:
+            raise ValueError("EXCLUSION_EVIDENCE_INTEGRITY_FAILED") from exc
+        if verified_sha != source_sha:
+            raise ValueError("EXCLUSION_EVIDENCE_INTEGRITY_FAILED")
+        stored = con.execute(
+            "SELECT w.address,e.reason,e.known_at FROM exclusions e "
+            "JOIN wallets w USING(wallet_id) WHERE e.source_key=?",
+            (key,),
+        ).fetchall()
+        if sorted(stored) != sorted((addr, reason, observed_at) for addr, reason in decisions):
+            raise ValueError("EXCLUSION_EVIDENCE_ROWS_MISMATCH")
+        version = con.execute(
+            "SELECT first_known_at FROM evidence_versions WHERE source_key=? AND sha256=?",
+            (key, source_sha),
+        ).fetchone()
+        if version is None or version[0] != observed_at:
+            raise ValueError("EXCLUSION_EVIDENCE_CLOCK_MISMATCH")
+
+
+def append_exclusions(
+    db: Path,
+    manifest: Path,
+    *,
+    expected: str,
+    expected_manifest_sha: str,
+    apply: bool = False,
+    now: str | None = None,
+) -> dict:
+    """Append an owner-reviewed exclusion; no revocations or subscriptions.
+
+    Exclusion knowledge begins at the actual receipt time. Retrospective
+    vendor timestamps and arbitrary manifest dates cannot backdate it.
+    """
+    from . import wallet_registry as reg
+
+    _require_private_db(db)
+    decisions, source_sha = _exclusion_manifest(manifest)
+    if not re.fullmatch(r"[0-9a-f]{64}", expected_manifest_sha):
+        raise ValueError("EXPECTED_MANIFEST_SHA_REQUIRED")
+    if source_sha != expected_manifest_sha:
+        raise ValueError("EXCLUSION_MANIFEST_SHA_CHANGED")
+    timestamp = now or datetime.now(timezone.utc).isoformat()
+    instant = datetime.fromisoformat(timestamp)
+    if instant.tzinfo is None:
+        raise ValueError("UTC_OFFSET_REQUIRED")
+    known_at = instant.astimezone(timezone.utc).isoformat()
+    source_key = f"sqlite_primary:exclusions:{source_sha}"
+
+    with reg.private_lock(db):
+        baseline = _check(db, expected)
+        with closing(reg.connect(db, False)) as con:
+            if not locked(con):
+                raise ValueError("LOCK_LEGACY_IMPORT_BEFORE_NATIVE_EXCLUSION")
+            previous = con.execute(
+                "SELECT sha256,source_path FROM evidence_artifacts WHERE source_key=?",
+                (source_key,),
+            ).fetchone()
+            if previous is not None:
+                relative = Path("evidence") / "native-exclusions" / f"{source_sha}.json"
+                snapshot = db.parent / relative
+                if (
+                    previous != (source_sha, str(relative))
+                    or not snapshot.is_file()
+                    or snapshot.is_symlink()
+                    or stat.S_IMODE(snapshot.stat().st_mode) != 0o600
+                    or sha256(snapshot.read_bytes()).hexdigest() != source_sha
+                ):
+                    raise ValueError("EXCLUSION_EVIDENCE_INTEGRITY_FAILED")
+                stored = con.execute(
+                    "SELECT w.address,e.reason FROM exclusions e "
+                    "JOIN wallets w USING(wallet_id) WHERE e.source_key=?",
+                    (source_key,),
+                ).fetchall()
+                if sorted(stored) != sorted(decisions):
+                    raise ValueError("EXCLUSION_EVIDENCE_ROWS_MISMATCH")
+                return {
+                    "authority": "SQLITE",
+                    "inventory_sha256": baseline,
+                    "decision_sha256": source_sha,
+                    "unchanged": True,
+                    "applied": False,
+                }
+            wallet_ids: dict[str, int] = {}
+            for address, _ in decisions:
+                record = con.execute(
+                    "SELECT wallet_id FROM wallets WHERE venue='hyperliquid' "
+                    "AND network='mainnet' AND address=?",
+                    (address,),
+                ).fetchone()
+                if record is None:
+                    raise ValueError("EXCLUSION_WALLET_NOT_REGISTERED")
+                wallet_id = record[0]
+                if con.execute(
+                    "SELECT 1 FROM exclusions WHERE wallet_id=? LIMIT 1", (wallet_id,)
+                ).fetchone():
+                    raise ValueError("EXCLUSION_ALREADY_RECORDED_REVIEW_REQUIRED")
+                wallet_ids[address] = wallet_id
+
+        if not apply:
+            return {
+                "authority": "SQLITE",
+                "inventory_sha256": baseline,
+                "decision_sha256": source_sha,
+                "exclusion_count": len(decisions),
+                "would_append_only": True,
+                "applied": False,
+            }
+
+        backup_path = _backup(db, baseline, "native-exclusions")
+        source_path = _seal_manifest(db, manifest, source_sha, category="native-exclusions")
+        with closing(reg.connect(db, True)) as con:
+            con.execute("BEGIN IMMEDIATE")
+            with con:
+                _check(db, expected)
+                if not locked(con):
+                    raise ValueError("LEGACY_LOCK_CHANGED")
+                for address, _ in decisions:
+                    wallet_id = wallet_ids[address]
+                    current = con.execute(
+                        "SELECT wallet_id FROM wallets WHERE venue='hyperliquid' "
+                        "AND network='mainnet' AND address=?",
+                        (address,),
+                    ).fetchone()
+                    if current is None or current[0] != wallet_id:
+                        raise ValueError("EXCLUSION_IDENTITY_CHANGED")
+                    if con.execute(
+                        "SELECT 1 FROM exclusions WHERE wallet_id=? LIMIT 1", (wallet_id,)
+                    ).fetchone():
+                        raise ValueError("EXCLUSION_ALREADY_RECORDED_REVIEW_REQUIRED")
+                con.execute(
+                    "INSERT INTO evidence_artifacts "
+                    "(source_key,sha256,source_path,observed_at,interpretation) "
+                    "VALUES(?,?,?,?,?)",
+                    (
+                        source_key,
+                        source_sha,
+                        source_path,
+                        known_at,
+                        "OWNER_APPROVED_EXCLUSION_METADATA_ONLY",
+                    ),
+                )
+                con.execute(
+                    "INSERT INTO evidence_versions(source_key,sha256,first_known_at) VALUES(?,?,?)",
+                    (source_key, source_sha, known_at),
+                )
+                con.executemany(
+                    "INSERT INTO exclusions(wallet_id,reason,known_at,source_key) VALUES(?,?,?,?)",
+                    (
+                        (wallet_ids[address], reason, known_at, source_key)
+                        for address, reason in decisions
+                    ),
+                )
+                _set(con, "sqlite_native_updated_at", known_at)
+                if (
+                    con.execute("PRAGMA quick_check").fetchone()[0] != "ok"
+                    or con.execute("PRAGMA foreign_key_check").fetchone() is not None
+                ):
+                    raise ValueError("EXCLUSION_INTEGRITY_FAILED")
+        _sidecars(db)
+        return {
+            "authority": "SQLITE",
+            "decision_sha256": source_sha,
+            "exclusion_count": len(decisions),
+            "inventory_sha256": reg.db_authority_health(db)["inventory_sha256"],
+            "backup_verified": True,
+            "backup": str(backup_path),
+            "applied": True,
+            "trading_authorized": False,
         }

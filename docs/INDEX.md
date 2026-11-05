@@ -4,6 +4,11 @@
 
 **SQLite metadata authority (2026-11-05):** The private wallet registry is the
 single source of truth for current wallets, cohorts and saved portfolios.
+New owner-approved exclusion decisions have a separate protected, append-only native
+path; see [native lock, registration and exclusion contracts](SQLITE-NATIVE-LEGACY-LOCK-20261105.md).
+For provider validation, wallet screening statistics and point-in-time discipline,
+see [ML4T methodology lessons](ML4T-METHODOLOGY-LESSONS.md) and the
+[dated real-cohort evidence audit](ML4T-REGISTRY-EVIDENCE-AUDIT-20261105.md).
 [Mandatory registry lookup contract](WALLET-REGISTRY-AGENT-WORKFLOW.md) and
 [read-only pinned release/rollback guide](WALLET-REGISTRY-RELEASE-RUNBOOK.md)
 distinguish the SQLite inventory SHA from legacy CSV import evidence.

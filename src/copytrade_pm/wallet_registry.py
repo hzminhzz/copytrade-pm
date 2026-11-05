@@ -906,6 +906,7 @@ def db_authority_health(db: Path) -> dict:
         }
         if any(count == 0 for count in counts.values()):
             raise ValueError("REGISTRY_EMPTY_REGISTERED_COHORT")
+        native.verify_exclusion_archives(db, con)
         for table in AUTHORITATIVE_INVENTORY_TABLES:
             records = con.execute(f"SELECT * FROM {table}").fetchall()
             encoded = sorted(
@@ -1071,6 +1072,13 @@ def cli(argv: list[str] | None = None) -> int:
     native_register.add_argument("--expected-inventory-sha", required=True)
     native_register.add_argument("--manifest", required=True, type=Path)
     native_register.add_argument("--apply", action="store_true")
+    native_exclude = native_sub.add_parser(
+        "exclude", help="Append owner-reviewed, SHA-pinned private exclusion decisions"
+    )
+    native_exclude.add_argument("--expected-inventory-sha", required=True)
+    native_exclude.add_argument("--expected-manifest-sha", required=True)
+    native_exclude.add_argument("--manifest", required=True, type=Path)
+    native_exclude.add_argument("--apply", action="store_true")
     doctor = sub.add_parser("doctor", help="Verify the authoritative SQLite ledger")
     doctor.add_argument(
         "--legacy-audit",
@@ -1165,6 +1173,19 @@ def cli(argv: list[str] | None = None) -> int:
                         args.db,
                         args.manifest,
                         expected=args.expected_inventory_sha,
+                        apply=args.apply,
+                    ),
+                    sort_keys=True,
+                )
+            )
+        elif args.native_action == "exclude":
+            print(
+                json.dumps(
+                    native.append_exclusions(
+                        args.db,
+                        args.manifest,
+                        expected=args.expected_inventory_sha,
+                        expected_manifest_sha=args.expected_manifest_sha,
                         apply=args.apply,
                     ),
                     sort_keys=True,
