@@ -132,6 +132,49 @@ def test_account_mode_evidence_requires_exact_public_enum_hash_and_causal_clock(
     assert journal.collateral_scope_status("a" * 64)["cursor"] == 1
 
 
+def test_perpetual_only_scope_rejects_forged_missing_spot_and_vault_evidence(tmp_path):
+    j = PaperJournal(tmp_path / "paper")
+    base = diagnostic()
+    base["copy_scope"] = "PERPETUALS_ONLY"
+    base["status"] = "BLOCKED_PERPETUAL_COLLATERAL_RECONCILIATION"
+    base["observations"][0] = {
+        **base["observations"][0],
+        "potential_perp_quote_collateral": {"USDC": {"total": "11", "hold": None}},
+        "other_spot_asset_count": 1,
+    }
+    base["observations"][1] = {
+        "scope": "userVaultEquities",
+        "status": "OUT_OF_SCOPE_PERPETUALS_ONLY",
+        "first_known_at": None,
+        "source_event_at": None,
+        "response_sha256": None,
+        "row_count": None,
+    }
+    assert j.append_collateral_diagnostic(base)["cursor"] == 1
+    altered = {**base, "observations": [dict(row) for row in base["observations"]]}
+    altered["observations"][0]["status"] = "OUT_OF_SCOPE_PERPETUALS_ONLY"
+    with pytest.raises(ValueError, match="SOURCE_COLLATERAL"):
+        j.append_collateral_diagnostic(altered)
+    altered = {**base, "observations": [dict(row) for row in base["observations"]]}
+    altered["observations"][1]["row_count"] = 0
+    with pytest.raises(ValueError, match="SOURCE_COLLATERAL"):
+        j.append_collateral_diagnostic(altered)
+    altered = {**base, "copy_scope": "WHOLE_WALLET_COMPLETE"}
+    with pytest.raises(ValueError, match="SOURCE_COLLATERAL"):
+        j.append_collateral_diagnostic(altered)
+    altered = {**base, "observations": [dict(row) for row in base["observations"]]}
+    altered["observations"][0]["potential_perp_quote_collateral"] = {
+        "USDC": {"total": "NaN", "hold": None}
+    }
+    with pytest.raises(ValueError):
+        j.append_collateral_diagnostic(altered)
+    altered = {**base, "observations": [dict(row) for row in base["observations"]]}
+    altered["observations"][0]["other_spot_asset_count"] = 0
+    with pytest.raises(ValueError, match="SOURCE_COLLATERAL_QUOTE_CENSUS_INVALID"):
+        j.append_collateral_diagnostic(altered)
+    assert j.collateral_scope_status("a" * 64)["cursor"] == 1
+
+
 def test_clock_violation_refused_without_advancing_cursor(tmp_path):
     j = PaperJournal(tmp_path / "paper")
     with pytest.raises(ValueError, match="SOURCE_RECEIPT_CAUSAL_CLOCK_FAILURE"):

@@ -28,12 +28,17 @@ def test_p1_opt_in_family_capture_preserves_missing_child_scope(tmp_path):
             book = deepcopy(sample_state())
             book["user"] = addr
             sockets.append(FakeSocket([{"channel": "allDexsClearinghouseState", "data": book}]))
+        requested = []
 
         def info(payload):
+            requested.append(payload["type"])
             if payload["type"] == "perpDexs":
                 return [None, {"name": "xyz"}], b"cat", "a" * 64
             if payload["type"] == "spotClearinghouseState":
                 return {"balances": []}, b"spot", sha256(b"spot").hexdigest()
+            if payload["type"] == "userAbstraction":
+                raw = b'"unifiedAccount"'
+                return "unifiedAccount", raw, sha256(raw).hexdigest()
             if payload["type"] == "userVaultEquities":
                 return [], b"vault", sha256(b"vault").hexdigest()
             if payload["user"].lower() == addresses[0].lower():
@@ -67,9 +72,13 @@ def test_p1_opt_in_family_capture_preserves_missing_child_scope(tmp_path):
         assert all(item["receipt"]["cursor"] == 1 for item in first_collateral)
         assert all(item["source_equity"] is None for item in first_collateral)
         assert all(
-            item["status"] == "BLOCKED_COLLATERAL_AND_VAULT_RECONCILIATION"
+            item["status"] == "BLOCKED_PERPETUAL_COLLATERAL_RECONCILIATION"
+            and item["copy_scope"] == "PERPETUALS_ONLY"
+            and item["observations"][1]["status"] == "OUT_OF_SCOPE_PERPETUALS_ONLY"
+            and item["account_abstraction"]["mode"] == "unifiedAccount"
             for item in first_collateral
         )
+        assert "userVaultEquities" not in requested
         assert journal.source_status("S035")["cursor"] == 2
         assert journal.source_status("S035")["paper_admitted"] is False
         assert not sockets

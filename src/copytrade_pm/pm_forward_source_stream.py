@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 from datetime import UTC, datetime
+from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 import json
 from pathlib import Path
@@ -29,6 +30,36 @@ from .pm_forward_source_observation import append_public_scope, read_public_all_
 
 
 ADDRESS = re.compile(r"0x[0-9a-fA-F]{40}\Z")
+# Quote balances can collateralize perps in unified accounts. Do not treat
+# non-quote spot assets as follower positions or estimate their USD value.
+PERP_QUOTE_COLLATERAL = frozenset({"USDC", "USDH"})
+
+
+def _perpetual_collateral_balances(balances: list) -> tuple[dict, int]:
+    """Retain only native quote balances, never derive a sizing denominator."""
+    quote: dict[str, dict[str, str | None]] = {}
+    other = 0
+    seen = set()
+    for row in balances:
+        if not isinstance(row, dict):
+            raise ValueError("SOURCE_SPOT_BALANCE_ROW_INVALID")
+        coin = row.get("coin")
+        if not isinstance(coin, str) or not coin or coin in seen:
+            raise ValueError("SOURCE_SPOT_BALANCE_COIN_INVALID")
+        seen.add(coin)
+        if coin not in PERP_QUOTE_COLLATERAL:
+            other += 1
+            continue
+        try:
+            total = Decimal(str(row.get("total")))
+            hold = row.get("hold")
+            held = None if hold is None else Decimal(str(hold))
+        except InvalidOperation as exc:
+            raise ValueError("SOURCE_SPOT_QUOTE_BALANCE_INVALID") from exc
+        if not total.is_finite() or (held is not None and not held.is_finite()):
+            raise ValueError("SOURCE_SPOT_QUOTE_BALANCE_NONFINITE")
+        quote[coin] = {"total": str(total), "hold": str(held) if held is not None else None}
+    return dict(sorted(quote.items())), other
 
 
 async def bounded_source_scope_capture(
@@ -155,12 +186,32 @@ async def read_public_collateral_scope(
     address: str,
     info: Callable = _guarded_info,
     now: Callable[[], str] = lambda: datetime.now(UTC).isoformat(),
+    perpetuals_only: bool = False,
 ) -> dict:
-    """Read hashed spot/vault scope, with no common provider NAV event clock."""
+    """Read public collateral diagnostics, never synthesize a whole-wallet NAV.
+
+    Perpetuals-only mode does not fetch vault investments. It still reads the
+    spot clearinghouse because unified/portfolio-margin accounts hold their
+    *perpetual collateral* in that balance, not independent per-DEX NAVs.
+    """
+    if type(perpetuals_only) is not bool:
+        raise ValueError("SOURCE_PERPETUALS_ONLY_POLICY_INVALID")
     if ADDRESS.fullmatch(address) is None:
         raise ValueError("SOURCE_PUBLIC_WALLET_ADDRESS_INVALID")
     observations = []
     for request_type in ("spotClearinghouseState", "userVaultEquities"):
+        if perpetuals_only and request_type == "userVaultEquities":
+            observations.append(
+                {
+                    "scope": request_type,
+                    "status": "OUT_OF_SCOPE_PERPETUALS_ONLY",
+                    "first_known_at": None,
+                    "source_event_at": None,
+                    "response_sha256": None,
+                    "row_count": None,
+                }
+            )
+            continue
         try:
             payload, raw, response_sha = await asyncio.to_thread(
                 info, {"type": request_type, "user": address}
@@ -172,7 +223,11 @@ async def read_public_collateral_scope(
                 if not isinstance(payload, dict) or not isinstance(payload.get("balances"), list):
                     raise ValueError("SOURCE_SPOT_SCOPE_RESPONSE_INVALID")
                 count = len(payload["balances"])
+                quote_collateral = (
+                    _perpetual_collateral_balances(payload["balances"]) if perpetuals_only else None
+                )
             else:
+                quote_collateral = None
                 if not isinstance(payload, list):
                     raise ValueError("SOURCE_VAULT_SCOPE_RESPONSE_INVALID")
                 count = len(payload)
@@ -184,6 +239,14 @@ async def read_public_collateral_scope(
                     "source_event_at": None,
                     "response_sha256": response_sha,
                     "row_count": count,
+                    **(
+                        {
+                            "potential_perp_quote_collateral": quote_collateral[0],
+                            "other_spot_asset_count": quote_collateral[1],
+                        }
+                        if quote_collateral is not None
+                        else {}
+                    ),
                 }
             )
         except (ValueError, TypeError, KeyError, OSError) as exc:
@@ -234,13 +297,18 @@ async def read_public_collateral_scope(
         account_abstraction["reason"] = type(exc).__name__ + ":" + str(exc)[:90]
     return {
         "schema": "paper_public_collateral_scope_v1",
+        **({"copy_scope": "PERPETUALS_ONLY"} if perpetuals_only else {}),
         "account_address_sha256": sha256(address.lower().encode()).hexdigest(),
         "observations": observations,
         "account_abstraction": account_abstraction,
         "provider_atomic_nav_available": False,
         "source_equity": None,
         "collateral_reconciled": False,
-        "status": "BLOCKED_COLLATERAL_AND_VAULT_RECONCILIATION",
+        "status": (
+            "BLOCKED_PERPETUAL_COLLATERAL_RECONCILIATION"
+            if perpetuals_only
+            else "BLOCKED_COLLATERAL_AND_VAULT_RECONCILIATION"
+        ),
         "paper_observed": False,
         "order_route": "NONE",
     }
@@ -308,7 +376,9 @@ async def bounded_source_family_capture(
     collateral = []
     if include_collateral:
         for address in addresses:
-            diagnostic = await read_public_collateral_scope(address=address, info=info, now=now)
+            diagnostic = await read_public_collateral_scope(
+                address=address, info=info, now=now, perpetuals_only=True
+            )
             try:
                 diagnostic["receipt"] = journal.append_collateral_diagnostic(diagnostic)
             except ValueError as exc:
@@ -317,6 +387,7 @@ async def bounded_source_family_capture(
             collateral.append(diagnostic)
     return {
         "schema": "paper_public_family_bounded_capture_v1",
+        "copy_scope": "PERPETUALS_ONLY",
         "collateral_diagnostics": collateral,
         "wallet_alias": alias,
         "parent_address_sha256": sha256(parent_address.lower().encode()).hexdigest(),

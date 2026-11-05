@@ -181,6 +181,71 @@ def test_unrecognized_or_tampered_mode_fails_closed():
     asyncio.run(run("disabled", b'"disabled"', "0" * 64))
 
 
+def test_perps_only_requests_collateral_mode_but_never_vault_or_spot_trading(tmp_path):
+    calls = []
+
+    def info(payload):
+        kind = payload["type"]
+        calls.append(kind)
+        if kind == "spotClearinghouseState":
+            raw = b'{"balances":[{"coin":"USDC","total":"100"}]}'
+            return json.loads(raw), raw, sha256(raw).hexdigest()
+        if kind == "userAbstraction":
+            raw = b'"unifiedAccount"'
+            return "unifiedAccount", raw, sha256(raw).hexdigest()
+        raise AssertionError("PERPS_ONLY_MUST_NOT_QUERY_VAULT")
+
+    async def run():
+        journal = PaperJournal(tmp_path / "paper")
+        report = await read_public_collateral_scope(
+            address=WALLET,
+            perpetuals_only=True,
+            info=info,
+            now=lambda: T.isoformat(),
+        )
+        assert calls == ["spotClearinghouseState", "userAbstraction"]
+        assert report["copy_scope"] == "PERPETUALS_ONLY"
+        assert report["status"] == "BLOCKED_PERPETUAL_COLLATERAL_RECONCILIATION"
+        assert [row["scope"] for row in report["observations"]] == [
+            "spotClearinghouseState",
+            "userVaultEquities",
+        ]
+        spot = report["observations"][0]
+        assert spot["potential_perp_quote_collateral"] == {"USDC": {"total": "100", "hold": None}}
+        assert spot["other_spot_asset_count"] == 0
+        vault = report["observations"][1]
+        assert vault["status"] == "OUT_OF_SCOPE_PERPETUALS_ONLY"
+        assert vault["first_known_at"] is None
+        assert vault["response_sha256"] is None
+        assert vault["row_count"] is None
+        assert report["source_equity"] is None
+        assert not report["provider_atomic_nav_available"]
+        assert report["order_route"] == "NONE"
+        assert journal.append_collateral_diagnostic(report)["cursor"] == 1
+
+    asyncio.run(run())
+
+
+def test_perps_only_malformed_quote_collateral_does_not_replace_equity_with_zero():
+    async def run(balances):
+        def info(request):
+            if request["type"] == "spotClearinghouseState":
+                raw = json.dumps({"balances": balances}).encode()
+                return {"balances": balances}, raw, sha256(raw).hexdigest()
+            if request["type"] == "userAbstraction":
+                raw = b'"unifiedAccount"'
+                return "unifiedAccount", raw, sha256(raw).hexdigest()
+            raise AssertionError("vault fetch forbidden")
+
+        report = await read_public_collateral_scope(address=WALLET, perpetuals_only=True, info=info)
+        assert report["observations"][0]["status"] == "BLOCKED_SCOPE_ACQUISITION"
+        assert report["observations"][0]["first_known_at"] is None
+        assert report["source_equity"] is None
+
+    asyncio.run(run([{"coin": "USDC", "total": "nan"}]))
+    asyncio.run(run([{"coin": "USDC", "total": "3"}, {"coin": "USDC", "total": "4"}]))
+
+
 def test_invalid_spot_does_not_promote_vault_or_assume_zero():
     def info(request):
         if request["type"] == "spotClearinghouseState":
