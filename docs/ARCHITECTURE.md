@@ -1,5 +1,15 @@
 # Architecture: evidence, manager governance, shadow account
 
+## Public observer service boundary (2026-11-05)
+
+The [public P1/P14 observer deployment contract](FORWARD-PAPER-PUBLIC-OBSERVER-SERVICE-20261105.md)
+adds a verified pinned **user** service configuration for existing first-local
+public source and CCXT market tapes. The unit has no broker transport and
+cannot create PM-03 financial events, join protected P1/P14 identities or
+attest complete source equity. Public observer health may be
+`DEGRADED_OBSERVER_ONLY` while protected paper remains `NOT_RUNNING`.
+A quant-owned service is deliberately not a protected financial account.
+
 ## Agent-native discovery seam (2026-11-04)
 
 [Agent-native operations](AGENT-NATIVE-OPERATIONS.md) introduces a machine-readable

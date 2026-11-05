@@ -1,5 +1,16 @@
 # Research operator runbook — verified CLI sequence
 
+## Public P1/P14 observer-only collection (not financial paper)
+
+The 2026-11-05 [pinned public observer guide](FORWARD-PAPER-PUBLIC-OBSERVER-SERVICE-20261105.md)
+records the bounded five-wallet first-local canary and the independent
+`DEGRADED_OBSERVER_ONLY` heartbeat. Use the existing native
+`copytrade-pm-paper-observe` for source/market receipts, or the separate
+`copytrade-pm-public-observer-unit` for a conservatively verified user-unit
+install. The latter's explicit `--apply` changes only an unprotected observer
+unit file; it does not start a service. P1/P14 financial paper-worker cutover
+remains `BLOCKED_NO_TRADE` and requires separate protected review.
+
 ## Agent-native discovery and operator read
 
 For new engineering work run `copytrade-pm capabilities list`,

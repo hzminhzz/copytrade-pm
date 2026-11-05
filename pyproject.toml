@@ -44,6 +44,7 @@ copytrade-pm-paper-readiness = "copytrade_pm.pm_forward_readiness:main"
 copytrade-pm-paper-source-campaign = "copytrade_pm.pm_forward_source_campaign:main"
 copytrade-pm-paper-observe = "copytrade_pm.pm_forward_observer:main"
 copytrade-pm-paper-observer-health = "copytrade_pm.pm_forward_observer_health:main"
+copytrade-pm-public-observer-unit = "copytrade_pm.pm_forward_public_unit:main"
 
 [build-system]
 requires = ["hatchling"]
