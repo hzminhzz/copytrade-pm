@@ -1,0 +1,108 @@
+{
+  "schema": "phase7_fivepod_prospective_research_v1",
+  "decision_date_utc": "2026-11-05",
+  "scope": "NEW_PROSPECTIVE_RESEARCH_ONLY",
+  "decision_authority": "owner_approved_in_chat_not_independently_signed",
+  "prior_research": {
+    "github_pr": 98,
+    "selection_commit": "3fd1009912297977532b6532785d2d3719f23a7f",
+    "retrospective_evidence_sha256": "86bb03ff35d4a639c429d8a4b916496f4d210f4c0485918f7691e84d74af8614",
+    "frozen_source_universe_sha256": "2cef0d3a2c28de70a1991043a58de45fc226d6a8ec56b22960c5133909da45ff",
+    "historical_window_utc": [
+      "2026-08-05T00:00:00Z",
+      "2026-11-03T00:00:00Z"
+    ],
+    "touched_90d_no_pristine_holdout": true,
+    "wallet_candidate_screens": 42504,
+    "scientific_qualification": "NOT_ESTABLISHED"
+  },
+  "registry": {
+    "required_manifest_sha256": "e2836aab5ef6ef79306e9dfe732d8768c3b1ca6af29efbda066b37f03646a18f",
+    "observed_at_utc": "2026-11-04T09:36:57.574969+00:00",
+    "allowed_cohorts": [
+      "research-108",
+      "nansen-20",
+      "hyperx-30"
+    ],
+    "never_rewrite_existing_portfolio_seals": true
+  },
+  "wallet_bindings": {
+    "H02": "4b977e8a1ada2a77d733897df963b8e513731fa1d5a2745ab05cd170f0670c77",
+    "HX04": "0a3b758781226b2a56cdc1af06da843b7316c1f47957dde56f02019667d7c712",
+    "N05": "4d97910ce049dcd1e62f0f5d4f61e0238589c9cb2585f59188cf747c8f62cb6a",
+    "VS002": "c18c3ad87389b76533dea1aca268ba53806ba2813da9d54dba066f60fa50b8f2",
+    "VS025": "d81693e611e961f893b0b968cc6afba8a2c93df9b7f2b420944e3c1e56047992",
+    "VS035": "9febb60b5fa266405a0e82d748732c3dba65c8115eaa0d9ae277a23995040308",
+    "VS057": "be0373c1c1bcea20cb931a6dd52106ed1e66ab107c307728133e98e168f8c08c",
+    "W083": "5b23a9f23c90afc2948d90c67cff448d196ed0295c93af0a2165fa46094e76a8"
+  },
+  "portfolios": [
+    {
+      "id": "phase7.fivepod/BROAD",
+      "version": 1,
+      "role": "PRIMARY_PROSPECTIVE_RESEARCH",
+      "priority": 1,
+      "members": [
+        "HX04",
+        "N05",
+        "VS025",
+        "VS035",
+        "W083"
+      ]
+    },
+    {
+      "id": "phase7.fivepod/M3_PLUS_TWO",
+      "version": 1,
+      "role": "FIVE_WALLET_CHALLENGER",
+      "priority": 2,
+      "members": [
+        "H02",
+        "VS002",
+        "VS035",
+        "VS057",
+        "W083"
+      ]
+    },
+    {
+      "id": "phase7.fivepod/M3_BASELINE",
+      "version": 1,
+      "role": "THREE_WALLET_CONTROL",
+      "priority": 3,
+      "members": [
+        "H02",
+        "VS002",
+        "W083"
+      ]
+    }
+  ],
+  "research_contract": {
+    "initial_virtual_cash_usd": 10000,
+    "max_target_gross_at_rebalance_usd": 5000,
+    "gross_limit_between_rebalances_attested": false,
+    "candidate_market_policy": [
+      "BTC",
+      "ETH",
+      "SOL",
+      "HYPE"
+    ],
+    "source_observation_scope": "ALL_DEX_PARENT_ONLY_PLUS_SPOT_VAULT_DIAGNOSTICS",
+    "whole_wallet_replication": false,
+    "five_minute_rebalance_policy": "PROPOSED_NOT_ACTIVE",
+    "illustrative_daily_loss_usd": 450,
+    "illustrative_trailing_dd_usd": 850,
+    "historical_cost_stress_bps": [
+      10,
+      20,
+      30
+    ],
+    "future_first_known_capture_mandatory": true,
+    "independently_complete_source_nav_mandatory": true,
+    "market_quote_depth_and_real_fills_mandatory": true,
+    "paper_worker_authorized": false,
+    "trading_authorized": false,
+    "broker_order_route": "NONE",
+    "no_retroactive_source_receipts": true,
+    "reference_gemini_E6_E2_P1_unchanged": true,
+    "no_new_historical_fill_acquisition": true
+  }
+}

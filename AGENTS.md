@@ -21,6 +21,8 @@ paper OS units; a PID or public quote receipt never proves a healthy worker,
 whole-wallet economics, or market-provider readiness. See
 [the operator contract](docs/AGENT-NATIVE-OPERATIONS.md).
 
+**Phase 7 owner-approved five-wallet prospective study:** [read-only preflight and separately bounded public-source capture](docs/PHASE7-FIVEPOD-PROSPECTIVE-RESEARCH-20261105.md). The `copytrade-pm-phase7-source-observe` default is nonmutating, while `--capture-bounded` writes only a new private research journal. It never mutates existing E6/E2/P1 selections or the installed P1/P14 observer, extends historical fills, creates paper-account financial events or authorizes orders. Source equity/NAV, first-known executable fills and true costs remain blocked until independently attested.
+
 ## Memory
 
 Your memory is OptMem:

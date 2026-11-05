@@ -1,5 +1,9 @@
 # Research operator runbook — verified CLI sequence
 
+## Phase 7 five-wallet prospective observation — bounded and independent
+
+The [2026-11-05 Phase 7 research handoff](PHASE7-FIVEPOD-PROSPECTIVE-RESEARCH-20261105.md) records the owner-approved broad five-wallet primary, M3-plus-two five-wallet challenger and three-wallet control. The native CLI `copytrade-pm-phase7-source-observe` defaults to **read-only preflight** against immutable Stage-1/Phase-7 SHA evidence and current private research-cohort addresses. The optional `--capture-bounded` records first-local public per-parent/spot/vault diagnostics in a **separate private SHA-chained journal** and is catalog-classified `PROTECTED_MUTATION`. It does not extend historical fills, import a selection into the live SQLite registry, create a virtual financial account, or start P1/P14 services. None of these cohorts is scientifically qualified or authorized to trade. Do not confuse the new research decision with the frozen E6/E2/P1 and installed P1/P14 observer.
+
 ## Public P1/P14 observer-only collection (not financial paper)
 
 The 2026-11-05 [pinned public observer guide](FORWARD-PAPER-PUBLIC-OBSERVER-SERVICE-20261105.md)
