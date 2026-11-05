@@ -21,7 +21,10 @@ import numpy as np
 import polars as pl
 
 from copytrade_pm.pm_ml4t_batch_recovery import roster, local_sources, anchored_batches
-import ml4t66_portfolio_backtest as base
+if __package__:
+    from . import ml4t66_portfolio_backtest as base
+else:
+    import ml4t66_portfolio_backtest as base
 
 ANCHORS = ("M22", "H34", "M55", "M51")
 RUNNERS = ("H36", "M40", "M50", "M58")
