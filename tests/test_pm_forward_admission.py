@@ -20,13 +20,25 @@ def _alter(source: dict, **changes) -> dict:
 
 def test_full_fixture_admits_but_retro_rest_sequential_does_not() -> None:
     source = _source_book()
-    ok = admit_source_book(source, decision_at=T, fill_at="2026-11-04T04:00:02+00:00")
+    # A self-declared synthetic book is not provenance in a real-source path.
+    real = admit_source_book(source, decision_at=T, fill_at="2026-11-04T04:00:02+00:00")
+    assert real.admitted is False
+    assert "INDEPENDENT_REAL_BOOK_ATTESTATION_UNAVAILABLE" in real.reason_codes
+    assert real.positions == {}
+    assert real.source_equity is None
+    ok = admit_source_book(
+        source,
+        decision_at=T,
+        fill_at="2026-11-04T04:00:02+00:00",
+        allow_synthetic_fixture=True,
+    )
     assert ok.admitted and ok.source_equity is not None
     assert ok.positions[BTC] == 2
     sequential = admit_source_book(
         _alter(source, snapshot_kind="SEQUENTIAL_REST"),
         decision_at=T,
         fill_at="2026-11-04T04:00:02+00:00",
+        allow_synthetic_fixture=True,
     )
     assert not sequential.admitted
     assert "SOURCE_NOT_ATOMIC_WHOLE_ACCOUNT" in sequential.reason_codes
@@ -34,6 +46,7 @@ def test_full_fixture_admits_but_retro_rest_sequential_does_not() -> None:
         _alter(source, synthetic_fixture=False),
         decision_at=T,
         fill_at="2026-11-04T04:00:02+00:00",
+        allow_synthetic_fixture=True,
     )
     assert not unsigned.admitted
     assert "INDEPENDENT_REAL_BOOK_ATTESTATION_UNAVAILABLE" in unsigned.reason_codes
@@ -68,6 +81,7 @@ def test_incomplete_source_denied_with_explicit_reason(change, reason) -> None:
         _alter(_source_book(), **change),
         decision_at=T,
         fill_at="2026-11-04T04:00:02+00:00",
+        allow_synthetic_fixture=True,
     )
     assert not outcome.admitted
     assert reason in outcome.reason_codes
