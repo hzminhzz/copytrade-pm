@@ -20,6 +20,9 @@ CLASSES = frozenset({"READ_ONLY", "LOCAL_MUTATION", "PROTECTED_MUTATION", "BROKE
 # Classifications describe the exposed DEFAULT entry point; subcommands have
 # their own reviewed records. Never infer safety from a command name.
 GROUPS = {
+    "copytrade-pm-production-export": ("production.export.cli", "registry", "LOCAL_MUTATION"),
+    "copytrade-pm-production-manifest": ("production.manifest.cli", "registry", "PROTECTED_MUTATION"),
+    "copytrade-pm-production-economics": ("production.economics.cli", "research", "READ_ONLY"),
     "copytrade-pm-replay": ("historical.replay", "historical", "LOCAL_MUTATION"),
     "copytrade-pm-rank": ("manager.rank", "qualification", "LOCAL_MUTATION"),
     "copytrade-pm-handoff": ("portfolio.handoff", "portfolio", "LOCAL_MUTATION"),
@@ -75,6 +78,15 @@ REGISTRY_OPERATIONS = {
     "signed-selection --apply": "PROTECTED_MUTATION",
 }
 NATIVE = {
+    "production.metadata": ("copytrade_pm.production_export",
+        "python -m copytrade_pm.production_export --help", "registry", "READ_ONLY",
+        "CONSISTENT_SQLITE_SNAPSHOT_MISSING_SCOPE_NAV_BLOCKS"),
+    "production.release": ("copytrade_pm.production_manifest",
+        "python -m copytrade_pm.production_manifest --help", "registry", "PROTECTED_MUTATION",
+        "INDEPENDENT_SIGNED_SQLITE_POLICY_AND_SOURCE_SCOPE_REQUIRED"),
+    "production.economics": ("copytrade_pm.production_economics",
+        "python -m copytrade_pm.production_economics --help", "research", "READ_ONLY",
+        "MATCHED_PREDECLARED_NET_FOLLOWER_POLICY_TAPES_REQUIRED"),
     "wallet.inventory": (
         "copytrade_pm.wallet_registry_catalog",
         "copytrade-pm wallets list --cohort research-108",

@@ -47,6 +47,9 @@ copytrade-pm-paper-source-campaign = "copytrade_pm.pm_forward_source_campaign:ma
 copytrade-pm-paper-observe = "copytrade_pm.pm_forward_observer:main"
 copytrade-pm-paper-observer-health = "copytrade_pm.pm_forward_observer_health:main"
 copytrade-pm-public-observer-unit = "copytrade_pm.pm_forward_public_unit:main"
+copytrade-pm-production-export = "copytrade_pm.production_export:main"
+copytrade-pm-production-manifest = "copytrade_pm.production_manifest:main"
+copytrade-pm-production-economics = "copytrade_pm.production_economics:main"
 
 [build-system]
 requires = ["hatchling"]
