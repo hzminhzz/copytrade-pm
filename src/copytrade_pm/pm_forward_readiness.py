@@ -43,14 +43,22 @@ def _read_db(path: Path) -> sqlite3.Connection:
     return conn
 
 
-def _source(db: sqlite3.Connection, alias: str) -> dict:
+def _source(db: sqlite3.Connection, alias: str, *, as_of: str | None = None) -> dict:
+    """Verify the complete chain, then project only causally available receipts.
+
+    Public observer integrity callers omit as_of to retain the full live head.
+    A retrospective readiness query cannot see later-known wallet/child books.
+    """
+    cutoff = clock(as_of) if as_of is not None else None
     rows = db.execute(
         "SELECT seq,receipt_id,payload,receipt_sha,prior_sha,chain_sha "
         "FROM source_receipts WHERE source_id=? ORDER BY seq",
         (alias,),
     ).fetchall()
-    prior = "0" * 64
+    prior = selected_head = "0" * 64
     last = None
+    selected_cursor = 0
+    previous_captured = None
     latest_by_account: dict[str, dict] = {}
     for expected, (seq, receipt_id, raw, sha, previous, chain) in enumerate(rows, 1):
         receipt = json.loads(raw)
@@ -73,22 +81,38 @@ def _source(db: sqlite3.Connection, alias: str) -> dict:
         account = book.get("account_id")
         if not isinstance(account, str) or len(account) != 64:
             raise ValueError("PAPER_SOURCE_READONLY_ACCOUNT_ID_INVALID")
-        # A wallet tape may carry a parent plus one or more subaccounts.
-        # Keep each account's latest first-known receipt separately rather
-        # than falsely choosing the newest child as the parent NAV.
-        latest_by_account[account] = receipt
+        try:
+            event = clock(receipt["source_event_at"])
+            known = clock(receipt["first_known_at"])
+            captured = clock(receipt["captured_at"])
+            if (
+                event > known
+                or known > captured
+                or (previous_captured is not None and captured < previous_captured)
+            ):
+                raise ValueError
+        except (ValueError, TypeError, KeyError) as exc:
+            raise ValueError("PAPER_SOURCE_READONLY_CAUSAL_CLOCK_INVALID") from exc
+        # Requiring captured_at prevents peeking into a receipt after its
+        # first-local event but before the local capture was complete.
+        if cutoff is None or captured <= cutoff:
+            latest_by_account[account] = receipt
+            last = receipt
+            selected_cursor = seq
+            selected_head = chain
+        previous_captured = captured
         prior = chain
-        last = receipt
     return {
-        "cursor": len(rows),
+        "cursor": selected_cursor,
         "receipt": last,
         "account_receipts": latest_by_account,
-        "head_sha": prior,
+        "head_sha": selected_head,
     }
 
 
-def _collateral(db: sqlite3.Connection, account_sha: str) -> dict:
-    """Verify optional diagnostic-only SHA chain; never authorize equity."""
+def _collateral(db: sqlite3.Connection, account_sha: str, *, as_of: str | None = None) -> dict:
+    """Verify entire collateral chain; project only the as-known diagnostic prefix."""
+    cutoff = clock(as_of) if as_of is not None else None
     try:
         rows = db.execute(
             "SELECT seq,receipt_id,payload,payload_sha,prior_sha,chain_sha "
@@ -105,7 +129,9 @@ def _collateral(db: sqlite3.Connection, account_sha: str) -> dict:
             "last_vault_known_at": None,
             "status": "SCHEMA_NOT_AVAILABLE",
         }
-    prior = "0" * 64
+    prior = selected_head = "0" * 64
+    selected_cursor = 0
+    prefix_ended = False
     spot_known = vault_known = None
     mode = None
     mode_known_at = None
@@ -124,6 +150,22 @@ def _collateral(db: sqlite3.Connection, account_sha: str) -> dict:
             or chain != digest([account_sha, seq, sha, prior])
         ):
             raise ValueError("PAPER_COLLATERAL_READONLY_CHAIN_DIVERGENCE")
+        prior = chain
+        if cutoff is not None:
+            stamps = [
+                clock(stamp)
+                for item in report["observations"]
+                for stamp in [item.get("first_known_at")]
+                if stamp is not None
+            ]
+            account_mode = report.get("account_abstraction")
+            if isinstance(account_mode, dict) and account_mode.get("first_known_at"):
+                stamps.append(clock(account_mode["first_known_at"]))
+            if prefix_ended or not stamps or max(stamps) > cutoff:
+                prefix_ended = True
+                continue
+        selected_cursor = seq
+        selected_head = chain
         latest = {row["scope"]: row for row in report["observations"]}
         spot_known = latest["spotClearinghouseState"]["first_known_at"]
         vault_known = latest["userVaultEquities"]["first_known_at"]
@@ -137,10 +179,9 @@ def _collateral(db: sqlite3.Connection, account_sha: str) -> dict:
         mode_known_at = (
             account_mode.get("first_known_at") if isinstance(account_mode, dict) else None
         )
-        prior = chain
     return {
-        "cursor": len(rows),
-        "head_sha": prior,
+        "cursor": selected_cursor,
+        "head_sha": selected_head,
         "last_spot_known_at": spot_known,
         "last_vault_known_at": vault_known,
         "vault_scope_status": vault_status,
@@ -148,11 +189,12 @@ def _collateral(db: sqlite3.Connection, account_sha: str) -> dict:
         "last_account_mode": mode,
         "last_account_mode_known_at": mode_known_at,
         "account_mode_status": mode_status,
-        "status": "DIAGNOSTIC_ONLY_NOT_NAV" if rows else "NOT_CAPTURED",
+        "status": "DIAGNOSTIC_ONLY_NOT_NAV" if selected_cursor else "NOT_CAPTURED",
     }
 
 
-def _market(db: sqlite3.Connection, instrument: str) -> dict:
+def _market(db: sqlite3.Connection, instrument: str, *, as_of: str | None = None) -> dict:
+    cutoff = clock(as_of) if as_of is not None else None
     rows = db.execute(
         "SELECT seq,quote_id,payload,payload_sha,prior_sha,chain_sha,event_at,known_at "
         "FROM market_quote_receipts WHERE instrument=? ORDER BY seq",
@@ -162,8 +204,9 @@ def _market(db: sqlite3.Connection, instrument: str) -> dict:
         "SELECT cursor,event_at,known_at,chain_sha FROM market_quote_heads WHERE instrument=?",
         (instrument,),
     ).fetchone()
-    previous = "0" * 64
+    previous = selected_head = "0" * 64
     last = None
+    selected_cursor = 0
     last_source = last_known = None
     for expected, (seq, qid, raw, sha, prior, chain, at, known) in enumerate(rows, 1):
         quote = json.loads(raw)
@@ -181,12 +224,16 @@ def _market(db: sqlite3.Connection, instrument: str) -> dict:
             or (last_known and clock(known) < clock(last_known))
         ):
             raise ValueError("PAPER_MARKET_READONLY_TAPE_DIVERGENCE")
-        previous, last, last_source, last_known = chain, quote, at, known
+        if cutoff is None or clock(known) <= cutoff:
+            last = quote
+            selected_cursor = seq
+            selected_head = chain
+        previous, last_source, last_known = chain, at, known
     if (head is None and rows) or (
         head is not None and head != (len(rows), last_source, last_known, previous)
     ):
         raise ValueError("PAPER_MARKET_READONLY_HEAD_DIVERGENCE")
-    return {"cursor": len(rows), "quote": last, "head_sha": previous}
+    return {"cursor": selected_cursor, "quote": last, "head_sha": selected_head}
 
 
 def audit_live_paper_readiness(
@@ -219,8 +266,8 @@ def audit_live_paper_readiness(
     with closing(_read_db(source_db)) as db:
         for member in expected:
             alias = _ALIAS[member]
-            source = _source(db, alias)
-            collateral = _collateral(db, identity_sha[member])
+            source = _source(db, alias, as_of=as_of)
+            collateral = _collateral(db, identity_sha[member], as_of=as_of)
             reasons: list[str] = []
             if collateral["cursor"] == 0:
                 reasons.append("COLLATERAL_DIAGNOSTICS_MISSING")
@@ -316,7 +363,7 @@ def audit_live_paper_readiness(
     market = []
     with closing(_read_db(market_db)) as db:
         for native in sorted(required_market):
-            quote = _market(db, native)
+            quote = _market(db, native, as_of=as_of)
             reasons: list[str] = []
             row = quote["quote"]
             if row is None:
