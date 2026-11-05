@@ -107,6 +107,9 @@ def _collateral(db: sqlite3.Connection, account_sha: str) -> dict:
         }
     prior = "0" * 64
     spot_known = vault_known = None
+    mode = None
+    mode_known_at = None
+    mode_status = "NOT_CAPTURED"
     for expected, (seq, receipt_id, raw, sha, old, chain) in enumerate(rows, 1):
         report = json.loads(raw)
         PaperJournal._check_collateral_diagnostic(report)
@@ -122,12 +125,23 @@ def _collateral(db: sqlite3.Connection, account_sha: str) -> dict:
         latest = {row["scope"]: row for row in report["observations"]}
         spot_known = latest["spotClearinghouseState"]["first_known_at"]
         vault_known = latest["userVaultEquities"]["first_known_at"]
+        account_mode = report.get("account_abstraction")
+        mode_status = (
+            account_mode.get("status") if isinstance(account_mode, dict) else "NOT_CAPTURED"
+        )
+        mode = account_mode.get("mode") if isinstance(account_mode, dict) else None
+        mode_known_at = (
+            account_mode.get("first_known_at") if isinstance(account_mode, dict) else None
+        )
         prior = chain
     return {
         "cursor": len(rows),
         "head_sha": prior,
         "last_spot_known_at": spot_known,
         "last_vault_known_at": vault_known,
+        "last_account_mode": mode,
+        "last_account_mode_known_at": mode_known_at,
+        "account_mode_status": mode_status,
         "status": "DIAGNOSTIC_ONLY_NOT_NAV" if rows else "NOT_CAPTURED",
     }
 
@@ -205,6 +219,17 @@ def audit_live_paper_readiness(
             if collateral["cursor"] == 0:
                 reasons.append("COLLATERAL_DIAGNOSTICS_MISSING")
             else:
+                mode_known = collateral["last_account_mode_known_at"]
+                if (
+                    collateral["account_mode_status"] != "OFFICIAL_PUBLIC_ACCOUNT_MODE_OBSERVED"
+                    or mode_known is None
+                    or not 0 <= (now - clock(mode_known)).total_seconds() <= max_source_age_seconds
+                ):
+                    reasons.append("OFFICIAL_ACCOUNT_ABSTRACTION_MISSING_OR_STALE")
+                elif collateral["last_account_mode"] in ("unifiedAccount", "portfolioMargin"):
+                    reasons.append("SHARED_COLLATERAL_MODE_BLOCKS_PER_DEX_NAV_SUM")
+                elif collateral["last_account_mode"] in ("default", "dexAbstraction"):
+                    reasons.append("ACCOUNT_MODE_NAV_ADDIVITY_UNRESOLVED")
                 for field in ("last_spot_known_at", "last_vault_known_at"):
                     known = collateral[field]
                     if (
@@ -219,6 +244,19 @@ def audit_live_paper_readiness(
                 for key, row in source["account_receipts"].items()
                 if key != identity_sha[member]
             }
+            # Parent roster is first-known metadata, not immutable. Compare
+            # the observed per-account tapes to the parent's latest roster;
+            # never silently discard missing/extra child exposure.
+            declared_children = (
+                set(receipt["source_book"].get("subaccounts", [])) if receipt else set()
+            )
+            observed_children = set(child_receipts)
+            missing_children = declared_children - observed_children
+            extra_children = observed_children - declared_children
+            if missing_children:
+                reasons.append("DISCOVERED_SUBACCOUNT_POSITION_SCOPE_MISSING")
+            if extra_children:
+                reasons.append("UNMATCHED_SUBACCOUNT_SOURCE_RECEIPT")
             if child_receipts:
                 reasons.append("NON_ATOMIC_SUBACCOUNT_OBSERVATIONS")
             if receipt is None:
@@ -248,6 +286,10 @@ def audit_live_paper_readiness(
                     "member": member,
                     "observed_distinct_account_count": len(source["account_receipts"]),
                     "observed_subaccount_receipt_count": len(child_receipts),
+                    "declared_subaccount_count": len(declared_children),
+                    "matched_subaccount_receipt_count": len(declared_children & observed_children),
+                    "missing_subaccount_receipt_count": len(missing_children),
+                    "unmatched_subaccount_receipt_count": len(extra_children),
                     "parent_receipt_present": receipt is not None,
                     "first_local_receipts": source["cursor"],
                     "last_first_known_at": source_event,

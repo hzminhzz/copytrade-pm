@@ -32,6 +32,11 @@ MAX_FRAMES = 250
 MAX_BODY = 3_000_000
 MAX_INFO_CALLS = 26
 MAX_SUBACCOUNTS = 16
+# Official /info userAbstraction is a JSON string, unlike the account objects.
+# "default" and "dexAbstraction" remain unclassified for NAV additivity.
+PUBLIC_ACCOUNT_MODES = frozenset(
+    {"default", "disabled", "dexAbstraction", "unifiedAccount", "portfolioMargin"}
+)
 SUBSCRIPTIONS = (
     "allDexsClearinghouseState",
     "userEvents",
@@ -60,7 +65,7 @@ def _safe_dir(out: Path) -> None:
         raise ValueError("E4_EVIDENCE_DIRECTORY_NOT_PRIVATE")
 
 
-def _guarded_info(request: dict) -> tuple[dict | list, bytes, str]:
+def _guarded_info(request: dict) -> tuple[dict | list | str | None, bytes, str]:
     body = _canonical(request)
     url = Request(
         INFO_URL,
@@ -75,7 +80,10 @@ def _guarded_info(request: dict) -> tuple[dict | list, bytes, str]:
     if len(raw) > MAX_BODY:
         raise ValueError("E4_PROVIDER_RESPONSE_TOO_LARGE")
     parsed = json.loads(raw)
-    if parsed is not None and not isinstance(parsed, (list, dict)):
+    if request.get("type") == "userAbstraction":
+        if type(parsed) is not str or parsed not in PUBLIC_ACCOUNT_MODES:
+            raise ValueError("E4_UNKNOWN_PUBLIC_ACCOUNT_ABSTRACTION")
+    elif parsed is not None and not isinstance(parsed, (list, dict)):
         raise ValueError("E4_INVALID_PROVIDER_JSON")
     return parsed, raw, sha256(raw).hexdigest()
 
