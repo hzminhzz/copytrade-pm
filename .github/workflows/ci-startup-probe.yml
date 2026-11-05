@@ -1,0 +1,15 @@
+name: ci-startup-probe
+
+on:
+  push:
+    branches: [diagnostic/ci-startup-probe-20261105]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe runner scheduling
+        run: echo "actions scheduler reached a job"
