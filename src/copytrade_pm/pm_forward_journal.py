@@ -17,6 +17,7 @@ import sqlite3
 from typing import Iterator
 
 from .pm03_account import Account, RiskState, Rulebook, clock, digest, number
+from .pm_e4_prospective import PUBLIC_ACCOUNT_MODES
 from .pm_forward_paper import PaperManifest
 
 
@@ -831,6 +832,40 @@ class PaperJournal:
                     raise ValueError("SOURCE_COLLATERAL_FAILED_SCOPE_FABRICATED")
             else:
                 raise ValueError("SOURCE_COLLATERAL_UNKNOWN_SCOPE_STATUS")
+        # New prospective receipts include the official userAbstraction
+        # /info response. Legacy SHA-sealed two-scope evidence has no mode and
+        # remains replayable, but never gains a default/assumed account mode.
+        if "account_abstraction" in report:
+            mode = report["account_abstraction"]
+            if not isinstance(mode, dict) or mode.get("source_signed") is not False:
+                raise ValueError("SOURCE_ACCOUNT_MODE_UNTRUSTED_ATTESTATION")
+            if mode.get("source_event_at") is not None:
+                raise ValueError("SOURCE_ACCOUNT_MODE_EVENT_TIME_FABRICATED")
+            if mode.get("status") == "OFFICIAL_PUBLIC_ACCOUNT_MODE_OBSERVED":
+                value = mode.get("mode")
+                sha = mode.get("response_sha256")
+                stamp = mode.get("first_known_at")
+                if (
+                    type(value) is not str
+                    or value not in PUBLIC_ACCOUNT_MODES
+                    or type(sha) is not str
+                    or len(sha) != 64
+                    or any(x not in "0123456789abcdef" for x in sha)
+                    or type(stamp) is not str
+                    or "reason" in mode
+                ):
+                    raise ValueError("SOURCE_ACCOUNT_MODE_PROVENANCE_INVALID")
+                known = clock(stamp)
+                if last_known is not None and known < last_known:
+                    raise ValueError("SOURCE_ACCOUNT_MODE_CLOCK_REGRESSION")
+            elif mode.get("status") == "BLOCKED_ACCOUNT_MODE_ACQUISITION":
+                if any(
+                    mode.get(key) is not None
+                    for key in ("mode", "response_sha256", "first_known_at")
+                ):
+                    raise ValueError("SOURCE_ACCOUNT_MODE_BLOCKED_CLAIM_INVALID")
+            else:
+                raise ValueError("SOURCE_ACCOUNT_MODE_STATUS_INVALID")
 
     def append_collateral_diagnostic(self, report: dict) -> dict:
         """Durably SHA-chain incomplete spot/vault scopes, never authorize finance."""

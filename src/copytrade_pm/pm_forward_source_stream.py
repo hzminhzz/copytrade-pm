@@ -17,7 +17,13 @@ import re
 from time import monotonic
 from typing import Any, Callable
 
-from .pm_e4_prospective import MAX_BODY, WS_URL, _guarded_info, _subaccount_roster
+from .pm_e4_prospective import (
+    MAX_BODY,
+    PUBLIC_ACCOUNT_MODES,
+    WS_URL,
+    _guarded_info,
+    _subaccount_roster,
+)
 from .pm_forward_journal import PaperJournal
 from .pm_forward_source_observation import append_public_scope, read_public_all_dex_scope
 
@@ -192,10 +198,45 @@ async def read_public_collateral_scope(
                     "reason": type(exc).__name__ + ":" + str(exc)[:100],
                 }
             )
+    # The official abstraction mode determines whether per-DEX accountValue
+    # can represent separate collateral. Never derive whole-wallet NAV here:
+    # spot/vault and parent/child requests have no atomic exchange clock.
+    account_abstraction = {
+        "status": "BLOCKED_ACCOUNT_MODE_ACQUISITION",
+        "mode": None,
+        "first_known_at": None,
+        "source_event_at": None,
+        "response_sha256": None,
+        "source_signed": False,
+    }
+    try:
+        value, raw, response_sha = await asyncio.to_thread(
+            info, {"type": "userAbstraction", "user": address}
+        )
+        first_known_at = now()
+        if (
+            type(value) is not str
+            or value not in PUBLIC_ACCOUNT_MODES
+            or not isinstance(raw, bytes)
+            or sha256(raw).hexdigest() != response_sha
+            or json.loads(raw) != value
+        ):
+            raise ValueError("SOURCE_ACCOUNT_MODE_PROVIDER_RESPONSE_INVALID")
+        account_abstraction = {
+            "status": "OFFICIAL_PUBLIC_ACCOUNT_MODE_OBSERVED",
+            "mode": value,
+            "first_known_at": first_known_at,
+            "source_event_at": None,
+            "response_sha256": response_sha,
+            "source_signed": False,
+        }
+    except (ValueError, TypeError, KeyError, OSError) as exc:
+        account_abstraction["reason"] = type(exc).__name__ + ":" + str(exc)[:90]
     return {
         "schema": "paper_public_collateral_scope_v1",
         "account_address_sha256": sha256(address.lower().encode()).hexdigest(),
         "observations": observations,
+        "account_abstraction": account_abstraction,
         "provider_atomic_nav_available": False,
         "source_equity": None,
         "collateral_reconciled": False,
