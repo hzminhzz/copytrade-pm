@@ -1,5 +1,7 @@
 # ML4T-66: actual combined $10,000 three-pod historical portfolio replay
 
+**SUPERSEDED for the owner's real strategy:** See [the corrected $200-per-pod protected replay](ML4T-66-PROTECTED-POD-BACKTEST-20261105.md). The remainder of this document describes an intentionally unprotected *counterfactual*. The user had already specified independent pod trailing-drawdown stops; this study accidentally omitted them.
+
 **Executed:** 2026-11-05 on owner VPS, read-only sources. **Window:** 2026-08-05 00:00 UTC to 2026-11-03 00:00 UTC (end exclusive, 90 calendar days). **Version:** `scripts/ml4t66_portfolio_backtest.py`; 1m/2m/5m, 6/12/18 bps, 3 fixed historical research rosters. **Verdict:** historical event-time **SCREEN_ONLY**; zero trading authorizations, zero scientific qualifications.
 
 ## What was actually run
