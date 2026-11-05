@@ -18,7 +18,7 @@ def admission(*, equity="20000", qty="2", source_mark="100"):
         positions={BTC.key: qty},
         source_marks={BTC.key: source_mark},
     )
-    return admit_source_book(source, decision_at=T, fill_at=T)
+    return admit_source_book(source, decision_at=T, fill_at=T, allow_synthetic_fixture=True)
 
 
 def test_nonresetting_t300_and_whole_book_equity_scaling() -> None:
@@ -57,7 +57,12 @@ def test_source_notional_over_different_follower_mark() -> None:
 
 def test_incomplete_book_does_not_queue_and_backdate_refused() -> None:
     batch = ForwardBatch(Decimal("1000"))
-    bad = admit_source_book(_alter(_source_book(), source_equity=None), decision_at=T, fill_at=T)
+    bad = admit_source_book(
+        _alter(_source_book(), source_equity=None),
+        decision_at=T,
+        fill_at=T,
+        allow_synthetic_fixture=True,
+    )
     assert batch.ingest(bad, first_known_at=T)["status"] == "BLOCKED"
     assert batch.due_at is None
     batch.ingest(admission(), first_known_at="2026-11-04T04:01:00+00:00")

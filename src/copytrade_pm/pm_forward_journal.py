@@ -249,6 +249,7 @@ class PaperJournal:
                 event.get("source_book"),
                 decision_at=event["event_at"],
                 fill_at=event["hypothetical_fill_at"],
+                allow_synthetic_fixture=event.get("fixture_attested") is True,
             )
             if not admission.admitted:
                 account.risk = RiskState.RED
