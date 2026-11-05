@@ -1025,26 +1025,31 @@ def cli(argv: list[str] | None = None) -> int:
     elif args.command == "doctor":
         live = status(collect(args.root, args.tracker_env, args.decision_repo))
         stored = db_status(args.db)
-        matched = (
-            all(
-                stored["counts"].get(k) == live[k]
-                for k in (
-                    "research_unique",
-                    "desired",
-                    "subscribed",
-                    "owner_excluded",
-                    "research_owner_excluded_overlap",
-                    "research_desired_overlap",
-                    "research_subscribed_overlap",
-                )
+        count_mismatches = {
+            key: {"stored": stored["counts"].get(key), "source": live[key]}
+            for key in (
+                "research_unique",
+                "desired",
+                "subscribed",
+                "owner_excluded",
+                "research_owner_excluded_overlap",
+                "research_desired_overlap",
+                "research_subscribed_overlap",
             )
-            and stored["source_shas"] == live["source_shas"]
+            if stored["counts"].get(key) != live[key]
+        }
+        source_sha_match = stored["source_shas"] == live["source_shas"]
+        matched = (
+            not count_mismatches
+            and source_sha_match
             and stored["freshness"] == "CURRENT"
         )
         print(
             json.dumps(
                 {
                     "counts_match": matched,
+                    "count_mismatches": count_mismatches,
+                    "source_sha_match": source_sha_match,
                     "freshness": stored["freshness"],
                     "runtime_admitted": "UNKNOWN",
                     "source_shas": live["source_shas"],
