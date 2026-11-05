@@ -2,6 +2,23 @@
 
 **Decision: BLOCKED_NO_TRADE for P1 and P14.** This report is based on bounded, true first-local public observations. It is *not* a paper trade, a backtest, a production service, or scientific qualification.
 
+## Source admission mode boundary (2026-11-06 engineering correction)
+
+The whole-book validator `admit_source_book` now rejects **all real-source
+inputs by default**, including a self-declared `synthetic_fixture=true`
+inside a valid-looking source JSON. A source's own flags, SHA digest, position
+marks or reported NAV do not authenticate the provider or prove atomic
+parent/subaccount collateral.
+
+Only explicitly labeled PM-03/PM-04 **synthetic fixture** call sites opt in
+using `allow_synthetic_fixture=True`. They must still pass every whole-book,
+causal-clock, risk and source-hash check; such a simulation remains
+`FORWARD_PAPER_SIMULATED_v1`, `order_route=NONE`, and cannot be counted as
+independent prospective execution or alpha. Live source observation and
+read-only readiness do **not** opt in. No real-source attestation mechanism is
+implemented by this change; `INDEPENDENT_REAL_BOOK_ATTESTATION_UNAVAILABLE`
+remains the correct live reason.
+
 ## Evidence and actual admission gaps
 
 The read-only `copytrade-pm-paper-readiness` command joins three separate authorities without modifying any of them: (1) sealed WR-06 portfolio identity + owner-private historical address locator (identity only), (2) official all-DEX per-parent Hyperliquid source receipts and (3) CCXT Pro first-local L2 quote receipts.
