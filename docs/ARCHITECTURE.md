@@ -77,6 +77,10 @@ provenance until independently documented. PM-03 finance, first-known source
 NAV, source/market receipts, protected paper workers and trading authorization
 remain separately attested authorities, not columns in the registry.
 
+## SQLite-native operational authority (owner approved 2026-11-05)
+
+Following merged PR #111, owner-private SQLite is the canonical current wallet and research-portfolio metadata registry; `doctor` validates SQLite content and checksum without importing historical CSVs. The `native lock` operation fences legacy source writes with a verified online backup and database triggers. `native register` appends versioned research cohorts and alias evidence without changing live tracker subscriptions. Legacy CSV/JSON/Markdown remains historical provenance. No separate database is created; paper journals, source books, broker orders, research Parquet/DuckDB, independently signed qualification and risk authorization retain their own authority. See [the cutover contract](SQLITE-NATIVE-LEGACY-LOCK-20261105.md).
+
 ## Private registry boundary (2026-11-04, partial implementation)
 
 Wallet/portfolio discovery and status consumers **must** use the [mandatory registry-first read contract](WALLET-REGISTRY-AGENT-WORKFLOW.md). Git supplies immutable SHA-sealed decisions; private SQLite supplies the versioned materialized index; the tracker, worker, financial journal and qualification record retain independent authority. OptMem and narrative docs are not a current source of truth. A merged source hotfix must not be mistaken for an activated pinned release.

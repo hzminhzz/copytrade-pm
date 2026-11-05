@@ -49,6 +49,7 @@ SERVICE_UNITS = (
 GIT_SHA = re.compile(r"^[0-9a-f]{40}$")
 VERIFY_FILES = (
     "src/copytrade_pm/wallet_registry.py",
+    "src/copytrade_pm/wallet_registry_native.py",
     "src/copytrade_pm/wallet_registry_portfolios.py",
     "src/copytrade_pm/wallet_registry_catalog.py",
     "src/copytrade_pm/wallet_registry_signed_catalog.py",

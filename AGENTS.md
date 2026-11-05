@@ -82,6 +82,12 @@ When you spawn one, write: `You are a subagent. Don't run memo.`
   remain independently evidenced outside inventory SQLite. Do not bypass
   financial/scientific/OS guards by asserting metadata authority.
 
+## SQLite-native registry authority (owner approval 2026-11-05)
+
+- **SQLite is the canonical current wallet/cohort/portfolio metadata ledger**, verified by `copytrade-wallet-registry doctor` and its `inventory_sha256`. Older CSV, JSON and Markdown rosters are legacy imports or immutable historical evidence, not operational authority.
+- Before any wallet/portfolio decision, use `copytrade-wallet-registry native status`. The read authority is SQLite even while the legacy writer remains unlocked. Only an explicitly reviewed, backed-up `native lock --apply` disables `sync --apply` and older importers' writes. New wallet/cohort registration uses `native register` with private manifest and exact inventory SHA; never overwrite historic PM-01 or frozen portfolio records.
+- Source NAV, actual monitoring subscriptions, paper journal, broker execution and scientific/trading qualification remain **independent**. See [SQLite native lock and safe registration](docs/SQLITE-NATIVE-LEGACY-LOCK-20261105.md). No automatic service restart or trading activation.
+
 ## MANDATORY REGISTRY-FIRST discovery and decision workflow
 
 - For every task involving **wallet lookup, evaluated/watched/excluded wallets, saved/current portfolios, portfolio membership, paper runs, or deployment readiness**, read [the agent registry workflow](docs/WALLET-REGISTRY-AGENT-WORKFLOW.md) and query the **live owner-private versioned registry** before answering, editing, or approving a state. This is not optional and applies to future sessions and other agents. Do not answer such questions from OptMem, stale Markdown, bare alias files, Telegram lists, or an old PR.

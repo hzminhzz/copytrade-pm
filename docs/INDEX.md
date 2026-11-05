@@ -1,5 +1,7 @@
 # copytrade-pm handbook — start here
 
+**SQLite is authoritative for operational wallet/cohort/portfolio metadata (approved 2026-11-05).** Follow [native SQLite registration and legacy-writer lock](SQLITE-NATIVE-LEGACY-LOCK-20261105.md) for read-only discovery, backup-gated new cohorts, explicit import fencing and rollback boundaries. Original scientific evidence, market Parquet, tracker subscriptions and paper/broker financial truth have independent authority.
+
 **SQLite metadata authority (2026-11-05):** The private wallet registry is the
 single source of truth for current wallets, cohorts and saved portfolios.
 [Mandatory registry lookup contract](WALLET-REGISTRY-AGENT-WORKFLOW.md) and

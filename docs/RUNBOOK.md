@@ -1,5 +1,9 @@
 # Research operator runbook — verified CLI sequence
 
+## Canonical SQLite registry; legacy importer is historical
+
+Run `copytrade-wallet-registry doctor` for SQLite integrity and `native status` for the explicit legacy-writer lock. Current research cohorts and approved selections come from SQLite, not old CSV/Markdown catalogs. Optional `doctor --legacy-audit` reports importer provenance only. A reviewed `native lock --apply` blocks `sync --apply` and installed old binaries from replacing the operational registry. New cohorts use `native register` with 0600 private manifest and an exact inventory SHA. This does not write tracker subscriptions, start workers, calculate PnL or authorize trades. See [the native authority/rollback contract](SQLITE-NATIVE-LEGACY-LOCK-20261105.md).
+
 ## Authoritative SQLite metadata inventory (2026-11-05)
 
 Use `copytrade-wallet-registry doctor` for `authority=SQLITE`,
