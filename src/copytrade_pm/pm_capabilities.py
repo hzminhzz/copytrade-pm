@@ -159,6 +159,13 @@ NATIVE = {
         "READ_ONLY",
         "PM03_FINANCIAL_JOURNAL",
     ),
+    "paper.identity_reseal_preview": (
+        "copytrade_pm.pm_forward_registry_identity",
+        "copytrade-pm-paper-registry-audit --prospective-reseal-preview --portfolio P1",
+        "paper",
+        "READ_ONLY",
+        "UNSIGNED_ASOF_ALIAS_MATCH_ONLY_NOT_PAPER_ADMISSION",
+    ),
     "research.offline": (
         "copytrade_pm.pm_offline_job",
         "python -m copytrade_pm.pm_offline_job --help",
@@ -455,7 +462,11 @@ def inventory(root: Path = ROOT) -> list[dict]:
                 "dependencies": [],
                 "required_arguments": NATIVE_REQUIRED_ARGUMENTS.get(cap),
                 "preflight": [],
-                "documentation": DOCS[family],
+                "documentation": (
+                    "docs/P1-P14-PROSPECTIVE-RESEAL-PREFLIGHT-20261106.md"
+                    if cap == "paper.identity_reseal_preview"
+                    else DOCS[family]
+                ),
                 "available": _module_available(module, root),
                 "limitations": [
                     "Consult owner contract; scientific and trading gates are separate"

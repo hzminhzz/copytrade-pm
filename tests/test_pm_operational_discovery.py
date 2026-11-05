@@ -286,6 +286,11 @@ def test_agent_discovery_scripted_scenarios_not_llm_claim() -> None:
         ("PM03 accounting", "account.pm03", "copytrade_pm.pm03_account"),
         ("portfolio seal", "portfolio.show", "copytrade_pm.wallet_registry_portfolios"),
         ("protected source work", "source.collection", "copytrade_pm.pm_forward_source_stream"),
+        (
+            "preview new P1/P14 identity seal without backdating",
+            "paper.identity_reseal_preview",
+            "copytrade_pm.pm_forward_registry_identity",
+        ),
     )
     count = 0
     for task, capability, owner in tasks:
@@ -294,5 +299,5 @@ def test_agent_discovery_scripted_scenarios_not_llm_claim() -> None:
         assert item["owner"] == owner, task
         assert item["available"] and item["documentation"], task
         count += 1
-    assert count == 12
+    assert count == 13
     assert cap.validate(ROOT)["status"] == "VERIFIED"
