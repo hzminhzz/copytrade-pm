@@ -1,3 +1,11 @@
+## Protected paper operations
+
+For P1/P14 worker, watchdog, HALT recovery, root service installation or
+rollback, follow [the guarded protected-ops runbook](docs/FORWARD-PAPER-PROTECTED-OPS-STAGING-20261105.md).
+A staged unit bundle or running standby heartbeat is **not** an installed
+independent protected financial worker; require root-owned OS identity,
+release, journal and full financial admission evidence before promotion.
+
 ## Mandatory native-first capability discovery
 
 **CURRENT Propr public market capture scope (2026-11-05):** [157 unique native perps / three physical sockets](docs/FORWARD-PAPER-PROPR-157-THREE-SOCKETS-20261105.md) supersedes the **40-market / five-WS scope for new bounded research observations**, not the five logical Top-40 reporting groups. The exact [candidate config](docs/FORWARD-PAPER-PROPR-157-THREE-SOCKETS-20261105.json) contains 8 major default-perps, 88 other default-perps and 61 `xyz:` equities/indices/commodities, reconciled against dated public Propr display snapshot SHA. The 158 Propr display rows have duplicate `COPPER`; 157 distinct native names. New config requires `--propr-snapshot` parity proof and current native `/info` listings. **Do not claim Propr account-level orderability, trading authorization, uninterrupted source matching or financial paper status.** Sequential live transport was tested to respect shared 10-per-IP WS budget; using multiple Propr physical sockets requires explicit `--ack-shared-ip-connection-budget` after checking other connections, and 3-socket concurrent live readiness is NOT established. Old Top-40 remains historical verification only. No broker orders or protected worker cutover.

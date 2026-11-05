@@ -44,6 +44,8 @@ GROUPS = {
     "copytrade-pm-public-trades": ("source.public_trades", "source", "PROTECTED_MUTATION"),
     "copytrade-pm-source-scope": ("source.scope", "source", "PROTECTED_MUTATION"),
     "copytrade-pm-paper-watchdog": ("paper.watchdog", "paper", "PROTECTED_MUTATION"),
+    "copytrade-pm-paper-standby": ("paper.standby", "paper", "PROTECTED_MUTATION"),
+    "copytrade-pm-paper-unit-bundle": ("paper.unit_bundle", "paper", "LOCAL_MUTATION"),
     "copytrade-pm-paper-registry-audit": ("paper.identity", "paper", "READ_ONLY"),
     "copytrade-pm-paper-readiness": ("paper.readiness", "paper", "READ_ONLY"),
     "copytrade-pm-paper-source-campaign": ("paper.source_campaign", "paper", "PROTECTED_MUTATION"),

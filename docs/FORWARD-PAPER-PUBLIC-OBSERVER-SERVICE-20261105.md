@@ -111,6 +111,17 @@ protected financial service signoff or a successful prop-firm paper run.
 
 ## Runtime observation and rollback
 
+**Additional staged diagnostics (PR #121 follow-up; not installed in the
+observer service):** each future completed epoch can emit a bounded
+`capture_gap_breakdown` with source book missing, source capture errors,
+other source gaps, degraded market shards and unhandled market failures.
+Only aggregate counts appear in service logs: no wallet alias, native market
+identifier, private file path or raw provider exception text is copied.
+The current pinned observer release continues to emit only
+`capture_gaps`; obtaining these categories requires a separately reviewed
+observer release cutover and regression check. This changes diagnosis only;
+it does not repair data gaps or provide complete NAV.
+
 ```bash
 STATE="$HOME/.local/share/copytrade/prospective/p1p14-observer-20261105"
 systemctl --user show copytrade-public-observer-p1p14.service \

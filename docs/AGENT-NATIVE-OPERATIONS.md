@@ -122,10 +122,14 @@ is created by discovery. Missing explicit root returns `UNKNOWN`.
 
 **Health adapters:** aggregate `health` runs the original pinned-release
 `verify` method and shows *which registry release* was verified, independently
-of the worktree Git revision. Known protected P1/P14/watchdog systemd units
-are observed without starting or stopping them. An active OS unit is not
-independent journal, heartbeat or paper-economic qualification. Optional
-`--observer-state-root PRIVATE_DIR` verifies the native public observer source
+of the worktree Git revision. Known protected P1/P14/watchdog units are checked
+in both the **system** and **user** systemd managers without starting or
+stopping them. Any active unit remains `DEGRADED`; missing system-manager
+evidence returns `UNKNOWN`, never `NOT_RUNNING` based only on the user manager.
+A unit's activity is not independent journal, heartbeat or paper-economic
+qualification. The [guarded protected-operations runbook](FORWARD-PAPER-PROTECTED-OPS-STAGING-20261105.md)
+separates staged root unit candidates from actually installed protected workers.
+Optional `--observer-state-root PRIVATE_DIR` verifies the native public observer source
 and quote receipts via the existing observer watchdog; provider freshness and
 executable market capacity remain `UNKNOWN`. Without observer evidence, market
 status stays `UNKNOWN`. The public observer's independent watcher verifies a

@@ -439,37 +439,65 @@ async def run_readonly_observer_service(
             elif result.get("status") != "BLOCKED_NO_TRADE" or result.get("order_route") != "NONE":
                 raise ValueError("PAPER_OBSERVER_SERVICE_FINANCIAL_PROMOTION_REFUSED")
             if result is not None:
-                degraded = (
-                    bool(result.get("market_failures"))
-                    or bool(result.get("source_capture_gaps"))
-                    or any(
-                        shard.get("status") == "DEGRADED"
-                        for shard in result.get("market_shards", [])
-                    )
-                )
+                # Aggregate ONLY classified gap counts: no wallet addresses,
+                # vendor error text, private paths, or market identifiers in
+                # the systemd service log. Counts expose the actionable scope.
+                source = result.get("source_capture_gaps", [])
+                shards = result.get("market_shards", [])
+                market_failures = result.get("market_failures", [])
+                classes = {
+                    "source_book_missing": sum(
+                        gap.get("reason") == "NO_ACCOUNT_BOOK_RECEIPT_THIS_EPOCH" for gap in source
+                    ),
+                    "source_capture_error": sum(
+                        gap.get("reason") == "SOURCE_CAPTURE_ERRORS_THIS_EPOCH" for gap in source
+                    ),
+                    "source_other_gap": sum(
+                        gap.get("reason")
+                        not in (
+                            "NO_ACCOUNT_BOOK_RECEIPT_THIS_EPOCH",
+                            "SOURCE_CAPTURE_ERRORS_THIS_EPOCH",
+                        )
+                        for gap in source
+                    ),
+                    "market_shard_degraded": sum(
+                        shard.get("status") == "DEGRADED" for shard in shards
+                    ),
+                    "market_unhandled_failure": len(market_failures),
+                }
+                gaps = sum(classes.values())
                 event = {
                     "epoch": epochs,
-                    "status": "DEGRADED_OBSERVER_EVIDENCE" if degraded else "BLOCKED_NO_TRADE",
+                    "status": "DEGRADED_OBSERVER_EVIDENCE" if gaps else "BLOCKED_NO_TRADE",
                     "observed_native_market_count": result["native_inventory"][
                         "observed_native_market_count"
                     ],
-                    "capture_gaps": (
-                        len(result.get("market_failures", []))
-                        + len(result.get("source_capture_gaps", []))
-                        + sum(
-                            shard.get("status") == "DEGRADED"
-                            for shard in result.get("market_shards", [])
-                        )
-                    ),
+                    "capture_gaps": gaps,
+                    "capture_gap_breakdown": classes,
                 }
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             failures += 1
+            # Service logs are outside private SQLite evidence storage.
+            # Preserve a diagnostic exception class, not raw provider text
+            # that could contain addresses, market identities or paths.
+            error_class = type(exc).__name__
+            if error_class not in {
+                "TimeoutError",
+                "ConnectionError",
+                "ValueError",
+                "OSError",
+                "RuntimeError",
+                "JSONDecodeError",
+                "KeyError",
+                "TypeError",
+            }:
+                error_class = "OtherError"
             event = {
                 "epoch": epochs,
                 "status": "DEGRADED_OBSERVER_FAILURE",
-                "reason": type(exc).__name__ + ":" + str(exc)[:130],
+                "reason": "OBSERVER_CAPTURE_FAILURE:" + error_class,
             }
         # No unbounded in-memory report list. A failed sink stops the observer
         # instead of silently losing its runtime failure evidence.
