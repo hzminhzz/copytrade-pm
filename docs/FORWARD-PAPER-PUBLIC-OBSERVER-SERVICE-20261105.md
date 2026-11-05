@@ -162,7 +162,10 @@ pinned, reviewed release; an older installed observer does not inherit the fix.
 The existing prospective public source collector is the authoritative
 **observation path**, not HyperX. Each selected parent and discovered
 subaccount receives `allDexsClearinghouseState` WebSocket receipts and separate
-`/info` spot, vault and `userAbstraction` diagnostics. Newly captured account
+`/info` spot quote-collateral and `userAbstraction` diagnostics. The approved
+`PERPETUALS_ONLY` policy excludes vault fetching and never copies spot or vault
+positions. It preserves first-known USDC/USDH balances as **diagnostic only**;
+the spot response cannot itself establish a live, atomic perps sizing equity. Newly captured account
 modes are SHA/clock validated and retained in the **existing** collateral
 SQLite chain. `unifiedAccount` and `portfolioMargin` explicitly block
 independent DEX-NAV summation. Unknown, `default` and `dexAbstraction` modes
@@ -170,7 +173,10 @@ cannot be silently treated as standard. The paper readiness audit now exposes
 missing/unmatched subaccount source receipts and mode-specific blockers,
 without adding orders, account equity or financial journal rows. This is a
 versioned code change: an older pinned observer release will not capture these
-additional fields. Each extra mode query consumes provider rate budget; do not
+additional fields. Legacy vault diagnostic tape entries remain SHA-verifiable;
+new vault rows explicitly record `OUT_OF_SCOPE_PERPETUALS_ONLY` and must not
+trigger stale-vault blocks. Existing source equity and protected-worker gates
+remain unchanged. Each extra mode query consumes provider rate budget; do not
 extend polling cadence or subscriptions without verifying rate headroom.
 
 ## Protected financial activation remains blocked

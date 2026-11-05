@@ -132,6 +132,7 @@ async def observe_frozen_portfolio_readonly(
             )
     return {
         "schema": "paper_frozen_public_scope_capture_v1",
+        "copy_scope": "PERPETUALS_ONLY",
         "portfolio": portfolio_id,
         "registry_version": identity["registry_version"],
         "frozen_member_count": len(members),
@@ -202,6 +203,7 @@ async def observe_shared_frozen_sources_readonly(
     by_member = {row["member"]: row for row in parent["partial_account_observations"]}
     return {
         "schema": "paper_shared_p1_p14_source_capture_v1",
+        "copy_scope": "PERPETUALS_ONLY",
         "status": "BLOCKED_OBSERVATION_ONLY_NO_TRADE",
         "registry_version": p14["registry_version"],
         "unique_source_wallet_count": len(P14),

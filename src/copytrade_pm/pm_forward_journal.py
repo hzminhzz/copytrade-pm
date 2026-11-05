@@ -777,14 +777,25 @@ class PaperJournal:
 
     @staticmethod
     def _check_collateral_diagnostic(report: dict) -> None:
-        if not isinstance(report, dict) or (
+        if not isinstance(report, dict):
+            raise ValueError("SOURCE_COLLATERAL_UNTRUSTED_POSITIVE_CLAIM")
+        scope = report.get("copy_scope")
+        if scope not in (None, "PERPETUALS_ONLY"):
+            raise ValueError("SOURCE_COLLATERAL_UNKNOWN_COPY_SCOPE")
+        perpetuals_only = scope == "PERPETUALS_ONLY"
+        required_status = (
+            "BLOCKED_PERPETUAL_COLLATERAL_RECONCILIATION"
+            if perpetuals_only
+            else "BLOCKED_COLLATERAL_AND_VAULT_RECONCILIATION"
+        )
+        if (
             report.get("schema") != "paper_public_collateral_scope_v1"
             or report.get("source_equity") is not None
             or report.get("provider_atomic_nav_available") is not False
             or report.get("collateral_reconciled") is not False
             or report.get("paper_observed") is not False
             or report.get("order_route") != "NONE"
-            or report.get("status") != "BLOCKED_COLLATERAL_AND_VAULT_RECONCILIATION"
+            or report.get("status") != required_status
         ):
             raise ValueError("SOURCE_COLLATERAL_UNTRUSTED_POSITIVE_CLAIM")
         account = report.get("account_address_sha256")
@@ -830,8 +841,48 @@ class PaperJournal:
                     for field in ("first_known_at", "response_sha256", "row_count")
                 ):
                     raise ValueError("SOURCE_COLLATERAL_FAILED_SCOPE_FABRICATED")
+            elif state == "OUT_OF_SCOPE_PERPETUALS_ONLY":
+                if (
+                    not perpetuals_only
+                    or row["scope"] != "userVaultEquities"
+                    or any(
+                        row.get(field) is not None
+                        for field in ("first_known_at", "response_sha256", "row_count")
+                    )
+                ):
+                    raise ValueError("SOURCE_COLLATERAL_INVALID_PERPETUAL_SCOPE_EXCLUSION")
             else:
                 raise ValueError("SOURCE_COLLATERAL_UNKNOWN_SCOPE_STATUS")
+        if perpetuals_only and scopes[1]["status"] != "OUT_OF_SCOPE_PERPETUALS_ONLY":
+            raise ValueError("SOURCE_COLLATERAL_UNNECESSARY_VAULT_SCOPE")
+        if perpetuals_only:
+            spot = scopes[0]
+            if spot["status"] == "PARTIAL_PUBLIC_OBSERVATION":
+                balances = spot.get("potential_perp_quote_collateral")
+                other = spot.get("other_spot_asset_count")
+                if (
+                    not isinstance(balances, dict)
+                    or type(other) is not int
+                    or other < 0
+                    or len(balances) + other != spot["row_count"]
+                ):
+                    raise ValueError("SOURCE_COLLATERAL_QUOTE_CENSUS_INVALID")
+                for token, amount in balances.items():
+                    if (
+                        token not in ("USDC", "USDH")
+                        or not isinstance(amount, dict)
+                        or set(amount) != {"total", "hold"}
+                        or type(amount["total"]) is not str
+                        or (amount["hold"] is not None and type(amount["hold"]) is not str)
+                    ):
+                        raise ValueError("SOURCE_COLLATERAL_QUOTE_FIELDS_INVALID")
+                    number(amount["total"])
+                    if amount["hold"] is not None:
+                        number(amount["hold"])
+            elif any(
+                key in spot for key in ("potential_perp_quote_collateral", "other_spot_asset_count")
+            ):
+                raise ValueError("SOURCE_COLLATERAL_FAILED_SPOT_FABRICATED")
         # New prospective receipts include the official userAbstraction
         # /info response. Legacy SHA-sealed two-scope evidence has no mode and
         # remains replayable, but never gains a default/assumed account mode.
