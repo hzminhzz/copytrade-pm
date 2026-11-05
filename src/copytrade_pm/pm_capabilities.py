@@ -26,6 +26,7 @@ GROUPS = {
     "copytrade-pm-scope": ("market.scope", "market", "LOCAL_MUTATION"),
     "copytrade-pm-market-audit": ("market.audit", "market", "LOCAL_MUTATION"),
     "copytrade-pm-research": ("research.pm01", "research", "LOCAL_MUTATION"),
+    "copytrade-pm-actuary": ("research.actuary.cli", "research", "READ_ONLY"),
     "copytrade-pm-shadow": ("account.pm03.simulate", "account", "LOCAL_MUTATION"),
     "copytrade-pm-receipts": ("source.receipts", "source", "PROTECTED_MUTATION"),
     "copytrade-pm-source": ("source.e4", "source", "PROTECTED_MUTATION"),
@@ -179,6 +180,20 @@ NATIVE = {
         "READ_ONLY",
         "NATIVE_MINUTE_MARKET_LAKE",
     ),
+    "research.contract_selector": (
+        "copytrade_pm.pm_contract_selector",
+        "copytrade-pm contracts compare --portfolio gemini.phase4/E6",
+        "research",
+        "READ_ONLY",
+        "SEALED_PORTFOLIO_AND_FULL_NET_FOLLOWER_TAPE_REQUIRED",
+    ),
+    "research.actuary": (
+        "copytrade_pm.contract_actuary",
+        "copytrade-pm-actuary --help",
+        "research",
+        "READ_ONLY",
+        "SYNTHETIC_CONTRACT_SCENARIO_NOT_FINANCIAL_AUTHORITY",
+    ),
     "research.sweep": (
         "copytrade_pm.pm_offline_sweep",
         "python -m copytrade_pm.pm_offline_job --help",
@@ -296,6 +311,7 @@ REGISTRY_REQUIRED_ARGUMENTS = {
 NATIVE_REQUIRED_ARGUMENTS = {
     "wallet.inventory": [],
     "research.report.catalog": ["--cache-root PATH"],
+    "research.contract_selector": ["--portfolio NAMESPACE/ID", "--tape PRIVATE_TAPE"],
     "runtime.pinned_release": [],
     "runtime.paper_units": [],
     "runtime.market_observer": ["--observer-state-root PATH"],
