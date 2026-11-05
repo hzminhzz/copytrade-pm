@@ -71,6 +71,7 @@ def test_append_exclusions_preserves_history_and_asof_without_leaking_address(
         now=NOW,
     )
     assert applied["backup_verified"] is True
+    assert applied["owner_review_attested"] is False
     assert applied["trading_authorized"] is False
     assert applied["inventory_sha256"] != baseline
     assert address(2) not in json.dumps(applied)

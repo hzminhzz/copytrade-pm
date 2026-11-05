@@ -584,7 +584,7 @@ def append_exclusions(
                         source_sha,
                         source_path,
                         known_at,
-                        "OWNER_APPROVED_EXCLUSION_METADATA_ONLY",
+                        "NATIVE_EXCLUSION_METADATA_ONLY_NO_REVIEW_ATTESTATION",
                     ),
                 )
                 con.execute(
@@ -613,5 +613,6 @@ def append_exclusions(
             "backup_verified": True,
             "backup": str(backup_path),
             "applied": True,
+            "owner_review_attested": False,
             "trading_authorized": False,
         }
