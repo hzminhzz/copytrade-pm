@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
 SCHEMA = "copytrade_portfolio_net_pnl_tape_v1"
 RESULT = "copytrade_portfolio_contract_ev_v1"
-RULES_VERSION = "user_archetypes_20261105_unverified_v1"
+RULES_VERSION = "user_archetypes_20261105_unverified_v2"
 COSTS = ("commissions", "spread", "slippage", "funding", "market_impact")
 SOURCE_STATUSES = frozenset(
     {"HISTORICAL_HYPOTHETICAL", "SYNTHETIC_FIXTURE", "PROSPECTIVE_FOLLOWER_UNATTESTED"}
@@ -44,7 +44,7 @@ RULE_UNKNOWNS = {
     ),
     "B Sprint": (
         "Green-day profit threshold unspecified",
-        "Challenge max-DD static vs trailing/sampling unspecified",
+        "EOD trailing-floor cap and reference balance/equity unspecified",
         "Withdrawal conditions unspecified",
     ),
     "C 2-Step": (

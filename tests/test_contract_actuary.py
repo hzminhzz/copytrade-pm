@@ -7,6 +7,20 @@ np = pytest.importorskip("numpy")
 from copytrade_pm.contract_actuary import CONTRACTS, Contract, simulate  # noqa: E402
 
 
+def test_sprint_user_eod_trailing_evaluation_contract() -> None:
+    # Owner explicitly specified evaluation EOD trailing; the old
+    # default challenge_eod=False incorrectly ratcheted intraday.
+    sprint = next(contract for contract in CONTRACTS if contract.name == "B Sprint")
+    explorer = next(contract for contract in CONTRACTS if contract.name == "C 2-Step")
+    assert sprint.challenge_eod is True
+    assert sprint.funded_eod is True
+    assert sprint.challenge_dd == 500
+    assert sprint.challenge_daily == 300
+    assert sprint.funded_dd == 400
+    assert sprint.funded_daily == 250
+    assert explorer.challenge_eod is False
+
+
 def test_no_risk_no_edge_never_passes() -> None:
     for contract in CONTRACTS:
         result = simulate(

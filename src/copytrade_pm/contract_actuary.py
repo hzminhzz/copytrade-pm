@@ -31,7 +31,9 @@ class Contract:
 
 CONTRACTS = (
     Contract("A Flex", 40, (900,), 400, 250, 300, 200, True, green_days=5),
-    Contract("B Sprint", 75, (800,), 500, 300, 400, 250, True, green_days=5),
+    # Owner rulebook: evaluation 5% trailing floor ratchets at 00:00 UTC,
+    # not at each intraday high. Funded trailing is EOD as well.
+    Contract("B Sprint", 75, (800,), 500, 300, 400, 250, True, challenge_eod=True, green_days=5),
     Contract("C 2-Step", 100, (1000, 500), 800, 500, 800, None, False),
 )
 

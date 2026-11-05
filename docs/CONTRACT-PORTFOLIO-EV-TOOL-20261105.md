@@ -29,6 +29,10 @@ rules under each evaluation/funded-stage risk scale. Output:
 
 The no-buy alternative dominates negative modeled EV when buying is optional.
 
+## Sprint rule-version correction (2026-11-05)
+
+The user-supplied $75 Sprint evaluation limit ratchets the 5% trailing floor **at EOD (00:00 UTC)**, not intraday. `CONTRACTS` now sets `B Sprint.challenge_eod=True`, and the rule catalog is versioned `user_archetypes_20261105_unverified_v2`. The old catalog version and B Sprint synthetic scenario results used the wrong high-water sampling assumption and must not be used for comparisons. Unverified provider rules and absent complete follower MTM still return `BLOCKED`.
+
 ## Commands
 
 ```bash
