@@ -34,8 +34,10 @@ to run while source captures fail. After verifying the exact pinned release,
 install the two *locked, offline* extras before changing the observer unit:
 
 ```bash
-REV="$(git -C /home/quant/dev/copytrade-pm rev-parse origin/main)"
-REL="$HOME/.local/share/copytrade/registry/release-control/releases/$REV"
+REL="$(readlink -f "$HOME/.local/share/copytrade/registry/release-control/current")"
+# Verify the current release pointer and its exact SHA before installing extras.
+uv run --project "$REL" --offline --frozen --no-dev python \
+  "$REL/scripts/registry_release.py" verify
 uv sync --project "$REL" --offline --frozen --no-dev --extra source --extra market-stream
 "$REL/.venv/bin/python" -c \
   'import websockets, ccxt.pro; import copytrade_pm.pm_forward_observer'
