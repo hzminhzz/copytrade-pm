@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 import json
 from pathlib import Path
 import re
@@ -31,6 +32,7 @@ MAX_NATIVE_SOCKET_MARKETS = 128  # explicit physical socket group, not the globa
 MAX_TOTAL_MARKETS = 256
 MAX_PARALLEL_SHARDS = 5
 MAX_FRAME_BYTES = 2_000_000
+MAX_VOLUME_SAMPLE_TRADES = 100_000  # diagnostic cap; never a venue-complete tape
 NATIVE_TOKEN = re.compile(r"[A-Za-z0-9_.-]{1,64}\Z")
 NATIVE_DEX = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
 
@@ -433,6 +435,9 @@ async def capture_bounded_native_trades(
 
     epoch = uuid4().hex
     baselined: set[str] = set()
+    volume_seen: dict[tuple[str, int, int], str] = {}
+    volume_base = {inst.key: Decimal(0) for inst in instruments}
+    volume_notional = {inst.key: Decimal(0) for inst in instruments}
     stats = {
         inst.key: {
             "frames": 0,
@@ -441,6 +446,9 @@ async def capture_bounded_native_trades(
             "public_trade_rows": 0,
             "matched_wallet_sides": 0,
             "new_wallet_receipts": 0,
+            "observed_unique_trade_rows": 0,
+            "duplicate_public_trade_rows": 0,
+            "volume_sample_truncated": False,
         }
         for inst in instruments
     }
@@ -536,6 +544,26 @@ async def capture_bounded_native_trades(
                     )
                     stats[inst.key]["matched_wallet_sides"] += len(events)
                     by_instrument.setdefault(inst.key, []).extend(events)
+                    # Public venue trades are a bounded diagnostic sample.
+                    # Deduplicate repeated native IDs (including non-watched
+                    # counterparties) without fabricating continuous volume.
+                    trade_id = (inst.key, trade["time"], trade["tid"])
+                    row_sha = digest(dict(trade))
+                    prior_sha = volume_seen.get(trade_id)
+                    if prior_sha is not None:
+                        if prior_sha != row_sha:
+                            raise ValueError("PUBLIC_TRADE_VOLUME_ID_CONFLICT")
+                        stats[inst.key]["duplicate_public_trade_rows"] += 1
+                    elif len(volume_seen) >= MAX_VOLUME_SAMPLE_TRADES:
+                        # Continue wallet receipt capture normally, but mark
+                        # volume incomplete rather than overrun local memory.
+                        stats[inst.key]["volume_sample_truncated"] = True
+                    else:
+                        volume_seen[trade_id] = row_sha
+                        stats[inst.key]["observed_unique_trade_rows"] += 1
+                        qty = number(trade["sz"])
+                        volume_base[inst.key] += qty
+                        volume_notional[inst.key] += qty * number(trade["px"])
                 for inst_key in sorted(by_instrument):
                     events = by_instrument[inst_key]
                     if events:
@@ -574,6 +602,10 @@ async def capture_bounded_native_trades(
         "market_stats": {
             inst.key: {
                 **stats[inst.key],
+                "observed_unique_base_volume": str(volume_base[inst.key]),
+                "observed_unique_quote_notional": str(volume_notional[inst.key]),
+                "volume_evidence": "BOUNDED_POST_BASELINE_WS_SAMPLE_NOT_COMPLETE_VOLUME",
+                "volume_capacity_attested": False,
                 "status": (
                     "ACTIVE_AFTER_BASELINE"
                     if stats[inst.key]["active_messages"] > 0

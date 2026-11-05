@@ -398,6 +398,94 @@ def test_bounded_ws_baselines_first_batch_and_persists_provisional(tmp_path, mon
     )
 
 
+def test_public_volume_sample_deduplicates_active_trades_and_includes_unwatched(tmp_path):
+    frames = [
+        json.dumps({"channel": "trades", "data": [trade(1, 10, sz="7")]}),
+        json.dumps({"channel": "trades", "data": [trade(2, 20, sz="2")]}),
+        json.dumps({"channel": "trades", "data": [trade(2, 20, sz="2")]}),
+        json.dumps(
+            {
+                "channel": "trades",
+                "data": [trade(3, 30, users=(OUTSIDER, SELLER), sz="5")],
+            }
+        ),
+    ]
+    journal = PaperJournal(tmp_path / "private")
+    report = asyncio.run(
+        capture_bounded_native_trades(
+            instruments=(BTC,),
+            watched={BUYER: "wallet:17"},
+            journal=journal,
+            connect=lambda *_args, **_kwargs: FakeWS(frames),
+            now=lambda: known(240),
+            max_frames=4,
+        )
+    )
+    market = report["market_stats"][BTC.key]
+    assert market["public_trade_rows"] == 3
+    assert market["observed_unique_trade_rows"] == 2
+    assert market["duplicate_public_trade_rows"] == 1
+    assert market["observed_unique_base_volume"] == "7"
+    assert market["observed_unique_quote_notional"] == "700"
+    assert market["volume_sample_truncated"] is False
+    assert market["volume_capacity_attested"] is False
+    assert report["coverage_complete"] is False
+    assert report["whole_wallet_nav_attested"] is False
+    assert report["new_wallet_receipts"] == 1
+    assert journal.audit_public_wallet_trade_tape("wallet:17", BTC.key)["receipts"] == 1
+
+
+def test_public_volume_conflicting_native_id_fails_closed(tmp_path):
+    changed = {**trade(2, 20, users=(OUTSIDER, SELLER)), "sz": "9"}
+    frames = [
+        json.dumps({"channel": "trades", "data": [trade(1, 10)]}),
+        json.dumps({"channel": "trades", "data": [trade(2, 20, users=(OUTSIDER, SELLER))]}),
+        json.dumps({"channel": "trades", "data": [changed]}),
+    ]
+    journal = PaperJournal(tmp_path / "private")
+    with pytest.raises(ValueError, match="PUBLIC_TRADE_VOLUME_ID_CONFLICT"):
+        asyncio.run(
+            capture_bounded_native_trades(
+                instruments=(BTC,),
+                watched={BUYER: "wallet:17"},
+                journal=journal,
+                connect=lambda *_args, **_kwargs: FakeWS(frames),
+                now=lambda: known(240),
+                max_frames=3,
+            )
+        )
+    assert journal.audit_public_wallet_trade_tape("wallet:17", BTC.key)["receipts"] == 0
+
+
+def test_public_volume_sample_limit_never_promotes_capacity(tmp_path, monkeypatch):
+    import copytrade_pm.pm_forward_public_trades as public
+
+    monkeypatch.setattr(public, "MAX_VOLUME_SAMPLE_TRADES", 1)
+    frames = [
+        json.dumps({"channel": "trades", "data": [trade(1, 10)]}),
+        json.dumps({"channel": "trades", "data": [trade(2, 20)]}),
+        json.dumps({"channel": "trades", "data": [trade(3, 30)]}),
+    ]
+    report = asyncio.run(
+        capture_bounded_native_trades(
+            instruments=(BTC,),
+            watched={BUYER: "wallet:17"},
+            journal=PaperJournal(tmp_path / "private"),
+            connect=lambda *_args, **_kwargs: FakeWS(frames),
+            now=lambda: known(240),
+            max_frames=3,
+        )
+    )
+    stats = report["market_stats"][BTC.key]
+    assert stats["public_trade_rows"] == 2
+    assert stats["observed_unique_trade_rows"] == 1
+    assert stats["observed_unique_base_volume"] == "2"
+    assert stats["volume_sample_truncated"] is True
+    assert stats["volume_capacity_attested"] is False
+    assert report["coverage_complete"] is False
+    assert report["order_route"] == "NONE"
+
+
 def test_shard_fanout_preserves_all_markets_and_reports_each_feed(tmp_path, monkeypatch):
     monkeypatch.setattr(journal_module, "datetime", FixedDateTime)
     instruments = tuple(
