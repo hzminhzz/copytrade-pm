@@ -12,6 +12,12 @@ Implementation: `src/copytrade_pm/contract_actuary.py`; deterministic tests:
 calculator; it does **not** replace PM-03's Decimal accounting or independent
 prospective first-known follower outcomes.
 
+## Corrected Sprint evaluation EOD rule (v2, 2026-11-05)
+
+The owner-supplied Sprint rule specifies **5.0% end-of-day trailing drawdown** for evaluation: the high-water floor only ratchets on the 00:00 UTC daily mark; its existing floor and 3.0% intraday daily limit remain enforceable between resets. The previous implementation accidentally inherited `challenge_eod=False` (continuous intraday ratchet), applying the wrong absorbing boundary. The corrected native rule catalog is `user_archetypes_20261105_unverified_v2` and `B Sprint.challenge_eod=True`.
+
+**Historical synthetic Sprint statistics in the dated v1 tables below are superseded as Sprint rule-model evidence.** The original values are retained for audit of prior runs, *not* to represent the corrected v2 EOD contract. Do not use those B figures to rank a real purchase or portfolio. Existing positive model examples remain unqualified. Other absent terms (EOD floor lock/cap, green-day minimum threshold and withdrawal mechanics) remain explicitly unknown.
+
 ## Run
 
 ```bash
