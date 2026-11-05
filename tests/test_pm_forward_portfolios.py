@@ -138,7 +138,9 @@ def _fixture_registry(db_path: Path) -> Path:
             PRIMARY KEY(portfolio_id, version, member_alias)
         );
     """)
-    conn.execute("INSERT INTO portfolio_seals VALUES ('gemini.phase4/E6', 1, 'sha_fixture_e6', 'doc_sha', 'rev', '2026-11-04T09:06:33+00:00'), ('gemini.phase4/E2', 1, 'sha_fixture_e2', 'doc_sha', 'rev', '2026-11-04T09:06:33+00:00')")
+    conn.execute(
+        "INSERT INTO portfolio_seals VALUES ('gemini.phase4/E6', 1, 'sha_fixture_e6', 'doc_sha', 'rev', '2026-11-04T09:06:33+00:00'), ('gemini.phase4/E2', 1, 'sha_fixture_e2', 'doc_sha', 'rev', '2026-11-04T09:06:33+00:00')"
+    )
     conn.execute("""
         INSERT INTO portfolio_memberships VALUES
             ('gemini.phase4/E6', 1, 'ACT04', 333),
@@ -184,11 +186,14 @@ def test_dynamic_view_registration_and_status_with_fixture(tmp_path: Path) -> No
     assert "ACT04" in status["missing_members"]
     assert "CM-002" in status["missing_members"]
 
+
 def test_tampered_sealed_portfolio_fails_closed(tmp_path: Path) -> None:
     test_db = _fixture_registry(tmp_path / "tampered_reg.sqlite")
     # Deliberately tamper with the membership of gemini.phase4/E6 in DB
     conn = sqlite3.connect(test_db)
-    conn.execute("UPDATE portfolio_seals SET definition_sha256 = 'stale_tampered_sha' WHERE portfolio_id = 'gemini.phase4/E6'")
+    conn.execute(
+        "UPDATE portfolio_seals SET definition_sha256 = 'stale_tampered_sha' WHERE portfolio_id = 'gemini.phase4/E6'"
+    )
     conn.commit()
     conn.close()
 

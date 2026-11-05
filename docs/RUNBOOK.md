@@ -1,5 +1,14 @@
 # Research operator runbook — verified CLI sequence
 
+## Protected P1/P14 operational staging (2026-11-05)
+
+The [guarded standby/watchdog/root systemd candidate runbook](FORWARD-PAPER-PROTECTED-OPS-STAGING-20261105.md)
+contains staging, independent OS prerequisites, HALT-latch semantics and rollback.
+Use `copytrade-pm-paper-standby` only as a **no-order standby**, and
+`copytrade-pm-paper-unit-bundle` only for SHA-pinned **uninstalled** root unit
+candidates. No `--apply` is available; no financial paper or independent
+protected deployment is attested. Confirm live services separately.
+
 ## Authoritative SQLite metadata inventory (2026-11-05)
 
 Use `copytrade-wallet-registry doctor` for `authority=SQLITE`,

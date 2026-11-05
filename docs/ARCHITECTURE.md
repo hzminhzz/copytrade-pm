@@ -1,5 +1,15 @@
 # Architecture: evidence, manager governance, shadow account
 
+## Protected standby operational boundary (2026-11-05)
+
+[The guarded standby/watchdog candidate](FORWARD-PAPER-PROTECTED-OPS-STAGING-20261105.md)
+adds self-PID SHA heartbeats, a separate watchdog with a persistent HALT latch,
+and system-level unit definitions pinned to a source SHA. It contains **no
+financial execution interface** and must not be confused with the existing
+PM-03/04 journal, public observer or protected paper admission. Installation
+requires root-managed identities and a root-owned release; these are currently
+unavailable, and the component explicitly reports standby rather than running.
+
 ## Public observer service boundary (2026-11-05)
 
 The [public P1/P14 observer deployment contract](FORWARD-PAPER-PUBLIC-OBSERVER-SERVICE-20261105.md)

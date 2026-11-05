@@ -1,5 +1,11 @@
 # Protected Forward-Paper service preflight — 2026-11-04
 
+**2026-11-05 engineering successor:** [Guarded standby P1/P14, independent watchdog,
+root-owned systemd candidate bundles and HALT-preserving recovery procedure](FORWARD-PAPER-PROTECTED-OPS-STAGING-20261105.md)
+are now implemented for *staging*. Actual root system units, separate OS
+accounts, financial-worker activation and protected rollback remain **NOT INSTALLED**
+until privileged ownership and admission checks are independently verified.
+
 **2026-11-05 update:** The separate quant-owned
 [public observer-only service](FORWARD-PAPER-PUBLIC-OBSERVER-SERVICE-20261105.md)
 collects first-local source/market receipts but does not address this

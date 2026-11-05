@@ -1,5 +1,11 @@
 # copytrade-pm handbook — start here
 
+**Protected paper-worker operations (2026-11-05, staged only):**
+[P1/P14 no-order standby, independent HALT-latching watchdog, pinned root
+systemd candidate and rollback gates](FORWARD-PAPER-PROTECTED-OPS-STAGING-20261105.md).
+Real root-managed units are **not installed**; the coding user lacks unattended
+sudo, source NAV and market admission remain blocked. No financial paper promotion.
+
 **SQLite metadata authority (2026-11-05):** The private wallet registry is the
 single source of truth for current wallets, cohorts and saved portfolios.
 [Mandatory registry lookup contract](WALLET-REGISTRY-AGENT-WORKFLOW.md) and

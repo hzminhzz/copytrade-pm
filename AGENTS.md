@@ -1,3 +1,11 @@
+## Protected paper operations
+
+For P1/P14 worker, watchdog, HALT recovery, root service installation or
+rollback, follow [the guarded protected-ops runbook](docs/FORWARD-PAPER-PROTECTED-OPS-STAGING-20261105.md).
+A staged unit bundle or running standby heartbeat is **not** an installed
+independent protected financial worker; require root-owned OS identity,
+release, journal and full financial admission evidence before promotion.
+
 ## Mandatory native-first capability discovery
 
 Before implementing new functionality, query `copytrade-pm capabilities list`,
