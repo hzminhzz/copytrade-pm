@@ -10,7 +10,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
-from .pm03_account import digest, number
+from .pm03_account import clock, digest, number
 from .pm_forward_journal import PaperJournal
 
 
@@ -19,7 +19,9 @@ def preview_top_level_paper_cost(
     *,
     signed_qty: Decimal,
     fee_bps: Decimal,
+    as_of: str,
     adverse_bps: Decimal = Decimal("0"),
+    max_quote_age_seconds: int = 30,
 ) -> dict:
     """Price a hypothetical market order against an observed best level.
 
@@ -27,6 +29,28 @@ def preview_top_level_paper_cost(
     and NO mutation to PM-03 accounts.
     """
     PaperJournal._validate_market_quote(evidence)
+    checked = clock(as_of)
+    known = clock(evidence["first_known_at"])
+    if type(max_quote_age_seconds) is not int or not 1 <= max_quote_age_seconds <= 300:
+        raise ValueError("QUOTE_COST_FRESHNESS_POLICY_INVALID")
+    age = (checked - known).total_seconds()
+    if age < 0:
+        return {
+            "status": "BLOCKED_QUOTE_NOT_YET_KNOWN",
+            "quote_first_known_at": evidence["first_known_at"],
+            "as_of": as_of,
+            "paper_executed": False,
+            "order_route": "NONE",
+        }
+    if age > max_quote_age_seconds:
+        return {
+            "status": "BLOCKED_QUOTE_STALE_AS_OF",
+            "quote_first_known_at": evidence["first_known_at"],
+            "as_of": as_of,
+            "quote_age_seconds": age,
+            "paper_executed": False,
+            "order_route": "NONE",
+        }
     qty, fee_rate, extra = number(signed_qty), number(fee_bps), number(adverse_bps)
     if qty == 0:
         return {"status": "NO_NET_DELTA", "order_route": "NONE", "paper_executed": False}
@@ -58,6 +82,9 @@ def preview_top_level_paper_cost(
         "quote_sha": digest(evidence),
         "instrument": evidence["instrument"],
         "first_known_at": evidence["first_known_at"],
+        "as_of": as_of,
+        "quote_age_seconds": age,
+        "market_orderability_attested": False,
         "side": "BUY" if buy else "SELL",
         "quantity": str(abs(qty)),
         "mid": str(mid),

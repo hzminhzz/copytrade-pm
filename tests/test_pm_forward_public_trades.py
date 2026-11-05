@@ -287,10 +287,14 @@ def test_best_level_fill_is_costed_but_not_a_financial_paper_execution():
         first,
         signed_qty=Decimal("0.3"),
         fee_bps=Decimal("3"),
+        as_of=at(4),
         adverse_bps=Decimal("2"),
     )
     assert priced["status"] == "SCENARIO_ONLY_PRICE_ESTIMATE"
     assert Decimal(priced["best_level"]) == Decimal(first["best_ask"])
+    assert priced["as_of"] == at(4)
+    assert priced["market_orderability_attested"] is False
+    assert 0 <= priced["quote_age_seconds"] <= 30
     assert Decimal(priced["half_spread_cost"]) > 0
     assert Decimal(priced["taker_fee"]) > 0
     assert priced["paper_executed"] is False
@@ -298,10 +302,31 @@ def test_best_level_fill_is_costed_but_not_a_financial_paper_execution():
         first,
         signed_qty=Decimal(first["ask_size"]) + Decimal("1"),
         fee_bps=Decimal("3"),
+        as_of=at(4),
     )
     assert too_big["status"] == "BLOCKED_UNPROVEN_DEPTH"
     with pytest.raises(ValueError, match="QUOTE_COST"):
-        preview_top_level_paper_cost(first, signed_qty=Decimal("1"), fee_bps=Decimal("-1"))
+        preview_top_level_paper_cost(
+            first, signed_qty=Decimal("1"), fee_bps=Decimal("-1"), as_of=at(4)
+        )
+    early = preview_top_level_paper_cost(
+        first, signed_qty=Decimal("1"), fee_bps=Decimal("3"), as_of=at(2)
+    )
+    assert early["status"] == "BLOCKED_QUOTE_NOT_YET_KNOWN"
+    stale = preview_top_level_paper_cost(
+        first, signed_qty=Decimal("1"), fee_bps=Decimal("3"), as_of=at(40)
+    )
+    assert stale["status"] == "BLOCKED_QUOTE_STALE_AS_OF"
+    assert stale["paper_executed"] is False
+    assert stale["order_route"] == "NONE"
+    with pytest.raises(ValueError, match="QUOTE_COST_FRESHNESS_POLICY_INVALID"):
+        preview_top_level_paper_cost(
+            first,
+            signed_qty=Decimal("1"),
+            fee_bps=Decimal("3"),
+            as_of=at(4),
+            max_quote_age_seconds=301,
+        )
 
 
 def test_atomic_multi_wallet_conflict_rolls_back(tmp_path, monkeypatch):
