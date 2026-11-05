@@ -5,11 +5,18 @@ from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 import json
 import sqlite3
+from copy import deepcopy
 
 import pytest
 
 from copytrade_pm.pm_forward_journal import PaperJournal
-from copytrade_pm.pm_forward_readiness import audit_live_paper_readiness
+from copytrade_pm.pm_forward_readiness import (
+    _collateral,
+    _market,
+    _source,
+    audit_live_paper_readiness,
+)
+from copytrade_pm.pm03_account import digest
 from copytrade_pm.pm_forward_source_observation import (
     append_public_scope,
     read_public_all_dex_scope,
@@ -231,6 +238,74 @@ def test_subaccount_latest_receipt_cannot_replace_parent_and_hedges_stay_visible
     assert not first["admitted"]
     assert first["collateral_diagnostics"]["status"] == "NOT_CAPTURED"
     assert parent.lower() != child_address
+
+
+def test_retrospective_readiness_censors_later_source_books_and_child_instruments(tmp_path):
+    roots = _setup(tmp_path)
+    _, _, _, journal, _ = roots
+    with closing(sqlite3.connect(journal.path)) as db:
+        receipt = json.loads(
+            db.execute(
+                "SELECT payload FROM source_receipts WHERE source_id='S035' AND seq=1"
+            ).fetchone()[0]
+        )
+    future = deepcopy(receipt)
+    future["source_event_at"] = "2026-11-04T04:00:07+00:00"
+    future["first_known_at"] = "2026-11-04T04:00:08+00:00"
+    future["captured_at"] = "2026-11-04T04:00:22+00:00"
+    book = future["source_book"]
+    book["source_event_at"] = future["source_event_at"]
+    book["first_known_at"] = future["first_known_at"]
+    book["positions"]["hyperliquid/mainnet:perp:xyz/PITONLY"] = "1"
+    book["snapshot_sha"] = digest({k: v for k, v in book.items() if k != "snapshot_sha"})
+    future["payload_sha"] = book["snapshot_sha"]
+    journal.append_source_receipt("S035", 2, digest(future), future)
+    with closing(sqlite3.connect(journal.path)) as db:
+        earlier = _source(db, "S035", as_of="2026-11-04T04:00:10+00:00")
+        full = _source(db, "S035")
+    assert earlier["cursor"] == 1
+    assert full["cursor"] == 2
+    assert earlier["head_sha"] != full["head_sha"]
+    assert (
+        "hyperliquid/mainnet:perp:xyz/PITONLY" not in earlier["receipt"]["source_book"]["positions"]
+    )
+    result = audit(roots, "P1")
+    assert "hyperliquid/mainnet:perp:xyz/PITONLY" not in {
+        row["instrument"] for row in result["market"]
+    }
+    assert result["status"] == "BLOCKED_NO_TRADE"
+    assert result["source_wallet_equity_attested"] is False
+
+
+def test_collateral_and_market_quote_asof_censor_future_receipts(tmp_path):
+    roots = _setup(tmp_path)
+    _, primary, _, journal, market = roots
+    address = json.loads(next(primary.glob("S035-ENA_0x*.json")).read_text())["address"]
+    account_hash = sha256(address.lower().encode()).hexdigest()
+    base = diagnostic()
+    base["account_address_sha256"] = account_hash
+    journal.append_collateral_diagnostic(base)
+    future = deepcopy(base)
+    future["observations"][0]["first_known_at"] = "2026-11-04T04:00:21+00:00"
+    journal.append_collateral_diagnostic(future)
+    with closing(sqlite3.connect(journal.path)) as db:
+        old = _collateral(db, account_hash, as_of="2026-11-04T04:00:10+00:00")
+        full = _collateral(db, account_hash)
+    assert old["cursor"] == 1
+    assert full["cursor"] == 2
+    assert old["last_spot_known_at"] == "2026-11-04T04:00:01+00:00"
+    native = parse_ccxt_market(ccxt_market(), first_known_at=at(1), expected=BTC)
+    market.append_market_quote(
+        parse_ccxt_book(native, orderbook(seconds=12), first_known_at=at(13)).payload()
+    )
+    with closing(sqlite3.connect(market.path)) as db:
+        old_quote = _market(db, BTC.key, as_of=at(10))
+        live = _market(db, BTC.key)
+    assert old_quote["cursor"] == 1
+    assert live["cursor"] == 2
+    assert old_quote["head_sha"] != live["head_sha"]
+    assert old_quote["quote"]["first_known_at"] == at(3)
+    assert audit(roots, "P1")["status"] == "BLOCKED_NO_TRADE"
 
 
 def test_readiness_raises_on_tampered_source_chain(tmp_path):
