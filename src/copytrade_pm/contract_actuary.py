@@ -3,12 +3,14 @@
 All rulebook fields are scenario assumptions, not verified provider terms.
 One Monte Carlo sample is a whole lifecycle; no trades or remote side effects.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
-import numpy as np
+if TYPE_CHECKING:
+    import numpy as np
 
 
 @dataclass(frozen=True)
@@ -63,6 +65,9 @@ def simulate(
     Green day means positive net daily PnL, not a vendor threshold.
     Stage transitions reset PnL and HWM (contract assumption).
     """
+    # NumPy is an optional extra: module import/discovery must work in core-only installs.
+    import numpy as np
+
     if paths < 1 or steps_per_day < 1 or evaluation_days < 1 or funded_days < 1:
         raise ValueError("positive paths, days, and monitoring frequency required")
     if daily_sigma < 0 or daily_cost < 0 or not (0 <= contract.split <= 1):
@@ -117,7 +122,7 @@ def simulate(
             funded_now = active & funded
             # Continuous HWM is updated each monitoring step; EOD HWM only
             # ratchets after the final step. No intrabar Brownian bridge.
-            update_hwm = (step == steps_per_day - 1)
+            update_hwm = step == steps_per_day - 1
             if not contract.challenge_eod:
                 hwm[challenge] = np.maximum(hwm[challenge], equity[challenge])
             elif update_hwm:
@@ -128,7 +133,11 @@ def simulate(
                 hwm[funded_now] = np.maximum(hwm[funded_now], equity[funded_now])
 
             trailing = np.where(funded, contract.funded_dd, contract.challenge_dd)
-            daily_limit = np.where(funded, np.inf if contract.funded_daily is None else contract.funded_daily, contract.challenge_daily)
+            daily_limit = np.where(
+                funded,
+                np.inf if contract.funded_daily is None else contract.funded_daily,
+                contract.challenge_daily,
+            )
             floor = np.maximum(hwm - trailing, daily_base - daily_limit)
             hit = active & (equity <= floor)
             ruined_before_payout |= hit & (paid_count == 0)
@@ -136,7 +145,9 @@ def simulate(
             active[hit] = False
             # Evaluation target checked AFTER KO. Boundary tie favors KO.
             candidate = active & ~funded
-            hit_target = candidate & (equity >= np.take(contract.targets, np.minimum(phase, len(contract.targets) - 1)))
+            hit_target = candidate & (
+                equity >= np.take(contract.targets, np.minimum(phase, len(contract.targets) - 1))
+            )
             if hit_target.any():
                 phase[hit_target] += 1
                 eval_age[hit_target] = 0
@@ -165,12 +176,17 @@ def simulate(
         pays = in_fund & (funded_age % contract.payout_every_days == 0)
         pays &= green >= contract.green_days
         pays &= equity > last_distribution_equity
-        payout_floor = np.maximum(hwm - contract.funded_dd,
-                                  daily_base - (np.inf if contract.funded_daily is None else contract.funded_daily))
-        available = np.maximum(0.0, np.minimum(
-            equity - last_distribution_equity,
-            equity - payout_floor - payout_safety_buffer,
-        ))
+        payout_floor = np.maximum(
+            hwm - contract.funded_dd,
+            daily_base - (np.inf if contract.funded_daily is None else contract.funded_daily),
+        )
+        available = np.maximum(
+            0.0,
+            np.minimum(
+                equity - last_distribution_equity,
+                equity - payout_floor - payout_safety_buffer,
+            ),
+        )
         pays &= available > 0
         if max_payouts is not None:
             pays &= paid_count < max_payouts
@@ -187,8 +203,11 @@ def simulate(
             last_distribution_equity[pays] = equity[pays]
             green[pays] = 0
             # Withdrawal cannot rewrite a floor; if it crosses, close.
-            floor_post = np.maximum(hwm[pays] - contract.funded_dd,
-                                    daily_base[pays] - (np.inf if contract.funded_daily is None else contract.funded_daily))
+            floor_post = np.maximum(
+                hwm[pays] - contract.funded_dd,
+                daily_base[pays]
+                - (np.inf if contract.funded_daily is None else contract.funded_daily),
+            )
             post_ruin = equity[pays] <= floor_post
             idx = np.flatnonzero(pays)[post_ruin]
             ruined[idx] = True
@@ -206,14 +225,20 @@ def simulate(
         "first_payout_probability": float(first_payout_probability),
         "ruin_before_first_payout": float(ruined_before_payout.mean()),
         "no_first_payout": float(1 - first_payout_probability),
-        "conditional_cost_to_fund": float(contract.fee / funded_probability) if funded_probability else float("inf"),
+        "conditional_cost_to_fund": float(contract.fee / funded_probability)
+        if funded_probability
+        else float("inf"),
         "mean_payout": float(mean_payout),
         "net_ev": float(mean_payout - contract.fee),
         "roi_pct": float(100 * (mean_payout - contract.fee) / contract.fee),
         "mean_payouts_per_purchase": float(paid_count.mean()),
-        "mean_payout_conditional_funded": float(mean_payout / funded_probability) if funded_probability else 0.0,
+        "mean_payout_conditional_funded": float(mean_payout / funded_probability)
+        if funded_probability
+        else 0.0,
         "ruin_probability": float(ruined.mean()),
-        "payout_standard_error": float(payouts.std(ddof=1) / np.sqrt(paths)) if paths > 1 else float("nan"),
+        "payout_standard_error": float(payouts.std(ddof=1) / np.sqrt(paths))
+        if paths > 1
+        else float("nan"),
     }
 
 
@@ -231,26 +256,36 @@ def main() -> None:
     parser.add_argument("--daily-sigma", type=float, default=75.0)
     parser.add_argument("--daily-mu", type=float, default=0.0)
     parser.add_argument("--daily-cost", type=float, default=1.0)
-    parser.add_argument("--bet-sizes", type=float, nargs="+", default=None,
-                        help="one per evaluation phase, then funded stage")
+    parser.add_argument(
+        "--bet-sizes",
+        type=float,
+        nargs="+",
+        default=None,
+        help="one per evaluation phase, then funded stage",
+    )
     parser.add_argument("--discount-rate-annual", type=float, default=0.0)
     args = parser.parse_args()
-    print(json.dumps([
-        simulate(
-            contract,
-            paths=args.paths,
-            seed=args.seed,
-            evaluation_days=args.evaluation_days,
-            funded_days=args.funded_days,
-            steps_per_day=args.steps_per_day,
-            daily_sigma=args.daily_sigma,
-            daily_mu=args.daily_mu,
-            daily_cost=args.daily_cost,
-            phase_bet_sizes=tuple(args.bet_sizes) if args.bet_sizes else None,
-            discount_rate_annual=args.discount_rate_annual,
+    print(
+        json.dumps(
+            [
+                simulate(
+                    contract,
+                    paths=args.paths,
+                    seed=args.seed,
+                    evaluation_days=args.evaluation_days,
+                    funded_days=args.funded_days,
+                    steps_per_day=args.steps_per_day,
+                    daily_sigma=args.daily_sigma,
+                    daily_mu=args.daily_mu,
+                    daily_cost=args.daily_cost,
+                    phase_bet_sizes=tuple(args.bet_sizes) if args.bet_sizes else None,
+                    discount_rate_annual=args.discount_rate_annual,
+                )
+                for contract in CONTRACTS
+            ],
+            indent=2,
         )
-        for contract in CONTRACTS
-    ], indent=2))
+    )
 
 
 if __name__ == "__main__":

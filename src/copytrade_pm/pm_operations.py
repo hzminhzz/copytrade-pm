@@ -409,9 +409,15 @@ def dispatch(args: argparse.Namespace) -> dict:
         if args.verb == "rules":
             return rules_catalog()
         return compare_portfolios(
-            args.portfolio, args.tape, db=db, asof=args.asof,
-            paths=args.paths, seed=args.seed, block_days=args.block_days,
-            evaluation_days=args.evaluation_days, funded_days=args.funded_days,
+            args.portfolio,
+            args.tape,
+            db=db,
+            asof=args.asof,
+            paths=args.paths,
+            seed=args.seed,
+            block_days=args.block_days,
+            evaluation_days=args.evaluation_days,
+            funded_days=args.funded_days,
             evaluation_scales=tuple(args.evaluation_scales),
             funded_scales=tuple(args.funded_scales),
             extra_daily_cost=args.extra_daily_cost,
@@ -470,11 +476,21 @@ def parser() -> argparse.ArgumentParser:
     contracts = top.add_parser("contracts", help="Read-only pod portfolio x contract EV screening")
     contract_verbs = contracts.add_subparsers(dest="verb", required=True)
     contract_verbs.add_parser("rules", help="Show the versioned, unverified rule scenarios")
-    compare = contract_verbs.add_parser("compare", help="Rank contracts from complete net PnL tapes")
-    compare.add_argument("--portfolio", action="append", required=True,
-                         help="Namespace-qualified sealed portfolio; repeat to compare portfolios")
-    compare.add_argument("--tape", action="append", type=Path,
-                         help="Full joint pod PnL tape; repeat once per portfolio")
+    compare = contract_verbs.add_parser(
+        "compare", help="Rank contracts from complete net PnL tapes"
+    )
+    compare.add_argument(
+        "--portfolio",
+        action="append",
+        required=True,
+        help="Namespace-qualified sealed portfolio; repeat to compare portfolios",
+    )
+    compare.add_argument(
+        "--tape",
+        action="append",
+        type=Path,
+        help="Full joint pod PnL tape; repeat once per portfolio",
+    )
     compare.add_argument("--asof", help="Portfolio identity lookup cutoff in UTC")
     compare.add_argument("--paths", type=int, default=100_000)
     compare.add_argument("--seed", type=int, default=20261105)
@@ -485,8 +501,12 @@ def parser() -> argparse.ArgumentParser:
     compare.add_argument("--funded-scales", type=float, nargs="+", default=[0.25, 0.5])
     compare.add_argument("--extra-daily-cost", type=float, default=0.0)
     compare.add_argument("--discount-rate", type=float, default=0.0)
-    compare.add_argument("--max-no-first-payout-probability", type=float, default=1.0,
-                         help="Risk constraint for any selected contract/size policy")
+    compare.add_argument(
+        "--max-no-first-payout-probability",
+        type=float,
+        default=1.0,
+        help="Risk constraint for any selected contract/size policy",
+    )
     top.add_parser("status")
     top.add_parser("health")
     return p
