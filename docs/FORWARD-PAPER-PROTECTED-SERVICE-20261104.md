@@ -1,5 +1,14 @@
 # Protected Forward-Paper service preflight — 2026-11-04
 
+**2026-11-05 update:** The separate quant-owned
+[public observer-only service](FORWARD-PAPER-PUBLIC-OBSERVER-SERVICE-20261105.md)
+collects first-local source/market receipts but does not address this
+protected-service preflight. Dedicated P1/P14 financial-worker and watchdog
+systemd units are still uninstalled; no independent OS identity or broker
+cutover is granted. Do not conflate a public-observer PID/heartbeat with
+protected paper enrollment.
+
+
 **STATUS: BLOCKED. This is not a deployment or a grant of service authority.**
 
 `copytrade-pm-paper-preflight --inspect-services` performs read-only inspection of a fixed allowlist with `systemctl --user show` **and separate system-level** `systemctl show` for P1/P14/watchdog protected units, not `start`, `stop`, `restart` or `daemon-reload`. It reports loaded/active states, configured User/Group and PID metadata without claiming independently verified process identity. This is in addition to the existing runtime path and privilege preflight. CLI results are a timestamp-specific inventory; they do **not** attest to future runtime continuity or root-level systemd units.

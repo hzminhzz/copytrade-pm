@@ -76,6 +76,7 @@ When you spawn one, write: `You are a subagent. Don't run memo.`
 ## Scope and authority
 - This repository contains **research-only**, shadow portfolio-manager analysis and simulated prop-firm account risk.
 - No real orders, live broker/Propr trading adapter, execution credentials, live PM promotion or trading authorization.
+- **Public observer is not protected paper:** `copytrade-public-observer-p1p14.service` may collect bounded first-local public source/market receipts into a private journal with `order_route=NONE`, but its quant-owned process, heartbeat and file permissions never authorize P1/P14 financial state or prove an independent worker. Use [public observer deployment and rollback](docs/FORWARD-PAPER-PUBLIC-OBSERVER-SERVICE-20261105.md); the `copytrade-pm-public-observer-unit --apply` installer is a separate protected operational mutation, not a read command. Protected paper cutover remains fail-closed until independently authorized and attested.
 - Never modify or deploy the production `hyperliquid-expert-ensemble` service from here.
 - Changes to contractual Propr assumptions require dated official evidence and versioned frozen rule snapshots.
 

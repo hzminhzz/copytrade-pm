@@ -115,6 +115,17 @@ specific paper account journal, use
 For sealed Polars studies use the canonical `pm_offline_job` interface; it
 may write immutable research cache evidence and is not a read-only command.
 
+## Public observer unit (separate from financial paper)
+
+`copytrade-pm capabilities show paper.public_unit` resolves the new
+`copytrade-pm-public-observer-unit` command. Its default is a read-only
+reviewed unit proposal; `--apply` writes one new quant-owned public-observer
+user unit only after independently verifying the installed pinned release,
+private journal path, source locator availability and optional public clients.
+The parent CLI is conservatively classified `PROTECTED_MUTATION` because it
+contains `--apply`. It never starts or stops units and cannot enable P1/P14
+financial execution. See [the public observer deployment guide](FORWARD-PAPER-PUBLIC-OBSERVER-SERVICE-20261105.md).
+
 ## Operational semantics and recovery
 
 A single missing authority must not block unrelated Git or registry status.

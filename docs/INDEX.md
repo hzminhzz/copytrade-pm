@@ -6,6 +6,7 @@ and `validate` to identify the authoritative native interface; wallet/portfolio
 queries additionally require the live registry-first workflow. For native
 wallet inventory use `wallets list --cohort ...`; for independently SHA-verified
 executed Polars jobs use `research list --cache-root PRIVATE_CACHE`.
+For prospective public P1/P14 receipts, see the [pinned observer-only service and rollback](FORWARD-PAPER-PUBLIC-OBSERVER-SERVICE-20261105.md); it is not a protected financial paper worker.
 See [P1 operational discovery acceptance](AGENT-OPERATIONS-P1-ACCEPTANCE-20261105.md)
 and [P2 agent trace evaluator](AGENT-TRACE-EVAL-20261105.md). P2 engineering
 may pass while independent observed model-choice evidence is still blocked.

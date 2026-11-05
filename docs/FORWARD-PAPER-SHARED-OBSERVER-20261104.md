@@ -1,5 +1,16 @@
 # Shared P1/P14 read-only source and market observer — 2026-11-04
 
+**Later 2026-11-05 operational checkpoint:** see
+[the pinned observer-only service guide](FORWARD-PAPER-PUBLIC-OBSERVER-SERVICE-20261105.md).
+A bounded refreshed canary captured five first-local public parent accounts,
+five collateral diagnostic tapes and 24/25 native L2 quote tapes. A transient
+unprivileged public observer was started, and its first PID-bound heartbeat
+verified `DEGRADED_OBSERVER_ONLY`, with zero financial events and no order
+route. Protected financial paper workers remain uninstalled, and neither
+P1 nor P14 is admitted. This updates only the dated observation scope, not
+the independent P1/P14 financial science or risk gates.
+
+
 **Status: engineering-only, no protected worker or paper execution.** This is a bounded public-data acquisition and diagnostic bridge for draft PR #73, not an executable portfolio or an unattended scientific pilot.
 
 ## What runs
