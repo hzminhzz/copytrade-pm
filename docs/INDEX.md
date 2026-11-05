@@ -1,5 +1,7 @@
 # copytrade-pm handbook — start here
 
+**Pod portfolio contract comparison (research only):** [native read-only EV ranking tool, input schema and blocked-evidence behavior](CONTRACT-PORTFOLIO-EV-TOOL-20261105.md). Run `copytrade-pm contracts rules` or `copytrade-pm contracts compare --portfolio gemini.phase4/E6 --portfolio gemini.phase4/E2`. A positive modeled score is not scientific qualification or account authorization.
+
 **Research-only actuarial simulator:** [challenge-to-payout contract assumptions, reproducible 100,000-path scorecards and limitations](CONTRACT-ACTUARY-RESEARCH-20261105.md). Run `copytrade-pm-actuary --help` after installing the optional `actuary` dependency. This is synthetic economics, not real follower qualification or an account purchase recommendation.
 
 **Agent-native entrypoint:** [capability discovery and read-only operator CLI](AGENT-NATIVE-OPERATIONS.md).

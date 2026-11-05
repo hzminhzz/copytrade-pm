@@ -6,6 +6,8 @@ One Monte Carlo sample is a whole lifecycle; no trades or remote side effects.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Callable
+
 import numpy as np
 
 
@@ -47,7 +49,7 @@ def simulate(
     max_payouts: int | None = None,
     payout_safety_buffer: float = 25.0,
     discount_rate_annual: float = 0.0,
-    innovations: np.ndarray | None = None,
+    innovations: np.ndarray | Callable[[int, int], np.ndarray] | None = None,
 ) -> dict[str, float | int | str]:
     """Fixed-dollar PnL walk with intra-day monitoring and UTC daily resets.
 
@@ -96,6 +98,7 @@ def simulate(
     mu_step = (daily_mu - daily_cost) / steps_per_day
 
     for day in range(max_days):
+        promoted_today = np.zeros(paths, dtype=bool)
         # At midnight, new daily equity baseline; no stale daily PnL.
         daily_base[active] = equity[active]
         funded_day_open[active & funded] = equity[active & funded]
@@ -105,9 +108,9 @@ def simulate(
             if innovations is None:
                 z = rng.standard_normal(paths)
             else:
-                z = innovations[day, step]
-                if z.shape != (paths,):
-                    raise ValueError("innovations must have shape (days, steps, paths)")
+                z = innovations(day, step) if callable(innovations) else innovations[day, step]
+                if z.shape != (paths,) or not np.isfinite(z).all():
+                    raise ValueError("invalid innovation: expected finite (paths,) vector")
             size = size_lookup[phase[active]]
             equity[active] += size * (mu_step + sigma_step * z[active])
             challenge = active & ~funded
@@ -143,6 +146,7 @@ def simulate(
                 daily_base[hit_target] = 0
                 promotes = hit_target & (phase >= len(contract.targets))
                 funded[promotes] = True
+                promoted_today[promotes] = True
                 funded_age[promotes] = 0
                 funded_day_open[promotes] = 0
                 last_distribution_equity[promotes] = 0
@@ -153,7 +157,9 @@ def simulate(
         expired_eval = in_eval & (eval_age >= evaluation_days)
         ruined_before_payout |= expired_eval
         active[expired_eval] = False
-        in_fund = active & funded
+        # The UTC day of promotion is partial; never grant a qualifying
+        # green day or a full funded payout day for it.
+        in_fund = active & funded & ~promoted_today
         funded_age[in_fund] += 1
         green[in_fund & (equity > funded_day_open)] += 1
         pays = in_fund & (funded_age % contract.payout_every_days == 0)

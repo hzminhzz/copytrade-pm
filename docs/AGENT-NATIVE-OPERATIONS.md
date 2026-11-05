@@ -37,6 +37,17 @@ classification is **not** permission to execute arbitrary subcommands; use the
 reviewed subcommand record. The existing registry's `--apply` variants are
 protected and never exposed by the new read-only facade.
 
+## Portfolio-contract EV evaluation (2026-11-05)
+
+Use `copytrade-pm capabilities show research.contract_selector`, then
+`copytrade-pm contracts compare --portfolio gemini.phase4/E6 --portfolio
+gemini.phase4/E2`. Without complete synchronized net follower PnL, it
+returns BLOCKED. With full owner-private portfolio tapes, it compares the
+versioned A/B/C rules, evaluation/funded-stage risk scaling, realistic payout
+path and chance-of-ruin across sampled 7-day joint PnL blocks. It never
+promotes a simulated positive EV to qualification or broker authority.
+[Full tool contract](CONTRACT-PORTFOLIO-EV-TOOL-20261105.md).
+
 ## Actuarial research extension (2026-11-05)
 
 The reviewed read-only capability `research.actuary` owns a synthetic

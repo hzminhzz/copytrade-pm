@@ -180,6 +180,13 @@ NATIVE = {
         "READ_ONLY",
         "NATIVE_MINUTE_MARKET_LAKE",
     ),
+    "research.contract_selector": (
+        "copytrade_pm.pm_contract_selector",
+        "copytrade-pm contracts compare --portfolio gemini.phase4/E6",
+        "research",
+        "READ_ONLY",
+        "SEALED_PORTFOLIO_AND_FULL_NET_FOLLOWER_TAPE_REQUIRED",
+    ),
     "research.actuary": (
         "copytrade_pm.contract_actuary",
         "copytrade-pm-actuary --help",
@@ -304,6 +311,7 @@ REGISTRY_REQUIRED_ARGUMENTS = {
 NATIVE_REQUIRED_ARGUMENTS = {
     "wallet.inventory": [],
     "research.report.catalog": ["--cache-root PATH"],
+    "research.contract_selector": ["--portfolio NAMESPACE/ID", "--tape PRIVATE_TAPE"],
     "runtime.pinned_release": [],
     "runtime.paper_units": [],
     "runtime.market_observer": ["--observer-state-root PATH"],

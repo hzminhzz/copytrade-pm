@@ -403,6 +403,21 @@ def dispatch(args: argparse.Namespace) -> dict:
             limit=args.limit,
             offset=args.offset,
         )
+    if args.group == "contracts":
+        from .pm_contract_selector import compare_portfolios, rules_catalog
+
+        if args.verb == "rules":
+            return rules_catalog()
+        return compare_portfolios(
+            args.portfolio, args.tape, db=db, asof=args.asof,
+            paths=args.paths, seed=args.seed, block_days=args.block_days,
+            evaluation_days=args.evaluation_days, funded_days=args.funded_days,
+            evaluation_scales=tuple(args.evaluation_scales),
+            funded_scales=tuple(args.funded_scales),
+            extra_daily_cost=args.extra_daily_cost,
+            discount_rate=args.discount_rate,
+            max_no_first_payout_probability=args.max_no_first_payout_probability,
+        )
     if args.group == "paper":
         return _paper(db)
     return _health(db, args.root, args.observer_state_root)
@@ -452,6 +467,26 @@ def parser() -> argparse.ArgumentParser:
                 operation.add_argument("--cache-key")
                 operation.add_argument("--limit", type=int, default=100)
                 operation.add_argument("--offset", type=int, default=0)
+    contracts = top.add_parser("contracts", help="Read-only pod portfolio x contract EV screening")
+    contract_verbs = contracts.add_subparsers(dest="verb", required=True)
+    contract_verbs.add_parser("rules", help="Show the versioned, unverified rule scenarios")
+    compare = contract_verbs.add_parser("compare", help="Rank contracts from complete net PnL tapes")
+    compare.add_argument("--portfolio", action="append", required=True,
+                         help="Namespace-qualified sealed portfolio; repeat to compare portfolios")
+    compare.add_argument("--tape", action="append", type=Path,
+                         help="Full joint pod PnL tape; repeat once per portfolio")
+    compare.add_argument("--asof", help="Portfolio identity lookup cutoff in UTC")
+    compare.add_argument("--paths", type=int, default=100_000)
+    compare.add_argument("--seed", type=int, default=20261105)
+    compare.add_argument("--block-days", type=int, default=7)
+    compare.add_argument("--evaluation-days", type=int, default=180)
+    compare.add_argument("--funded-days", type=int, default=180)
+    compare.add_argument("--evaluation-scales", type=float, nargs="+", default=[0.5, 1.0])
+    compare.add_argument("--funded-scales", type=float, nargs="+", default=[0.25, 0.5])
+    compare.add_argument("--extra-daily-cost", type=float, default=0.0)
+    compare.add_argument("--discount-rate", type=float, default=0.0)
+    compare.add_argument("--max-no-first-payout-probability", type=float, default=1.0,
+                         help="Risk constraint for any selected contract/size policy")
     top.add_parser("status")
     top.add_parser("health")
     return p
@@ -464,6 +499,8 @@ def cli(argv: list[str] | None = None) -> int:
     print(json.dumps(response, sort_keys=True, indent=2))
     if args.group == "capabilities":
         return 2 if response.get("status") in ("BLOCKED", "UNKNOWN") else 0
+    if args.group == "contracts" and response.get("status") == "BLOCKED":
+        return 2
     if response.get("error_code"):
         return 2
     if response.get("status") == "UNKNOWN" and args.group not in ("status", "health", "paper"):

@@ -1,9 +1,9 @@
 """Deterministic contracts for lifecycle pricing, no network or execution."""
 import pytest
 
-from copytrade_pm.contract_actuary import CONTRACTS, Contract, simulate
-
 np = pytest.importorskip('numpy')
+
+from copytrade_pm.contract_actuary import CONTRACTS, Contract, simulate  # noqa: E402
 
 
 def test_no_risk_no_edge_never_passes() -> None:
