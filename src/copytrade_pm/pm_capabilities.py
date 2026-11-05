@@ -56,6 +56,11 @@ GROUPS = {
 # for the broader parent executable. No subcommand inherits READ_ONLY.
 REGISTRY_OPERATIONS = {
     "status": "READ_ONLY",
+    "authority status": "READ_ONLY",
+    "authority activate": "READ_ONLY",
+    "authority activate --apply": "PROTECTED_MUTATION",
+    "authority register": "READ_ONLY",
+    "authority register --apply": "PROTECTED_MUTATION",
     "doctor": "READ_ONLY",
     "runtime": "READ_ONLY",
     "report --redacted": "READ_ONLY",
@@ -285,6 +290,10 @@ DOCS = {
     "historical": "docs/RUNBOOK.md",
 }
 REGISTRY_REQUIRED_ARGUMENTS = {
+    "authority activate": ["--expected-generation SHA256"],
+    "authority activate --apply": ["--expected-generation SHA256"],
+    "authority register": ["--manifest PRIVATE_PATH", "--expected-generation SHA256"],
+    "authority register --apply": ["--manifest PRIVATE_PATH", "--expected-generation SHA256"],
     "wallet --alias": ["--alias ALIAS"],
     "wallet --address": ["--address ADDRESS"],
     "cohort": ["NAME"],

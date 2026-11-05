@@ -12,6 +12,10 @@ financial authority; paper status is an independent journal/worker concern.
 No new database, order route, source collector, financial calculator, web server
 or scheduler is introduced. This directory is descriptive, **not authorization**.
 
+## SQLite-primary source-of-truth policy (approved 2026-11-05)
+
+Before answering current wallet or portfolio questions, inspect `copytrade-wallet-registry authority status` and `doctor`. In `SQLITE_PRIMARY_V1`, SQLite is the operational authority; CSV/JSON/Markdown are legacy inputs or immutable evidence, and `sync --apply` is disabled. `authority register` appends research wallet/cohort versions transactionally, only after private manifest validation and a verified backup. It does not change live subscriptions. An old pinned release may not understand authority mode; verify both Git and installed revision. See [authority cutover and rollback](SQLITE-PRIMARY-AUTHORITY-20261105.md).
+
 ## Native-first workflow
 
 Before adding any Python module, CLI or data-access path, agents **must**:

@@ -63,6 +63,10 @@ from Forward-Paper first-event non-resetting T+300s.
 
 **Scope:** the mainline research architecture, updated during the 2026-11-01 PR17 recovery; see [the dated disposition](RECOVERY-DISPOSITION-2026-11-01.md) for exact commits and verification. This repository was history-filtered from `hyperliquid-expert-ensemble` (see [PROVENANCE](PROVENANCE.md)). It is **not** the production wallet tracker or Telegram consensus engine. Its research code must never import a live broker/order gateway. Read [INDEX](INDEX.md) first.
 
+## SQLite-primary authority transition (approved 2026-11-05)
+
+The owner-approved target makes private SQLite the **sole mutable operational registry** for current wallet/cohort/portfolio identities, exclusions and research selections. Historical source files and Git decision JSON remain immutable provenance, not current roster authority. The two operational modes are `LEGACY_IMPORTED_V1` (legacy importer can bootstrap) and opt-in `SQLITE_PRIMARY_V1` (native versioned registration; legacy source imports disabled for writes). Activation requires a verified backup and compatible pinned release; no unattended migration or active service restart is authorized. Live tracker subscriptions, paper/financial journals, independent scientific attestation and trading permissions remain independently verified authorities. See [the cutover/rollback contract](SQLITE-PRIMARY-AUTHORITY-20261105.md).
+
 ## Private registry boundary (2026-11-04, partial implementation)
 
 Wallet/portfolio discovery and status consumers **must** use the [mandatory registry-first read contract](WALLET-REGISTRY-AGENT-WORKFLOW.md). Git supplies immutable SHA-sealed decisions; private SQLite supplies the versioned materialized index; the tracker, worker, financial journal and qualification record retain independent authority. OptMem and narrative docs are not a current source of truth. A merged source hotfix must not be mistaken for an activated pinned release.

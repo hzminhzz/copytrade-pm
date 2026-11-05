@@ -19,6 +19,7 @@ import stat
 from contextlib import closing, contextmanager
 import fcntl
 
+from . import wallet_registry_authority as authority
 from . import wallet_registry_portfolios as portfolio_contract
 from . import wallet_registry_catalog as catalog
 from . import wallet_registry_signed_catalog as signed_catalog
@@ -491,6 +492,10 @@ def apply(db: Path, snapshot: dict, when: str) -> dict:
     with private_lock(db):
         if db.is_symlink():
             raise PermissionError("registry database symlink is forbidden")
+        if db.exists() and db.stat().st_size:
+            with closing(connect(db, False)) as existing:
+                if authority.mode(existing) == authority.MODE:
+                    raise ValueError("LEGACY_IMPORT_DISABLED_SQLITE_PRIMARY")
         if db.exists():
             if stat.S_IMODE(db.stat().st_mode) != 0o600:
                 raise PermissionError("registry database must have mode 0600")
@@ -910,14 +915,17 @@ def db_status(db: Path) -> dict:
         observed = meta.get("observed_at")
         try:
             age = (datetime.now(timezone.utc) - datetime.fromisoformat(observed)).total_seconds()
-            freshness = "CURRENT" if 0 <= age <= 86400 else "STALE"
+            source_freshness = "CURRENT" if 0 <= age <= 86400 else "STALE"
         except TypeError, ValueError:
-            freshness = "UNKNOWN"
+            source_freshness = "UNKNOWN"
+        primary = authority.mode(con) == authority.MODE
         return {
             "counts": counts,
             "generation": meta,
             "source_shas": sources,
-            "freshness": freshness,
+            "authority_mode": authority.MODE if primary else "LEGACY_IMPORTED_V1",
+            "source_snapshot_freshness": source_freshness,
+            "freshness": "CURRENT" if primary else source_freshness,
         }
 
 
@@ -970,6 +978,16 @@ def cli(argv: list[str] | None = None) -> int:
     flags.add_argument("--apply", action="store_true")
     sub.add_parser("status")
     sub.add_parser("doctor")
+    auth = sub.add_parser("authority", help="SQLite-primary cutover and wallet registration")
+    auth_sub = auth.add_subparsers(dest="authority_command", required=True)
+    auth_sub.add_parser("status")
+    promote = auth_sub.add_parser("activate")
+    promote.add_argument("--expected-generation", required=True)
+    promote.add_argument("--apply", action="store_true")
+    enroll = auth_sub.add_parser("register")
+    enroll.add_argument("--manifest", required=True, type=Path)
+    enroll.add_argument("--expected-generation", required=True)
+    enroll.add_argument("--apply", action="store_true")
     sub.add_parser("runtime")
     save = sub.add_parser("backup")
     save.add_argument("--to", required=True, type=Path)
@@ -1015,14 +1033,80 @@ def cli(argv: list[str] | None = None) -> int:
     science.add_argument("--apply", action="store_true", help="index verified negative only")
     args = parser.parse_args(argv)
     if args.command == "sync":
+        if args.apply and args.db.exists():
+            with closing(connect(args.db, False)) as con:
+                if authority.mode(con) == authority.MODE:
+                    raise ValueError("LEGACY_IMPORT_DISABLED_SQLITE_PRIMARY")
         snapshot = collect(args.root, args.tracker_env, args.decision_repo)
         result = status(snapshot)
+        result["authority"] = "LEGACY_SOURCE_PROJECTION_NOT_OPERATIONAL_AUTHORITY"
         if args.apply:
             result.update(apply(args.db, snapshot, datetime.now(timezone.utc).isoformat()))
         print(json.dumps(result, sort_keys=True))
+    elif args.command == "authority":
+        if args.authority_command == "status":
+            stored = db_status(args.db)
+            print(
+                json.dumps(
+                    {
+                        "authority_mode": stored["authority_mode"],
+                        "generation": stored["generation"].get("manifest_sha256"),
+                        "source_snapshot_freshness": stored["source_snapshot_freshness"],
+                        "trading_authorized": False,
+                    },
+                    sort_keys=True,
+                )
+            )
+        elif args.authority_command == "activate":
+            print(
+                json.dumps(
+                    authority.activate(
+                        args.db,
+                        expected=args.expected_generation,
+                        apply=args.apply,
+                    ),
+                    sort_keys=True,
+                )
+            )
+        elif args.authority_command == "register":
+            print(
+                json.dumps(
+                    authority.register(
+                        args.db,
+                        args.manifest,
+                        expected=args.expected_generation,
+                        apply=args.apply,
+                    ),
+                    sort_keys=True,
+                )
+            )
     elif args.command == "status":
         print(json.dumps(db_status(args.db), sort_keys=True))
     elif args.command == "doctor":
+        with closing(connect(args.db, False)) as con:
+            is_primary = authority.mode(con) == authority.MODE
+            if is_primary:
+                intact = authority._integrity(con)
+        if is_primary:
+            stored = db_status(args.db)
+            matched = intact and bool(stored["generation"].get("manifest_sha256"))
+            print(
+                json.dumps(
+                    {
+                        "authority_mode": authority.MODE,
+                        "registry_integrity": intact,
+                        "counts_match": None,
+                        "source_sha_match": None,
+                        "legacy_source_reconciliation": "NON_AUTHORITATIVE",
+                        "freshness": stored["freshness"],
+                        "source_snapshot_freshness": stored["source_snapshot_freshness"],
+                        "generation_sha256": stored["generation"].get("manifest_sha256"),
+                        "runtime_admitted": "UNKNOWN",
+                    },
+                    sort_keys=True,
+                )
+            )
+            return 0 if matched else 2
         live = status(collect(args.root, args.tracker_env, args.decision_repo))
         stored = db_status(args.db)
         count_mismatches = {
@@ -1039,11 +1123,7 @@ def cli(argv: list[str] | None = None) -> int:
             if stored["counts"].get(key) != live[key]
         }
         source_sha_match = stored["source_shas"] == live["source_shas"]
-        matched = (
-            not count_mismatches
-            and source_sha_match
-            and stored["freshness"] == "CURRENT"
-        )
+        matched = not count_mismatches and source_sha_match and stored["freshness"] == "CURRENT"
         print(
             json.dumps(
                 {

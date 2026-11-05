@@ -1,5 +1,7 @@
 # copytrade-pm handbook — start here
 
+**SQLite-primary architecture (approved 2026-11-05):** [SQLite authority, legacy import freeze, guarded wallet registration and cutover/rollback](SQLITE-PRIMARY-AUTHORITY-20261105.md). Current operational wallet and portfolio status belongs to private SQLite once `SQLITE_PRIMARY_V1` is explicitly activated. Historical files remain immutable evidence; source NAV, real subscriptions, paper-worker health and broker authority remain independent.
+
 **Pod portfolio contract comparison (research only):** [native read-only EV ranking tool, input schema and blocked-evidence behavior](CONTRACT-PORTFOLIO-EV-TOOL-20261105.md). Run `copytrade-pm contracts rules` or `copytrade-pm contracts compare --portfolio gemini.phase4/E6 --portfolio gemini.phase4/E2`. A positive modeled score is not scientific qualification or account authorization.
 
 **Research-only actuarial simulator:** [challenge-to-payout contract assumptions, reproducible 100,000-path scorecards and limitations](CONTRACT-ACTUARY-RESEARCH-20261105.md). Run `copytrade-pm-actuary --help` after installing the optional `actuary` dependency. This is synthetic economics, not real follower qualification or an account purchase recommendation.
@@ -20,7 +22,7 @@ may pass while independent observed model-choice evidence is still blocked.
 
 ## Read in this order
 
-**Agent requirement:** any live wallet, evaluation, exclusion, portfolio, paper status or deployment question must first follow [the mandatory registry-first workflow](WALLET-REGISTRY-AGENT-WORKFLOW.md), including `doctor` source SHA/as-of and installed release verification. OptMem and dated narrative reports only point to sources; they do not authorize live status.
+**Agent requirement:** any live wallet, evaluation, exclusion, portfolio, paper status or deployment question must first follow [the mandatory registry-first workflow](WALLET-REGISTRY-AGENT-WORKFLOW.md), including `authority status`, mode-specific `doctor`, as-of resolution and installed release verification. OptMem and dated narrative reports only point to sources; they do not authorize live status.
 
 | Goal | Authoritative guide | Contains |
 | --- | --- | --- |

@@ -46,6 +46,4 @@ def test_doctor_reports_specific_extra_cohort_mismatch(monkeypatch, capsys) -> N
     result = json.loads(capsys.readouterr().out)
     assert result["counts_match"] is False
     assert result["source_sha_match"] is True
-    assert result["count_mismatches"] == {
-        "research_unique": {"stored": 164, "source": 158}
-    }
+    assert result["count_mismatches"] == {"research_unique": {"stored": 164, "source": 158}}

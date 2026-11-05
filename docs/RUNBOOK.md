@@ -1,5 +1,9 @@
 # Research operator runbook — verified CLI sequence
 
+## SQLite-primary operational source of truth
+
+Use `copytrade-wallet-registry authority status` to identify the active mode before querying or importing wallets. Under `SQLITE_PRIMARY_V1`, use SQLite for current registry identity/cohorts/selections. Legacy CSV/JSON/Markdown files cannot overwrite current entries; `sync --apply` fails closed. Use a reviewed owner-private manifest with `authority register` and an exact expected generation for native research enrollment. Subscription/service operations and qualification remain independent. [Cutover, backup and rollback](SQLITE-PRIMARY-AUTHORITY-20261105.md).
+
 ## Portfolio x prop contract EV comparison (research only)
 
 Use the existing native capability `research.contract_selector`, exposed as

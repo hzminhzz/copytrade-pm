@@ -48,6 +48,7 @@ SERVICE_UNITS = (
 GIT_SHA = re.compile(r"^[0-9a-f]{40}$")
 VERIFY_FILES = (
     "src/copytrade_pm/wallet_registry.py",
+    "src/copytrade_pm/wallet_registry_authority.py",
     "src/copytrade_pm/wallet_registry_portfolios.py",
     "src/copytrade_pm/wallet_registry_catalog.py",
     "src/copytrade_pm/wallet_registry_signed_catalog.py",
@@ -345,7 +346,10 @@ def _installed_doctor(release: Path) -> None:
         "doctor",
     )
     data = json.loads(raw)
-    if not data.get("counts_match") or data.get("freshness") != "CURRENT":
+    if data.get("authority_mode") == "SQLITE_PRIMARY_V1":
+        if data.get("registry_integrity") is not True or data.get("freshness") != "CURRENT":
+            raise ValueError("pinned-release doctor did not prove SQLite integrity")
+    elif not data.get("counts_match") or data.get("freshness") != "CURRENT":
         raise ValueError("pinned-release doctor did not prove source parity")
     raw = command(
         "uv",

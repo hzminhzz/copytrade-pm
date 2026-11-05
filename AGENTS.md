@@ -66,6 +66,12 @@ When you spawn one, write: `You are a subagent. Don't run memo.`
 
 # copytrade-pm repository rules
 
+## SQLite-primary architecture (owner-approved 2026-11-05)
+
+- The canonical current wallet/cohort/portfolio registry is owner-private **SQLite**, not historical CSV/JSON/Markdown. Check `copytrade-wallet-registry authority status`; the live authority mode can still be legacy until a reviewed, backed-up cutover is activated.
+- In `SQLITE_PRIMARY_V1`, `sync --apply` and the historical source importer are **disabled for writes**. New research wallets use the private, backup-gated `authority register` interface; new portfolio selections use the protected signed-selection contract. Legacy files remain immutable scientific/source evidence, never substitute live roster data.
+- `doctor` verifies SQLite integrity in primary mode; prior source-SHA parity applies only in `LEGACY_IMPORTED_V1`. The source snapshot's freshness and live tracker subscriptions remain independent. Read [the SQLite-primary cutover contract](docs/SQLITE-PRIMARY-AUTHORITY-20261105.md), preserve sealed PIT provenance and never interpret indexed state as paper, qualification, or trading authorization.
+
 ## MANDATORY REGISTRY-FIRST discovery and decision workflow
 
 - For every task involving **wallet lookup, evaluated/watched/excluded wallets, saved/current portfolios, portfolio membership, paper runs, or deployment readiness**, read [the agent registry workflow](docs/WALLET-REGISTRY-AGENT-WORKFLOW.md) and query the **live owner-private versioned registry** before answering, editing, or approving a state. This is not optional and applies to future sessions and other agents. Do not answer such questions from OptMem, stale Markdown, bare alias files, Telegram lists, or an old PR.

@@ -88,10 +88,12 @@ def _registry_query(db: Path, command: list[str]) -> object:
 
 def _generation(db: Path) -> dict:
     info = _registry_query(db, ["status"])
+    primary = info.get("authority_mode") == registry.authority.MODE
     return {
         "status": info["freshness"],
         "sha": info["generation"]["manifest_sha256"],
-        "observed_at": info["generation"]["observed_at"],
+        "observed_at": info["generation"].get("authority_updated_at" if primary else "observed_at"),
+        "authority_mode": info.get("authority_mode", "LEGACY_IMPORTED_V1"),
         "counts": info["counts"],
     }
 
@@ -103,20 +105,37 @@ def _doctor(db: Path) -> dict:
         with redirect_stdout(sink):
             code = registry.cli(["--db", str(db), "doctor"])
         payload = json.loads(sink.getvalue())
-        if code == 0 and payload["counts_match"] and payload["freshness"] == "CURRENT":
+        primary = payload.get("authority_mode") == registry.authority.MODE
+        if primary:
+            state = (
+                "VERIFIED" if code == 0 and payload.get("registry_integrity") is True else "BLOCKED"
+            )
+        elif code == 0 and payload.get("counts_match") and payload["freshness"] == "CURRENT":
             state = "VERIFIED"
         elif code == 2 or not payload.get("counts_match"):
             state = "STALE"
         else:
             state = "UNKNOWN"
-        # The native doctor does not report a stored index generation clock;
-        # that belongs to the independent status query.
         return result(
             "registry.doctor",
             state,
-            {"counts_match": payload.get("counts_match"), "freshness": payload.get("freshness")},
-            authority="wallet_registry_live_source_parity",
-            error_code="REGISTRY_SOURCE_DRIFT" if state == "STALE" else None,
+            {
+                "authority_mode": payload.get("authority_mode", "LEGACY_IMPORTED_V1"),
+                "registry_integrity": payload.get("registry_integrity"),
+                "counts_match": payload.get("counts_match"),
+                "freshness": payload.get("freshness"),
+                "source_snapshot_freshness": payload.get("source_snapshot_freshness"),
+            },
+            authority="sqlite_registry_integrity"
+            if primary
+            else "wallet_registry_live_source_parity",
+            error_code=(
+                "SQLITE_REGISTRY_INTEGRITY_FAILED"
+                if primary and state != "VERIFIED"
+                else "REGISTRY_SOURCE_DRIFT"
+                if state == "STALE"
+                else None
+            ),
         )
     except (ValueError, OSError, KeyError, TypeError, RuntimeError, sqlite3.Error) as exc:
         return result(
@@ -152,12 +171,16 @@ def _read_registry(db: Path, command: list[str], capability: str, asof: str | No
             capability,
             status,
             payload,
-            authority="wallet_registry",
+            authority=(
+                "sqlite_registry_primary"
+                if gen["authority_mode"] == registry.authority.MODE
+                else "wallet_registry"
+            ),
             version="sqlite_v8",
             sha256=gen["sha"],
             source_observed_at=gen["observed_at"],
             limitations=[
-                "Indexed freshness is based on the stored generation clock; run doctor for live source parity",
+                "SQLite primary is current operational authority when activated; external source and monitoring freshness remain separate",
                 "Registry identity/read success does not establish worker health or trading authority",
             ],
         )
@@ -246,7 +269,7 @@ def _wallets(db: Path, args: argparse.Namespace) -> dict:
             source_observed_at=generation["observed_at"],
             limitations=[
                 "Indexed wallet attributes are source snapshots, not real-time equity or first-known trade receipts",
-                "Run registry doctor separately for live source parity",
+                "Run registry doctor for SQLite integrity; tracker subscription health is independent",
             ],
         )
     except (ValueError, OSError, RuntimeError, sqlite3.Error, KeyError, TypeError) as exc:
