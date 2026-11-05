@@ -20,6 +20,13 @@ def test_no_risk_no_edge_never_passes() -> None:
         )
         assert result["funded_probability"] == 0
         assert result["net_ev"] == -contract.fee
+        assert result["conditional_cost_to_fund"] is None
+        assert result["ruin_before_first_payout"] == 0
+        assert result["evaluation_expired_before_first_payout"] == 1
+        # Public CLI JSON must never expose non-standard NaN/Infinity literals.
+        import json
+
+        json.dumps(result, allow_nan=False)
 
 
 def test_promotion_and_payout_with_deterministic_positive_drift() -> None:
@@ -64,6 +71,8 @@ def test_maximum_drawdown_is_absorbing() -> None:
         innovations=z,
     )
     assert r["ruin_probability"] == 1
+    assert r["ruin_before_first_payout"] == 1
+    assert r["evaluation_expired_before_first_payout"] == 0
     assert r["funded_probability"] == 0
 
 
@@ -85,6 +94,14 @@ def test_eod_peak_sampling_is_not_intraday_peak_sampling() -> None:
     b = simulate(eod, **kwargs)
     assert a["ruin_probability"] == 1
     assert b["ruin_probability"] == 0
+
+
+def test_one_path_serializes_without_nan() -> None:
+    import json
+
+    single = simulate(CONTRACTS[0], paths=1, evaluation_days=1, funded_days=1)
+    assert single["payout_standard_error"] is None
+    json.dumps(single, allow_nan=False)
 
 
 def test_validation() -> None:

@@ -330,8 +330,8 @@ def compare_contracts(
         or sorted(tape.members) != portfolio["members"]
     ):
         raise ValueError("PORTFOLIO_TAPE_IDENTITY_OR_MEMBERSHIP_MISMATCH")
-    if type(paths) is not int or not 1 <= paths <= 250_000:
-        raise ValueError("INVALID_PATH_COUNT")
+    if type(paths) is not int or not 2 <= paths <= 250_000:
+        raise ValueError("MINIMUM_TWO_PATHS_FOR_EV_UNCERTAINTY")
     if any(type(v) is not int or not 1 <= v <= 365 for v in (evaluation_days, funded_days)):
         raise ValueError("INVALID_SCENARIO_HORIZON")
     grids = (*evaluation_scales, *funded_scales)
@@ -445,6 +445,7 @@ def compare_contracts(
                     "conditional_cost_to_fund",
                     "mean_payout",
                     "ruin_before_first_payout",
+                    "evaluation_expired_before_first_payout",
                     "no_first_payout",
                     "net_ev_lower_95_usd",
                 )
@@ -502,6 +503,7 @@ def compare_contracts(
                     "first_payout_probability",
                     "no_first_payout",
                     "ruin_before_first_payout",
+                    "evaluation_expired_before_first_payout",
                     "conditional_cost_to_fund",
                     "mean_payout",
                     "roi_pct",

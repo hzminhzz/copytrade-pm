@@ -14,7 +14,8 @@ follower MTM P&L panel**, rank the A/B/C user-specified prop-firm archetype
 rules under each evaluation/funded-stage risk scale. Output:
 
 - pass probability for all evaluation stages, estimated fee per successful
-  funding attempt, probability of first payout, ruin/no-first-payout probabilities
+  funding attempt, probability of first payout, knock-out before first payout,
+  evaluation expiry before first payout, and overall no-first-payout probability
 - expected discounted payouts across a **specified 180-day default funded
   horizon**, net expected cash value `E[payouts] - purchase_fee`, ROI on fee
 - 95%-normal Monte Carlo lower bound (sampling noise only; **not** model or
@@ -158,6 +159,9 @@ portfolio whose mark-to-market NAV is missing.
    `Net EV = mean discounted payouts - fee`, and
    `CI_low = Net EV - 1.96*MC_SE`. Neither handles parameter
    error, serial regime shift, family multiple testing or rulebook uncertainty.
+   Exact non-finite output (`NaN` or `Infinity`) is forbidden: an absent
+   conditional funding cost is JSON `null` when no simulation passes;
+   first-payout timeouts are not mislabeled as drawdown knockouts.
 7. Keep scientific qualification and trading authorization false. A
    positive portfolio-contract ranking is **not** an executable trade
    decision, broker permission or observed first-known follower PnL.

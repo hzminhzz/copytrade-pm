@@ -89,6 +89,7 @@ def simulate(
     daily_base = np.zeros(paths, dtype=np.float64)
     funded = np.zeros(paths, dtype=bool)
     ruined_before_payout = np.zeros(paths, dtype=bool)
+    expired_before_payout = np.zeros(paths, dtype=bool)
     ruined = np.zeros(paths, dtype=bool)
     paid_count = np.zeros(paths, dtype=np.int16)
     payouts = np.zeros(paths, dtype=np.float64)
@@ -166,7 +167,7 @@ def simulate(
         in_eval = active & ~funded
         eval_age[in_eval] += 1
         expired_eval = in_eval & (eval_age >= evaluation_days)
-        ruined_before_payout |= expired_eval
+        expired_before_payout |= expired_eval & (paid_count == 0)
         active[expired_eval] = False
         # The UTC day of promotion is partial; never grant a qualifying
         # green day or a full funded payout day for it.
@@ -224,10 +225,11 @@ def simulate(
         "funded_probability": float(funded_probability),
         "first_payout_probability": float(first_payout_probability),
         "ruin_before_first_payout": float(ruined_before_payout.mean()),
+        "evaluation_expired_before_first_payout": float(expired_before_payout.mean()),
         "no_first_payout": float(1 - first_payout_probability),
         "conditional_cost_to_fund": float(contract.fee / funded_probability)
         if funded_probability
-        else float("inf"),
+        else None,
         "mean_payout": float(mean_payout),
         "net_ev": float(mean_payout - contract.fee),
         "roi_pct": float(100 * (mean_payout - contract.fee) / contract.fee),
@@ -236,9 +238,7 @@ def simulate(
         if funded_probability
         else 0.0,
         "ruin_probability": float(ruined.mean()),
-        "payout_standard_error": float(payouts.std(ddof=1) / np.sqrt(paths))
-        if paths > 1
-        else float("nan"),
+        "payout_standard_error": float(payouts.std(ddof=1) / np.sqrt(paths)) if paths > 1 else None,
     }
 
 

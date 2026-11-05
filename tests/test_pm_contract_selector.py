@@ -108,6 +108,19 @@ def test_invalid_tapes_fail_closed(tmp_path: Path, mutate, error: str) -> None:
         selector.load_tape(file)
 
 
+def test_scorecard_requires_multiple_paths(tmp_path: Path) -> None:
+    path = tmp_path / "pnl.json"
+    _fixture(path)
+    with pytest.raises(ValueError, match="MINIMUM_TWO_PATHS"):
+        selector.compare_contracts(
+            selector.load_tape(path),
+            _identity(),
+            paths=1,
+            evaluation_days=5,
+            funded_days=10,
+        )
+
+
 def test_reject_identity_drift(tmp_path: Path) -> None:
     path = tmp_path / "pnl.json"
     _fixture(path)
