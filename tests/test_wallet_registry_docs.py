@@ -76,6 +76,27 @@ def test_registry_first_agent_instructions_are_required() -> None:
     assert "PAPER_RUNNING" in guide
 
 
+def test_agents_must_use_native_contract_ev_tool_for_pod_comparison() -> None:
+    """Guard against regressing to ad hoc contract/portfolio simulators."""
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    guide = (ROOT / "docs/CONTRACT-PORTFOLIO-EV-TOOL-20261105.md").read_text(encoding="utf-8")
+    for requirement in (
+        "MANDATORY contract EV tool",
+        "research.contract_selector",
+        "copytrade-pm contracts rules",
+        "copytrade-pm contracts compare",
+        "--tape",
+        "SQLite",
+        "BLOCKED",
+        "SCENARIO_ONLY",
+        "permission to trade",
+    ):
+        assert requirement in agents
+    assert "net follower" in agents.lower()
+    assert "CONTRACT-PORTFOLIO-EV-TOOL-20261105.md" in agents
+    assert "NO_AUTHORIZED_PURCHASE_RECOMMENDATION" in guide
+
+
 def test_missing_document_fails_closed(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="required wallet registry document missing"):
         audit.check(tmp_path, current={})
