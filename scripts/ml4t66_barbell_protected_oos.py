@@ -122,19 +122,40 @@ def run_replay(
     cost: float,
     delay: int,
     label: str,
+    k_override: dict[str, float] | None = None,
+    stop_policy: str = "role_budgets",
 ) -> dict:
-    ks, daily_limits, life_limits, train_joint, full_joint = calculate_k(members, roles, stat)
-    adapted = barbell.scale_batch(batch, members, ks, scalars)
+    calibrated_ks, daily_limits, life_limits, _, _ = calculate_k(members, roles, stat)
+    ks = calibrated_ks if k_override is None else k_override
+    if set(ks) != set(members):
+        raise ValueError("K_OVERRIDE_MISMATCH")
+    train_joint = STRESS_FACTOR * sum(
+        ks[alias] / stat[alias]["base_k"] *
+        stat[alias]["training_daily_adverse_usd"] for alias in members
+    )
+    full_joint = STRESS_FACTOR * sum(
+        ks[alias] / stat[alias]["base_k"] *
+        stat[alias]["full_daily_adverse_usd"] for alias in members
+    )
+    if stop_policy not in ("role_budgets", "fixed_200_trailing"):
+        raise ValueError("INVALID_STOP_POLICY")
+    if stop_policy == "fixed_200_trailing":
+        life_limits = {alias: 200.0 for alias in members}
+        pod_day_limits = None
+    else:
+        pod_day_limits = daily_limits
     result = protected_replay.protected(
-        adapted,
+        batch,
         members,
         {alias: {"static_equity_scalar": scalars[alias]} for alias in members},
         panels,
         cost_bps=cost,
-        budget_usd=150.0,
-        pod_daily_limit=100.0,
+        budget_usd=200.0,
+        pod_daily_limit=None,
         pod_budgets_usd=life_limits,
-        pod_daily_limits_usd=daily_limits,
+        pod_daily_limits_usd=pod_day_limits,
+        k_factors=ks,
+        start_index=TRAIN_MINUTES,
         mark_mode="adverse",
         contract_rule=RULE,
     )
@@ -146,7 +167,8 @@ def run_replay(
         "delay_min": delay,
         "total_bps_per_side": cost,
         "k": {x: round(y, 9) for x, y in ks.items()},
-        "daily_budget_usd": daily_limits,
+        "stop_policy": stop_policy,
+        "daily_budget_usd": pod_day_limits,
         "lifetime_budget_usd": life_limits,
         "training_coincident_stress_usd": round(train_joint, 2),
         "full_period_coincident_stress_usd_hindsight": round(full_joint, 2),
@@ -174,7 +196,9 @@ def run_replay(
     }
 
 
-def evaluate(db: Path, source_root: Path, market_root: Path) -> dict:
+def evaluate(db: Path, source_root: Path, market_root: Path, *,
+             sizing_audit_only: bool = False,
+             audit_portfolio: str | None = None) -> dict:
     cohort, sha = roster(db)
     stores, acquisition = local_sources(
         source_root, cohort, extra_source_dirs=(source_replay.SUPPLEMENT,),
@@ -229,11 +253,12 @@ def evaluate(db: Path, source_root: Path, market_root: Path) -> dict:
 
     policies = portfolio_universe()
     screen: list[dict] = []
-    for label, members, roles in policies:
-        screen.append(run_replay(
-            oos_batches[5], members, roles, calibration, scalars, panels,
-            cost=6.0, delay=5, label=label
-        ))
+    if not sizing_audit_only:
+        for label, members, roles in policies:
+            screen.append(run_replay(
+                oos_batches[5], members, roles, calibration, scalars, panels,
+                cost=6.0, delay=5, label=label
+            ))
     # Rerun top non-breaching modeled outcomes across delay/cost combinations,
     # not only the historically fastest (where a fast breach is unacceptable).
     eligible = [r for r in screen
@@ -256,8 +281,57 @@ def evaluate(db: Path, source_root: Path, market_root: Path) -> dict:
                 oos_batches[delay], members, roles, calibration, scalars, panels,
                 cost=cost, delay=delay, label=label,
             ))
+    # Diagnostic only: isolate the effect of the original aggressive
+    # pre-sizing while preserving the SAME pod/account stops and source data.
+    # This is a sensitivity sweep, not a newly approved risk policy.
+    sizing_sensitivity = []
+    audit_names = {
+        "3P_M55_M22_M58", "3P_M55_M22_M50", "3P_M55_M22_M29"
+    }
+    for label, members, roles in policies:
+        if label not in audit_names or (audit_portfolio and label != audit_portfolio):
+            continue
+        k0, _, _, _, _ = calculate_k(members, roles, calibration)
+        allocations = {
+            "risk_presized_1x": k0,
+            "risk_presized_2x": {alias: min(.35, k * 2) for alias, k in k0.items()},
+            "risk_presized_4x": {alias: min(.35, k * 4) for alias, k in k0.items()},
+            "risk_presized_8x": {alias: min(.35, k * 8) for alias, k in k0.items()},
+            "static_equity_40_40_20": {
+                alias: min(.35, capital / float(scalars[alias]))
+                for alias, capital in zip(members, (4000., 4000., 2000.), strict=True)
+            },
+        }
+        for policy_name, override in allocations.items():
+            for cost in (6.0, 12.0):
+                item = run_replay(
+                    oos_batches[5], members, roles, calibration, scalars, panels,
+                    cost=cost, delay=5, label=label, k_override=override,
+                )
+                item["sizing_policy"] = policy_name
+                item["source_equity_equivalent_capital_usd"] = {
+                    alias: round(override[alias] * float(scalars[alias]), 2)
+                    for alias in members
+                }
+                item["source_equity_equivalent_total_usd"] = round(sum(
+                    override[alias] * float(scalars[alias]) for alias in members
+                ), 2)
+                sizing_sensitivity.append(item)
+        for variant in ("risk_presized_1x", "risk_presized_2x",
+                        "static_equity_40_40_20"):
+            override = allocations[variant]
+            item = run_replay(
+                oos_batches[5], members, roles, calibration, scalars, panels,
+                cost=6.0, delay=5, label=label, k_override=override,
+                stop_policy="fixed_200_trailing",
+            )
+            item["sizing_policy"] = variant + "__fixed_200_stop"
+            item["source_equity_equivalent_total_usd"] = round(sum(
+                override[alias] * float(scalars[alias]) for alias in members
+            ), 2)
+            sizing_sensitivity.append(item)
     return {
-        "schema": "ml4t66_barbell_protected_oos_20261106_v1",
+        "schema": "ml4t66_barbell_protected_oos_sizing_audit_20261106_v2",
         "evidence": "HISTORICAL_EVENT_ORACLE_UNQUALIFIED",
         "cohort": "ml4t-strict-66",
         "cohort_sha": sha,
@@ -292,7 +366,17 @@ def evaluate(db: Path, source_root: Path, market_root: Path) -> dict:
         "candidate_wallets": calibration,
         "screen": screen,
         "validation": validation,
+        "sizing_sensitivity": sizing_sensitivity,
+        "sizing_sensitivity_assumptions": {
+            "same_protected_pod_stops_account_rules_and_market_for_all_policies": True,
+            "sizing_policies_larger_than_original_are_hypothetical_not_authorized": True,
+            "underlying_source_equity_is_not_point_in_time": True,
+            "gross_and_concentration_pretrade_caps_absent": True,
+            "stressed_co_worst_above_400_is_not_internally_admissible": True,
+        },
         "screen_status": dict(Counter(r["status"] for r in screen)),
+        "sizing_audit_only": sizing_audit_only,
+        "audit_portfolio_filter": audit_portfolio,
         "scientifically_qualified": False,
         "trading_authorized": False,
     }
@@ -304,8 +388,14 @@ def main() -> None:
     parser.add_argument("--source-root", type=Path, required=True)
     parser.add_argument("--market-root", type=Path, required=True)
     parser.add_argument("--output-root", type=Path, required=True)
+    parser.add_argument("--sizing-audit-only", action="store_true")
+    parser.add_argument("--audit-portfolio", choices=(
+        "3P_M55_M22_M58", "3P_M55_M22_M50", "3P_M55_M22_M29",
+    ))
     args = parser.parse_args()
-    output = evaluate(args.db, args.source_root, args.market_root)
+    output = evaluate(args.db, args.source_root, args.market_root,
+                      sizing_audit_only=args.sizing_audit_only,
+                      audit_portfolio=args.audit_portfolio)
     target = args.output_root
     target.mkdir(parents=True, exist_ok=True, mode=0o700)
     if target.is_symlink() or target.stat().st_mode & 0o077:

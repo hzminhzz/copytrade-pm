@@ -159,6 +159,8 @@ def protected(
     pod_daily_limit: float | None = None,
     pod_budgets_usd: dict[str, float] | None = None,
     pod_daily_limits_usd: dict[str, float] | None = None,
+    k_factors: dict[str, float] | None = None,
+    start_index: int = 0,
     mark_mode: str = "close",
     contract_rule: dict | None = None,
 ) -> dict:
@@ -167,20 +169,34 @@ def protected(
         raise ValueError("INVALID_POD_STOP_BUDGET")
     if cost_bps < 3.5 or mark_mode not in ("close", "adverse"):
         raise ValueError("INVALID_COST_OR_MARKING")
+    if not isinstance(start_index, int) or not 0 <= start_index < base.MINUTES:
+        raise ValueError("INVALID_START_INDEX")
+    if start_index % 1440 and contract_rule is not None:
+        raise ValueError("NON_DAILY_ACCOUNT_START_UNSUPPORTED")
     for policy in (pod_budgets_usd, pod_daily_limits_usd):
         if policy is not None and (
             set(policy) != set(members)
             or any(not np.isfinite(value) or value <= 0 for value in policy.values())
         ):
             raise ValueError("INVALID_PER_POD_BUDGETS")
+    if k_factors is not None and (
+        set(k_factors) != set(members)
+        or any(not np.isfinite(k) or k <= 0 for k in k_factors.values())
+    ):
+        raise ValueError("INVALID_K_FACTORS")
     pods = {}
     for member in members:
-        scalar = Decimal(attr[member]["static_equity_scalar"])
-        k = float(
-            Decimal(1) / Decimal(len(members)) * min(Decimal("0.35"), Decimal("10000") / scalar)
-        )
+        if k_factors is None:
+            scalar = Decimal(attr[member]["static_equity_scalar"])
+            k = float(
+                Decimal(1) / Decimal(len(members)) * min(Decimal("0.35"), Decimal("10000") / scalar)
+            )
+        else:
+            k = float(k_factors[member])
         pods[member] = Pod(alias=member, k=k)
     by_minute = order_index(batches.filter(pl.col("alias").is_in(members)))
+    if any(index < start_index for index in by_minute):
+        raise ValueError("SOURCE_ORDERS_BEFORE_ACCOUNT_START")
     instrument_orders = Counter()
     blocked_orders = Counter()
     stops = []
@@ -202,7 +218,7 @@ def protected(
     peak_gross = 0.0
     last_equity = START_USD
     last_valid = -1
-    for i in range(base.MINUTES):
+    for i in range(start_index, base.MINUTES):
         if i % 1440 == 0:
             day_base = previous_equity
             day_peak = day_base
@@ -461,6 +477,9 @@ def protected(
         "pod_daily_limit_usd": pod_daily_limit,
         "pod_budgets_usd": pod_budgets_usd,
         "pod_daily_limits_usd": pod_daily_limits_usd,
+        "explicit_k_factors": {name: pod.k for name, pod in pods.items()}
+        if k_factors is not None else None,
+        "start_index": start_index,
         "mark_mode": mark_mode,
         "cost_bps_per_executed_side": cost_bps,
         "terminal_equity_usd": final_equity if allowed else None,

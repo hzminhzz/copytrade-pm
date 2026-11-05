@@ -8,6 +8,7 @@ import polars as pl
 import pytest
 
 from scripts import ml4t66_barbell_protected_oos as extended
+from scripts import ml4t66_barbell_research as barbell
 from scripts import ml4t66_protected_portfolio_replay as protected
 
 
@@ -121,6 +122,85 @@ def test_no_green_day_requirement_for_custom_single_stage_contract(monkeypatch):
     )
     assert report["target_at"] == "1970-01-01T00:02:00+00:00"
     assert report["status"] == "CHALLENGE_TARGET_REACHED"
+
+
+def test_explicit_k_matches_legacy_bridge_without_double_scaling(monkeypatch):
+    _short(monkeypatch)
+    batch = pl.DataFrame({
+        "alias": ["A", "B"], "coin": ["BTC", "BTC"],
+        "execute_ms": [60_000, 60_000], "net_qty": [10.0, -4.0],
+    })
+    prices = {
+        "open": np.full(6, 100.),
+        "close": np.full(6, 102.),
+        "low": np.full(6, 101.),
+        "high": np.full(6, 103.),
+    }
+    attr = {name: {"static_equity_scalar": "20000"} for name in ("A", "B")}
+    ks = {"A": 0.10, "B": 0.05}
+    direct = protected.protected(
+        batch, ("A", "B"), attr, {"BTC": prices}, k_factors=ks,
+    )
+    bridge = protected.protected(
+        barbell.scale_batch(batch, ("A", "B"), ks,
+                            {"A": "20000", "B": "20000"}),
+        ("A", "B"), attr, {"BTC": prices},
+    )
+    assert direct["net_pnl_usd"] == bridge["net_pnl_usd"]
+    assert direct["peak_gross_usd"] == bridge["peak_gross_usd"]
+    assert direct["pods"]["A"]["source_fills_executed"] == 1
+    assert direct["pods"]["B"]["source_fills_executed"] == 1
+
+
+def test_explicit_k_rejects_missing_wallet(monkeypatch):
+    _short(monkeypatch)
+    with pytest.raises(ValueError, match="INVALID_K_FACTORS"):
+        protected.protected(_batch(("A", "B")), ("A", "B"), {}, {},
+                            k_factors={"A": .1})
+
+
+def test_skipping_empty_training_prefix_preserves_equity_and_stops(monkeypatch):
+    monkeypatch.setattr(protected.base, "MINUTES", 2881)
+    monkeypatch.setattr(protected.base, "START_MS", 0)
+    monkeypatch.setattr(protected.base, "START", datetime(1970, 1, 1, tzinfo=UTC))
+    batch = pl.DataFrame({
+        "alias": ["A"], "coin": ["BTC"],
+        "execute_ms": [1441 * 60_000], "net_qty": [10.],
+    })
+    prices = {
+        "open": np.full(2881, 100.),
+        "close": np.full(2881, 100.),
+        "low": np.full(2881, 100.),
+        "high": np.full(2881, 100.),
+    }
+    prices["close"][1442:] = 101.
+    prices["low"][1442:] = 99.
+    prices["high"][1442:] = 102.
+    opts = dict(
+        batches=batch, members=("A",),
+        attr={"A": {"static_equity_scalar": "25000"}},
+        panels={"BTC": prices}, k_factors={"A": .05},
+        budget_usd=200.,
+        contract_rule={
+            "daily": 500., "trailing": 1000., "eod_trailing": False,
+            "targets": (1000.,), "minimum_green_days": 0,
+        },
+    )
+    original = protected.protected(**opts)
+    skipped = protected.protected(**opts, start_index=1440)
+    assert skipped["net_pnl_usd"] == original["net_pnl_usd"]
+    assert skipped["max_drawdown_usd_observed"] == original["max_drawdown_usd_observed"]
+    assert skipped["status"] == original["status"]
+    assert skipped["fills_executed_by_type"] == original["fills_executed_by_type"]
+
+
+def test_start_index_rejects_preexisting_source_orders(monkeypatch):
+    _short(monkeypatch)
+    with pytest.raises(ValueError, match="SOURCE_ORDERS_BEFORE_ACCOUNT_START"):
+        protected.protected(
+            _batch(("A",)), ("A",), {}, {},
+            k_factors={"A": .01}, start_index=2,
+        )
 
 
 def test_account_daily_hwm_stress_does_not_invent_ohlc_order(monkeypatch):

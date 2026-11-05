@@ -1,5 +1,7 @@
 # copytrade-pm handbook — start here
 
+**ML4T-66 sizing forensic audit (2026-11-06):** [why k was too small, explicit quantity-scaling regression, 1x/2x/4x/8x and static-equity sensitivity with $200/pod stops](ML4T66-SIZING-FORENSIC-AUDIT-20261106.md). 2× scenario is not stress-authorized.
+
 **ML4T-66 expanded protected barbell research (2026-11-06):** [66 three-to-five pod comparisons, 45-day separate historical follow-up, $400 co-crash screening and pod-stop/next-open flattening](ML4T66-BARBELL-PROTECTED-OOS-20261106.md). No +10% target, no qualification or trading authority.
 
 **ML4T-66 earlier unmanaged barbell research (2026-11-05):** [8-wallet stress/2m-5m/6-18bps comparison, complete blockers](ML4T66-BARBELL-RESEARCH-20261105.md). Not a portfolio freeze, contract ranking, or trading authorization.
