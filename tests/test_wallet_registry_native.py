@@ -222,6 +222,51 @@ def test_cli_native_lock_and_status_preserve_non_sensitive_output(
     assert address(1) not in json.dumps(preview)
 
 
+def test_lock_marker_without_all_sqlite_triggers_fails_closed(tmp_path: Path) -> None:
+    db, _, baseline = seed(tmp_path)
+    locked = native.lock_legacy_import(db, expected=baseline, apply=True, now=NOW)
+    with closing(registry.connect(db, True)) as con:
+        con.execute("DROP TRIGGER native_registry_no_legacy_import")
+    with pytest.raises(ValueError, match="LEGACY_LOCK_TRIGGER_INTEGRITY_FAILED"):
+        registry.db_authority_health(db)
+    with pytest.raises(ValueError, match="LEGACY_LOCK_TRIGGER_INTEGRITY_FAILED"):
+        native.lock_legacy_import(db, expected=locked["inventory_sha256"], apply=True)
+
+
+def test_native_cohort_archive_deleted_or_corrupt_fails_doctor_and_idempotency(
+    tmp_path: Path,
+) -> None:
+    db, _, baseline = seed(tmp_path)
+    lock = native.lock_legacy_import(db, expected=baseline, apply=True, now=NOW)
+    source = manifest(tmp_path)
+    result = native.register_cohort(
+        db, source, expected=lock["inventory_sha256"], apply=True, now=NOW
+    )
+    archive = (
+        db.parent
+        / "evidence"
+        / "native-cohorts"
+        / f"{sha256(source.read_bytes()).hexdigest()}.json"
+    )
+    archive.unlink()
+    with pytest.raises(ValueError, match="NATIVE_COHORT_EVIDENCE_INVALID"):
+        registry.db_authority_health(db)
+    with pytest.raises(ValueError, match="NATIVE_COHORT_EVIDENCE_INVALID"):
+        native.register_cohort(db, source, expected=result["inventory_sha256"], apply=True, now=NOW)
+
+
+def test_native_cohort_evidence_root_symlink_is_rejected(tmp_path: Path) -> None:
+    db, _, baseline = seed(tmp_path)
+    locked = native.lock_legacy_import(db, expected=baseline, apply=True, now=NOW)
+    source = manifest(tmp_path)
+    external = tmp_path / "elsewhere"
+    external.mkdir(mode=0o700)
+    (db.parent / "evidence").symlink_to(external, target_is_directory=True)
+    with pytest.raises(PermissionError, match="PRIVATE_EVIDENCE_DIRECTORY_REQUIRED"):
+        native.register_cohort(db, source, expected=locked["inventory_sha256"], apply=True, now=NOW)
+    assert registry.db_authority_health(db)["inventory_sha256"] == locked["inventory_sha256"]
+
+
 def test_unlocked_legacy_import_keeps_existing_fixture_behavior(tmp_path: Path) -> None:
     db, snapshot, baseline = seed(tmp_path)
     with closing(registry.connect(db, False)) as con:

@@ -46,9 +46,19 @@ LOCK_TRIGGERS = (
 
 
 def locked(con: sqlite3.Connection) -> bool:
-    return (
+    """A lock marker alone is not protection: verify the SQLite backstops."""
+    marked = (
         con.execute("SELECT 1 FROM snapshot_meta WHERE key=?", (LOCK_KEY,)).fetchone() is not None
     )
+    if marked:
+        for statement in LOCK_TRIGGERS:
+            name = statement.split()[2]
+            actual = con.execute(
+                "SELECT sql FROM sqlite_master WHERE type='trigger' AND name=?", (name,)
+            ).fetchone()
+            if actual is None or " ".join(actual[0].split()) != " ".join(statement.split()):
+                raise ValueError("LEGACY_LOCK_TRIGGER_INTEGRITY_FAILED")
+    return marked
 
 
 def _set(con: sqlite3.Connection, key: str, value: str) -> None:
@@ -185,6 +195,8 @@ def _manifest(path: Path) -> tuple[str, list[tuple[str, list[str]]], str]:
     for wallet in wallets:
         if not isinstance(wallet, dict) or set(wallet) != {"address", "aliases"}:
             raise ValueError("INVALID_NATIVE_WALLET_RECORD")
+        if not isinstance(wallet["address"], str):
+            raise ValueError("INVALID_NATIVE_WALLET_ADDRESS")
         address = reg.normalize(wallet["address"])
         aliases = wallet["aliases"]
         if (
@@ -250,8 +262,12 @@ def _seal_manifest(
     if category not in {"native-cohorts", "native-exclusions"}:
         raise ValueError("UNSUPPORTED_EVIDENCE_CATEGORY")
     location = Path("evidence") / category / f"{expected_sha}.json"
+    evidence_root = db.parent / "evidence"
+    evidence_root.mkdir(mode=0o700, exist_ok=True)
+    if evidence_root.is_symlink() or stat.S_IMODE(evidence_root.stat().st_mode) != 0o700:
+        raise PermissionError("PRIVATE_EVIDENCE_DIRECTORY_REQUIRED")
     directory = db.parent / location.parent
-    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    directory.mkdir(mode=0o700, exist_ok=True)
     if directory.is_symlink() or stat.S_IMODE(directory.stat().st_mode) != 0o700:
         raise PermissionError("PRIVATE_EVIDENCE_DIRECTORY_REQUIRED")
     final = db.parent / location
@@ -287,6 +303,57 @@ def _seal_manifest(
     return str(location)
 
 
+def verify_native_cohort_archives(db: Path, con: sqlite3.Connection) -> None:
+    """Verify immutable native versions rather than trusting a current importer label."""
+    for cohort, version, digest in con.execute(
+        "SELECT cohort_id,version,source_sha256 FROM cohorts ORDER BY cohort_id,version"
+    ):
+        if not re.fullmatch(r"[0-9a-f]{64}", digest):
+            continue
+        key = f"sqlite_primary:{cohort}"
+        if (
+            con.execute(
+                "SELECT 1 FROM evidence_versions WHERE source_key=? LIMIT 1", (key,)
+            ).fetchone()
+            is None
+        ):
+            continue  # Legacy SHA-imported cohort; no native archival claim.
+        archive = db.parent / "evidence" / "native-cohorts" / f"{digest}.json"
+        try:
+            recorded_cohort, entries, recorded_sha = _manifest(archive)
+        except (ValueError, PermissionError, OSError, json.JSONDecodeError) as exc:
+            raise ValueError("NATIVE_COHORT_EVIDENCE_INVALID") from exc
+        if recorded_cohort != cohort or recorded_sha != digest:
+            raise ValueError("NATIVE_COHORT_EVIDENCE_INVALID")
+        version_proof = con.execute(
+            "SELECT 1 FROM evidence_versions WHERE source_key=? AND sha256=?",
+            (key, digest),
+        ).fetchone()
+        if version_proof is None:
+            raise ValueError("NATIVE_COHORT_VERSION_MISSING")
+        observed = {
+            row[0]
+            for row in con.execute(
+                "SELECT w.address FROM cohort_memberships m "
+                "JOIN wallets w USING(wallet_id) WHERE m.cohort_id=? AND m.version=?",
+                (cohort, version),
+            )
+        }
+        if not {address for address, _ in entries}.issubset(observed):
+            raise ValueError("NATIVE_COHORT_MEMBERSHIP_MISMATCH")
+        latest = con.execute(
+            "SELECT MAX(version) FROM cohorts WHERE cohort_id=?", (cohort,)
+        ).fetchone()[0]
+        if version == latest:
+            row = con.execute(
+                "SELECT sha256,source_path FROM evidence_artifacts WHERE source_key=?",
+                (key,),
+            ).fetchone()
+            expected_path = str(Path("evidence") / "native-cohorts" / f"{digest}.json")
+            if row != (digest, expected_path):
+                raise ValueError("NATIVE_COHORT_LATEST_EVIDENCE_MISMATCH")
+
+
 def register_cohort(
     db: Path,
     manifest: Path,
@@ -314,6 +381,7 @@ def register_cohort(
                 (cohort,),
             ).fetchone()
             if prior is not None and prior[1] == manifest_sha:
+                verify_native_cohort_archives(db, con)
                 return {
                     "authority": "SQLITE",
                     "inventory_sha256": baseline,

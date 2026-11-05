@@ -906,6 +906,8 @@ def db_authority_health(db: Path) -> dict:
         }
         if any(count == 0 for count in counts.values()):
             raise ValueError("REGISTRY_EMPTY_REGISTERED_COHORT")
+        native.locked(con)  # Verify all protective triggers when legacy writes are disabled.
+        native.verify_native_cohort_archives(db, con)
         native.verify_exclusion_archives(db, con)
         for table in AUTHORITATIVE_INVENTORY_TABLES:
             records = con.execute(f"SELECT * FROM {table}").fetchall()
