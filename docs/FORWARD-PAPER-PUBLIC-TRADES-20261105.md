@@ -1,5 +1,8 @@
 # Public market-trade wallet observations and causal UTC batching (2026-11-05)
 
+**Superseding physical market layout:** [157 Propr-displayed native markets in 3 physical WS groups](FORWARD-PAPER-PROPR-157-THREE-SOCKETS-20261105.md) with full [generated configuration](FORWARD-PAPER-PROPR-157-THREE-SOCKETS-20261105.json) derived from the private dated public Propr snapshot. The 5×8 Top-40 layout remains a logical reporting fixture and historical transport canary; new bounded observation scope is 8 majors/88 other crypto/61 `xyz` instruments. Live transport validated the groups **sequentially**, not as a simultaneously deployed three-socket worker. Missing wallet NAV, continuous first-known coverage and Propr execution eligibility still block actual paper orders.
+
+
 **Authority:** isolated research implementation on `feat/pit-public-trade-paper-bridge-20261105`, based on `origin/main` at `58dc8ee`. This is NOT a financial paper worker, source-account NAV proof, live order path, or scientific qualification. Existing P1/P14 read-only observer and pinned release are unchanged.
 
 ## Verified bounded public-feed canary — 2026-11-05
@@ -86,7 +89,7 @@ uv run --frozen --extra source --group dev copytrade-pm-public-trades \
   --parallel-shards 2 --duration-seconds 20 --max-frames 500
 ```
 
-`--instrument` can be supplied repeatedly instead of `--market-file`. All selections must use native `hyperliquid/mainnet:perp:default/COIN` or HIP-3 `hyperliquid/mainnet:perp:DEX/COIN` identities, not spot symbols or CCXT unified strings. The CLI strictly validates the allowlist, refuses duplicates, and supports **up to 128 explicitly selected markets**, split into ≤8 subscriptions per WebSocket and ≤5 concurrently running shards. It never silently drops an omitted market, and reports `NO_MARKET_FRAMES`, `BASELINE_ONLY` or `ACTIVE_AFTER_BASELINE` per market. `max-frames` and `duration-seconds` bound **each shard**, not a continuous daemon. Unsupported/incomplete universes stay blocked.
+`--instrument` can be supplied repeatedly instead of `--market-file`. All selections must use native `hyperliquid/mainnet:perp:default/COIN` or HIP-3 `hyperliquid/mainnet:perp:DEX/COIN` identities, not spot symbols or CCXT unified strings. Legacy flat allowlists support **up to 128 explicitly selected markets** split into ≤8 symbols per socket; the newer 157-market [Propr physical socket configuration](FORWARD-PAPER-PROPR-157-THREE-SOCKETS-20261105.md) supports explicit 8/88/61 groups across three sockets, with each socket bounded to ≤128 native subscriptions. Directing more than one Propr socket to open concurrently requires explicit shared-IP budget acknowledgement. It never silently drops an omitted market, and reports `NO_MARKET_FRAMES`, `BASELINE_ONLY` or `ACTIVE_AFTER_BASELINE` per market. `max-frames` and `duration-seconds` bound **each shard**, not a continuous daemon. Unsupported/incomplete universes stay blocked.
 
 To run **one** immutable UTC scheduling pass across those markets and the same wallets, without exchange activity or financial paper fills:
 

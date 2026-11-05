@@ -26,8 +26,9 @@ from .pm_forward_journal import PaperJournal
 from .pm_forward_portfolios import _verify_sealed_definition_sha
 
 ADDRESS = re.compile(r"0x[0-9a-f]{40}\Z")
-MAX_NATIVE_MARKETS = 8  # per WebSocket, not across the operator's full market universe
-MAX_TOTAL_MARKETS = 128
+MAX_NATIVE_MARKETS = 8  # legacy per-WS shard size, preserved for existing configurations
+MAX_NATIVE_SOCKET_MARKETS = 128  # explicit physical socket group, not the global universe
+MAX_TOTAL_MARKETS = 256
 MAX_PARALLEL_SHARDS = 5
 MAX_FRAME_BYTES = 2_000_000
 NATIVE_TOKEN = re.compile(r"[A-Za-z0-9_.-]{1,64}\Z")
@@ -67,7 +68,7 @@ def load_public_market_allowlist(path: Path) -> tuple[Instrument, ...]:
         ):
             raise ValueError("PUBLIC_TRADE_MARKET_ALLOWLIST_SCHEMA_INVALID")
         keys = payload.get("instruments")
-        if not isinstance(keys, list) or not keys or len(keys) > MAX_TOTAL_MARKETS:
+        if not isinstance(keys, list) or not keys or len(keys) > 128:
             raise ValueError("PUBLIC_TRADE_MARKET_UNIVERSE_LIMIT")
         if not all(isinstance(key, str) for key in keys):
             raise ValueError("PUBLIC_TRADE_MARKET_ALLOWLIST_ID_INVALID")
@@ -101,11 +102,25 @@ def load_public_market_shards(path: Path) -> tuple[tuple[str, tuple[Instrument, 
             )
             for i in range(0, len(universe), MAX_NATIVE_MARKETS)
         )
-    if payload.get("schema") != "paper_public_market_shards_v1":
+    schema = payload.get("schema")
+    if schema not in {"paper_public_market_shards_v1", "paper_public_physical_sockets_v1"}:
         raise ValueError("PUBLIC_TRADE_MARKET_SHARDS_SCHEMA_INVALID")
-    group_defs = payload.get("shards")
-    if not isinstance(group_defs, list) or not 1 <= len(group_defs) <= 16:
+    physical = schema == "paper_public_physical_sockets_v1"
+    group_defs = payload.get("physical_sockets" if physical else "shards")
+    if not isinstance(group_defs, list) or not (
+        len(group_defs) == 3 if physical else 1 <= len(group_defs) <= 16
+    ):
         raise ValueError("PUBLIC_TRADE_MARKET_SHARD_COUNT_INVALID")
+    if physical:
+        sha = payload.get("source_snapshot_sha256")
+        if (
+            not isinstance(sha, str)
+            or len(sha) != 64
+            or any(c not in "0123456789abcdef" for c in sha)
+            or payload.get("propr_order_ids_attested") is not False
+            or payload.get("paper_admitted") is not False
+        ):
+            raise ValueError("PUBLIC_TRADE_PROPR_DISPLAY_PROVENANCE_REQUIRED")
     result: list[tuple[str, tuple[Instrument, ...]]] = []
     names: set[str] = set()
     for item in group_defs:
@@ -120,7 +135,7 @@ def load_public_market_shards(path: Path) -> tuple[tuple[str, tuple[Instrument, 
             raise ValueError("PUBLIC_TRADE_MARKET_SHARD_NAME_INVALID_OR_DUPLICATE")
         if (
             not isinstance(raw, list)
-            or not 1 <= len(raw) <= MAX_NATIVE_MARKETS
+            or not 1 <= len(raw) <= (MAX_NATIVE_SOCKET_MARKETS if physical else MAX_NATIVE_MARKETS)
             or any(not isinstance(x, str) for x in raw)
         ):
             raise ValueError("PUBLIC_TRADE_MARKET_SHARD_SIZE_INVALID")
@@ -131,6 +146,30 @@ def load_public_market_shards(path: Path) -> tuple[tuple[str, tuple[Instrument, 
         result.append((name, instruments))
     universe = tuple(inst for _, group in result for inst in group)
     _bounded_market_universe(universe)
+    if physical:
+        if payload.get("native_market_count") != len(universe):
+            raise ValueError("PUBLIC_TRADE_PROPR_NATIVE_MARKET_COUNT_DRIFT")
+        categories = payload.get("display_category_counts")
+        if (
+            not isinstance(categories, dict)
+            or payload.get("display_market_count") != sum(categories.values())
+            or payload["display_market_count"] - len(universe)
+            != payload.get("deduplicated_display_symbols")
+            or len(result[0][1]) != 8
+            or any(
+                inst.market != "mainnet:perp:default" for _, group in result[:2] for inst in group
+            )
+            or any(inst.market != "mainnet:perp:xyz" for inst in result[2][1])
+        ):
+            raise ValueError("PUBLIC_TRADE_PROPR_SOCKET_CATEGORY_DRIFT")
+        logical = payload.get("logical_reporting_groups", [])
+        if not isinstance(logical, list) or any(
+            not isinstance(group, dict)
+            or not isinstance(group.get("instruments"), list)
+            or any(key not in {i.key for i in universe} for key in group["instruments"])
+            for group in logical
+        ):
+            raise ValueError("PUBLIC_TRADE_PROPR_LOGICAL_GROUP_DRIFT")
     return tuple(result)
 
 
@@ -371,9 +410,14 @@ async def capture_bounded_native_trades(
     connect: Callable[..., Any] | None = None,
     now: Callable[[], str] = lambda: datetime.now(UTC).isoformat(timespec="microseconds"),
     journal_write_lock: asyncio.Lock | None = None,
+    max_markets_per_socket: int = MAX_NATIVE_MARKETS,
 ) -> dict:
-    """Shared public WS (no per-user subscriptions), strictly bounded and gap-aware."""
-    if not instruments or len(instruments) > MAX_NATIVE_MARKETS:
+    """Shared public WS, bounded transport; default retains legacy 8 markets."""
+    if (
+        not 1 <= max_markets_per_socket <= MAX_NATIVE_SOCKET_MARKETS
+        or not instruments
+        or len(instruments) > max_markets_per_socket
+    ):
         raise ValueError("PUBLIC_TRADE_MAX_MARKET_SHARD_EXCEEDED")
     if not (0.5 <= duration_seconds <= 120 and 1 <= max_frames <= 50000):
         raise ValueError("PUBLIC_TRADE_CAPTURE_BOUNDS_INVALID")
@@ -562,7 +606,7 @@ def plan_latest_public_utc_bucket(
     """
     if timing_policy not in {"UTC_BUCKET_CLOSE", "UTC_BUCKET_PLUS_5M"}:
         raise ValueError("PUBLIC_BUCKET_POLICY_UNSUPPORTED")
-    if not instruments or len(instruments) > MAX_NATIVE_MARKETS:
+    if not instruments or len(instruments) > MAX_NATIVE_SOCKET_MARKETS:
         raise ValueError("PUBLIC_BUCKET_MARKET_LIMIT")
     if not wallet_keys or len(wallet_keys) > 50 or len(set(wallet_keys)) != len(wallet_keys):
         raise ValueError("PUBLIC_BUCKET_WALLET_LIMIT")
@@ -658,7 +702,7 @@ def _resolve_market_shards(
             not isinstance(name, str)
             or re.fullmatch(r"[a-z][a-z0-9_]{1,63}", name) is None
             or name in names
-            or not 1 <= len(chunk) <= MAX_NATIVE_MARKETS
+            or not 1 <= len(chunk) <= MAX_NATIVE_SOCKET_MARKETS
         ):
             raise ValueError("PUBLIC_TRADE_MARKET_SHARD_LAYOUT_INVALID")
         names.add(name)
@@ -680,7 +724,7 @@ async def capture_sharded_native_trades(
     connect: Callable[..., Any] | None = None,
     now: Callable[[], str] = lambda: datetime.now(UTC).isoformat(timespec="microseconds"),
 ) -> dict:
-    """Capture up to 128 explicit perp markets in bounded <=8-market WS shards.
+    """Capture up to 256 perps across explicit ≤128-market physical sockets.
 
     The shared SQLite writer lock serializes journal appends. Each shard keeps
     its own first-known transport epoch and explicit baseline/reconnect gaps.
@@ -704,6 +748,7 @@ async def capture_sharded_native_trades(
                 connect=connect,
                 now=now,
                 journal_write_lock=writer,
+                max_markets_per_socket=max(MAX_NATIVE_MARKETS, len(shard)),
             )
         return {
             "shard_index": shard_index,
@@ -728,7 +773,7 @@ async def capture_sharded_native_trades(
         "watchlist_sha": digest(sorted(watched.items())),
         "market_count": len(selected),
         "shard_count": len(shards),
-        "max_markets_per_shard": MAX_NATIVE_MARKETS,
+        "max_markets_per_shard": max(len(group) for _, group in chunks),
         "max_parallel_shards": max_parallel_shards,
         "baseline_markets": sum(s["report"]["baseline_markets"] for s in shards),
         "all_markets_baselined": all(s["report"]["all_markets_baselined"] for s in shards),
@@ -819,12 +864,39 @@ def main() -> None:
     parser.add_argument("--duration-seconds", type=float, default=10)
     parser.add_argument("--max-frames", type=int, default=500)
     parser.add_argument("--parallel-shards", type=int, default=2)
+    parser.add_argument(
+        "--ack-shared-ip-connection-budget",
+        action="store_true",
+        help="Explicit acknowledgement required for parallel Propr physical sockets",
+    )
+    parser.add_argument(
+        "--propr-snapshot",
+        type=Path,
+        help="Required for Propr public 3-socket layout; verifies exact source bytes",
+    )
     args = parser.parse_args()
     if not args.state_root.is_absolute() or any(
         part in {".devspace", ".git"} for part in args.state_root.resolve().parts
     ):
         parser.error("state root must be an absolute private non-worktree path")
     configured_shards = load_public_market_shards(args.market_file) if args.market_file else None
+    if args.market_file:
+        market_payload = json.loads(args.market_file.read_text(encoding="utf-8"))
+        if market_payload.get("schema") == "paper_public_physical_sockets_v1":
+            if (
+                args.mode == "observe"
+                and args.parallel_shards > 1
+                and not args.ack_shared_ip_connection_budget
+            ):
+                parser.error(
+                    "parallel Propr sockets require --ack-shared-ip-connection-budget "
+                    "after independently checking all users of the shared public IP"
+                )
+            if args.propr_snapshot is None:
+                parser.error("--propr-snapshot is required for a Propr 3-socket layout")
+            from .pm_forward_propr_universe import verify_propr_display_layout
+
+            verify_propr_display_layout(args.propr_snapshot, market_payload)
     instruments = (
         _bounded_market_universe(tuple(inst for _, shard in configured_shards for inst in shard))
         if configured_shards is not None
