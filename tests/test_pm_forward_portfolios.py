@@ -96,3 +96,31 @@ def test_resealing_or_cross_portfolio_manifest_fails() -> None:
     view.register(P1, replace(manifest("p1", "acct"), portfolio_sha=P1.sha))
     with pytest.raises(ValueError, match="DUPLICATE_PORTFOLIO_RUN_ID"):
         view.register(P14, replace(manifest("p1", "other"), portfolio_sha=P14.sha))
+
+def test_dynamic_sealed_portfolio_loading() -> None:
+    from copytrade_pm.pm_forward_portfolios import load_sealed_paper_portfolio
+    e6 = load_sealed_paper_portfolio("gemini.phase4/E6")
+    assert e6.name == "gemini.phase4/E6"
+    assert e6.members == ("ACT04", "CM-002", "S051-BTC", "S053-HYPE", "Whale_0x5f94")
+    assert e6.nominal_risk_per_member == "120"
+    
+    e2 = load_sealed_paper_portfolio("gemini.phase4/E2")
+    assert e2.name == "gemini.phase4/E2"
+    assert e2.members == ("ACT04", "S051-BTC", "S053-HYPE")
+    assert e2.nominal_risk_per_member == "200"
+
+    with pytest.raises(ValueError, match="UNSEALED_FORWARD_PAPER_PORTFOLIO"):
+        load_sealed_paper_portfolio("non_existent_portfolio")
+
+def test_dynamic_view_registration_and_status() -> None:
+    from copytrade_pm.pm_forward_portfolios import load_sealed_paper_portfolio
+    view = PaperPortfolioView(PaperCampaign())
+    e6 = load_sealed_paper_portfolio("gemini.phase4/E6")
+    e6_manifest = replace(manifest("e6_run", "e6_acct"), portfolio_sha=e6.sha)
+    view.register(e6, e6_manifest)
+    
+    status = view.status("gemini.phase4/E6")
+    assert status["portfolio_name"] == "gemini.phase4/E6"
+    assert status["source_admission"] == "BLOCKED"
+    assert "ACT04" in status["missing_members"]
+    assert "CM-002" in status["missing_members"]

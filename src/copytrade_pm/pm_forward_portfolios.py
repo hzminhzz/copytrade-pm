@@ -1,16 +1,21 @@
-"""Frozen P1/P14 paper definitions and shared read-only observation fanout.
+"""Dynamic, SQLite-sealed paper portfolio definitions and view projection.
 
-This is a portfolio admission/view projection, NOT a second wallet registry,
-scheduler, or source-equity execution authority.
+Loads any sealed portfolio directly from the private SQLite registry,
+supporting arbitrary multi-portfolio virtual deployments without code churn.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
+from pathlib import Path
+import sqlite3
 
 from .pm03_account import digest
 from .pm_forward_admission import Admission
 from .pm_forward_paper import PaperCampaign, PaperManifest
+
+DEFAULT_REGISTRY_PATH = Path("/home/quant/.local/share/copytrade/registry/wallet_registry.sqlite")
 
 
 @dataclass(frozen=True)
@@ -40,30 +45,96 @@ class FrozenPaperPortfolio:
 
     @property
     def nominal_risk_per_member(self) -> str:
-        from decimal import Decimal
-
         return str(Decimal(self.total_nominal_risk) / Decimal(len(self.members)))
 
 
+# Historical FP-09 baselines preserved for exact contract parity
 P1 = FrozenPaperPortfolio("P1", ("S035", "S051", "S053"))
 P14 = FrozenPaperPortfolio("P14", ("S035", "S051", "S053", "S064", "Whale_0x5f94"))
 
 
-class PaperPortfolioView:
-    """Non-executing, read-only fanout over independently sealed PM-03 accounts."""
+def load_sealed_paper_portfolio(
+    portfolio_name: str,
+    db_path: Path | str = DEFAULT_REGISTRY_PATH,
+) -> FrozenPaperPortfolio:
+    """Load a sealed portfolio definition dynamically from SQLite registry.
 
-    def __init__(self, campaign: PaperCampaign) -> None:
+    Fails closed with UNSEALED_FORWARD_PAPER_PORTFOLIO if unsealed or unknown.
+    """
+    path = Path(db_path)
+    if not path.is_file():
+        raise ValueError(f"REGISTRY_DATABASE_NOT_FOUND: {path}")
+
+    # Exact legacy FP-09 aliases match
+    if portfolio_name == "P1":
+        return P1
+    if portfolio_name == "P14":
+        return P14
+
+    uri = f"file:{path.resolve()}?mode=ro"
+    conn = sqlite3.connect(uri, uri=True, timeout=10.0)
+    conn.row_factory = sqlite3.Row
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT s.portfolio_id, s.version, s.definition_sha256
+            FROM portfolio_seals s
+            WHERE s.portfolio_id = ?
+            ORDER BY s.version DESC
+            LIMIT 1
+            """,
+            (portfolio_name,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise ValueError(f"UNSEALED_FORWARD_PAPER_PORTFOLIO: {portfolio_name}")
+
+        version = row["version"]
+        cur.execute(
+            """
+            SELECT member_alias
+            FROM portfolio_memberships
+            WHERE portfolio_id = ? AND version = ?
+            ORDER BY member_alias
+            """,
+            (portfolio_name, version),
+        )
+        members = tuple(r["member_alias"] for r in cur.fetchall())
+        if not members:
+            raise ValueError(f"UNSEALED_FORWARD_PAPER_PORTFOLIO: empty members {portfolio_name}")
+
+        return FrozenPaperPortfolio(name=portfolio_name, members=members)
+    finally:
+        conn.close()
+
+
+class PaperPortfolioView:
+    """Non-executing, read-only fanout over independently sealed PM-03 accounts.
+
+    Dynamically verifies against sealed registry definitions while maintaining
+    strict fail-closed admission and isolation across portfolios.
+    """
+
+    def __init__(
+        self,
+        campaign: PaperCampaign,
+        registry_db: Path | str = DEFAULT_REGISTRY_PATH,
+    ) -> None:
         self.campaign = campaign
+        self.registry_db = Path(registry_db)
         self.portfolios: dict[str, FrozenPaperPortfolio] = {}
         self.run_ids: dict[str, str] = {}
         self.books: dict[str, Admission] = {}
 
     def register(self, portfolio: FrozenPaperPortfolio, manifest: PaperManifest) -> dict:
-        # An approved *research priority* is not a registered paper trial.
-        # P1/P14 are the only sealed FP-09 baselines in this version;
-        # E6/E2 require their own versioned WR+FP campaign, not an alias
-        # substitution with a matching initial balance or risk budget.
-        if portfolio != {"P1": P1, "P14": P14}.get(portfolio.name):
+        # Load authoritative sealed definition from SQLite
+        try:
+            sealed = load_sealed_paper_portfolio(portfolio.name, self.registry_db)
+        except ValueError as exc:
+            raise ValueError("UNSEALED_FORWARD_PAPER_PORTFOLIO") from exc
+
+        if portfolio.name != sealed.name or portfolio.members != sealed.members:
             raise ValueError("UNSEALED_FORWARD_PAPER_PORTFOLIO")
         if portfolio.name in self.portfolios:
             raise ValueError("PORTFOLIO_ALREADY_SEALED")
@@ -71,6 +142,7 @@ class PaperPortfolioView:
             raise ValueError("PORTFOLIO_MANIFEST_SHA_MISMATCH")
         if any(existing == manifest.run_id for existing in self.run_ids.values()):
             raise ValueError("DUPLICATE_PORTFOLIO_RUN_ID")
+
         state = self.campaign.register(manifest)
         self.portfolios[portfolio.name] = portfolio
         self.run_ids[portfolio.name] = manifest.run_id
