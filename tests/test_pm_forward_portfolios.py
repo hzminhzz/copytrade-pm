@@ -4,6 +4,7 @@ from dataclasses import replace
 from hashlib import sha256
 import json
 from pathlib import Path
+import sqlite3
 
 import pytest
 
@@ -14,6 +15,7 @@ from copytrade_pm.pm_forward_portfolios import (
     P14,
     FrozenPaperPortfolio,
     PaperPortfolioView,
+    load_sealed_paper_portfolio,
 )
 from copytrade_pm.pm_forward_registry_identity import P1 as WR_P1
 from copytrade_pm.pm_forward_registry_identity import P14 as WR_P14
@@ -97,28 +99,66 @@ def test_resealing_or_cross_portfolio_manifest_fails() -> None:
     with pytest.raises(ValueError, match="DUPLICATE_PORTFOLIO_RUN_ID"):
         view.register(P14, replace(manifest("p1", "other"), portfolio_sha=P14.sha))
 
-def test_dynamic_sealed_portfolio_loading() -> None:
-    from copytrade_pm.pm_forward_portfolios import load_sealed_paper_portfolio
-    e6 = load_sealed_paper_portfolio("gemini.phase4/E6")
+
+def _fixture_registry(db_path: Path) -> Path:
+    conn = sqlite3.connect(db_path)
+    conn.execute("""
+        CREATE TABLE portfolio_seals (
+            portfolio_id TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            definition_sha256 TEXT NOT NULL,
+            PRIMARY KEY(portfolio_id, version)
+        );
+    """)
+    conn.execute("""
+        CREATE TABLE portfolio_memberships (
+            portfolio_id TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            member_alias TEXT NOT NULL,
+            wallet_id INTEGER,
+            PRIMARY KEY(portfolio_id, version, member_alias)
+        );
+    """)
+    conn.execute("INSERT INTO portfolio_seals VALUES ('gemini.phase4/E6', 1, 'sha_e6'), ('gemini.phase4/E2', 1, 'sha_e2')")
+    conn.execute("""
+        INSERT INTO portfolio_memberships VALUES
+            ('gemini.phase4/E6', 1, 'ACT04', 333),
+            ('gemini.phase4/E6', 1, 'CM-002', 282),
+            ('gemini.phase4/E6', 1, 'S051-BTC', 195),
+            ('gemini.phase4/E6', 1, 'S053-HYPE', 37),
+            ('gemini.phase4/E6', 1, 'Whale_0x5f94', 146),
+            ('gemini.phase4/E2', 1, 'ACT04', 333),
+            ('gemini.phase4/E2', 1, 'S051-BTC', 195),
+            ('gemini.phase4/E2', 1, 'S053-HYPE', 37)
+    """)
+    conn.commit()
+    conn.close()
+    return db_path
+
+
+def test_dynamic_sealed_portfolio_loading_with_isolated_fixture(tmp_path: Path) -> None:
+    test_db = _fixture_registry(tmp_path / "test_reg.sqlite")
+    e6 = load_sealed_paper_portfolio("gemini.phase4/E6", test_db)
     assert e6.name == "gemini.phase4/E6"
     assert e6.members == ("ACT04", "CM-002", "S051-BTC", "S053-HYPE", "Whale_0x5f94")
     assert e6.nominal_risk_per_member == "120"
-    
-    e2 = load_sealed_paper_portfolio("gemini.phase4/E2")
+
+    e2 = load_sealed_paper_portfolio("gemini.phase4/E2", test_db)
     assert e2.name == "gemini.phase4/E2"
     assert e2.members == ("ACT04", "S051-BTC", "S053-HYPE")
     assert e2.nominal_risk_per_member == "200"
 
     with pytest.raises(ValueError, match="UNSEALED_FORWARD_PAPER_PORTFOLIO"):
-        load_sealed_paper_portfolio("non_existent_portfolio")
+        load_sealed_paper_portfolio("non_existent_portfolio", test_db)
 
-def test_dynamic_view_registration_and_status() -> None:
-    from copytrade_pm.pm_forward_portfolios import load_sealed_paper_portfolio
-    view = PaperPortfolioView(PaperCampaign())
-    e6 = load_sealed_paper_portfolio("gemini.phase4/E6")
+
+def test_dynamic_view_registration_and_status_with_fixture(tmp_path: Path) -> None:
+    test_db = _fixture_registry(tmp_path / "test_reg.sqlite")
+    view = PaperPortfolioView(PaperCampaign(), registry_db=test_db)
+    e6 = load_sealed_paper_portfolio("gemini.phase4/E6", test_db)
     e6_manifest = replace(manifest("e6_run", "e6_acct"), portfolio_sha=e6.sha)
     view.register(e6, e6_manifest)
-    
+
     status = view.status("gemini.phase4/E6")
     assert status["portfolio_name"] == "gemini.phase4/E6"
     assert status["source_admission"] == "BLOCKED"
