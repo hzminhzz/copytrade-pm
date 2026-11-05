@@ -2,6 +2,8 @@
 
 **Evidence date:** 2026-11-05. **Source interval:** 2026-08-05T00:00:00Z through 2026-11-03T00:00:00Z exclusive. **Type:** retrospective conditional hypothetical four-market follower equity replay, **not** actual follower/exchange economic qualification. No additional historical fill acquisition.
 
+**Follow-up (2026-11-05):** The [new 42,504-combination five-wallet study](PHASE7-BEST-FIVE-WALLET-PORTFOLIOS-20261105.md) shows that the old M5's negative result was wallet selection specific, not evidence against five-pod designs in general. Under the **same $10k starting account and $5k modeled gross target**, new five-wallet cohorts have materially higher *conditional historical* net returns than the unchanged M3 baseline in the studied window, but their economic source books and first-known execution remain unverified. The data does not establish real follower alpha or trading authorization.
+
 ## Executive answer
 
 **M3 is the only promising conditional profitability candidate at a $10,000 starting account. M4 is a weak near-breakeven comparator; M5 is unprofitable at 20 bps.**
