@@ -9,6 +9,8 @@ distinguish the SQLite inventory SHA from legacy CSV import evidence.
 
 **Pod portfolio contract comparison (research only):** [native read-only EV ranking tool, input schema and blocked-evidence behavior](CONTRACT-PORTFOLIO-EV-TOOL-20261105.md). Run `copytrade-pm contracts rules` or `copytrade-pm contracts compare --portfolio gemini.phase4/E6 --portfolio gemini.phase4/E2`. A positive modeled score is not scientific qualification or account authorization.
 
+**ML4T-66 combined-portfolio backtest (2026-11-05):** [Executed $10k cash+inventory replay for Explorer, Sprint and precomputed control across 1m/2m/5m and 6/12/18bps; risk first passage and explicit missing-input censorship](ML4T-66-PORTFOLIO-BACKTEST-20261105.md). Explorer model breaches; Sprint/control unknown after first missing PONS execution. No authentic follower PnL or authorization.
+
 **ML4T-66 actual portfolio research correction (2026-11-05):** [SQLite-to-source independent audit, precomputed scorecard contradictions, candidate Explorer/Sprint structures, strict blocked economics](ML4T-66-ALLOCATION-REASSESSMENT-20261105.md). Historical source closed-PnL is not follower PnL.
 
 **ML4T-66 source recovery (2026-11-05):** [offline-first SQLite address reconciliation, nine-call bounded public raw-fill recovery, native market SHA/day repair and remaining fail-closed scientific gaps](ML4T-66-BATCH-RECOVERY-20261105.md). The 66-wallet source coverage does not certify follower economics or challenge profitability.
