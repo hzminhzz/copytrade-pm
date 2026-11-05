@@ -232,39 +232,64 @@ def test_runtime_release_uses_existing_owner(monkeypatch: pytest.MonkeyPatch) ->
 
 
 def test_os_units_cannot_establish_protected_paper_running(monkeypatch: pytest.MonkeyPatch) -> None:
-    def unit_show(active: bool) -> str:
-        return "\n\n".join(
-            "\n".join(
-                [
-                    f"Id={unit}",
-                    "LoadState=loaded" if active else "LoadState=not-found",
-                    "ActiveState=active" if active else "ActiveState=inactive",
-                    "MainPID=12345" if active else "MainPID=0",
-                ]
+    def fake_show(*, user_active: bool, system_active: bool, system_error: bool = False):
+        def run(argv, **kwargs):
+            if "--user" in argv:
+                stdout = "\n\n".join(
+                    "\n".join(
+                        [
+                            f"Id={unit}",
+                            "LoadState=loaded" if user_active else "LoadState=not-found",
+                            "ActiveState=active" if user_active else "ActiveState=inactive",
+                            "MainPID=12345" if user_active else "MainPID=0",
+                        ]
+                    )
+                    for unit in runtime.UNITS
+                )
+                return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
+            assert argv[:2] == ["systemctl", "show"]
+            if system_error:
+                return SimpleNamespace(returncode=1, stdout="", stderr="denied")
+            unit = argv[2]
+            stdout = (
+                f"Id={unit}\n"
+                + (
+                    "LoadState=loaded\nActiveState=active\nMainPID=9123\n"
+                    if system_active
+                    else "LoadState=not-found\nActiveState=inactive\nMainPID=0\n"
+                )
+                + "User=copytrade-paper-p1\nGroup=copytrade-paper-monitor\n"
             )
-            for unit in runtime.UNITS
-        )
+            return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
+
+        return run
+
+    monkeypatch.setattr(runtime.subprocess, "run", fake_show(user_active=True, system_active=False))
+    active_user = runtime.paper_unit_inventory()
+    assert active_user["state"] == "DEGRADED"
+    assert active_user["protected_worker_attested"] is False
+
+    monkeypatch.setattr(runtime.subprocess, "run", fake_show(user_active=False, system_active=True))
+    active_system = runtime.paper_unit_inventory()
+    assert active_system["state"] == "DEGRADED"
+    assert len(active_system["system_units"]) == 3
+    assert active_system["protected_worker_attested"] is False
+
+    monkeypatch.setattr(
+        runtime.subprocess, "run", fake_show(user_active=False, system_active=False)
+    )
+    stopped = runtime.paper_unit_inventory()
+    assert stopped["state"] == "NOT_RUNNING"
+    assert stopped["protected_worker_attested"] is False
 
     monkeypatch.setattr(
         runtime.subprocess,
         "run",
-        lambda argv, **kwargs: SimpleNamespace(
-            returncode=0, stdout=unit_show(active=True), stderr=""
-        ),
+        fake_show(user_active=False, system_active=False, system_error=True),
     )
-    status = runtime.paper_unit_inventory()
-    assert status["state"] == "DEGRADED"
-    assert status["protected_worker_attested"] is False
-    monkeypatch.setattr(
-        runtime.subprocess,
-        "run",
-        lambda argv, **kwargs: SimpleNamespace(
-            returncode=0, stdout=unit_show(active=False), stderr=""
-        ),
-    )
-    status = runtime.paper_unit_inventory()
-    assert status["state"] == "NOT_RUNNING"
-    assert status["protected_worker_attested"] is False
+    unavailable = runtime.paper_unit_inventory()
+    assert unavailable["state"] == "UNKNOWN"
+    assert unavailable["protected_worker_attested"] is False
 
 
 def test_agent_discovery_scripted_scenarios_not_llm_claim() -> None:
