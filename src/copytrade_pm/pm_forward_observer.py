@@ -466,10 +466,25 @@ async def run_readonly_observer_service(
             raise
         except Exception as exc:
             failures += 1
+            # Service logs are outside private SQLite evidence storage.
+            # Preserve a diagnostic exception class, not raw provider text
+            # that could contain addresses, market identities or paths.
+            error_class = type(exc).__name__
+            if error_class not in {
+                "TimeoutError",
+                "ConnectionError",
+                "ValueError",
+                "OSError",
+                "RuntimeError",
+                "JSONDecodeError",
+                "KeyError",
+                "TypeError",
+            }:
+                error_class = "OtherError"
             event = {
                 "epoch": epochs,
                 "status": "DEGRADED_OBSERVER_FAILURE",
-                "reason": type(exc).__name__ + ":" + str(exc)[:130],
+                "reason": "OBSERVER_CAPTURE_FAILURE:" + error_class,
             }
         # No unbounded in-memory report list. A failed sink stops the observer
         # instead of silently losing its runtime failure evidence.
