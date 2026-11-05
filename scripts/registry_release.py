@@ -44,6 +44,7 @@ SERVICE_UNITS = (
     "copytrade-tracker.service",
     "copytrade-ensemble.service",
     "copytrade-source-abc.service",
+    "copytrade-public-observer-p1p14.service",
 )
 GIT_SHA = re.compile(r"^[0-9a-f]{40}$")
 VERIFY_FILES = (
@@ -161,42 +162,29 @@ def snapshot_state(repo: Path, *, enforce_clean: bool = True) -> dict:
 
 
 def readonly_source_health() -> dict:
-    """Review currently committed inventory, without opening writable sources."""
-    baseline = registry.db_status(registry.DB)
-    live = registry.status(
-        registry.collect(registry.ROOT, registry.ENV, Path(__file__).resolve().parents[1])
-    )
-    checks = (
-        "research_unique",
-        "owner_excluded",
-        "research_owner_excluded_overlap",
-        "desired",
-        "subscribed",
-        "research_desired_overlap",
-        "research_subscribed_overlap",
-    )
+    """Validate the authoritative SQLite ledger, not optional import CSV totals."""
+    authority = registry.db_authority_health(registry.DB)
+    indexed = registry.db_status(registry.DB)
     if (
-        any(baseline["counts"][key] != live[key] for key in checks)
-        or baseline["source_shas"] != live["source_shas"]
-        or baseline["freshness"] != "CURRENT"
-        or baseline["counts"]["registered_paper_runs"] < 0
-        or baseline["counts"]["trading_authorized"] != "NOT_ESTABLISHED"
-        or baseline["counts"]["scientifically_qualified"] != "NOT_ESTABLISHED"
+        indexed["counts"]["registered_paper_runs"] < 0
+        or indexed["counts"]["trading_authorized"] != "NOT_ESTABLISHED"
+        or indexed["counts"]["scientifically_qualified"] != "NOT_ESTABLISHED"
     ):
-        raise ValueError("source drift, stale inventory, or unauthorized registry state")
-    with closing(registry.connect(registry.DB, False)) as con:
-        if con.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
-            raise ValueError("registry SQLite integrity failure")
-        if con.execute("PRAGMA foreign_key_check").fetchone() is not None:
-            raise ValueError("registry SQLite foreign key failure")
+        raise ValueError("registry authorization invariant violated")
     return {
-        "source_manifest_sha256": baseline["generation"]["manifest_sha256"],
-        "research_unique": live["research_unique"],
-        "owner_excluded": live["owner_excluded"],
-        "desired": live["desired"],
-        "subscribed": live["subscribed"],
-        "sealed_portfolio_definitions": baseline["counts"]["sealed_portfolio_definitions"],
-        "registered_paper_runs": baseline["counts"]["registered_paper_runs"],
+        "authority": "SQLITE",
+        "database_integrity": authority["database_integrity"],
+        "inventory_sha256": authority["inventory_sha256"],
+        # Historical importer lineage is retained, not used as identity authority.
+        "source_manifest_sha256": authority["last_legacy_import_sha256"],
+        "legacy_import_observed_at": authority["last_legacy_import_observed_at"],
+        "unverified_cohort_import_provenance": authority["unverified_cohort_import_provenance"],
+        "research_unique": indexed["counts"]["research_unique"],
+        "owner_excluded": indexed["counts"]["owner_excluded"],
+        "desired": indexed["counts"]["desired"],
+        "subscribed": indexed["counts"]["subscribed"],
+        "sealed_portfolio_definitions": indexed["counts"]["sealed_portfolio_definitions"],
+        "registered_paper_runs": indexed["counts"]["registered_paper_runs"],
         "runtime_admitted": "UNKNOWN",
         "receipt_health": "UNKNOWN",
         "scientifically_qualified": "NOT_ESTABLISHED",
@@ -229,6 +217,13 @@ def service_parity(before: dict, after: dict) -> None:
         raise RuntimeError(
             "service PID/state changed during registry release; investigate separately"
         )
+
+
+def inventory_parity(before: dict) -> None:
+    """The authoritative SQLite inventory must not change mid-activation."""
+    previous = before.get("inventory_sha256")
+    if previous and readonly_source_health()["inventory_sha256"] != previous:
+        raise RuntimeError("authoritative SQLite inventory changed during release")
 
 
 def staged_archive(repo: Path, dst: Path, fingerprint: dict) -> None:
@@ -345,8 +340,12 @@ def _installed_doctor(release: Path) -> None:
         "doctor",
     )
     data = json.loads(raw)
-    if not data.get("counts_match") or data.get("freshness") != "CURRENT":
-        raise ValueError("pinned-release doctor did not prove source parity")
+    if (
+        data.get("authority") != "SQLITE"
+        or data.get("database_integrity") != "VERIFIED"
+        or not re.fullmatch(r"[0-9a-f]{64}", data.get("inventory_sha256", ""))
+    ):
+        raise ValueError("pinned-release doctor did not verify SQLite integrity")
     raw = command(
         "uv",
         "run",
@@ -361,6 +360,30 @@ def _installed_doctor(release: Path) -> None:
     status = json.loads(raw)
     if status.get("global_running_count") != "UNKNOWN":
         raise ValueError("paper status was promoted from research metadata")
+    # The actuary is an optional, read-only CLI. Verify it on the actual
+    # pinned release, not merely in the mutable development worktree.
+    raw = command(
+        "uv",
+        "run",
+        "--offline",
+        "--frozen",
+        "--no-dev",
+        "--extra",
+        "actuary",
+        "--directory",
+        str(release),
+        "copytrade-pm",
+        "contracts",
+        "rules",
+    )
+    catalog = json.loads(raw)
+    if (
+        catalog.get("schema") != "copytrade_contract_rule_catalog_v1"
+        or len(catalog.get("contracts", [])) != 3
+        or catalog.get("trading_authorized") is not False
+        or catalog.get("scientifically_qualified") is not False
+    ):
+        raise ValueError("pinned actuary rules not verified as research-only")
 
 
 def commit_release(target: str | None, next_state: dict, *, after_switch=None) -> None:
@@ -432,6 +455,7 @@ def _activate_locked(repo: Path) -> dict:
         if con.execute("PRAGMA foreign_key_check").fetchone() is not None:
             raise ValueError("preactivation backup has invalid foreign keys")
     service_parity(before_services, services())
+    inventory_parity(baseline)
     old_state = _json(STATE)
     history = dict(old_state.get("release_files", {}))
     if prior and old_state.get("current") == prior and old_state.get("files"):
@@ -444,12 +468,14 @@ def _activate_locked(repo: Path) -> dict:
             "previous": prior,
             "installed_at": datetime.now(timezone.utc).isoformat(),
             "source_manifest_sha256": baseline["source_manifest_sha256"],
+            "sqlite_inventory_sha256_at_activation": baseline.get("inventory_sha256"),
             "files": pin["files"],
             "release_files": history,
             "mode": "ON_DEMAND_READ_ONLY_NO_TIMER",
         },
         after_switch=lambda: (
             _installed_doctor(stage),
+            inventory_parity(baseline),
             service_parity(before_services, services()),
         ),
     )
@@ -487,6 +513,44 @@ def _verify_locked() -> dict:
         "source": readonly_source_health(),
         "registry_timer": "NOT_INSTALLED",
     }
+
+
+def deactivate() -> dict:
+    """Emergency disable of the read-only on-demand pointer, without DB writes.
+
+    Unlike rollback, does not promise an older pinned binary can read a newer
+    authoritative SQLite generation. Existing absolute-path services remain up.
+    """
+    with release_lock():
+        before = services()
+        current = active_revision()
+        state = _json(STATE)
+        if not current or state.get("current") != current:
+            raise ValueError("no matching active release to deactivate")
+        check_release(RELEASES / current, {"files": state["files"]})
+        history = dict(state.get("release_files", {}))
+        history[current] = state["files"]
+        service_parity(before, services())
+        commit_release(
+            None,
+            {
+                "current": None,
+                "previous": current,
+                "files": None,
+                "release_files": history,
+                "deactivated_from": current,
+                "deactivated_at": datetime.now(timezone.utc).isoformat(),
+                "mode": "ON_DEMAND_DISABLED_NO_SERVICE_MUTATION",
+            },
+            after_switch=lambda: service_parity(before, services()),
+        )
+        return {
+            "result": "READ_ONLY_POINTER_DEACTIVATED",
+            "previous_active": current,
+            "now_active": None,
+            "registry_db_untouched": True,
+            "services_unchanged": True,
+        }
 
 
 def rollback() -> dict:
@@ -581,7 +645,9 @@ def repair() -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("preview", "activate", "verify", "rollback", "repair"))
+    parser.add_argument(
+        "action", choices=("preview", "activate", "verify", "rollback", "deactivate", "repair")
+    )
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[1]
     if args.action == "preview":
@@ -599,6 +665,8 @@ def main() -> int:
         result = verify()
     elif args.action == "rollback":
         result = rollback()
+    elif args.action == "deactivate":
+        result = deactivate()
     else:
         result = repair()
     print(json.dumps(result, sort_keys=True))

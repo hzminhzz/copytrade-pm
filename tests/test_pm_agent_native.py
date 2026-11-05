@@ -134,7 +134,7 @@ def test_live_doctor_marks_stored_current_generation_stale(
     monkeypatch.setattr(reg, "cli", stale_cli)
     stale = ops._doctor(Path("/nonexistent/registry.sqlite"))
     assert stale["status"] == "STALE"
-    assert stale["error_code"] == "REGISTRY_SOURCE_DRIFT"
+    assert stale["error_code"] == "REGISTRY_SQLITE_INTEGRITY_FAILED"
 
 
 def test_no_indexed_paper_run_does_not_claim_running(tmp_path: Path) -> None:

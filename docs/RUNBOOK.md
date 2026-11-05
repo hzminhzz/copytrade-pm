@@ -1,5 +1,17 @@
 # Research operator runbook — verified CLI sequence
 
+## Authoritative SQLite metadata inventory (2026-11-05)
+
+Use `copytrade-wallet-registry doctor` for `authority=SQLITE`,
+`database_integrity=VERIFIED` and `inventory_sha256`. Query any registered
+cohort, including SQLite-only `ml4t-top6`, with
+`copytrade-wallet-registry cohort ml4t-top6`. The older files can be audited
+using `copytrade-wallet-registry doctor --legacy-audit` but are not roster
+or deployment authority. The six-wallet cohort's old provenance label remains
+unverified. See [release/rollback contract](WALLET-REGISTRY-RELEASE-RUNBOOK.md).
+
+
+
 ## Portfolio x prop contract EV comparison (research only)
 
 Use the existing native capability `research.contract_selector`, exposed as

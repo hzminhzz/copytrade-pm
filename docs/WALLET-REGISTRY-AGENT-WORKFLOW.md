@@ -2,6 +2,19 @@
 
 **Owner-approved operating contract (2026-11-04).** Read this after `AGENTS.md` and before answering any question about **which wallets exist, are being evaluated, excluded, watched, or belong to a portfolio**, or which portfolios are **saved, selected, frozen, paper-running, or eligible for deployment**. Use this same procedure before implementing wallet/portfolio changes or documenting their operational state. OptMem and Markdown are navigation and dated decisions, **not** substitutes for the current indexed source.
 
+## SQLite is metadata authority — 2026-11-05
+
+The owner-private SQLite database governs current wallet/cohort/alias/exclusion
+membership and versioned research portfolios. `doctor` must establish the
+SQLite integrity/FK/schema state and `inventory_sha256`; last import-source SHA
+and age are audit metadata, **not** an overriding roster. A later database-only
+cohort remains registered even when missing from old CSVs. `doctor --legacy-audit`
+may report `DRIFT`, `MATCHED_IMPORT_SUBSET` or `UNAVAILABLE` without
+invalidating a structurally valid SQLite ledger. Cohorts using non-content-
+addressed provenance labels remain `UNVERIFIED_IMPORT_LABEL`, which never
+becomes scientific qualification. A pinned release must verify its actual
+SQLite inventory and independent paper/no-trade invariants.
+
 ## Authority and meaning
 
 | Question | Authoritative source to inspect | What it does **not** establish |
@@ -13,7 +26,7 @@
 | Is a paper portfolio actually operating? | Independent *real* paper-worker run manifest, verified journal, process and fresh source/market heartbeat; inspect `paper` and actual services | A saved registry row or synthetic HALT event is not `PAPER_RUNNING` |
 | Is it economically qualified or authorized? | Independently verified mature matched follower/control economics, protected risk/review and explicit authorization | Vendor PnL, model k, passing tests, registry alias mapping or a paper-only release |
 
-The Git decision is the **immutable selection source**; the owner-private SQLite registry is the **indexed read model** for imported decisions and monitoring inventory. A read model does not own financial journals, broker orders or subscriptions. The real service/financial system remains the authority for its own operation. Always separate observed facts from inferred or unknown status.
+The Git decision is the **immutable evidence/decision provenance**; the owner-private SQLite registry is the **authoritative indexed metadata ledger** for imported and directly registered decisions, cohorts and monitoring inventory. A read model does not own financial journals, broker orders or subscriptions. The real service/financial system remains the authority for its own operation. Always separate observed facts from inferred or unknown status.
 
 ## Required read-only sequence
 
@@ -80,7 +93,7 @@ A missing paper unit or zero indexed runs does **not** prove that no independent
 ## Fail-closed conditions
 
 1. **Registry unavailable or not imported:** report the requested live status as `UNKNOWN` or `NOT_REGISTERED_AT_ASOF` as appropriate; cite the last versioned Git decision with its known-at timestamp and explicitly label it *historical*, not current. Do not guess from OptMem, Telegram messages, wallet filenames or narrative reports.
-2. **`doctor` reports `counts_match=false`, drift or stale generation:** do not report source roster counts or membership as current. Preserve the observed SHA and compare with `sync --dry-run` only; follow the [registry release/rollback runbook](WALLET-REGISTRY-RELEASE-RUNBOOK.md) and obtain reviewed private backup/source lineage before any `sync --apply` or release activation. These commands are **writes**, not ordinary inspection.
+2. **`doctor` reports `database_integrity=FAILED`:** do not trust any indexed membership. Legacy parity differences alone do not invalidate SQLite metadata. Preserve the observed SHA and compare with `sync --dry-run` only; follow the [registry release/rollback runbook](WALLET-REGISTRY-RELEASE-RUNBOOK.md) and obtain reviewed private backup/source lineage before any `sync --apply` or release activation. These commands are **writes**, not ordinary inspection.
 3. **Wallet alias absent, colliding, or incomplete:** report unresolved. A generic display name such as `HL Perps Whale` is not a unique identity. Do not silently map a source wallet to a different portfolio or copy a member between frozen versions.
 4. **Historical frozen membership:** never backfill an older `portfolio_memberships.wallet_id` in place from later alias evidence. Resolve `wallet_aliases` at the actual as-of cutoff; if the binding was first known *after* the original P1/P14 v2 seal, it is **post-seal and blocked for that historical decision** even if the address matches now. Mainline safety fix [PR #91](https://github.com/hzminhzz/copytrade-pm/pull/91), merge `e5d9933`, prevents future retroactive writes. Historical records previously touched by the older release need a separately reviewed, backed-up, versioned repair, not a silent fix.
 5. **Research priority versus paper baseline:** Gemini V2 `gemini.phase4/E6` primary and `gemini.phase4/E2` challenger are new-research choices. Sealed `P1`/`P14` Forward-Paper engineering baselines are different contracts; V2 never replaces their run SHA, source wallet equity, risk policy, account identity or first-known clock. The comparison policy is not authorization to launch a worker.

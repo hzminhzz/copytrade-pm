@@ -133,7 +133,9 @@ portfolio whose mark-to-market NAV is missing.
 
 ## Statistical method
 
-1. Verify native wallet registry `doctor` source-parity plus current generation.
+1. Verify SQLite-authoritative wallet registry `doctor` integrity, schema,
+   inventory SHA and registered portfolio membership. Legacy CSV parity/import
+   age is a separately disclosed diagnostic, not a portfolio identity gate.
    Lookup the sealed `portfolio_id` (namespace or reviewed singleton),
    definition SHA, version, members, known-at and source generation.
 2. Validate that every pod is present in every contiguous UTC interval,

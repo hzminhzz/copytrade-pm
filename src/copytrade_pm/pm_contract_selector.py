@@ -280,10 +280,12 @@ def _registry_identity(portfolio_id: str, *, db: Path, asof: str | None) -> dict
         raise ValueError("NAMESPACE_QUALIFIED_PORTFOLIO_REQUIRED")
     doctor = operations._doctor(db)
     if doctor["status"] != "VERIFIED":
-        raise ValueError("REGISTRY_SOURCE_PARITY_NOT_VERIFIED")
+        raise ValueError("REGISTRY_SQLITE_INTEGRITY_NOT_VERIFIED")
     generation = operations._generation(db)
-    if generation["status"] != "CURRENT":
-        raise ValueError("REGISTRY_GENERATION_NOT_CURRENT")
+    # The last CSV import clock is historical provenance, not a lease on
+    # the SQLite authority. A stale import must never remove a valid cohort.
+    if not generation["sha"]:
+        raise ValueError("REGISTRY_GENERATION_METADATA_MISSING")
     cmd = ["portfolio", portfolio_id]
     if asof is not None:
         cmd += ["--asof", _utc(asof).isoformat()]
@@ -302,6 +304,7 @@ def _registry_identity(portfolio_id: str, *, db: Path, asof: str | None) -> dict
         "version": record["version"],
         "selection_known_at": record["selection_known_at"],
         "registry_generation_sha256": generation["sha"],
+        "registry_inventory_sha256": doctor["data"]["inventory_sha256"],
         "registry_observed_at": generation["observed_at"],
         "registry_state": record.get("state"),
         "trading_authorized": False,

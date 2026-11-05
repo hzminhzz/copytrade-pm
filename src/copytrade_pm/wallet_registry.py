@@ -1,5 +1,6 @@
-"""Private, rebuildable, research-only wallet inventory.
+"""Authoritative private SQLite wallet and portfolio metadata registry.
 
+Legacy import files provide provenance/ingestion only; they do not override SQLite.
 This is NOT a broker ledger, trading authorization, or source of first-known fills.
 All production integrations are read-only and publish UNKNOWN on missing evidence.
 """
@@ -844,6 +845,90 @@ def registered_paper_status(con: sqlite3.Connection, *, now: datetime | None = N
     return results
 
 
+# The private SQLite ledger is the inventory/selection authority. External
+# roster files are import evidence and must never silently override it.
+# List fixed tables explicitly: discovery must not depend on sqlite_master order.
+AUTHORITATIVE_INVENTORY_TABLES = (
+    "wallets",
+    "cohorts",
+    "cohort_memberships",
+    "wallet_aliases",
+    "exclusions",
+    "monitoring",
+    "portfolio_versions",
+    "portfolio_memberships",
+    "portfolio_seals",
+    "research_selections",
+    "evidence_artifacts",
+    "snapshot_meta",
+)
+
+
+def db_authority_health(db: Path) -> dict:
+    """Read-only SQLite integrity and content identity, independent of CSV imports.
+
+    A non-SHA cohort source label is *unverified provenance*, not a reason
+    to delete the cohort from the authoritative registry. Never promote such
+    cohorts to scientific qualification.
+    """
+    fingerprint = sha256()
+    with closing(connect(db, False)) as con:
+        con.execute("BEGIN")  # Stable snapshot across the entire inspection.
+        if con.execute("PRAGMA query_only").fetchone()[0] != 1:
+            raise ValueError("REGISTRY_MUST_BE_QUERY_ONLY")
+        if con.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+            raise ValueError("REGISTRY_SQLITE_INTEGRITY_FAILED")
+        if con.execute("PRAGMA foreign_key_check").fetchone() is not None:
+            raise ValueError("REGISTRY_FOREIGN_KEYS_FAILED")
+        schema = con.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0]
+        if schema != 8:
+            raise ValueError("REGISTRY_SCHEMA_UNSUPPORTED")
+
+        cohorts = con.execute(
+            "SELECT cohort_id, version, source_sha256 FROM cohorts "
+            "WHERE version=(SELECT MAX(version) FROM cohorts c2 "
+            "WHERE c2.cohort_id=cohorts.cohort_id) ORDER BY cohort_id"
+        ).fetchall()
+        if not cohorts or any(not row[2] or row[1] < 1 for row in cohorts):
+            raise ValueError("REGISTRY_COHORT_PROVENANCE_EMPTY")
+        unverified = [row[0] for row in cohorts if re.fullmatch(r"[0-9a-f]{64}", row[2]) is None]
+        counts = {
+            row[0]: con.execute(
+                "SELECT COUNT(*) FROM cohort_memberships WHERE cohort_id=? AND version=?",
+                (row[0], row[1]),
+            ).fetchone()[0]
+            for row in cohorts
+        }
+        if any(count == 0 for count in counts.values()):
+            raise ValueError("REGISTRY_EMPTY_REGISTERED_COHORT")
+        for table in AUTHORITATIVE_INVENTORY_TABLES:
+            records = con.execute(f"SELECT * FROM {table}").fetchall()
+            encoded = sorted(
+                (json.dumps(row, sort_keys=True, separators=(",", ":")) for row in records)
+            )
+            fingerprint.update(table.encode("ascii"))
+            fingerprint.update(b"\0")
+            for row in encoded:
+                fingerprint.update(row.encode("utf-8"))
+                fingerprint.update(b"\n")
+        imported = dict(con.execute("SELECT key,value FROM snapshot_meta"))
+        seals = con.execute("SELECT COUNT(*) FROM portfolio_seals").fetchone()[0]
+        return {
+            "schema": "wallet_registry_sqlite_authority_v1",
+            "authority": "SQLITE",
+            "database_integrity": "VERIFIED",
+            "schema_version": schema,
+            "inventory_sha256": fingerprint.hexdigest(),
+            "research_cohorts": counts,
+            "unverified_cohort_import_provenance": unverified,
+            "sealed_portfolio_definitions": seals,
+            "last_legacy_import_sha256": imported.get("manifest_sha256"),
+            "last_legacy_import_observed_at": imported.get("observed_at"),
+            "scientifically_qualified": False,
+            "trading_authorized": False,
+        }
+
+
 def db_status(db: Path) -> dict:
     with closing(connect(db, False)) as con:
         counts = {
@@ -969,7 +1054,12 @@ def cli(argv: list[str] | None = None) -> int:
     flags.add_argument("--dry-run", action="store_true")
     flags.add_argument("--apply", action="store_true")
     sub.add_parser("status")
-    sub.add_parser("doctor")
+    doctor = sub.add_parser("doctor", help="Verify the authoritative SQLite ledger")
+    doctor.add_argument(
+        "--legacy-audit",
+        action="store_true",
+        help="Report external CSV/import parity as a non-authoritative diagnostic",
+    )
     sub.add_parser("runtime")
     save = sub.add_parser("backup")
     save.add_argument("--to", required=True, type=Path)
@@ -984,7 +1074,7 @@ def cli(argv: list[str] | None = None) -> int:
     )
     wallet.add_argument("--asof", help="UTC as-known cutoff")
     cohort = sub.add_parser("cohort")
-    cohort.add_argument("name", choices=tuple(RESEARCH))
+    cohort.add_argument("name", help="Any cohort registered in authoritative SQLite")
     portfolio = sub.add_parser("portfolio")
     portfolio.add_argument("name", nargs="?", help="canonical ID or unique alias")
     portfolio.add_argument(
@@ -1023,36 +1113,67 @@ def cli(argv: list[str] | None = None) -> int:
     elif args.command == "status":
         print(json.dumps(db_status(args.db), sort_keys=True))
     elif args.command == "doctor":
-        live = status(collect(args.root, args.tracker_env, args.decision_repo))
-        stored = db_status(args.db)
-        matched = (
-            all(
-                stored["counts"].get(k) == live[k]
-                for k in (
-                    "research_unique",
-                    "desired",
-                    "subscribed",
-                    "owner_excluded",
-                    "research_owner_excluded_overlap",
-                    "research_desired_overlap",
-                    "research_subscribed_overlap",
+        try:
+            authority = db_authority_health(args.db)
+            indexed = db_status(args.db)
+            audit = {"status": "NOT_REQUESTED", "authoritative": False}
+            if args.legacy_audit:
+                try:
+                    live = status(collect(args.root, args.tracker_env, args.decision_repo))
+                    import_counts = live["cohorts"]
+                    mismatched = [
+                        name
+                        for name, count in import_counts.items()
+                        if authority["research_cohorts"].get(name) != count
+                    ]
+                    hashes_equal = indexed["source_shas"] == live["source_shas"]
+                    audit = {
+                        "status": "MATCHED_IMPORT_SUBSET"
+                        if not mismatched and hashes_equal
+                        else "DRIFT",
+                        "authoritative": False,
+                        "external_research_unique": live["research_unique"],
+                        "sqlite_research_unique": indexed["counts"]["research_unique"],
+                        "external_only_mismatched_cohorts": mismatched,
+                        "extra_sqlite_cohorts": sorted(
+                            set(authority["research_cohorts"]) - set(import_counts)
+                        ),
+                        "import_source_hashes_match": hashes_equal,
+                    }
+                except (OSError, ValueError, KeyError, sqlite3.Error) as exc:
+                    audit = {
+                        "status": "UNAVAILABLE",
+                        "authoritative": False,
+                        "error_type": type(exc).__name__,
+                    }
+            print(
+                json.dumps(
+                    {
+                        **authority,
+                        "indexed_research_unique": indexed["counts"]["research_unique"],
+                        "indexed_import_clock_freshness": indexed["freshness"],
+                        "legacy_inputs": audit,
+                        "runtime_admitted": "UNKNOWN",
+                    },
+                    sort_keys=True,
                 )
             )
-            and stored["source_shas"] == live["source_shas"]
-            and stored["freshness"] == "CURRENT"
-        )
-        print(
-            json.dumps(
-                {
-                    "counts_match": matched,
-                    "freshness": stored["freshness"],
-                    "runtime_admitted": "UNKNOWN",
-                    "source_shas": live["source_shas"],
-                },
-                sort_keys=True,
+            return 0
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            print(
+                json.dumps(
+                    {
+                        "schema": "wallet_registry_sqlite_authority_v1",
+                        "authority": "SQLITE",
+                        "database_integrity": "FAILED",
+                        "error_type": type(exc).__name__,
+                        "trading_authorized": False,
+                        "scientifically_qualified": False,
+                    },
+                    sort_keys=True,
+                )
             )
-        )
-        return 0 if matched else 2
+            return 2
     elif args.command == "backup":
         source = args.db.resolve()
         destination = args.to.resolve()
@@ -1157,12 +1278,40 @@ def cli(argv: list[str] | None = None) -> int:
                 )
     elif args.command == "cohort":
         with closing(connect(args.db, False)) as con:
-            count = con.execute(
-                "SELECT COUNT(*) FROM cohort_memberships m WHERE m.cohort_id=? "
-                "AND m.version=(SELECT MAX(version) FROM cohorts WHERE cohort_id=?)",
-                (args.name, args.name),
-            ).fetchone()[0]
-        print(json.dumps({"cohort": args.name, "count": count}))
+            row = con.execute(
+                "SELECT version,source_sha256 FROM cohorts WHERE cohort_id=? "
+                "ORDER BY version DESC LIMIT 1",
+                (args.name,),
+            ).fetchone()
+            count = (
+                con.execute(
+                    "SELECT COUNT(*) FROM cohort_memberships WHERE cohort_id=? AND version=?",
+                    (args.name, row[0]),
+                ).fetchone()[0]
+                if row
+                else 0
+            )
+        print(
+            json.dumps(
+                {
+                    "cohort": args.name,
+                    "count": count,
+                    "registered": row is not None,
+                    "version": row[0] if row else None,
+                    "provenance": (
+                        "SOURCE_HASH_RECORDED"
+                        if row and re.fullmatch(r"[0-9a-f]{64}", row[1])
+                        else "UNVERIFIED_IMPORT_LABEL"
+                        if row
+                        else "UNKNOWN"
+                    ),
+                    "authority": "SQLITE",
+                    "scientifically_qualified": False,
+                    "trading_authorized": False,
+                },
+                sort_keys=True,
+            )
+        )
     elif args.command == "paper":
         if not args.run_dir:
             if args.apply:

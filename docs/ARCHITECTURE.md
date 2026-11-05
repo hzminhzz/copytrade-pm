@@ -63,6 +63,20 @@ from Forward-Paper first-event non-resetting T+300s.
 
 **Scope:** the mainline research architecture, updated during the 2026-11-01 PR17 recovery; see [the dated disposition](RECOVERY-DISPOSITION-2026-11-01.md) for exact commits and verification. This repository was history-filtered from `hyperliquid-expert-ensemble` (see [PROVENANCE](PROVENANCE.md)). It is **not** the production wallet tracker or Telegram consensus engine. Its research code must never import a live broker/order gateway. Read [INDEX](INDEX.md) first.
 
+## SQLite wallet registry authority correction (2026-11-05)
+
+Private SQLite is the single source of truth for current *metadata* wallet
+inventory, cohorts, aliases, exclusions and portfolio registrations. Legacy
+CSV, JSON and Markdown are import/provenance evidence; they cannot silently
+replace direct SQLite membership or drive the read-only release gate. The
+`doctor` checks SQLite `integrity_check`, `foreign_key_check`, supported schema,
+cohort provenance and a deterministic inventory SHA. Old import age/hash
+remains a separately reportable diagnostic. The six `ml4t-top6` members
+registered only in SQLite remain included but carry `UNVERIFIED_IMPORT_LABEL`
+provenance until independently documented. PM-03 finance, first-known source
+NAV, source/market receipts, protected paper workers and trading authorization
+remain separately attested authorities, not columns in the registry.
+
 ## Private registry boundary (2026-11-04, partial implementation)
 
 Wallet/portfolio discovery and status consumers **must** use the [mandatory registry-first read contract](WALLET-REGISTRY-AGENT-WORKFLOW.md). Git supplies immutable SHA-sealed decisions; private SQLite supplies the versioned materialized index; the tracker, worker, financial journal and qualification record retain independent authority. OptMem and narrative docs are not a current source of truth. A merged source hotfix must not be mistaken for an activated pinned release.
