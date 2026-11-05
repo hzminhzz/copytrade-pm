@@ -34,6 +34,10 @@ def _readonly_tape_snapshot(db_path: Path) -> dict:
     uri = "file:" + str(db_path.resolve()) + "?mode=ro"
     with closing(sqlite3.connect(uri, uri=True, timeout=0)) as db:
         db.execute("PRAGMA query_only=ON")
+        # SQLite's implicit read transactions are statement-scoped. Pin a
+        # single snapshot across source/quote/collateral chains while the
+        # observer is appending new receipts in another connection.
+        db.execute("BEGIN")
         sources = {}
         for member in P14:
             alias = _ALIAS[member]
@@ -82,18 +86,90 @@ def _readonly_tape_snapshot(db_path: Path) -> dict:
     }
 
 
+def _sealed_prefix_heads(snapshot: dict) -> dict:
+    """Compact, heartbeat-sealed historical heads for in-progress epochs."""
+    return {
+        scope: {key: [entry["cursor"], entry["head_sha"]] for key, entry in snapshot[scope].items()}
+        for scope in ("source", "quotes", "collateral")
+    }
+
+
+def _verified_append_only_advance(db_path: Path, older: object, current: dict) -> bool:
+    """Accept only independently verified additions after a heartbeat.
+
+    The current complete chains were checked by _readonly_tape_snapshot. Each
+    earlier sealed head must still appear at its ORIGINAL sequence number;
+    a rewritten head, truncated chain or old heartbeat format is UNKNOWN.
+    A verified extension still does not attest the new receipts or financial
+    operation: the observer remains DEGRADED_OBSERVER_ONLY.
+    """
+    tables = {
+        "source": ("source_receipts", "source_id"),
+        "quotes": ("market_quote_receipts", "instrument"),
+        "collateral": ("source_scope_receipts", "account_sha"),
+    }
+    if not isinstance(older, dict) or set(older) != set(tables):
+        return False
+    uri = "file:" + str(Path(db_path).resolve()) + "?mode=ro"
+    changed = False
+    with closing(sqlite3.connect(uri, uri=True, timeout=0)) as db:
+        db.execute("PRAGMA query_only=ON")
+        db.execute("BEGIN")
+        for scope, (table, key_field) in tables.items():
+            previous = older[scope]
+            latest = current[scope]
+            if not isinstance(previous, dict) or not set(previous).issubset(latest):
+                return False
+            if set(previous) != set(latest):
+                changed = True
+            for key, pair in previous.items():
+                if (
+                    not isinstance(key, str)
+                    or not isinstance(pair, list)
+                    or len(pair) != 2
+                    or type(pair[0]) is not int
+                    or pair[0] < 0
+                    or not isinstance(pair[1], str)
+                    or len(pair[1]) != 64
+                    or any(char not in "0123456789abcdef" for char in pair[1])
+                ):
+                    return False
+                cursor, head = pair
+                if cursor > latest[key]["cursor"]:
+                    return False
+                if cursor == latest[key]["cursor"]:
+                    if head != latest[key]["head_sha"]:
+                        return False
+                    continue
+                changed = True
+                if cursor == 0:
+                    if head != "0" * 64:
+                        return False
+                    continue
+                row = db.execute(
+                    f"SELECT chain_sha FROM {table} WHERE {key_field}=? AND seq=?",
+                    (key, cursor),
+                ).fetchone()
+                if row != (head,):
+                    return False
+    return changed
+
+
 def publish_public_observer_heartbeat(
     root: Path,
     *,
     journal_db: Path,
     epoch_report: dict,
     observed_at: str | None = None,
+    idle_refresh: bool = False,
 ) -> dict:
     """Atomic fsynced local observer heartbeat. Never claim protected health."""
     root = Path(root)
     _private_dir(root)
     now = observed_at or datetime.now(UTC).isoformat()
     clock(now)
+    if type(idle_refresh) is not bool:
+        raise ValueError("OBSERVER_HEARTBEAT_REFRESH_KIND_INVALID")
     if (
         not isinstance(epoch_report, dict)
         or epoch_report.get("schema") != "paper_readonly_observer_service_epoch_v1"
@@ -118,10 +194,12 @@ def publish_public_observer_heartbeat(
         "observed_at": now,
         "process_identity": _process_identity(os.getpid()),
         "tape_heads_sha": digest(snapshot),
+        "sealed_prefix_heads": _sealed_prefix_heads(snapshot),
         "source_count": len(snapshot["source"]),
         "quote_count": len(snapshot["quotes"]),
         "epoch_report_sha": digest(epoch_report),
         "last_epoch_status": epoch_report["status"],
+        "heartbeat_kind": "IDLE_LIVENESS_ONLY" if idle_refresh else "COMPLETED_EPOCH",
         "protected_worker_attested": False,
         "independently_signed": False,
         "paper_observed": False,
@@ -198,14 +276,21 @@ def inspect_public_observer_heartbeat(
             or body.get("independently_signed") is not False
             or body.get("paper_observed") is not False
             or body.get("order_route") != "NONE"
+            or body.get("heartbeat_kind", "COMPLETED_EPOCH")
+            not in ("COMPLETED_EPOCH", "IDLE_LIVENESS_ONLY")
         ):
             raise ValueError("OBSERVER_HEARTBEAT_POSITIVE_MODE_UNTRUSTED")
         pid = body["process_identity"]["pid"]
         if _process_identity(pid) != body["process_identity"]:
             raise ValueError("OBSERVER_HEARTBEAT_PROCESS_IDENTITY_CHANGED")
         snapshot = _readonly_tape_snapshot(journal_db)
+        in_progress = False
         if digest(snapshot) != body["tape_heads_sha"]:
-            raise ValueError("OBSERVER_HEARTBEAT_TAPE_HEAD_DIVERGENCE")
+            in_progress = _verified_append_only_advance(
+                journal_db, body.get("sealed_prefix_heads"), snapshot
+            )
+            if not in_progress:
+                raise ValueError("OBSERVER_HEARTBEAT_TAPE_HEAD_DIVERGENCE")
         heartbeat_age = (now - clock(body["observed_at"])).total_seconds()
         if heartbeat_age < 0 or heartbeat_age > max_heartbeat_age_seconds:
             raise ValueError("OBSERVER_HEARTBEAT_STALE_OR_FUTURE")
@@ -219,6 +304,10 @@ def inspect_public_observer_heartbeat(
             "order_route": "NONE",
         }
     reasons = ["UNPROTECTED_PUBLIC_OBSERVER_ONLY", "SOURCE_NAV_AND_VOLUME_UNATTESTED"]
+    if in_progress:
+        reasons.append("UNATTESTED_TAPE_ADVANCE_AFTER_HEARTBEAT")
+    if body.get("heartbeat_kind") == "IDLE_LIVENESS_ONLY":
+        reasons.append("IDLE_HEARTBEAT_NO_NEW_SOURCE_EVIDENCE")
     for alias, tape in snapshot["source"].items():
         when = tape["latest_first_known_at"]
         if when is None or not 0 <= (now - clock(when)).total_seconds() <= max_source_age_seconds:

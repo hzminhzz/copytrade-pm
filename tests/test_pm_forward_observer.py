@@ -397,6 +397,52 @@ def test_supervisor_marks_partial_channels_degraded_but_stays_no_trade():
     asyncio.run(run())
 
 
+def test_observer_idle_heartbeat_refresh_does_not_claim_new_captures():
+    async def run():
+        stop = asyncio.Event()
+        reports = []
+        refreshes = []
+        waits = []
+        captures = 0
+
+        async def capture():
+            nonlocal captures
+            captures += 1
+            if captures == 2:
+                stop.set()
+            return {
+                "status": "BLOCKED_NO_TRADE",
+                "order_route": "NONE",
+                "native_inventory": {"observed_native_market_count": 2},
+                "market_failures": [],
+                "source_capture_gaps": [],
+                "market_shards": [],
+            }
+
+        async def wait_for_stop(event, seconds):
+            waits.append(seconds)
+            return False
+
+        result = await run_readonly_observer_service(
+            run_cycle=capture,
+            pause_seconds=120,
+            cycle_timeout_seconds=360,
+            stop=stop,
+            report=reports.append,
+            heartbeat_refresh=refreshes.append,
+            wait_for_stop=wait_for_stop,
+        )
+        assert result["epochs"] == 2
+        assert [row["epoch"] for row in reports] == [1, 2]
+        assert waits == [45, 45, 30]
+        assert [row["epoch"] for row in refreshes] == [1, 1]
+        assert all(row["paper_observed"] is False for row in refreshes)
+        assert all(row["financial_events_committed"] == 0 for row in refreshes)
+        assert all(row["order_route"] == "NONE" for row in refreshes)
+
+    asyncio.run(run())
+
+
 def test_unbounded_observer_service_graceful_stop_and_bounded_reports():
     async def run():
         stop = asyncio.Event()
