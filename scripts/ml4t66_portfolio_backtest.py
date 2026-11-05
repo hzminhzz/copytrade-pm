@@ -352,6 +352,8 @@ def metrics(equity: np.ndarray, bad: np.ndarray) -> dict:
     vals = equity[seen]
     hwm = np.maximum.accumulate(np.r_[10000.0, vals])
     dd = hwm[1:] - vals
+    worst_index = int(np.argmax(dd))
+    worst_peak = float(hwm[worst_index + 1])
     safe_days = ~bad.reshape(DAYS, 1440).any(axis=1)
     eod = equity.reshape(DAYS, 1440)[:, -1]
     all_day = np.r_[10000.0, eod]
@@ -376,7 +378,11 @@ def metrics(equity: np.ndarray, bad: np.ndarray) -> dict:
         else None,
         "peak_equity_usd_on_marked_minutes": round(float(np.max(vals)), 2),
         "observed_only_max_drawdown_usd_lower_bound": round(float(max(dd.max(), 0.0)), 2),
+        # The legacy 10k-normalized amount is NOT conventional percent max DD.
         "observed_only_max_drawdown_pct_initial_10k": round(float(max(dd.max(), 0.0)) / 100, 2),
+        "observed_only_max_drawdown_pct_prior_peak": round(
+            float(max(dd.max(), 0.0)) / worst_peak * 100, 2
+        ),
         "observed_min_equity_usd": round(float(vals.min()), 2),
         "whole_safe_calendar_days": int(safe_days.sum()),
         "completely_priced_daily_changes": int(len(daily)),
@@ -574,6 +580,10 @@ def evaluate(
             "intraday_spread_depth_partial_fill": "UNKNOWN",
             "forced_terminal_liquidation": False,
             "source_last_fill_flat_assertion": False,
+            "per_pod_loss_budget_enforced": False,
+            "pretrade_gross_leverage_cap_enforced": False,
+            "contract_kill_switch_enforced_on_positions": False,
+            "continues_trading_after_modeled_contract_breach_for_diagnostics": True,
             "contract_payout_EV": None,
             "portfolio_selected_using_same_retrospective_window": True,
         },

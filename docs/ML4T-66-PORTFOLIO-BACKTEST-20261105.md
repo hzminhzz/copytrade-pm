@@ -57,6 +57,24 @@ Explorer: **COMP** missing 19 of 37 requested market-days plus one incomplete, a
 
 The orders and costs here follow the zero-anchored new-follower policy, so are **not identical** to the earlier unconstrained batch-count inventory in [allocation reassessment](ML4T-66-ALLOCATION-REASSESSMENT-20261105.md).
 
+## 2026-11-05 correction: the $6,148.94 Explorer drawdown is UNPROTECTED
+
+Following owner challenge, independently reran `scripts/ml4t66_drawdown_attribution.py` against the native SHA-verified market source and the **5m / 6bps Explorer portfolio**, accounting per wallet/instrument for executed cash, signed holdings and mark changes. It reconciled the exact previously printed dollar drawdown, but exposes why interpreting the result as a protected $10,000 challenge was misleading:
+
+- **Peak:** $14,473.33, Oct 6 at 15:02 UTC. **Trough:** $8,324.40, Oct 8 at 17:26 UTC. Difference **−$6,148.94**. Conventional peak-normalized drawdown is **42.48%**. The old `observed_only_max_drawdown_pct_initial_10k = 61.49` is a **loss divided by initial $10k**, NOT the standard percentage max drawdown. Code now prints a separate `observed_only_max_drawdown_pct_prior_peak`.
+- **Pod decomposition:** M33 **−$4,748.62** (77.23% of the peak-to-trough loss); M10 **−$980.40**; M53 **−$419.92**. Reconstructed attribution sums to **−$6,148.94** and throws on a mismatch.
+- Main losses: **M33 BTC −$3,526.53**, **M33 XMR −$1,067.74**, **M53 SOL −$722.45**, **M10 OP −$628.30**; all other leg changes total **−$203.92**.
+- **M33 gross at peak $55,133.92**, including BTC $40,853.27. As the account assigned this pod only $3,333.33 of its initial capital, that is **16.54× its intended pod capital**. On Oct 6→8, native BTC closes fell **$86,632→$80,430**, while simulated M33 BTC increased **0.4715725→0.73612117** BTC. Whole-account gross grew **$61,374.67→$86,879.41** across the peak-to-trough interval; the period-wide maximum was $91,597.44.
+- **Critical:** This scenario **never enforced a gross cap, per-pod 2% loss budget, or kill-switch liquidation**. The first modeled evaluation breach occurred **Sep 23 at 10:25 UTC**, *13 days before the $14,473 peak*. An actual account respecting the loss barrier cannot continue trading through Oct 6–8 to incur this modeled drawdown. It is only an unrestricted post-failure counterfactual stress trace.
+- The static source equity scalar and historical source-fill event clocks were not PIT follower attested. The model does **not** establish an actual protected portfolio loss, stop or follower execution capacity. No claim is made that a real broker stop would cap losses exactly at an arbitrary threshold without slippage and gaps.
+
+**Correction to decision:** Use the Sep 23 *first passage* as the relevant signal to reject this unprotected Explorer sizing for the user's challenge. **Do not use $6,148.94 or 61.49% as a realized drawdown or qualified account loss.** A valid protected replay must apply PM-03 limits pre-trade, guard daily/trailing floors on marks, hold a pod loss budget, prevent more than allowed gross/notional per pod, and model actual post-halt liquidation prices. Simply clipping the curve to a stop level is invalid.
+
+The corrected 27-scenario run is independently recorded in
+`/home/quant/.local/share/copytrade/reports/ml4t66-batch-recovery-20261105/ml4t66_portfolio_backtest_ec5adc7a29e0075dfd77.json`,
+SHA256 `ec5adc7a29e0075dfd7714688bfca40ebb93325c69a1d46a2265d2efa49cf861`.
+The old `c096f837...` file is retained as an immutable prior-version evidence record; the new report explicitly marks **no kill switch, no pretrade leverage cap, and no per-pod stop**. The $6,148.94 drawdown remains unchanged, but its conventional percentage is corrected to **42.48%** of the preceding $14,473.33 equity peak.
+
 ## Reproduction
 
 From the feature worktree with native market extra:
@@ -69,6 +87,12 @@ uv run --frozen --extra market --group dev python scripts/ml4t66_portfolio_backt
   --output-root /home/quant/.local/share/copytrade/reports/ml4t66-batch-recovery-20261105 \
   --scenarios EXPLORER SPRINT PRECOMPUTED_CONTROL \
   --delays 1 2 5 --costs 6 12 18
+
+# Independently reconcile historical 5m Explorer drawdown by wallet and coin:
+uv run --frozen --extra market python scripts/ml4t66_drawdown_attribution.py \
+  --db /home/quant/.local/share/copytrade/registry/wallet_registry.sqlite \
+  --source-root /home/quant/dev/copytrade-pm/data \
+  --market-root /home/quant/dev/quant/ml4t-data/.data/store
 ```
 
 Private immutable report:

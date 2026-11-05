@@ -107,6 +107,18 @@ def test_missing_execution_blocks_full_passage_without_pretending_zero(monkeypat
     assert result["challenge_pass"] is None
 
 
+def test_drawdown_percentage_uses_prior_peak_not_initial_account(monkeypatch):
+    monkeypatch.setattr(bt, "DAYS", 1)
+    # A $6k peak-to-trough loss is 40% of $15k, not 60% of $10k.
+    equity = np.full(1440, 10_000.0)
+    equity[1] = 15_000.0
+    equity[2] = 9_000.0
+    result = bt.metrics(equity, np.zeros(1440, dtype=bool))
+    assert result["observed_only_max_drawdown_usd_lower_bound"] == 6000.0
+    assert result["observed_only_max_drawdown_pct_prior_peak"] == 40.0
+    assert result["observed_only_max_drawdown_pct_initial_10k"] == 60.0
+
+
 def test_barrier_first_passage_blocks_before_future_target(monkeypatch):
     monkeypatch.setattr(bt, "MINUTES", 5)
     monkeypatch.setattr(bt, "DAYS", 1)
