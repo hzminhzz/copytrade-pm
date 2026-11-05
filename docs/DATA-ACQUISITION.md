@@ -1,5 +1,12 @@
 # Wallet data acquisition and provenance
 
+## Public market-wide trade capture (experimental, 2026-11-05)
+
+**Current complete Propr public-display research scope:** [157 unique native assets / three physical WS groups](FORWARD-PAPER-PROPR-157-THREE-SOCKETS-20261105.md), sourced from dated, SHA-pinned 158-entry public Propr display snapshot and independently verified against live Hyperliquid default and `xyz` metadata. Equities, commodities and indices are included; two display categories contain the same `COPPER` market. Larger explicit 8/88/61 physical sockets extend—not replace—legacy 8-market sharding. Live test used `--parallel-shards 1` for shared-IP safety; actual concurrent capacity and real Propr order eligibility are not proven. This is observer-only, not a runtime admission or execution credential.
+
+
+[Native public trade first-known receipt and UTC net-delta contract](FORWARD-PAPER-PUBLIC-TRADES-20261105.md) implements an opt-in bounded `trades` WS filter for sealed, SQLite-resolved public wallets, with buyer/seller signatures, per-session baseline exclusion, stream-gap evidence and provisional immutable journals. Legacy flat allowlists support ≤128 markets with eight symbols per socket; the new versioned Propr display layout supports 157 markets on three named 8/88/61 physical sockets (each ≤128 internally), with per-market observed frames and no silent market omissions. See [the non-authoritative 13-market example](FORWARD-PAPER-MARKET-EXAMPLE-20261105.json), and the [exact user-selected 40-market five-shard configuration and test evidence](FORWARD-PAPER-TOP40-FIVE-SHARD-20261105.md). It is not an authenticated whole-wallet account ledger; a disconnected stream is not a complete timeline, and reported quantities are not PM-03 follower orders. Owner-private address lists are read from SQLite, not from Markdown. Requires independent `userFills`, TWAP, position/NAV and L2-capacity reconciliation before any financial paper admission.
+
 **Use this for “get wallet fills,” “new wallet,” “fix gaps,” “get 1m OHLCV,” or “start forward capture.”** Read [INDEX](INDEX.md) and [ARCHITECTURE](ARCHITECTURE.md) first. No commands in this guide authorize orders. Offline auditing is distinct from vendor/SDK downloads. Live source snapshot inspected 2026-10-31; private paths can change.
 
 ## Official Hyperliquid public API as the forward source (2026-11-05)

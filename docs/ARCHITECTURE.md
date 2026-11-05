@@ -1,5 +1,9 @@
 # Architecture: evidence, manager governance, shadow account
 
+## Public market-wide trade stream and UTC planning (2026-11-05)
+
+[The forward public-trade contract](FORWARD-PAPER-PUBLIC-TRADES-20261105.md) adds a read-only market-wide buyer/seller filter to `pm_forward_public_trades` using the SQLite-sealed portfolio registry. A separate additive journal tape stores first-known wallet fills, durable commit clocks, disconnect gaps, five-minute UTC net-delta observations, and as-of public quotes. All are provisional; `PM03/PM04` remain the only financial accounting/target authorities. The existing rolling `ForwardBatch` contract is unchanged by default, with opt-in UTC close or UTC close-plus-five-minute policies. The new source code does not create `PAPER_RUNNING` or execute a financial event.
+
 ## Public observer service boundary (2026-11-05)
 
 The [public P1/P14 observer deployment contract](FORWARD-PAPER-PUBLIC-OBSERVER-SERVICE-20261105.md)

@@ -81,7 +81,9 @@ def _verify_sealed_definition_sha(
     )
     row = cur.fetchone()
     if not row:
-        raise ValueError(f"UNSEALED_FORWARD_PAPER_PORTFOLIO: missing seal metadata {portfolio_name}")
+        raise ValueError(
+            f"UNSEALED_FORWARD_PAPER_PORTFOLIO: missing seal metadata {portfolio_name}"
+        )
 
     # Test fixtures using sha_fixture_* prefix are accepted in test runs
     if expected_sha.startswith("sha_fixture_"):
@@ -108,7 +110,9 @@ def _verify_sealed_definition_sha(
                 orig_aliases = [m["wallet"] for m in item["members"]]
                 # Ensure members in db match payload aliases
                 if set(members) != set(payload_aliases):
-                    raise ValueError(f"UNSEALED_FORWARD_PAPER_PORTFOLIO: membership tamper detected {portfolio_name}")
+                    raise ValueError(
+                        f"UNSEALED_FORWARD_PAPER_PORTFOLIO: membership tamper detected {portfolio_name}"
+                    )
                 payload = {
                     "schema": "wallet_portfolio_definition_v2",
                     "portfolio_id": portfolio_name,

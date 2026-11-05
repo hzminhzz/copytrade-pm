@@ -1,0 +1,18 @@
+{
+  "schema": "paper_public_market_allowlist_v1",
+  "instruments": [
+    "hyperliquid/mainnet:perp:default/BTC",
+    "hyperliquid/mainnet:perp:default/ETH",
+    "hyperliquid/mainnet:perp:default/SOL",
+    "hyperliquid/mainnet:perp:default/HYPE",
+    "hyperliquid/mainnet:perp:default/ENA",
+    "hyperliquid/mainnet:perp:default/ZEC",
+    "hyperliquid/mainnet:perp:default/NEAR",
+    "hyperliquid/mainnet:perp:default/XRP",
+    "hyperliquid/mainnet:perp:default/SUI",
+    "hyperliquid/mainnet:perp:default/TAO",
+    "hyperliquid/mainnet:perp:xyz/BRENTOIL",
+    "hyperliquid/mainnet:perp:xyz/GOLD",
+    "hyperliquid/mainnet:perp:xyz/SILVER"
+  ]
+}
