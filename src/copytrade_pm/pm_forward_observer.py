@@ -407,6 +407,7 @@ async def run_readonly_observer_service(
     stop: asyncio.Event,
     report: Callable[[dict], None],
     cycle_timeout_seconds: float = 600,
+    heartbeat_refresh: Callable[[dict], None] | None = None,
     wait_for_stop: Callable[[asyncio.Event, float], Awaitable[bool]] | None = None,
 ) -> dict:
     """Unbounded *observer-only* loop, bounded memory and graceful stop.
@@ -472,27 +473,35 @@ async def run_readonly_observer_service(
             }
         # No unbounded in-memory report list. A failed sink stops the observer
         # instead of silently losing its runtime failure evidence.
-        report(
-            {
-                "schema": "paper_readonly_observer_service_epoch_v1",
-                **event,
-                "protected_worker_attested": False,
-                "source_nav_attested": False,
-                "trade_volume_complete": False,
-                "financial_events_committed": 0,
-                "paper_observed": False,
-                "order_route": "NONE",
-            }
-        )
+        epoch_report = {
+            "schema": "paper_readonly_observer_service_epoch_v1",
+            **event,
+            "protected_worker_attested": False,
+            "source_nav_attested": False,
+            "trade_volume_complete": False,
+            "financial_events_committed": 0,
+            "paper_observed": False,
+            "order_route": "NONE",
+        }
+        report(epoch_report)
         if stop.is_set():
             break
-        if wait_for_stop is None:
-            try:
-                await asyncio.wait_for(stop.wait(), timeout=pause_seconds)
-            except TimeoutError:
-                pass
-        else:
-            await wait_for_stop(stop, pause_seconds)
+        # Keep OS/process liveness observable during a long idle cadence
+        # without shortening public API budgets or pretending a fresh source
+        # observation occurred. Source/quote freshness is checked separately.
+        remaining = pause_seconds
+        while remaining > 0 and not stop.is_set():
+            step = min(45.0, remaining)
+            if wait_for_stop is None:
+                try:
+                    await asyncio.wait_for(stop.wait(), timeout=step)
+                except TimeoutError:
+                    pass
+            else:
+                await wait_for_stop(stop, step)
+            remaining -= step
+            if heartbeat_refresh is not None and remaining > 0 and not stop.is_set():
+                heartbeat_refresh(epoch_report)
     return {
         "status": "OBSERVER_STOPPED_NOT_PAPER_RUNNING",
         "epochs": epochs,
@@ -556,12 +565,22 @@ def main() -> None:
                 )
                 print(json.dumps(row, sort_keys=True), flush=True)
 
+            def refresh_idle_heartbeat(row: dict) -> None:
+                # A liveness tick never claims a new observed source epoch.
+                publish_public_observer_heartbeat(
+                    journal.root,
+                    journal_db=journal.path,
+                    epoch_report=row,
+                    idle_refresh=True,
+                )
+
             return await run_readonly_observer_service(
                 run_cycle=capture,
                 pause_seconds=args.service_cadence_seconds,
                 cycle_timeout_seconds=args.service_cycle_timeout_seconds,
                 stop=stop,
                 report=report,
+                heartbeat_refresh=refresh_idle_heartbeat,
             )
         return await run_readonly_observer_epochs(
             run_cycle=capture,

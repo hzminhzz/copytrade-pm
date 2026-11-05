@@ -98,11 +98,38 @@ systemctl --user disable --now copytrade-public-observer-p1p14.service
 ```
 
 After any restart, the first complete new cycle must publish a new observer
-heartbeat. A stale/missing heartbeat, stopped process, tape head divergence,
-unexpected quote set or broker authority must return `UNKNOWN` or
-`DEGRADED_OBSERVER_ONLY`, not `PAPER_RUNNING`. The finite source and quote
+heartbeat. Missing/stale heartbeats, stopped processes, invalid receipt chains,
+truncated or rewritten sealed heads, unexpected quote sets and broker authority
+remain `UNKNOWN`, never `PAPER_RUNNING`. The finite source and quote
 observations are time-staggered, and service restarts create an explicit
 prospective coverage gap.
+
+**November 5 observer integrity correction (read-only):** heartbeat publication
+occurs at the **end** of an observer epoch, while source and CCXT quote receipts
+append during the epoch. An independent health probe can therefore see valid
+new receipts beyond the previous heartbeat before a new heartbeat is published.
+The verifier now pins one SQLite read transaction across source/quote/collateral
+checks, stores compact SHA-linked tape heads in each new heartbeat, and verifies
+that every previously sealed head is an unchanged prefix of the fully verified
+current chain. Only that exact append-only case returns
+`DEGRADED_OBSERVER_ONLY` with
+`UNATTESTED_TAPE_ADVANCE_AFTER_HEARTBEAT`. The newer receipts are **not**
+heartbeat-attested; this is an evidence-in-progress diagnostic, not a successful
+capture, complete coverage, healthy paper worker, or trading authorization.
+Legacy heartbeats without sealed prefix heads, broken old prefixes, tampering,
+clock/identity failures and stale heartbeats still fail closed as `UNKNOWN`.
+The revision has no broker routes, simulated fills or paper financial events.
+
+**Idle liveness without extra provider calls:** the service retains its
+existing 120-second inter-epoch pause and 90-second watchdog freshness bound,
+but refreshes the heartbeat at most every 45 seconds during that pause. These
+heartbeats are explicitly `IDLE_LIVENESS_ONLY`, keep the *last completed epoch*
+status, and report `IDLE_HEARTBEAT_NO_NEW_SOURCE_EVIDENCE`. They do not capture
+new source/quote observations, reduce public API budgets or extend the source
+and market freshness limits. A hung/incomplete capture, changed process PID,
+actual data staleness, broken tape, or missing heartbeat still fails closed.
+The idle refresh applies only after deployment of the corrected code in a new
+pinned, reviewed release; an older installed observer does not inherit the fix.
 
 ## Protected financial activation remains blocked
 

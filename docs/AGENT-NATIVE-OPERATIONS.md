@@ -101,8 +101,17 @@ independent journal, heartbeat or paper-economic qualification. Optional
 `--observer-state-root PRIVATE_DIR` verifies the native public observer source
 and quote receipts via the existing observer watchdog; provider freshness and
 executable market capacity remain `UNKNOWN`. Without observer evidence, market
-status stays `UNKNOWN`. A saved selection or zero indexed paper runs never
-proves paper execution.
+status stays `UNKNOWN`. The public observer's independent watcher verifies a
+single consistent read-only SQLite tape snapshot. A new heartbeat seals source,
+quote and collateral chain-prefix heads; when additional fully verified
+append-only receipts arrive during a subsequent epoch, status is still
+`DEGRADED_OBSERVER_ONLY` with `UNATTESTED_TAPE_ADVANCE_AFTER_HEARTBEAT`, not
+`PAPER_RUNNING`. A different, truncated or rewritten prefix stays `UNKNOWN`.
+During idle pauses the observer may emit explicitly marked liveness-only
+heartbeats without new source data or changed provider polling rates; any
+stale source/quote receipts remain stale. See the
+[public observer deployment guide](FORWARD-PAPER-PUBLIC-OBSERVER-SERVICE-20261105.md).
+A saved selection or zero indexed paper runs never proves paper execution.
 
 Native SQLite readers use `mode=ro` and do not change registry tables or
 data bytes, though SQLite may create `-wal` or `-shm` coordination files; do
