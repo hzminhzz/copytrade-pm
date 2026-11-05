@@ -110,6 +110,8 @@ def _collateral(db: sqlite3.Connection, account_sha: str) -> dict:
     mode = None
     mode_known_at = None
     mode_status = "NOT_CAPTURED"
+    copy_scope = "LEGACY_PUBLIC_COLLATERAL_DIAGNOSTIC"
+    vault_status = "NOT_CAPTURED"
     for expected, (seq, receipt_id, raw, sha, old, chain) in enumerate(rows, 1):
         report = json.loads(raw)
         PaperJournal._check_collateral_diagnostic(report)
@@ -125,6 +127,8 @@ def _collateral(db: sqlite3.Connection, account_sha: str) -> dict:
         latest = {row["scope"]: row for row in report["observations"]}
         spot_known = latest["spotClearinghouseState"]["first_known_at"]
         vault_known = latest["userVaultEquities"]["first_known_at"]
+        vault_status = latest["userVaultEquities"]["status"]
+        copy_scope = report.get("copy_scope") or "LEGACY_PUBLIC_COLLATERAL_DIAGNOSTIC"
         account_mode = report.get("account_abstraction")
         mode_status = (
             account_mode.get("status") if isinstance(account_mode, dict) else "NOT_CAPTURED"
@@ -139,6 +143,8 @@ def _collateral(db: sqlite3.Connection, account_sha: str) -> dict:
         "head_sha": prior,
         "last_spot_known_at": spot_known,
         "last_vault_known_at": vault_known,
+        "vault_scope_status": vault_status,
+        "copy_scope": copy_scope,
         "last_account_mode": mode,
         "last_account_mode_known_at": mode_known_at,
         "account_mode_status": mode_status,
@@ -230,7 +236,15 @@ def audit_live_paper_readiness(
                     reasons.append("SHARED_COLLATERAL_MODE_BLOCKS_PER_DEX_NAV_SUM")
                 elif collateral["last_account_mode"] in ("default", "dexAbstraction"):
                     reasons.append("ACCOUNT_MODE_NAV_ADDIVITY_UNRESOLVED")
-                for field in ("last_spot_known_at", "last_vault_known_at"):
+                # Vault investments are not follower positions or required
+                # risk inputs for a perpetuals-only mirror. In unified mode,
+                # the spot quote balance still supports perp margin and MUST
+                # be read; the missing vault scope must not be called a feed
+                # failure when it was deliberately excluded.
+                required_clocks = ("last_spot_known_at",)
+                if collateral.get("copy_scope") != "PERPETUALS_ONLY":
+                    required_clocks += ("last_vault_known_at",)
+                for field in required_clocks:
                     known = collateral[field]
                     if (
                         known is None

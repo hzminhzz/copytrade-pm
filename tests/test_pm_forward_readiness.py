@@ -157,6 +157,45 @@ def test_parent_discovered_subaccount_missing_from_observations_blocks(tmp_path)
     assert first["admitted"] is False
 
 
+def test_perps_only_scope_skips_vault_but_never_promotes_quote_balance_to_nav(tmp_path):
+    roots = _setup(tmp_path)
+    _, primary, _, source, _ = roots
+    parent = json.loads(next(primary.glob("S035-ENA_0x*.json")).read_text())["address"]
+    report = diagnostic()
+    report["account_address_sha256"] = sha256(parent.lower().encode()).hexdigest()
+    report["copy_scope"] = "PERPETUALS_ONLY"
+    report["status"] = "BLOCKED_PERPETUAL_COLLATERAL_RECONCILIATION"
+    report["observations"][0] = {
+        **report["observations"][0],
+        "potential_perp_quote_collateral": {"USDC": {"total": "5000", "hold": "0"}},
+        "other_spot_asset_count": 1,
+    }
+    report["observations"][1] = {
+        "scope": "userVaultEquities",
+        "status": "OUT_OF_SCOPE_PERPETUALS_ONLY",
+        "first_known_at": None,
+        "source_event_at": None,
+        "response_sha256": None,
+        "row_count": None,
+    }
+    report["account_abstraction"] = {
+        "status": "OFFICIAL_PUBLIC_ACCOUNT_MODE_OBSERVED",
+        "mode": "unifiedAccount",
+        "first_known_at": "2026-11-04T04:00:03+00:00",
+        "source_event_at": None,
+        "response_sha256": "c" * 64,
+        "source_signed": False,
+    }
+    source.append_collateral_diagnostic(report)
+    first = audit(roots, "P1")["source"][0]
+    assert first["collateral_diagnostics"]["copy_scope"] == "PERPETUALS_ONLY"
+    assert first["collateral_diagnostics"]["last_vault_known_at"] is None
+    assert "COLLATERAL_SCOPE_STALE_OR_MISSING" not in first["reason_codes"]
+    assert "SHARED_COLLATERAL_MODE_BLOCKS_PER_DEX_NAV_SUM" in first["reason_codes"]
+    assert "COLLATERAL_SCOPE_NOT_ATOMIC_NAV" in first["reason_codes"]
+    assert first["admitted"] is False
+
+
 def test_subaccount_latest_receipt_cannot_replace_parent_and_hedges_stay_visible(tmp_path):
     roots = _setup(tmp_path)
     _, primary, _, source, _ = roots

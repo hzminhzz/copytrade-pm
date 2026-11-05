@@ -11,8 +11,11 @@ parent/subaccount to acquire the full *per-account* perpetual position set and
 DEX margin diagnostics, retaining source event clocks and separately measured
 first-local-known receipt clocks in the private SHA-chained `PaperJournal`.
 The official `/info` API provides `perpDexs` (DEX census), `subAccounts`
-(account discovery), `spotClearinghouseState`, `userVaultEquities` and now
-`userAbstraction` (account collateral/margin mode). Public observations do not
+(account discovery), `spotClearinghouseState` (collateral evidence) and
+`userAbstraction` (account collateral/margin mode). The legacy, wider
+`userVaultEquities` diagnostic remains available only when explicitly requested;
+the approved forward portfolio's **perpetuals-only** account-family observer
+**does not query vault equities**. Public observations do not
 require a private key or a HyperX vendor subscription.
 
 The `userAbstraction` response is a scalar JSON string, one of `disabled`,
@@ -26,6 +29,31 @@ perp-DEX account values as an additive whole-wallet denominator; `default` and
 read-only readiness join explicitly reports these mode blockers and missing
 or unmatched discovered subaccount position receipts. No account mode, amount,
 market price or vendor record is promoted to a financial execution gate.
+
+### Approved perpetuals-only capture (2026-11-05)
+
+Follower scope = `PERPETUALS_ONLY`. Source positions cover *all* open native
+perpetual DEX markets, including HIP-3 and hedges, for each known parent and
+linked subaccount. No spot position, spot trade, vault deposit or staking event
+is a copy instruction. The public spot-state request is retained **only** to
+read quote collateral for unified-margin perpetuals: the diagnostic retains
+USDC/USDH `total` and `hold` values with their original response SHA and
+first-local timestamp, and counts other spot assets without turning them into
+follower signals or making assumptions about their collateral value.
+
+The existing SQLite collateral journal retains its legacy two-slot layout for
+readers: the excluded vault slot is explicitly marked
+`OUT_OF_SCOPE_PERPETUALS_ONLY` with null timestamps/amounts, **not** a failed
+API acquisition or a fabricated zero balance. New diagnostics carry
+`copy_scope=PERPETUALS_ONLY` and
+`status=BLOCKED_PERPETUAL_COLLATERAL_RECONCILIATION`. Legacy SHA-chained
+receipts are accepted unchanged and retain their earlier scope. The readiness
+audit does not require vault freshness in perp-only mode, but still requires
+timely public spot collateral/mode evidence and a whole-wallet reconciled
+sizing denominator. Unified/portfolio-margin accounts cannot use their
+individual perp-DEX `accountValue` as equity. Do not replace missing source
+NAV with native quote balances, a fixed source leverage, or retrospective
+HyperX funding/PnL. Asynchronous account books are not atomic.
 
 The additional `userAbstraction` `/info` call is subject to documented provider
 weight (general `info` weight 20); keep account-family captures bounded and
