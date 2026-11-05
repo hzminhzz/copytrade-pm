@@ -15,6 +15,14 @@ Use `copytrade-pm-paper-standby` only as a **no-order standby**, and
 candidates. No `--apply` is available; no financial paper or independent
 protected deployment is attested. Confirm live services separately.
 
+## P1/P14 prospective reseal preflight (read-only)
+
+The [identity preflight runbook](P1-P14-PROSPECTIVE-RESEAL-PREFLIGHT-20261106.md)
+uses the existing `copytrade-pm-paper-registry-audit --prospective-reseal-preview`
+to verify as-known canonical aliases and private addresses for a **new**
+research-only signed selection. The output is unsigned; historical P1/P14
+seals are unchanged and remain blocked, and no paper execution is authorized.
+
 ## Authoritative SQLite metadata inventory (2026-11-05)
 
 Use `copytrade-wallet-registry doctor` for `authority=SQLITE`,
