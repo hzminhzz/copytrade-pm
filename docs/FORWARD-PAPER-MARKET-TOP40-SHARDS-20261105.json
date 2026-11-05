@@ -1,0 +1,71 @@
+{
+  "schema": "paper_public_market_shards_v1",
+  "selection": "top40_nonstock_perpetuals_20261105",
+  "shards": [
+    {
+      "name": "core_crypto_majors",
+      "instruments": [
+        "hyperliquid/mainnet:perp:default/HYPE",
+        "hyperliquid/mainnet:perp:default/NEAR",
+        "hyperliquid/mainnet:perp:default/ZEC",
+        "hyperliquid/mainnet:perp:default/BTC",
+        "hyperliquid/mainnet:perp:default/ETH",
+        "hyperliquid/mainnet:perp:default/XMR",
+        "hyperliquid/mainnet:perp:default/SOL",
+        "hyperliquid/mainnet:perp:default/ENA"
+      ]
+    },
+    {
+      "name": "liquid_altcoins",
+      "instruments": [
+        "hyperliquid/mainnet:perp:default/LIT",
+        "hyperliquid/mainnet:perp:default/PONS",
+        "hyperliquid/mainnet:perp:default/TRX",
+        "hyperliquid/mainnet:perp:default/UNI",
+        "hyperliquid/mainnet:perp:default/JUP",
+        "hyperliquid/mainnet:perp:default/CASHCAT",
+        "hyperliquid/mainnet:perp:default/VVV",
+        "hyperliquid/mainnet:perp:default/ZRO"
+      ]
+    },
+    {
+      "name": "commodities_indices",
+      "instruments": [
+        "hyperliquid/mainnet:perp:xyz/CL",
+        "hyperliquid/mainnet:perp:xyz/BRENTOIL",
+        "hyperliquid/mainnet:perp:xyz/XYZ100",
+        "hyperliquid/mainnet:perp:default/PUMP",
+        "hyperliquid/mainnet:perp:default/CRV",
+        "hyperliquid/mainnet:perp:default/ONDO",
+        "hyperliquid/mainnet:perp:xyz/SP500",
+        "hyperliquid/mainnet:perp:default/BNB"
+      ]
+    },
+    {
+      "name": "defi_l1_infrastructure",
+      "instruments": [
+        "hyperliquid/mainnet:perp:default/MORPHO",
+        "hyperliquid/mainnet:perp:default/LINK",
+        "hyperliquid/mainnet:perp:default/SUI",
+        "hyperliquid/mainnet:perp:default/kPEPE",
+        "hyperliquid/mainnet:perp:default/USELESS",
+        "hyperliquid/mainnet:perp:default/XRP",
+        "hyperliquid/mainnet:perp:default/MET",
+        "hyperliquid/mainnet:perp:default/STRK"
+      ]
+    },
+    {
+      "name": "precious_metals_alts",
+      "instruments": [
+        "hyperliquid/mainnet:perp:default/AAVE",
+        "hyperliquid/mainnet:perp:xyz/GOLD",
+        "hyperliquid/mainnet:perp:default/ARB",
+        "hyperliquid/mainnet:perp:default/DASH",
+        "hyperliquid/mainnet:perp:default/XPL",
+        "hyperliquid/mainnet:perp:default/PAXG",
+        "hyperliquid/mainnet:perp:default/INJ",
+        "hyperliquid/mainnet:perp:xyz/SILVER"
+      ]
+    }
+  ]
+}

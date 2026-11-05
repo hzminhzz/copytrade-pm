@@ -493,6 +493,179 @@ def test_market_allowlist_sha_and_bounded_shards(tmp_path):
         load_public_market_allowlist(market)
 
 
+def test_exact_user_top40_layout_and_current_catalog_guard(tmp_path):
+    from hashlib import sha256
+    from pathlib import Path
+
+    from copytrade_pm.pm_forward_public_trades import (
+        load_public_market_shards,
+        validate_public_market_catalog,
+    )
+
+    path = (
+        Path(__file__).resolve().parents[1] / "docs/FORWARD-PAPER-MARKET-TOP40-SHARDS-20261105.json"
+    )
+    layout = load_public_market_shards(path)
+    names = [
+        "core_crypto_majors",
+        "liquid_altcoins",
+        "commodities_indices",
+        "defi_l1_infrastructure",
+        "precious_metals_alts",
+    ]
+    assert [name for name, _ in layout] == names
+    assert [len(group) for _, group in layout] == [8] * 5
+    coins = [[native_coin(inst) for inst in group] for _, group in layout]
+    assert coins == [
+        ["HYPE", "NEAR", "ZEC", "BTC", "ETH", "XMR", "SOL", "ENA"],
+        ["LIT", "PONS", "TRX", "UNI", "JUP", "CASHCAT", "VVV", "ZRO"],
+        ["xyz:CL", "xyz:BRENTOIL", "xyz:XYZ100", "PUMP", "CRV", "ONDO", "xyz:SP500", "BNB"],
+        ["MORPHO", "LINK", "SUI", "kPEPE", "USELESS", "XRP", "MET", "STRK"],
+        ["AAVE", "xyz:GOLD", "ARB", "DASH", "XPL", "PAXG", "INJ", "xyz:SILVER"],
+    ]
+    selected = tuple(inst for _, group in layout for inst in group)
+    assert len(set(inst.key for inst in selected)) == 40
+
+    def fake_catalog(req):
+        dex = req.get("dex", "default")
+        universe = [
+            {"name": native_coin(inst)} for inst in selected if inst.market.endswith(":" + dex)
+        ]
+        payload = {"universe": universe}
+        raw = json.dumps(payload).encode()
+        return payload, raw, sha256(raw).hexdigest()
+
+    accepted = validate_public_market_catalog(selected, info=fake_catalog)
+    assert accepted["markets_verified"] == 40
+    assert accepted["status"] == "ALL_MARKETS_PRESENT_AT_PREFLIGHT"
+
+    def missing_catalog(req):
+        payload, _, _ = fake_catalog(req)
+        if req.get("dex") == "xyz":
+            payload["universe"] = [row for row in payload["universe"] if row["name"] != "xyz:SP500"]
+        raw = json.dumps(payload).encode()
+        return payload, raw, sha256(raw).hexdigest()
+
+    with pytest.raises(ValueError, match="MARKET_UNAVAILABLE:xyz:SP500"):
+        validate_public_market_catalog(selected, info=missing_catalog)
+
+    data = json.loads(path.read_text())
+    duplicate = tmp_path / "duplicates.json"
+    data["shards"][4]["instruments"][0] = data["shards"][0]["instruments"][0]
+    duplicate.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match="DUPLICATE_MARKET"):
+        load_public_market_shards(duplicate)
+    data = json.loads(path.read_text())
+    data["shards"][1]["instruments"].pop()
+    duplicate.write_text(json.dumps(data))
+    group_short = load_public_market_shards(duplicate)
+    assert len(group_short[1][1]) == 7
+    # A malformed 9-market shard must not be repartitioned silently.
+    data["shards"][1]["instruments"].extend(
+        [data["shards"][0]["instruments"][0], data["shards"][0]["instruments"][1]]
+    )
+    duplicate.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match="SHARD_SIZE"):
+        load_public_market_shards(duplicate)
+
+
+def test_five_shard_wallet_buy_sell_captured_for_all_40_and_no_paper_execution(
+    tmp_path, monkeypatch
+):
+    """Deterministic end-to-end positive trade-match test, NOT live follower PnL."""
+    from pathlib import Path
+
+    from copytrade_pm.pm_forward_public_trades import load_public_market_shards
+
+    monkeypatch.setattr(journal_module, "datetime", FixedDateTime)
+    layout = load_public_market_shards(
+        Path(__file__).resolve().parents[1] / "docs/FORWARD-PAPER-MARKET-TOP40-SHARDS-20261105.json"
+    )
+    selected = tuple(inst for _, shard in layout for inst in shard)
+
+    class AllCoinsWS:
+        def __init__(self):
+            self.coins = []
+            self.messages = None
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+        async def send(self, raw):
+            self.coins.append(json.loads(raw)["subscription"]["coin"])
+
+        async def recv(self):
+            if self.messages is None:
+                # One uncertain baseline followed by one first-known trade per coin.
+                self.messages = [
+                    json.dumps(
+                        {
+                            "channel": "trades",
+                            "data": [{**trade(1, 10), "coin": c} for c in self.coins],
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "channel": "trades",
+                            "data": [{**trade(2, 20), "coin": c} for c in self.coins],
+                        }
+                    ),
+                ]
+            return self.messages.pop(0)
+
+    journal = PaperJournal(tmp_path / "private")
+    result = asyncio.run(
+        capture_sharded_native_trades(
+            instruments=selected,
+            configured_shards=layout,
+            watched={BUYER: "wallet:17", SELLER: "wallet:18"},
+            journal=journal,
+            duration_seconds=5,
+            max_frames=2,
+            max_parallel_shards=5,
+            connect=lambda *_args, **_kwargs: AllCoinsWS(),
+            now=lambda: known(240),
+        )
+    )
+    assert result["market_count"] == 40
+    assert result["shard_count"] == 5
+    assert [s["shard_name"] for s in result["shard_reports"]] == [name for name, _ in layout]
+    assert [len(s["instruments"]) for s in result["shard_reports"]] == [8] * 5
+    assert result["all_markets_baselined"] is True
+    assert result["new_wallet_receipts"] == 80
+    assert result["matched_wallet_sides"] == 80
+    expected_layout_sha = digest([[name, [inst.key for inst in shard]] for name, shard in layout])
+    assert result["shard_layout_sha"] == expected_layout_sha
+    assert result["financial_events_committed"] == 0
+    assert result["paper_admitted"] is False
+    for inst in selected:
+        assert journal.audit_public_wallet_trade_tape("wallet:17", inst.key)["receipts"] == 1
+        assert journal.audit_public_wallet_trade_tape("wallet:18", inst.key)["receipts"] == 1
+        assert result["market_stats"][inst.key]["status"] == "ACTIVE_AFTER_BASELINE"
+    plan = plan_sharded_utc_buckets(
+        instruments=selected,
+        configured_shards=layout,
+        wallet_keys=("wallet:17", "wallet:18"),
+        journal=journal,
+        as_of=known(301),
+    )
+    assert plan["shard_names"] == [name for name, _ in layout]
+    assert plan["shard_layout_sha"] == expected_layout_sha
+    assert plan["result_count"] == 80
+    assert plan["financial_events_committed"] == 0
+    assert all(b["bucket_status"].startswith("BLOCKED") for b in plan["buckets"])
+    net = {b["wallet_key"]: set() for b in plan["buckets"]}
+    for b in plan["buckets"]:
+        net[b["wallet_key"]].add(b["observed_net_delta"])
+    assert net == {"wallet:17": {"2"}, "wallet:18": {"-2"}}
+    with closing(sqlite3.connect(journal.path)) as db:
+        assert db.execute("SELECT COUNT(*) FROM events").fetchone()[0] == 0
+        assert db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+
+
 def test_registry_only_sealed_resolves_and_exclusions_fail_closed(tmp_path):
     registry = tmp_path / "registry.sqlite3"
     conn = sqlite3.connect(registry)

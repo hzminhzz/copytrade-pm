@@ -28,7 +28,7 @@ from .pm_forward_portfolios import _verify_sealed_definition_sha
 ADDRESS = re.compile(r"0x[0-9a-f]{40}\Z")
 MAX_NATIVE_MARKETS = 8  # per WebSocket, not across the operator's full market universe
 MAX_TOTAL_MARKETS = 128
-MAX_PARALLEL_SHARDS = 4
+MAX_PARALLEL_SHARDS = 5
 MAX_FRAME_BYTES = 2_000_000
 NATIVE_TOKEN = re.compile(r"[A-Za-z0-9_.-]{1,64}\Z")
 NATIVE_DEX = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
@@ -74,6 +74,121 @@ def load_public_market_allowlist(path: Path) -> tuple[Instrument, ...]:
         return _bounded_market_universe(tuple(Instrument.parse(key) for key in keys))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise ValueError("PUBLIC_TRADE_MARKET_ALLOWLIST_UNREADABLE") from exc
+
+
+def load_public_market_shards(path: Path) -> tuple[tuple[str, tuple[Instrument, ...]], ...]:
+    """Load explicit operator shard identities, preserving the declared market order.
+
+    V1 flat allowlists retain their previous automatic sorted sharding policy.
+    V2 carries user-selected 8-market groups and their unique stable names.
+    No market is silently substituted, dropped, or duplicated.
+    """
+    path = Path(path)
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > 64_000:
+        raise ValueError("PUBLIC_TRADE_MARKET_ALLOWLIST_UNAVAILABLE")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError("PUBLIC_TRADE_MARKET_ALLOWLIST_UNREADABLE") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("PUBLIC_TRADE_MARKET_SHARDS_SCHEMA_INVALID")
+    if payload.get("schema") == "paper_public_market_allowlist_v1":
+        universe = load_public_market_allowlist(path)
+        return tuple(
+            (
+                f"auto_shard_{i // MAX_NATIVE_MARKETS + 1:02d}",
+                universe[i : i + MAX_NATIVE_MARKETS],
+            )
+            for i in range(0, len(universe), MAX_NATIVE_MARKETS)
+        )
+    if payload.get("schema") != "paper_public_market_shards_v1":
+        raise ValueError("PUBLIC_TRADE_MARKET_SHARDS_SCHEMA_INVALID")
+    group_defs = payload.get("shards")
+    if not isinstance(group_defs, list) or not 1 <= len(group_defs) <= 16:
+        raise ValueError("PUBLIC_TRADE_MARKET_SHARD_COUNT_INVALID")
+    result: list[tuple[str, tuple[Instrument, ...]]] = []
+    names: set[str] = set()
+    for item in group_defs:
+        if not isinstance(item, dict) or set(item) != {"name", "instruments"}:
+            raise ValueError("PUBLIC_TRADE_MARKET_SHARD_FIELDS_INVALID")
+        name, raw = item["name"], item["instruments"]
+        if (
+            not isinstance(name, str)
+            or re.fullmatch(r"[a-z][a-z0-9_]{1,63}", name) is None
+            or name in names
+        ):
+            raise ValueError("PUBLIC_TRADE_MARKET_SHARD_NAME_INVALID_OR_DUPLICATE")
+        if (
+            not isinstance(raw, list)
+            or not 1 <= len(raw) <= MAX_NATIVE_MARKETS
+            or any(not isinstance(x, str) for x in raw)
+        ):
+            raise ValueError("PUBLIC_TRADE_MARKET_SHARD_SIZE_INVALID")
+        names.add(name)
+        instruments = tuple(Instrument.parse(x) for x in raw)
+        for inst in instruments:
+            native_coin(inst)
+        result.append((name, instruments))
+    universe = tuple(inst for _, group in result for inst in group)
+    _bounded_market_universe(universe)
+    return tuple(result)
+
+
+def validate_public_market_catalog(
+    instruments: tuple[Instrument, ...],
+    *,
+    info: Callable[[dict], tuple[Any, bytes, str]] | None = None,
+) -> dict:
+    """Validate every configured native perp against current official /info metadata.
+
+    This is a current availability preflight, not a historical PIT listing or
+    source wallet's historical activity. Failed/unavailable markets abort.
+    """
+    from .pm_e4_prospective import _guarded_info
+
+    selected = _bounded_market_universe(instruments)
+    provider = _guarded_info if info is None else info
+    dexs: dict[str, set[str]] = {}
+    for inst in selected:
+        dex = inst.market.removeprefix("mainnet:perp:")
+        dexs.setdefault(dex, set()).add(native_coin(inst))
+    proofs = []
+    for dex in sorted(dexs):
+        request = {"type": "meta"} if dex == "default" else {"type": "meta", "dex": dex}
+        payload, raw, response_sha = provider(request)
+        if not isinstance(payload, dict) or not isinstance(payload.get("universe"), list):
+            raise ValueError("PUBLIC_TRADE_CATALOG_SCHEMA_INVALID")
+        actual = {}
+        for row in payload["universe"]:
+            if not isinstance(row, dict) or not isinstance(row.get("name"), str):
+                raise ValueError("PUBLIC_TRADE_CATALOG_ENTRY_INVALID")
+            if row["name"] in actual:
+                raise ValueError("PUBLIC_TRADE_CATALOG_DUPLICATE_COIN")
+            actual[row["name"]] = row
+        invalid = sorted(
+            coin
+            for coin in dexs[dex]
+            if coin not in actual or actual[coin].get("isDelisted") is True
+        )
+        if invalid:
+            raise ValueError("PUBLIC_TRADE_CATALOG_MARKET_UNAVAILABLE:" + ",".join(invalid))
+        if not isinstance(response_sha, str) or len(response_sha) != 64:
+            raise ValueError("PUBLIC_TRADE_CATALOG_PROVENANCE_INVALID")
+        if not isinstance(raw, bytes):
+            raise ValueError("PUBLIC_TRADE_CATALOG_RAW_MISSING")
+        from hashlib import sha256
+
+        if sha256(raw).hexdigest() != response_sha:
+            raise ValueError("PUBLIC_TRADE_CATALOG_SHA_MISMATCH")
+        proofs.append({"dex": dex, "catalog_sha256": response_sha, "markets": len(dexs[dex])})
+    return {
+        "schema": "paper_public_market_catalog_preflight_v1",
+        "status": "ALL_MARKETS_PRESENT_AT_PREFLIGHT",
+        "markets_verified": len(selected),
+        "catalog_proofs": proofs,
+        "source_complete": False,
+        "paper_admitted": False,
+    }
 
 
 def registry_watched_addresses(
@@ -522,6 +637,37 @@ def plan_latest_public_utc_bucket(
     }
 
 
+def _resolve_market_shards(
+    selected: tuple[Instrument, ...],
+    configured_shards: tuple[tuple[str, tuple[Instrument, ...]], ...] | None,
+) -> tuple[tuple[str, tuple[Instrument, ...]], ...]:
+    if configured_shards is None:
+        return tuple(
+            (
+                f"auto_shard_{i // MAX_NATIVE_MARKETS + 1:02d}",
+                selected[i : i + MAX_NATIVE_MARKETS],
+            )
+            for i in range(0, len(selected), MAX_NATIVE_MARKETS)
+        )
+    if not 1 <= len(configured_shards) <= 16:
+        raise ValueError("PUBLIC_TRADE_MARKET_SHARD_COUNT_INVALID")
+    flat = []
+    names = set()
+    for name, chunk in configured_shards:
+        if (
+            not isinstance(name, str)
+            or re.fullmatch(r"[a-z][a-z0-9_]{1,63}", name) is None
+            or name in names
+            or not 1 <= len(chunk) <= MAX_NATIVE_MARKETS
+        ):
+            raise ValueError("PUBLIC_TRADE_MARKET_SHARD_LAYOUT_INVALID")
+        names.add(name)
+        flat.extend(chunk)
+    if tuple(sorted(inst.key for inst in flat)) != tuple(inst.key for inst in selected):
+        raise ValueError("PUBLIC_TRADE_MARKET_SHARD_SELECTION_MISMATCH")
+    return configured_shards
+
+
 async def capture_sharded_native_trades(
     *,
     instruments: tuple[Instrument, ...],
@@ -530,6 +676,7 @@ async def capture_sharded_native_trades(
     duration_seconds: float = 10,
     max_frames: int = 500,
     max_parallel_shards: int = 2,
+    configured_shards: tuple[tuple[str, tuple[Instrument, ...]], ...] | None = None,
     connect: Callable[..., Any] | None = None,
     now: Callable[[], str] = lambda: datetime.now(UTC).isoformat(timespec="microseconds"),
 ) -> dict:
@@ -542,14 +689,11 @@ async def capture_sharded_native_trades(
     selected = _bounded_market_universe(instruments)
     if not 1 <= max_parallel_shards <= MAX_PARALLEL_SHARDS:
         raise ValueError("PUBLIC_TRADE_SHARD_CONCURRENCY_INVALID")
-    chunks = [
-        selected[start : start + MAX_NATIVE_MARKETS]
-        for start in range(0, len(selected), MAX_NATIVE_MARKETS)
-    ]
+    chunks = _resolve_market_shards(selected, configured_shards)
     gate = asyncio.Semaphore(max_parallel_shards)
     writer = asyncio.Lock()
 
-    async def _capture(shard_index: int, shard: tuple[Instrument, ...]) -> dict:
+    async def _capture(shard_index: int, shard_name: str, shard: tuple[Instrument, ...]) -> dict:
         async with gate:
             report = await capture_bounded_native_trades(
                 instruments=shard,
@@ -563,11 +707,14 @@ async def capture_sharded_native_trades(
             )
         return {
             "shard_index": shard_index,
+            "shard_name": shard_name,
             "instruments": [inst.key for inst in shard],
             "report": report,
         }
 
-    shards = await asyncio.gather(*(_capture(index, chunk) for index, chunk in enumerate(chunks)))
+    shards = await asyncio.gather(
+        *(_capture(index, name, chunk) for index, (name, chunk) in enumerate(chunks))
+    )
     stats = {}
     for shard in shards:
         stats.update(shard["report"]["market_stats"])
@@ -575,6 +722,9 @@ async def capture_sharded_native_trades(
         "schema": "paper_public_market_wallet_trade_sharded_capture_v1",
         "status": "PROVISIONAL_OBSERVATION_ONLY",
         "market_selection_sha": digest([inst.key for inst in selected]),
+        "shard_layout_sha": digest(
+            [[name, [inst.key for inst in group]] for name, group in chunks]
+        ),
         "watchlist_sha": digest(sorted(watched.items())),
         "market_count": len(selected),
         "shard_count": len(shards),
@@ -589,6 +739,7 @@ async def capture_sharded_native_trades(
         "shard_reports": [
             {
                 "shard_index": s["shard_index"],
+                "shard_name": s["shard_name"],
                 "instruments": s["instruments"],
                 "stream_epoch": s["report"]["stream_epoch"],
                 "frames_received": s["report"]["frames_received"],
@@ -611,24 +762,30 @@ def plan_sharded_utc_buckets(
     journal: PaperJournal,
     as_of: str,
     timing_policy: str = "UTC_BUCKET_CLOSE",
+    configured_shards: tuple[tuple[str, tuple[Instrument, ...]], ...] | None = None,
 ) -> dict:
     """Run all selected market UTC observations; one fixed as-of for all shards."""
     selected = _bounded_market_universe(instruments)
+    groups = _resolve_market_shards(selected, configured_shards)
     reports = [
         plan_latest_public_utc_bucket(
             journal=journal,
-            instruments=selected[start : start + MAX_NATIVE_MARKETS],
+            instruments=market_group,
             wallet_keys=wallet_keys,
             as_of=as_of,
             timing_policy=timing_policy,
         )
-        for start in range(0, len(selected), MAX_NATIVE_MARKETS)
+        for _, market_group in groups
     ]
     return {
         "schema": "paper_public_utc_bucket_sharded_scheduler_v1",
         "market_selection_sha": digest([inst.key for inst in selected]),
+        "shard_layout_sha": digest(
+            [[name, [inst.key for inst in group]] for name, group in groups]
+        ),
         "market_count": len(selected),
         "shard_count": len(reports),
+        "shard_names": [name for name, _ in groups],
         "as_of": as_of,
         "timing_policy": timing_policy,
         "window_start_at": reports[0]["window_start_at"],
@@ -667,11 +824,14 @@ def main() -> None:
         part in {".devspace", ".git"} for part in args.state_root.resolve().parts
     ):
         parser.error("state root must be an absolute private non-worktree path")
+    configured_shards = load_public_market_shards(args.market_file) if args.market_file else None
     instruments = (
-        load_public_market_allowlist(args.market_file)
-        if args.market_file
+        _bounded_market_universe(tuple(inst for _, shard in configured_shards for inst in shard))
+        if configured_shards is not None
         else _bounded_market_universe(tuple(Instrument.parse(x) for x in args.instrument))
     )
+    # Validate live /info metadata before creating an evidence journal or WS sessions.
+    catalog = validate_public_market_catalog(instruments) if args.mode == "observe" else None
     watched = registry_watched_addresses(
         args.registry,
         tuple(args.portfolio),
@@ -685,6 +845,7 @@ def main() -> None:
             wallet_keys=tuple(sorted(set(watched.values()))),
             as_of=datetime.now(UTC).isoformat(timespec="microseconds"),
             timing_policy=args.timing_policy,
+            configured_shards=configured_shards,
         )
     else:
         report = asyncio.run(
@@ -695,8 +856,10 @@ def main() -> None:
                 duration_seconds=args.duration_seconds,
                 max_frames=args.max_frames,
                 max_parallel_shards=args.parallel_shards,
+                configured_shards=configured_shards,
             )
         )
+        report["market_catalog_preflight"] = catalog
     print(json.dumps(report, sort_keys=True))
 
 

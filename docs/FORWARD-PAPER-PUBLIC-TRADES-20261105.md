@@ -16,6 +16,10 @@ The two new private journals had, respectively, **20** and **6** baseline/end ga
 
 The official protocol supports `trades` subscriptions by native `coin` name, including prefixed HIP-3 markets, and `/info` `meta` for universe discovery. See the [exchange WebSocket subscription contract](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket/subscriptions) and the [official Python SDK public metadata implementation](https://github.com/hyperliquid-dex/hyperliquid-python-sdk/blob/master/hyperliquid/info.py).
 
+## Exact five-shard extension
+
+The [owner-selected 40-market named 5×8 layout](FORWARD-PAPER-MARKET-TOP40-SHARDS-20261105.json) is now supported without alphabetic reshuffling. Each shard is bound to a stable name and the complete configuration is SHA-addressed. The exact configuration was verified against current official `/info meta` (34 default + six `xyz:`); [live and synthetic integration results](FORWARD-PAPER-TOP40-FIVE-SHARD-20261105.md) document the 628-frame real public feed and the distinct 80/80 deterministic wallet-side receipt test. The 30-second P1/E2 canary observed no wallet fills, independently consistent with zero reported official fills during the preceding hour, so real prospective matching remains `UNKNOWN`. This bounded research-only test does not qualify a financial paper worker.
+
 ## Why this capability exists
 
 The existing `pm_forward_source_stream.py` subscribes to `allDexsClearinghouseState` for bounded *account snapshots*. An account snapshot cannot prove the sequence of intermediate fills or round-trip turnover. Hyperliquid public `trades` frames identify the two counterparties (`users=[buyer, seller]`), price, size, native market and trade ID. Filtering these events by addresses resolved from the authoritative SQLite wallet registry can observe candidate changes for many wallets without dedicating a user-specific WS slot to each.
@@ -82,7 +86,7 @@ uv run --frozen --extra source --group dev copytrade-pm-public-trades \
   --parallel-shards 2 --duration-seconds 20 --max-frames 500
 ```
 
-`--instrument` can be supplied repeatedly instead of `--market-file`. All selections must use native `hyperliquid/mainnet:perp:default/COIN` or HIP-3 `hyperliquid/mainnet:perp:DEX/COIN` identities, not spot symbols or CCXT unified strings. The CLI strictly validates the allowlist, refuses duplicates, and supports **up to 128 explicitly selected markets**, split into ≤8 subscriptions per WebSocket and ≤4 concurrently running shards. It never silently drops an omitted market, and reports `NO_MARKET_FRAMES`, `BASELINE_ONLY` or `ACTIVE_AFTER_BASELINE` per market. `max-frames` and `duration-seconds` bound **each shard**, not a continuous daemon. Unsupported/incomplete universes stay blocked.
+`--instrument` can be supplied repeatedly instead of `--market-file`. All selections must use native `hyperliquid/mainnet:perp:default/COIN` or HIP-3 `hyperliquid/mainnet:perp:DEX/COIN` identities, not spot symbols or CCXT unified strings. The CLI strictly validates the allowlist, refuses duplicates, and supports **up to 128 explicitly selected markets**, split into ≤8 subscriptions per WebSocket and ≤5 concurrently running shards. It never silently drops an omitted market, and reports `NO_MARKET_FRAMES`, `BASELINE_ONLY` or `ACTIVE_AFTER_BASELINE` per market. `max-frames` and `duration-seconds` bound **each shard**, not a continuous daemon. Unsupported/incomplete universes stay blocked.
 
 To run **one** immutable UTC scheduling pass across those markets and the same wallets, without exchange activity or financial paper fills:
 

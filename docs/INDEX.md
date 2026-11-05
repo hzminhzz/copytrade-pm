@@ -1,5 +1,7 @@
 # copytrade-pm handbook — start here
 
+**Exact 40-market five-shard source layout (2026-11-05):** [Sealed 5×8 market scope](FORWARD-PAPER-MARKET-TOP40-SHARDS-20261105.json) and [live/positive deterministic verification](FORWARD-PAPER-TOP40-FIVE-SHARD-20261105.md). Forty markets verified against official metadata; bounded WebSocket smoke received 628 frames, but P1/E2 had zero fills in the preceding hour and live wallet detection remains UNPROVEN. No financial paper activation.
+
 **Forward public market trades (2026-11-05, research-only):** [Causal market-wide wallet fills and UTC bucket planning](FORWARD-PAPER-PUBLIC-TRADES-20261105.md) extend the native SQLite PaperJournal without financial orders. Public trade receipts and top-level quote estimates are provisional; leader NAV, capacity, protected worker activation and forward economics remain BLOCKED. The existing P1/P14 observer is unchanged.
 
 **SQLite metadata authority (2026-11-05):** The private wallet registry is the
