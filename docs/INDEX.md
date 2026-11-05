@@ -1,5 +1,7 @@
 # copytrade-pm handbook — start here
 
+**ML4T-66 barbell research (read-only, 2026-11-05):** [8-wallet stress/2m-5m/6-18bps comparison, complete blockers](ML4T66-BARBELL-RESEARCH-20261105.md). Not a portfolio freeze, contract ranking, or trading authorization.
+
 **SQLite metadata authority (2026-11-05):** The private wallet registry is the
 single source of truth for current wallets, cohorts and saved portfolios.
 [Mandatory registry lookup contract](WALLET-REGISTRY-AGENT-WORKFLOW.md) and
