@@ -26,6 +26,30 @@ is a dated observation, not verified 72-hour continuous coverage.
 
 ## Controlled, pinned user-unit installation
 
+**Required combined optional-dependency preflight for a new pinned release.**
+`registry_release.py activate` installs only the read-only registry dependencies.
+The public observer additionally needs **both** `source` (`websockets`) and
+`market-stream` (CCXT Pro) extras. Installing only CCXT Pro allows the OS unit
+to run while source captures fail. After verifying the exact pinned release,
+install the two *locked, offline* extras before changing the observer unit:
+
+```bash
+REV="$(git -C /home/quant/dev/copytrade-pm rev-parse origin/main)"
+REL="$HOME/.local/share/copytrade/registry/release-control/releases/$REV"
+uv sync --project "$REL" --offline --frozen --no-dev --extra source --extra market-stream
+"$REL/.venv/bin/python" -c \
+  'import websockets, ccxt.pro; import copytrade_pm.pm_forward_observer'
+```
+
+Do not change `ExecStart` based only on a successful CCXT import. Confirm the
+source client as well, preserve the previous observer unit file for rollback,
+verify that the new and old unit differ only at the pinned revision, and
+restart **only** the public-observer service after `systemd-analyze verify`.
+New capture epochs must be checked for increased `capture_gaps`; a running PID
+is not enough. The originally observed 2026-11-05 upgrade briefly produced 11
+capture gaps versus the pre-cutover 1 when the `source` extra was missing.
+This was a deployment dependency issue, not an observed provider outage.
+
 The new `copytrade-pm-public-observer-unit` supports dry-run by default
 and explicit `--apply`. It verifies the exact active pinned registry release
 using the **existing** release controller; checks the exact immutable SHA
