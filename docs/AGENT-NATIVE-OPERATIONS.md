@@ -37,6 +37,10 @@ classification is **not** permission to execute arbitrary subcommands; use the
 reviewed subcommand record. The existing registry's `--apply` variants are
 protected and never exposed by the new read-only facade.
 
+## Phase 7 new research-only source campaign
+
+Use `copytrade-pm capabilities show paper.phase7_observe` before interacting with `copytrade-pm-phase7-source-observe`. Its default action is a SHA-verifying, registry-first **read-only** preflight for the eight unique wallets in the [separate approved Phase 7 five-pod study](PHASE7-FIVEPOD-PROSPECTIVE-RESEARCH-20261105.md). The same executable carries an **explicit** `--capture-bounded` journal-writing path, so the CLI is conservatively classified `PROTECTED_MUTATION` in the capability directory. Neither mode changes P1/P14/E6/E2 portfolio seals, tracker subscriptions or actual financial paper/trading state. A public first-local observation is not whole-wallet NAV or broker economics.
+
 ## Commands
 
 ```bash
