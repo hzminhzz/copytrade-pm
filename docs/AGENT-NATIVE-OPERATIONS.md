@@ -37,6 +37,15 @@ classification is **not** permission to execute arbitrary subcommands; use the
 reviewed subcommand record. The existing registry's `--apply` variants are
 protected and never exposed by the new read-only facade.
 
+## Actuarial research extension (2026-11-05)
+
+The reviewed read-only capability `research.actuary` owns a synthetic
+challenge-to-funded-payout scenario CLI: `copytrade-pm-actuary --help`.
+It never touches wallet identity, PM-03 accounting, protected paper workers,
+broker credentials or live orders. It is not independently qualified follower
+economics. Assumptions and 100,000-path examples are documented in
+[contract actuarial research](CONTRACT-ACTUARY-RESEARCH-20261105.md).
+
 ## Commands
 
 ```bash

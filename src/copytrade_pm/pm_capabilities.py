@@ -26,6 +26,7 @@ GROUPS = {
     "copytrade-pm-scope": ("market.scope", "market", "LOCAL_MUTATION"),
     "copytrade-pm-market-audit": ("market.audit", "market", "LOCAL_MUTATION"),
     "copytrade-pm-research": ("research.pm01", "research", "LOCAL_MUTATION"),
+    "copytrade-pm-actuary": ("research.actuary.cli", "research", "READ_ONLY"),
     "copytrade-pm-shadow": ("account.pm03.simulate", "account", "LOCAL_MUTATION"),
     "copytrade-pm-receipts": ("source.receipts", "source", "PROTECTED_MUTATION"),
     "copytrade-pm-source": ("source.e4", "source", "PROTECTED_MUTATION"),
@@ -178,6 +179,13 @@ NATIVE = {
         "research",
         "READ_ONLY",
         "NATIVE_MINUTE_MARKET_LAKE",
+    ),
+    "research.actuary": (
+        "copytrade_pm.contract_actuary",
+        "copytrade-pm-actuary --help",
+        "research",
+        "READ_ONLY",
+        "SYNTHETIC_CONTRACT_SCENARIO_NOT_FINANCIAL_AUTHORITY",
     ),
     "research.sweep": (
         "copytrade_pm.pm_offline_sweep",

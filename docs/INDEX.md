@@ -1,5 +1,7 @@
 # copytrade-pm handbook — start here
 
+**Research-only actuarial simulator:** [challenge-to-payout contract assumptions, reproducible 100,000-path scorecards and limitations](CONTRACT-ACTUARY-RESEARCH-20261105.md). Run `copytrade-pm-actuary --help` after installing the optional `actuary` dependency. This is synthetic economics, not real follower qualification or an account purchase recommendation.
+
 **Agent-native entrypoint:** [capability discovery and read-only operator CLI](AGENT-NATIVE-OPERATIONS.md).
 Before implementing new features, use `copytrade-pm capabilities list`, `show`
 and `validate` to identify the authoritative native interface; wallet/portfolio
