@@ -113,7 +113,7 @@ def test_public_spot_and_vault_receipts_have_distinct_known_clocks_no_equity():
         result = await read_public_collateral_scope(
             address=WALLET, info=info, now=lambda: T.isoformat()
         )
-        assert calls == ["spotClearinghouseState", "userVaultEquities"]
+        assert calls == ["spotClearinghouseState", "userVaultEquities", "userAbstraction"]
         assert [r["row_count"] for r in result["observations"]] == [1, 1]
         assert all(r["source_event_at"] is None for r in result["observations"])
         assert all(r["first_known_at"] == T.isoformat() for r in result["observations"])
@@ -123,6 +123,62 @@ def test_public_spot_and_vault_receipts_have_distinct_known_clocks_no_equity():
         assert "0x" not in json.dumps(result)
 
     asyncio.run(run())
+
+
+def test_official_account_abstraction_mode_is_first_known_and_not_equity():
+    calls = []
+
+    def info(request):
+        calls.append(request["type"])
+        kind = request["type"]
+        if kind == "spotClearinghouseState":
+            raw = b'{"balances":[]}'
+            response = {"balances": []}
+        elif kind == "userVaultEquities":
+            raw = b"[]"
+            response = []
+        else:
+            raw = b'"portfolioMargin"'
+            response = "portfolioMargin"
+        return response, raw, sha256(raw).hexdigest()
+
+    async def run():
+        observed = await read_public_collateral_scope(
+            address=WALLET, info=info, now=lambda: T.isoformat()
+        )
+        assert calls == ["spotClearinghouseState", "userVaultEquities", "userAbstraction"]
+        assert observed["account_abstraction"] == {
+            "status": "OFFICIAL_PUBLIC_ACCOUNT_MODE_OBSERVED",
+            "mode": "portfolioMargin",
+            "first_known_at": T.isoformat(),
+            "source_event_at": None,
+            "response_sha256": sha256(b'"portfolioMargin"').hexdigest(),
+            "source_signed": False,
+        }
+        assert observed["source_equity"] is None
+        assert observed["collateral_reconciled"] is False
+        assert observed["order_route"] == "NONE"
+
+    asyncio.run(run())
+
+
+def test_unrecognized_or_tampered_mode_fails_closed():
+    async def run(result, raw, fingerprint):
+        def info(request):
+            if request["type"] == "spotClearinghouseState":
+                return {"balances": []}, b"spot", sha256(b"spot").hexdigest()
+            if request["type"] == "userVaultEquities":
+                return [], b"vault", sha256(b"vault").hexdigest()
+            return result, raw, fingerprint
+
+        observed = await read_public_collateral_scope(address=WALLET, info=info)
+        assert observed["account_abstraction"]["status"] == "BLOCKED_ACCOUNT_MODE_ACQUISITION"
+        assert observed["account_abstraction"]["mode"] is None
+        assert observed["account_abstraction"]["first_known_at"] is None
+        assert observed["source_equity"] is None
+
+    asyncio.run(run("futureMode", b'"futureMode"', sha256(b'"futureMode"').hexdigest()))
+    asyncio.run(run("disabled", b'"disabled"', "0" * 64))
 
 
 def test_invalid_spot_does_not_promote_vault_or_assume_zero():

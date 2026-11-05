@@ -81,6 +81,7 @@ When you spawn one, write: `You are a subagent. Don't run memo.`
 - Changes to contractual Propr assumptions require dated official evidence and versioned frozen rule snapshots.
 
 ## Data and science
+- **Forward source authority:** use official Hyperliquid public `allDexsClearinghouseState` WS and `/info` `perpDexs`, `subAccounts`, `spotClearinghouseState`, `userVaultEquities`, and `userAbstraction` as primary first-known read-only evidence. Keep raw provider timestamps separate from local receipts. HyperX/archival providers are supplemental, never the source of live wallet NAV. `default` or `dexAbstraction` does not establish additive standard-mode collateral; unified/portfolio-margin modes explicitly block per-DEX NAV summation. See [official source account contract](docs/DATA-ACQUISITION.md).
 - Historical HyperX fills are retrospective. Never promote event timestamps into first-known follower timestamps.
 - Distinguish source-event, local first-known receipt, decision time, and hypothetical fill time.
 - Incomplete wallet books, unresolved hedges, stale price series, missing liquidity or unknown account state fail closed.

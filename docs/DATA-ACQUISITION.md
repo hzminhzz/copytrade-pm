@@ -2,6 +2,43 @@
 
 **Use this for “get wallet fills,” “new wallet,” “fix gaps,” “get 1m OHLCV,” or “start forward capture.”** Read [INDEX](INDEX.md) and [ARCHITECTURE](ARCHITECTURE.md) first. No commands in this guide authorize orders. Offline auditing is distinct from vendor/SDK downloads. Live source snapshot inspected 2026-10-31; private paths can change.
 
+## Official Hyperliquid public API as the forward source (2026-11-05)
+
+**ADOPTED for prospective account observations, NOT independently reconciled
+whole-wallet NAV.** The existing `pm_forward_source_stream` uses
+`wss://api.hyperliquid.xyz/ws` (`allDexsClearinghouseState`) for each observed
+parent/subaccount to acquire the full *per-account* perpetual position set and
+DEX margin diagnostics, retaining source event clocks and separately measured
+first-local-known receipt clocks in the private SHA-chained `PaperJournal`.
+The official `/info` API provides `perpDexs` (DEX census), `subAccounts`
+(account discovery), `spotClearinghouseState`, `userVaultEquities` and now
+`userAbstraction` (account collateral/margin mode). Public observations do not
+require a private key or a HyperX vendor subscription.
+
+The `userAbstraction` response is a scalar JSON string, one of `disabled`,
+`default`, `dexAbstraction`, `unifiedAccount`, `portfolioMargin`. The collector
+validates the exact response, SHA and local receipt clock, stores it in the
+existing collateral diagnostic chain, and leaves `source_equity=null` and
+`order_route=NONE`. An unknown/unavailable mode is blocked, never assumed to
+mean standard. `unifiedAccount` and `portfolioMargin` cannot use independent
+perp-DEX account values as an additive whole-wallet denominator; `default` and
+`dexAbstraction` also require separate accounting interpretation. The
+read-only readiness join explicitly reports these mode blockers and missing
+or unmatched discovered subaccount position receipts. No account mode, amount,
+market price or vendor record is promoted to a financial execution gate.
+
+The additional `userAbstraction` `/info` call is subject to documented provider
+weight (general `info` weight 20); keep account-family captures bounded and
+monitor provider errors/rate limits before expanding beyond the existing
+observer. One WebSocket frame per subject is **not** an atomic parent/child
+and spot/vault snapshot. Per-account DEX values cannot be summed into whole
+wallet equity without mode-specific settlement and collateral reconciliation.
+The observer and current frozen P1/P14 deployment remain distinct from the
+current research selection E6/E2; no protected paper-worker activation or
+wallet roster change is implied.
+
+Official references: [Info endpoint](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint), [perpetual account state](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint/perpetuals), [WebSocket subscriptions](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket/subscriptions), [account modes](https://hyperliquid.gitbook.io/hyperliquid-docs/trading/account-abstraction-modes), and [provider rate limits](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/rate-limits-and-user-limits).
+
 ## Current inventory index (2026-11-04, partial release)
 
 The owner-private SQLite [wallet registry checkpoint](WALLET-REGISTRY-STATUS-20261104.md) indexes the 158-wallet research cohort and deployed tracker configuration as **metadata only**. The `copytrade-wallet-registry doctor` command checks live source fingerprints, including the frozen 36-wallet evidence references and tracker ledger identity. It does **not** download fills, reconstruct whole-book equity, enroll trackers, change existing source files, or certify follower trading. Keep original HyperX/Parquet/ledger sources authoritative. Its deployment/acceptance remains incomplete under issues #44–#55.

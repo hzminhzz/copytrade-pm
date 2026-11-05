@@ -110,6 +110,53 @@ def test_readiness_audits_diagnostic_collateral_chain_without_promoting_nav(tmp_
         audit(roots, "P1")
 
 
+def test_official_unified_mode_blocks_independent_dex_nav_even_with_source_receipts(tmp_path):
+    roots = _setup(tmp_path)
+    _, primary, _, source, _ = roots
+    addr = json.loads(next(primary.glob("S035-ENA_0x*.json")).read_text())["address"]
+    report = diagnostic()
+    report["account_address_sha256"] = sha256(addr.lower().encode()).hexdigest()
+    report["account_abstraction"] = {
+        "status": "OFFICIAL_PUBLIC_ACCOUNT_MODE_OBSERVED",
+        "mode": "unifiedAccount",
+        "first_known_at": "2026-11-04T04:00:03+00:00",
+        "source_event_at": None,
+        "response_sha256": "c" * 64,
+        "source_signed": False,
+    }
+    source.append_collateral_diagnostic(report)
+    first = audit(roots, "P1")["source"][0]
+    assert first["collateral_diagnostics"]["last_account_mode"] == "unifiedAccount"
+    assert "SHARED_COLLATERAL_MODE_BLOCKS_PER_DEX_NAV_SUM" in first["reason_codes"]
+    assert "COLLATERAL_SCOPE_NOT_ATOMIC_NAV" in first["reason_codes"]
+    assert first["admitted"] is False
+    assert "0x" not in json.dumps(first)
+
+
+def test_parent_discovered_subaccount_missing_from_observations_blocks(tmp_path):
+    roots = _setup(tmp_path)
+    _, primary, _, source, _ = roots
+    parent = json.loads(next(primary.glob("S035-ENA_0x*.json")).read_text())["address"]
+    child = "0x" + "f" * 40
+    state = sample_state()
+    state["user"] = parent
+    receipt = read_public_all_dex_scope(
+        alias="S035",
+        address=parent,
+        frame={"channel": "allDexsClearinghouseState", "data": state},
+        dex_catalog=[None, {"name": "xyz"}],
+        discovered_subaccounts=[{"master": parent, "subAccountUser": child}],
+        first_known_at=(datetime.fromtimestamp(1793294400, UTC) + timedelta(seconds=4)).isoformat(),
+    )
+    append_public_scope(source, alias="S035", seq=2, receipt=receipt)
+    first = audit(roots, "P1")["source"][0]
+    assert first["declared_subaccount_count"] == 1
+    assert first["observed_subaccount_receipt_count"] == 0
+    assert first["missing_subaccount_receipt_count"] == 1
+    assert "DISCOVERED_SUBACCOUNT_POSITION_SCOPE_MISSING" in first["reason_codes"]
+    assert first["admitted"] is False
+
+
 def test_subaccount_latest_receipt_cannot_replace_parent_and_hedges_stay_visible(tmp_path):
     roots = _setup(tmp_path)
     _, primary, _, source, _ = roots
@@ -132,6 +179,8 @@ def test_subaccount_latest_receipt_cannot_replace_parent_and_hedges_stay_visible
     assert first["first_local_receipts"] == 2
     assert first["observed_distinct_account_count"] == 2
     assert first["observed_subaccount_receipt_count"] == 1
+    assert first["unmatched_subaccount_receipt_count"] == 1
+    assert "UNMATCHED_SUBACCOUNT_SOURCE_RECEIPT" in first["reason_codes"]
     assert first["parent_receipt_present"] is True
     assert first["last_first_known_at"] != child["first_known_at"]
     assert "NON_ATOMIC_SUBACCOUNT_OBSERVATIONS" in first["reason_codes"]

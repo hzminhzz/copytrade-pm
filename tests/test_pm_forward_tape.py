@@ -108,6 +108,30 @@ def test_durable_collateral_chain_backup_and_anti_promotion(tmp_path):
         journal.backup(tmp_path / "corrupt_backup")
 
 
+def test_account_mode_evidence_requires_exact_public_enum_hash_and_causal_clock(tmp_path):
+    journal = PaperJournal(tmp_path / "paper")
+    mode = {
+        "status": "OFFICIAL_PUBLIC_ACCOUNT_MODE_OBSERVED",
+        "mode": "unifiedAccount",
+        "first_known_at": "2026-11-04T04:00:03+00:00",
+        "source_event_at": None,
+        "response_sha256": "c" * 64,
+        "source_signed": False,
+    }
+    case = {**diagnostic(), "account_abstraction": mode}
+    assert journal.append_collateral_diagnostic(case)["cursor"] == 1
+    for corrupt in (
+        {**mode, "mode": "unknown"},
+        {**mode, "source_event_at": "2026-11-04T04:00:02+00:00"},
+        {**mode, "response_sha256": None},
+        {**mode, "source_signed": True},
+        {**mode, "first_known_at": "2026-11-04T03:59:00+00:00"},
+    ):
+        with pytest.raises(ValueError, match="SOURCE_ACCOUNT_MODE"):
+            journal.append_collateral_diagnostic({**case, "account_abstraction": corrupt})
+    assert journal.collateral_scope_status("a" * 64)["cursor"] == 1
+
+
 def test_clock_violation_refused_without_advancing_cursor(tmp_path):
     j = PaperJournal(tmp_path / "paper")
     with pytest.raises(ValueError, match="SOURCE_RECEIPT_CAUSAL_CLOCK_FAILURE"):

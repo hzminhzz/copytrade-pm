@@ -1,6 +1,8 @@
 """E4 prospective source captures: all-DEX and subaccount scope fail closed."""
 
 from copy import deepcopy
+from hashlib import sha256
+import json
 
 import pytest
 
@@ -8,6 +10,7 @@ from copytrade_pm.pm_e4_prospective import (
     MAX_SUBACCOUNTS,
     _account_state,
     _dex_universe,
+    _guarded_info,
     _subaccount_roster,
     _safe_dir,
 )
@@ -84,6 +87,39 @@ def test_e4_subaccounts_validate_parent_and_empty_null():
         _subaccount_roster([{}] * (MAX_SUBACCOUNTS + 1), WALLET)
     with pytest.raises(ValueError, match="E4_DUPLICATE_OR_SELF_SUBACCOUNT"):
         _subaccount_roster([{"subAccountUser": SUB, "master": WALLET}] * 2, WALLET)
+
+
+def test_official_account_abstraction_allows_only_documented_scalar(monkeypatch):
+    import copytrade_pm.pm_e4_prospective as module
+
+    class Response:
+        def __init__(self, data):
+            self.data = data
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            pass
+
+        def read(self, _size):
+            return self.data
+
+    def wire_for(raw):
+        def fake_open(request, timeout):
+            assert timeout == 18
+            assert json.loads(request.data)["type"] == "userAbstraction"
+            return Response(raw)
+
+        return fake_open
+
+    monkeypatch.setattr(module, "urlopen", wire_for(b'"unifiedAccount"'))
+    mode, raw, fingerprint = _guarded_info({"type": "userAbstraction", "user": WALLET})
+    assert mode == "unifiedAccount"
+    assert fingerprint == sha256(raw).hexdigest()
+    monkeypatch.setattr(module, "urlopen", wire_for(b'"unrecognized"'))
+    with pytest.raises(ValueError, match="E4_UNKNOWN_PUBLIC_ACCOUNT_ABSTRACTION"):
+        _guarded_info({"type": "userAbstraction", "user": WALLET})
 
 
 def test_e4_cannot_overwrite_live_generation(tmp_path):

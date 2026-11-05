@@ -157,6 +157,22 @@ actual data staleness, broken tape, or missing heartbeat still fails closed.
 The idle refresh applies only after deployment of the corrected code in a new
 pinned, reviewed release; an older installed observer does not inherit the fix.
 
+## Official account-mode acquisition and reconciliation diagnostics
+
+The existing prospective public source collector is the authoritative
+**observation path**, not HyperX. Each selected parent and discovered
+subaccount receives `allDexsClearinghouseState` WebSocket receipts and separate
+`/info` spot, vault and `userAbstraction` diagnostics. Newly captured account
+modes are SHA/clock validated and retained in the **existing** collateral
+SQLite chain. `unifiedAccount` and `portfolioMargin` explicitly block
+independent DEX-NAV summation. Unknown, `default` and `dexAbstraction` modes
+cannot be silently treated as standard. The paper readiness audit now exposes
+missing/unmatched subaccount source receipts and mode-specific blockers,
+without adding orders, account equity or financial journal rows. This is a
+versioned code change: an older pinned observer release will not capture these
+additional fields. Each extra mode query consumes provider rate budget; do not
+extend polling cadence or subscriptions without verifying rate headroom.
+
 ## Protected financial activation remains blocked
 
 Read-only audit of the actual private P1/P14 journal reports:
