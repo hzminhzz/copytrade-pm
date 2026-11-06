@@ -91,17 +91,20 @@ copytrade-pm-paper-observe \
   --preflight-only
 ```
 
-Preflight is read-only. It checks native registry integrity and signed-selection
-proofs, exact sealed identity/exclusions, inventory-generation stability,
-private paths, symlinks/hardlinks, writer lease, financial-journal collisions,
-protected legacy heads and resource plan. It creates no journal and opens no
-network connection. Missing NAV is not a startup gate. A real integrity,
-selection-provenance or exclusion failure remains a gate and must not be waived.
+Preflight is read-only. It checks native registry physical integrity,
+**selected** sealed portfolio identities/exclusions, inventory-generation
+stability, private paths, symlinks/hardlinks, writer lease, financial-journal
+collisions, protected legacy heads and resource plan. It creates no journal
+and opens no network connection. Missing NAV is not a startup gate. Missing
+signed proof for a *different, unrequested research selection* is a separate
+registry science diagnostic, not an observer gate. An explicitly requested
+unsealed/invalid portfolio, source identity or exclusion still fails closed.
 
 When strict preflight stops on the first error, rerun the **same pinned**
 configuration and arguments with `--preflight-only --diagnose-preflight`.
-This read-only mode reports registry integrity, signed-selection provenance,
-frozen portfolio seals, exclusion-aware watched-wallet eligibility, recorded
+This read-only mode reports registry integrity, requested-portfolio seal
+scope (under the backward-compatible `signed_selection` key), frozen
+portfolio seals, exclusion-aware watched-wallet eligibility, recorded
 unique-account count, resource-plan feasibility, protected-journal heads and
 inventory stability as **independent gates**. It also runs when the configured
 connection reservation already exceeds provider limits, to expose that error
@@ -122,7 +125,8 @@ integrity from a missing cryptographic proof for the latest research selection:
 `database_integrity=VERIFIED` with
 `research_selection_integrity=BLOCKED_MISSING_EXTERNAL_PROOF` is a truthful
 negative selection result and still exits nonzero. The observer strict preflight
-still refuses that state; `portfolio --current` never promotes an unsigned
+accepts independently sealed *requested* portfolios despite an unrelated
+blocked selection; `portfolio --current` still never promotes an unsigned
 selection. Resource remediation must budget *unique users across sockets* as
 well as total connections. [Dated live capacity/provenance evidence](PERSISTENT-OBSERVER-RESOURCE-REMEDIATION-20261106.md)
 records the existing source-ABC 10-user A-window, future configurable
@@ -252,17 +256,25 @@ resource reservations for the shared IP, private new state, pinned verified
 code and existing-service baselines. The mission authorizes a safe isolated
 read-only shadow; it does not waive a failed selection or resource gate.
 
-Keep collecting through 72 actual hours with independent witness coverage and
-incident records. Review discrepancies only within a verifiably complete audit
-scope; otherwise report UNKNOWN. Even a complete elapsed window returns
-OPERATOR_ACCEPTANCE_REQUIRED, never automatic deployment authority.
+Collect independent witness coverage and incident records for the selected
+scope. A fixed 72-hour elapsed soak is **optional post-cutover evidence**, not
+a universal pre-cutover requirement. Review discrepancies only within a
+verifiably complete audited comparison scope; otherwise report UNKNOWN. No
+elapsed window grants automatic deployment or trading authority. Report actual
+elapsed witness time without acceleration or extrapolation.
 
 Public cutover is a separate operation under the existing
 [public-service release/rollback contract](FORWARD-PAPER-PUBLIC-OBSERVER-SERVICE-20261105.md).
-Require accepted real shadow evidence, exact reviewed release/build provenance,
-the existing independently trusted release checks, recorded operator
-authorization, old unit/release hashes and verified rollback journals.
-The current installer still enforces its release gate. No new template bypasses it.
+Require the separately authorized **read-only canary** evidence: exact
+reviewed release/build provenance and compatible schema, source and native
+market identities, real representative baseline/new-event receipts,
+freshness, gap and deduplication checks, disconnect/restart recovery,
+measured CPU/memory/disk/socket bounds, isolated journals and validated
+rollback. Where a sample cannot be independently obtained, mark the
+particular claim UNKNOWN; do not fabricate source events. Retain existing
+independently trusted release checks, recorded operator authorization,
+old unit/release hashes and verified rollback journals. No installer bypasses
+its release or protected-service authority boundaries.
 
 Rehearse candidate installation, bad launch, bad health and restoration using
 isolated unit names and separate state. Check the prior pinned reader against
