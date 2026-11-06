@@ -1194,8 +1194,14 @@ class ContinuousObserver:
         entry = self.jobs.pop(key, None)
         if entry is not None:
             stop, task = entry
+            # Signal a cooperative stop first: immediately cancelling a task
+            # that has entered its transport close() can interrupt cleanup and
+            # leave the WebSocket client live after a storage failure.
             stop.set()
-            task.cancel()
+            if not task.done():
+                done, _ = await asyncio.wait((task,), timeout=1)
+                if not done:
+                    task.cancel()
             result = await asyncio.gather(task, return_exceptions=True)
             if result and isinstance(result[0], Exception):
                 raise result[0]
