@@ -116,6 +116,19 @@ an eligible watched-wallet population. `shared_ip_reservations_operator_verified
 is always reported: configured reservations do not prove real-world connection
 capacity. The diagnostic never changes a research selection, repairs missing
 Ed25519 proofs, drops an excluded member or relaxes financial admission.
+
+The owner-private registry doctor distinguishes verified SQLite structural
+integrity from a missing cryptographic proof for the latest research selection:
+`database_integrity=VERIFIED` with
+`research_selection_integrity=BLOCKED_MISSING_EXTERNAL_PROOF` is a truthful
+negative selection result and still exits nonzero. The observer strict preflight
+still refuses that state; `portfolio --current` never promotes an unsigned
+selection. Resource remediation must budget *unique users across sockets* as
+well as total connections. [Dated live capacity/provenance evidence](PERSISTENT-OBSERVER-RESOURCE-REMEDIATION-20261106.md)
+records the existing source-ABC 10-user A-window, future configurable
+seven-account/64-subscription grouping (defaults unchanged, NOT DEPLOYED),
+and 50-default + 50-HIP-3 bounded public-data-only socket canaries. Those
+canaries do not qualify full follower or 72-hour account observation.
 Unknown provider exceptions are redacted to a reason class rather than
 printing native addresses or private data.
 

@@ -47,8 +47,17 @@ async def rotate(
     sample_seconds: int = 15,
     receiver=session,
     cooldown_seconds: float = 2,
+    max_accounts_per_window: int = 10,
+    max_subscriptions_per_connection: int = 15,
 ) -> None:
     """Close each account window before subscribing to the next; no overlapping users."""
+    if type(max_accounts_per_window) is not int or not 1 <= max_accounts_per_window <= 10:
+        raise ValueError("E4_INVALID_SHARED_IP_ACCOUNT_RESERVATION")
+    if (
+        type(max_subscriptions_per_connection) is not int
+        or not 1 <= max_subscriptions_per_connection <= 128
+    ):
+        raise ValueError("E4_SUBSCRIPTION_SOCKET_BOUND_INVALID")
     stop = asyncio.Event()
     if forever:
         loop = asyncio.get_running_loop()
@@ -67,6 +76,8 @@ async def rotate(
                     stop_event=stop,
                     pods=pods,
                     account_window_index=index,
+                    max_accounts_per_window=max_accounts_per_window,
+                    max_subscriptions_per_connection=max_subscriptions_per_connection,
                 )
                 print(json.dumps({"portfolio": portfolio, **outcome}, sort_keys=True), flush=True)
                 if stop.is_set():
@@ -93,6 +104,8 @@ def main() -> None:
     parser.add_argument("--forever", action="store_true")
     parser.add_argument("--session-seconds", type=int, default=60)
     parser.add_argument("--sample-seconds", type=int, default=15)
+    parser.add_argument("--max-accounts-per-window", type=int, default=10)
+    parser.add_argument("--max-subscriptions-per-connection", type=int, default=15)
     args = parser.parse_args()
     with observer_lock(DEFAULT_LOCK):
         asyncio.run(
@@ -102,6 +115,8 @@ def main() -> None:
                 forever=args.forever,
                 session_seconds=args.session_seconds,
                 sample_seconds=args.sample_seconds,
+                max_accounts_per_window=args.max_accounts_per_window,
+                max_subscriptions_per_connection=args.max_subscriptions_per_connection,
             )
         )
 

@@ -316,7 +316,16 @@ def diagnose_candidate_preflight(
         ):
             gates[name] = {"status": "UNKNOWN", "reason_code": "STREAM_REGISTRY_NOT_VERIFIED"}
     else:
-        check("signed_selection", lambda: db_status(registry_db))
+
+        def verify_research_selection():
+            report = db_status(registry_db)
+            if report["counts"]["current_research_selection"] == (
+                "UNVERIFIED_SELECTION_PROVENANCE"
+            ):
+                raise ValueError("STREAM_SELECTION_PROOF_MISSING")
+            return True
+
+        check("signed_selection", verify_research_selection)
 
         def compare_inventory():
             if (
@@ -443,7 +452,9 @@ def candidate_preflight(
     authority = db_authority_health(registry_db)
     if authority.get("database_integrity") != "VERIFIED":
         raise ValueError("STREAM_REGISTRY_INTEGRITY_FAILED")
-    db_status(registry_db)  # Same signed-selection proof checks as the native doctor.
+    selection = db_status(registry_db)
+    if selection["counts"]["current_research_selection"] == "UNVERIFIED_SELECTION_PROVENANCE":
+        raise ValueError("STREAM_SELECTION_PROOF_MISSING")
     inventory_sha = authority["inventory_sha256"]
     if expected_inventory_sha is not None and inventory_sha != expected_inventory_sha:
         raise ValueError("STREAM_REGISTRY_GENERATION_CHANGED")
