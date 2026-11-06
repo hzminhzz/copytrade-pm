@@ -42,9 +42,9 @@ The owner-approved [SQLite-native lock contract](SQLITE-NATIVE-LEGACY-LOCK-20261
 
 ## Preconditions
 
-**Mandatory for future agents:** follow [the registry-first read and evidence workflow](WALLET-REGISTRY-AGENT-WORKFLOW.md). Git `main`, private SQLite generation and **installed pinned revision** are distinct. Never assume a code merge activated an upgrade. The current checked source-only safety fix PR #91 at `e5d9933` prevents future retroactive frozen membership writes; the observed installed release at this dated checkpoint was `5d7b4d7`. Existing historical DB backfills require separately reviewed recovery, not silent pointer movement.
+**Mandatory for future agents:** follow [the registry-first read and evidence workflow](WALLET-REGISTRY-AGENT-WORKFLOW.md). Git `main`, private SQLite generation and **installed pinned revision** are distinct. Never assume a code merge activated an upgrade. PR #91 (`e5d9933`) is a historical merged safety fix against retroactive frozen membership writes. The `5d7b4d7` installed revision belonged to the 2026-11-04 checkpoint; it is not a current deployment instruction. Inspect `release-control/current`, the release manifest and the pinned CLI for the actual installed revision. Existing historical DB backfills require separately reviewed recovery, not silent pointer movement.
 
-1. Use the **clean reviewed Git feature branch** in a DevSpace worktree, not a dirty `main` checkout. Inspect the approved release commit, commit-bound local evidence and actual GitHub protections; hosted Actions is optional. Stop on unexpected non-Git source drift.
+1. Use a **clean worktree at the approved GitHub revision**. A feature branch alone is not approval; preserve dirty checkouts. Inspect the approved release commit, commit-bound local evidence and actual GitHub protections; hosted Actions is optional. Stop on unexpected non-Git source drift.
 2. Run the full core and optional native-market test suites, Ruff, formatting, `uv build`, the original PM-02 36-wallet frozen parity regression, source/ledger doctor and local [docs reference audit](WALLET-REGISTRY-ACCEPTANCE-20261104.md).
 3. Capture service names, active state and MainPID for `copytrade-tracker.service`, `copytrade-ensemble.service`, `copytrade-source-abc.service`. Their source/financial DBs are explicitly out of scope.
 4. The `doctor` must show `authority=SQLITE`, `database_integrity=VERIFIED`, a 64-digit `inventory_sha256` and a supported schema. The legacy source SHA/import clock is *diagnostic* rather than a deployment gate. An observed 2026-11-04 newer cut had 158 research, 22 excluded, 264 configured/subscribed and 11 sealed definitions (source manifest `e2836aab5ef6ef79306e9dfe732d8768c3b1ca6af29efbda066b37f03646a18f`). Older 215/150/seven values were a distinct historical cut. If actual counts/SHAs drift, stop and review the new source generation before any activation.
@@ -52,7 +52,7 @@ The owner-approved [SQLite-native lock contract](SQLITE-NATIVE-LEGACY-LOCK-20261
 
 ## Commands
 
-From the clean registry feature worktree:
+From the clean worktree at the approved registry release commit:
 
 ```bash
 uv run --group dev python scripts/audit_wallet_registry_docs.py
