@@ -1,5 +1,9 @@
 # Wallet data acquisition and provenance
 
+## Persistent prospective acquisition
+
+Use [the continuous observer contract](FORWARD-PAPER-CONTINUOUS-OBSERVER.md) for native full-state replacement validation, excluded connection baselines, raw local receipt timestamps, exact DEX identity, rolling CCXT cache recovery and independent official fill comparisons. Recovery is recorded at its actual later availability and cannot become earlier forward evidence. SQLite receipts and checkpoints commit together. Retain partial evidence with null unverified NAV; do not waive selection, exclusion, sizing or admission gates.
+
 ## Public market-wide trade capture (experimental, 2026-11-05)
 
 **Current complete Propr public-display research scope:** [157 unique native assets / three physical WS groups](FORWARD-PAPER-PROPR-157-THREE-SOCKETS-20261105.md), sourced from dated, SHA-pinned 158-entry public Propr display snapshot and independently verified against live Hyperliquid default and `xyz` metadata. Equities, commodities and indices are included; two display categories contain the same `COPPER` market. Larger explicit 8/88/61 physical sockets extend—not replace—legacy 8-market sharding. Live test used `--parallel-shards 1` for shared-IP safety; actual concurrent capacity and real Propr order eligibility are not proven. This is observer-only, not a runtime admission or execution credential.

@@ -20,6 +20,7 @@ from typing import Iterator
 from .pm03_account import Account, RiskState, Rulebook, clock, digest, number
 from .pm_e4_prospective import PUBLIC_ACCOUNT_MODES
 from .pm_forward_paper import PaperManifest
+from .pm_forward_stream_journal import SCHEMA as STREAM_SCHEMA, append_checkpoint
 
 
 def _json(value: object) -> str:
@@ -187,6 +188,7 @@ class PaperJournal:
                 );
                 """
             )
+            db.executescript(STREAM_SCHEMA)
         os.chmod(self.path, 0o600)
 
     @contextmanager
@@ -194,7 +196,10 @@ class PaperJournal:
         fd = os.open(self._lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            db = sqlite3.connect(self.path, timeout=0, isolation_level=None)
+            # The exclusive writer lease remains nonblocking. A short SQLite
+            # wait tolerates WAL open/close transitions caused by independent
+            # read-only verifiers; it does not permit a second lease owner.
+            db = sqlite3.connect(self.path, timeout=1, isolation_level=None)
             try:
                 db.execute("PRAGMA journal_mode=WAL")
                 db.execute("PRAGMA synchronous=FULL")
@@ -207,6 +212,18 @@ class PaperJournal:
         finally:
             fcntl.flock(fd, fcntl.LOCK_UN)
             os.close(fd)
+
+    def append_stream_event(self, event: dict) -> dict:
+        """Persist a transport/gap/checkpoint event without a financial effect."""
+        with self._writer() as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                result = append_checkpoint(db, event, [])
+                db.execute("COMMIT")
+            except Exception:
+                db.execute("ROLLBACK")
+                raise
+        return result
 
     @staticmethod
     def _apply(account: Account, event: dict) -> dict:
@@ -751,14 +768,20 @@ class PaperJournal:
         }
 
     def append_source_receipt(
-        self, source_id: str, sequence: int, receipt_id: str, receipt: dict
+        self,
+        source_id: str,
+        sequence: int | None,
+        receipt_id: str,
+        receipt: dict,
+        *,
+        stream_event: dict | None = None,
     ) -> dict:
         """Import one already-captured receipt, never create a subscription."""
         if (
             not source_id
             or not receipt_id
-            or not isinstance(sequence, int)
-            or sequence <= 0
+            or (sequence is None and stream_event is None)
+            or (sequence is not None and (type(sequence) is not int or sequence <= 0))
             or len(source_id) > 128
             or len(receipt_id) > 128
         ):
@@ -787,6 +810,11 @@ class PaperJournal:
                 if old is not None:
                     if old[0] != receipt_sha:
                         raise ValueError("CONFLICTING_SOURCE_RECEIPT")
+                    append_checkpoint(
+                        db,
+                        stream_event,
+                        [{"kind": "source", "key": [source_id, receipt_id], "sha": receipt_sha}],
+                    )
                     db.execute("COMMIT")
                     return {
                         "source_id": source_id,
@@ -800,6 +828,8 @@ class PaperJournal:
                     (source_id,),
                 ).fetchone()
                 expected = last[0] + 1 if last else 1
+                if sequence is None:
+                    sequence = expected
                 if sequence != expected:
                     raise ValueError("SOURCE_SEQUENCE_GAP_OR_CONFLICT")
                 previous = last[1] if last else "0" * 64
@@ -816,10 +846,23 @@ class PaperJournal:
                         chained,
                     ),
                 )
+                append_checkpoint(
+                    db,
+                    stream_event,
+                    [{"kind": "source", "key": [source_id, receipt_id], "sha": receipt_sha}],
+                )
                 db.execute("COMMIT")
             except Exception:
                 db.execute("ROLLBACK")
                 raise
+        if stream_event is not None:
+            return {
+                "source_id": source_id,
+                "cursor": sequence,
+                "head_sha": chained,
+                "status": "RECORDED_UNADMITTED_SOURCE",
+                "paper_admitted": False,
+            }
         return self.source_status(source_id)
 
     @staticmethod
@@ -965,7 +1008,9 @@ class PaperJournal:
             else:
                 raise ValueError("SOURCE_ACCOUNT_MODE_STATUS_INVALID")
 
-    def append_collateral_diagnostic(self, report: dict) -> dict:
+    def append_collateral_diagnostic(
+        self, report: dict, *, stream_event: dict | None = None
+    ) -> dict:
         """Durably SHA-chain incomplete spot/vault scopes, never authorize finance."""
         self._check_collateral_diagnostic(report)
         account = report["account_address_sha256"]
@@ -993,6 +1038,11 @@ class PaperJournal:
                     )
                 elif old[0] != receipt_sha:
                     raise ValueError("SOURCE_COLLATERAL_RECEIPT_CONFLICT")
+                append_checkpoint(
+                    db,
+                    stream_event,
+                    [{"kind": "collateral", "key": [account, receipt_sha], "sha": receipt_sha}],
+                )
                 db.execute("COMMIT")
             except Exception:
                 db.execute("ROLLBACK")
@@ -1101,14 +1151,18 @@ class PaperJournal:
                     or number(row["price"]) <= 0
                     or number(row["amount_base"]) <= 0
                     or clock(row["source_event_at"]) > clock(row["first_known_at"])
-                    or clock(row["first_known_at"]) != known
+                    or (
+                        clock(row["first_known_at"]) > known
+                        if batch.get("local_clock_semantics") == "PER_NATIVE_TRADE_FIRST_RECEIPT"
+                        else clock(row["first_known_at"]) != known
+                    )
                 ):
                     raise ValueError
                 seen.add(row["native_trade_id"])
         except ValueError, TypeError, KeyError:
             raise ValueError("PAPER_CCXT_TRADE_BATCH_INVALID") from None
 
-    def append_market_trade_batch(self, batch: dict) -> dict:
+    def append_market_trade_batch(self, batch: dict, *, stream_event: dict | None = None) -> dict:
         """Immutable partial observed trades, never executable volume evidence."""
         self._validate_market_trade_batch(batch)
         instrument = batch["instrument"]
@@ -1122,6 +1176,11 @@ class PaperJournal:
                     (instrument, batch_sha),
                 ).fetchone()
                 if duplicate is not None:
+                    append_checkpoint(
+                        db,
+                        stream_event,
+                        [{"kind": "trades", "key": [instrument, batch_sha], "sha": batch_sha}],
+                    )
                     db.execute("COMMIT")
                     return {
                         "status": "DUPLICATE_PARTIAL_TRADE_OBSERVATION",
@@ -1180,6 +1239,11 @@ class PaperJournal:
                         chain_sha,
                         received,
                     ),
+                )
+                append_checkpoint(
+                    db,
+                    stream_event,
+                    [{"kind": "trades", "key": [instrument, batch_sha], "sha": batch_sha}],
                 )
                 db.execute("COMMIT")
             except Exception:
@@ -1283,7 +1347,7 @@ class PaperJournal:
         if failed:
             raise ValueError("PAPER_CCXT_QUOTE_INVALID:" + ",".join(failed))
 
-    def append_market_quote(self, quote: dict) -> dict:
+    def append_market_quote(self, quote: dict, *, stream_event: dict | None = None) -> dict:
         """One public CCXT L2 capture, never a trade-capacity or wallet signal.
 
         The private SQLite market receipt is locally SHA-chained and
@@ -1306,6 +1370,11 @@ class PaperJournal:
                 if existing is not None:
                     if existing[0] != raw_sha:
                         raise ValueError("PAPER_MARKET_QUOTE_CONFLICT")
+                    append_checkpoint(
+                        db,
+                        stream_event,
+                        [{"kind": "quote", "key": [instrument, raw_sha], "sha": raw_sha}],
+                    )
                     db.execute("COMMIT")
                     return {"status": "DUPLICATE_MARKET_QUOTE", "quote_sha": raw_sha}
                 head = db.execute(
@@ -1364,6 +1433,11 @@ class PaperJournal:
                         event_at,
                         known_at,
                     ),
+                )
+                append_checkpoint(
+                    db,
+                    stream_event,
+                    [{"kind": "quote", "key": [instrument, raw_sha], "sha": raw_sha}],
                 )
                 db.execute("COMMIT")
             except Exception:
@@ -1505,7 +1579,9 @@ class PaperJournal:
         except (KeyError, TypeError, ValueError, OverflowError) as exc:
             raise ValueError("PUBLIC_WALLET_TRADE_CLOCK_INVALID") from exc
 
-    def append_public_wallet_trades(self, events: list[dict]) -> dict:
+    def append_public_wallet_trades(
+        self, events: list[dict], *, stream_event: dict | None = None
+    ) -> dict:
         """Atomically append one or more first-known public wallet trade observations.
 
         On reconnect, a duplicate may have a later first-known clock; the
@@ -1522,6 +1598,7 @@ class PaperJournal:
             if prior != event:
                 raise ValueError("PUBLIC_WALLET_TRADE_BATCH_CONFLICT")
         appended, duplicates = 0, 0
+        receipt_refs = []
         with self._writer() as db:
             db.execute("BEGIN IMMEDIATE")
             try:
@@ -1557,6 +1634,13 @@ class PaperJournal:
                         if any(previous[field] != event[field] for field in stable):
                             raise ValueError("PUBLIC_WALLET_TRADE_CONFLICTING_REPLAY")
                         duplicates += 1
+                        receipt_refs.append(
+                            {
+                                "kind": "public",
+                                "key": [wallet, inst, event_key],
+                                "sha": digest(previous),
+                            }
+                        )
                         continue
                     if clock(event["first_known_at"]) > clock(committed_at):
                         raise ValueError("PUBLIC_WALLET_TRADE_RECEIPT_IN_FUTURE")
@@ -1617,6 +1701,10 @@ class PaperJournal:
                         ),
                     )
                     appended += 1
+                    receipt_refs.append(
+                        {"kind": "public", "key": [wallet, inst, event_key], "sha": payload_sha}
+                    )
+                append_checkpoint(db, stream_event, receipt_refs)
                 db.execute("COMMIT")
             except Exception:
                 db.execute("ROLLBACK")
@@ -1958,4 +2046,8 @@ class PaperJournal:
             copied = recovered.market_quote_status(market)
             if original["journal_head_sha"] != copied["journal_head_sha"]:
                 raise ValueError("PAPER_BACKUP_MARKET_QUOTE_MISMATCH")
+        from .pm_forward_stream_journal import verify_streams
+
+        if verify_streams(self.path)["head_sha"] != verify_streams(recovered.path)["head_sha"]:
+            raise ValueError("PAPER_BACKUP_STREAM_CHECKPOINT_MISMATCH")
         return {run_id: recovered.restore(run_id)["journal_head_sha"] for run_id in run_ids}

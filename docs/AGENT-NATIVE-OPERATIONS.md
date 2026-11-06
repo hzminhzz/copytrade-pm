@@ -1,5 +1,9 @@
 # Agent-native capability discovery and read-only operations
 
+## Continuous observer capabilities
+
+Discover `paper.observer.preflight` (READ_ONLY), `paper.observer.continuous` (PROTECTED_MUTATION), `paper.observer.continuous_health` (READ_ONLY), `paper.observer.continuous_watchdog` (LOCAL_MUTATION), `paper.observer.shadow_report` (READ_ONLY) and `market.continuous_canary` (PROTECTED_MUTATION). [The continuous contract](FORWARD-PAPER-CONTINUOUS-OBSERVER.md) supplies required paths and gates. Aggregate `health --observer-state-root` detects continuous heartbeat evidence without granting protected-worker or provider authority.
+
 ## Public trade observation capability (2026-11-05)
 
 **Latest scope:** Use [Propr-displayed 157-market three-WS mapping](FORWARD-PAPER-PROPR-157-THREE-SOCKETS-20261105.md) before selecting a transport layout. Version `paper_public_physical_sockets_v1` requires the original Propr snapshot file via `--propr-snapshot` and full instrument parity validation; the public Propr listing is not account-specific executable permission. Three named physical sockets have sizes 8/88/61, local per-socket cap 128; the legacy eight-market layout and five original Top-40 logical groups remain for historical comparison. Observed transport was sequential, not an always-on three-WS production service. The CLI fails closed on `--parallel-shards > 1` without `--ack-shared-ip-connection-budget` for this Propr configuration; operator must independently verify shared-IP headroom.

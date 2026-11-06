@@ -1,5 +1,9 @@
 # Research operator runbook — verified CLI sequence
 
+## Continuous public observer operations
+
+[The continuous observer runbook](FORWARD-PAPER-CONTINUOUS-OBSERVER.md) defines the tested preflight/capture/health/shadow-report commands, private state, shared-IP budgeting, restart and backup procedure, independent watchdog history and uninstalled unit templates. [The dated program evidence](PERSISTENT-OBSERVER-IMPLEMENTATION-20261106.md) records actual status. A bounded canary is not the 72-hour shadow. Public cutover retains its separate operator authorization and trusted-release gate.
+
 ## 2026-11-05 opt-in public wallet trade canary and UTC scheduler
 
 **Preferred new market selection:** [complete Propr display 157-market three-physical-WebSocket configuration and bounded canary](FORWARD-PAPER-PROPR-157-THREE-SOCKETS-20261105.md). Use `--market-file docs/FORWARD-PAPER-PROPR-157-THREE-SOCKETS-20261105.json --propr-snapshot /home/quant/.local/share/copytrade/reports/five-pod-20261029-research/PROPR_PUBLIC_ASSET_UNIVERSE_20261030.json`. Start read-only verification with `--parallel-shards 1` because existing tracker/source sockets share Hyperliquid per-IP limits; parallel 3 is implemented but requires `--ack-shared-ip-connection-budget` after independently measuring headroom, plus performance/restart qualification. Source is a Propr browser-display snapshot, **not** an authenticated order-eligible API universe. The 13-market and 40-market examples below are historical canaries, not a currently complete Propr-displayed scope.

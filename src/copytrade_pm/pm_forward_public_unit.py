@@ -283,6 +283,90 @@ def install(path: Path, content: str) -> str:
             os.unlink(pending)
 
 
+def continuous_unit_templates(
+    *,
+    release: Path,
+    revision: str,
+    registry: Path,
+    primary: Path,
+    secondary: Path,
+    state: Path,
+    config: Path,
+) -> dict:
+    """Render isolated shadow units only; does not install, activate or authorize."""
+    if not SHA40.fullmatch(revision):
+        raise ObserverUnitBlocked("INVALID_PINNED_REVISION")
+    for path in (release, registry, primary, secondary, state, config):
+        if not path.is_absolute() or not SAFE_PATH.fullmatch(str(path)):
+            raise ObserverUnitBlocked("UNSAFE_OR_NON_ABSOLUTE_UNIT_PATH")
+    if (
+        release.name != revision
+        or state == release
+        or state in (primary, secondary, registry.parent)
+    ):
+        raise ObserverUnitBlocked("CONTINUOUS_TEMPLATE_SCOPE_COLLISION")
+    legacy = _unit_text(release, registry, primary, secondary, state)
+    start = next(line for line in legacy.splitlines() if line.startswith("ExecStart="))
+    common = start.split(" --epochs ", 1)[0] + " --continuous-config " + str(config)
+    collector = legacy.replace(
+        start, common.replace("ExecStart=", "ExecStartPre=", 1) + " --preflight-only\n" + common
+    )
+    collector = collector.replace(
+        "Description=P1/P14 public observer only (NO TRADE, NOT PAPER_RUNNING)",
+        "Description=Isolated continuous public shadow (NO TRADE)",
+    )
+    collector = collector.replace(
+        "ProtectSystem=full",
+        "ProtectSystem=strict\nProtectHome=read-only\nReadWritePaths=" + str(state),
+    )
+    collector = collector.replace("MemoryMax=700M", "MemoryMax=1G")
+    watchdog = collector.replace(
+        "Description=Isolated continuous public shadow (NO TRADE)",
+        "Description=Independent continuous public shadow watchdog (NO TRADE)",
+    )
+    watchdog = (
+        "\n".join(line for line in watchdog.splitlines() if not line.startswith("ExecStartPre="))
+        + "\n"
+    )
+    watchdog = watchdog.replace(
+        common,
+        "ExecStart="
+        + str(release / ".venv/bin/python")
+        + " -m copytrade_pm.pm_forward_observer_health --continuous --watch"
+        + " --state-root "
+        + str(state)
+        + " --expected-revision "
+        + revision,
+    )
+    files = {
+        "copytrade-continuous-shadow.service": collector,
+        "copytrade-continuous-shadow-watchdog.service": watchdog,
+    }
+    body = {
+        "schema": "paper_continuous_shadow_unit_templates_v1",
+        "revision": revision,
+        "status": "PREPARED_UNINSTALLED_UNAUTHORIZED",
+        "units": files,
+        "unit_sha256": {name: sha256(text.encode()).hexdigest() for name, text in files.items()},
+        "active_public_unit": UNIT,
+        "active_public_unit_modified": False,
+        "requires": [
+            "VERIFIED_REGISTRY_AND_EXCLUSIONS",
+            "MEASURED_SHARED_IP_BUDGET",
+            "EXACT_REVIEWED_RELEASE",
+            "PRIVATE_NEW_STATE_ROOT",
+            "INDEPENDENT_WATCHDOG",
+            "REAL_72H_ACCEPTANCE_BEFORE_PUBLIC_CUTOVER",
+            "SEPARATE_PUBLIC_CUTOVER_AUTHORIZATION",
+        ],
+        "systemd_activated": False,
+        "order_route": "NONE",
+    }
+    from .pm03_account import digest
+
+    return {**body, "manifest_sha": digest(body)}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--revision", required=True)

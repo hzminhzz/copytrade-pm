@@ -133,10 +133,27 @@ def observer_market_health(state_root: Path | None) -> dict:
             "error_code": "OBSERVER_STATE_ROOT_NOT_SUPPLIED",
             "scope": "NOT_A_LIVE_MARKET_PROVIDER_ATTESTATION",
         }
-    from .pm_forward_observer_health import inspect_public_observer_heartbeat
+    from .pm_forward_observer_health import (
+        inspect_public_observer_heartbeat,
+        inspect_continuous_observer,
+    )
 
     root = Path(state_root)
     try:
+        if (root / "continuous-observer.heartbeat.json").exists():
+            checked = inspect_continuous_observer(root, as_of=datetime.now(UTC).isoformat())
+            return {
+                "state": "DEGRADED"
+                if checked.get("health") == "DEGRADED_OBSERVER_ONLY"
+                else "UNKNOWN",
+                "observer_health": checked.get("health", "UNKNOWN"),
+                "feed_health": checked.get("feed_health", "UNKNOWN"),
+                "required_feed_count": checked.get("required_feed_count", 0),
+                "journal_integrity": checked.get("journal_integrity", "UNKNOWN"),
+                "protected_worker_attested": False,
+                "provider_health": "UNKNOWN",
+                "scope": "PUBLIC_OBSERVER_ONLY_NOT_BROKER_OR_MARKET_PROVIDER",
+            }
         checked = inspect_public_observer_heartbeat(
             root,
             journal_db=root / "paper-events.sqlite3",

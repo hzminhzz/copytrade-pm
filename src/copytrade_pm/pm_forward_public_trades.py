@@ -179,6 +179,7 @@ def validate_public_market_catalog(
     instruments: tuple[Instrument, ...],
     *,
     info: Callable[[dict], tuple[Any, bytes, str]] | None = None,
+    allow_partial: bool = False,
 ) -> dict:
     """Validate every configured native perp against current official /info metadata.
 
@@ -193,7 +194,7 @@ def validate_public_market_catalog(
     for inst in selected:
         dex = inst.market.removeprefix("mainnet:perp:")
         dexs.setdefault(dex, set()).add(native_coin(inst))
-    proofs = []
+    proofs, unavailable = [], []
     for dex in sorted(dexs):
         request = {"type": "meta"} if dex == "default" else {"type": "meta", "dex": dex}
         payload, raw, response_sha = provider(request)
@@ -211,8 +212,9 @@ def validate_public_market_catalog(
             for coin in dexs[dex]
             if coin not in actual or actual[coin].get("isDelisted") is True
         )
-        if invalid:
+        if invalid and not allow_partial:
             raise ValueError("PUBLIC_TRADE_CATALOG_MARKET_UNAVAILABLE:" + ",".join(invalid))
+        unavailable.extend(invalid)
         if not isinstance(response_sha, str) or len(response_sha) != 64:
             raise ValueError("PUBLIC_TRADE_CATALOG_PROVENANCE_INVALID")
         if not isinstance(raw, bytes):
@@ -224,8 +226,11 @@ def validate_public_market_catalog(
         proofs.append({"dex": dex, "catalog_sha256": response_sha, "markets": len(dexs[dex])})
     return {
         "schema": "paper_public_market_catalog_preflight_v1",
-        "status": "ALL_MARKETS_PRESENT_AT_PREFLIGHT",
-        "markets_verified": len(selected),
+        "status": "PARTIAL_MARKETS_AVAILABLE"
+        if unavailable
+        else "ALL_MARKETS_PRESENT_AT_PREFLIGHT",
+        "markets_verified": len(selected) - len(unavailable),
+        "unavailable_markets": sorted(unavailable),
         "catalog_proofs": proofs,
         "source_complete": False,
         "paper_admitted": False,
@@ -400,6 +405,356 @@ def normalize_native_trade(
             }
         )
     return results
+
+
+class PersistentPublicMarket:
+    """Reuse canonical PR118 wallet-side receipts on a retained native socket."""
+
+    def __init__(
+        self,
+        journal: PaperJournal,
+        instrument: Instrument,
+        watched: dict,
+        *,
+        scope_sha: str,
+        max_ids: int = 2000,
+    ):
+        from .pm_forward_stream_journal import StreamProgress
+
+        native_coin(instrument)
+        if not 2 <= max_ids <= 10000:
+            raise ValueError("PUBLIC_NATIVE_ID_BUFFER_INVALID")
+        self.journal, self.instrument, self.watched = journal, instrument, watched
+        self.scope_sha, self.max_ids = scope_sha, max_ids
+        self.progress = StreamProgress(journal, "public:" + instrument.key)
+        self.epoch = None
+        # Restart always takes a fresh excluded baseline. The canonical wallet
+        # receipts provide durable deduplication; this bounded cache is local.
+        self._seen = {}
+
+    def begin(self, known_at: str) -> dict:
+        epoch = uuid4().hex
+        state = {
+            **self.progress.checkpoint,
+            "baseline_valid": False,
+            "subscription_acknowledged": False,
+            "transport": "CONNECTING",
+            "scope_sha": self.scope_sha,
+            "last_transport_at": known_at,
+            "watchlist_sha": digest(sorted(self.watched.items())),
+        }
+        result = self.progress.commit(
+            self.progress.propose(
+                epoch=epoch,
+                kind="GAP",
+                known_at=known_at,
+                checkpoint=state,
+                details={"reason": "CONNECT_OR_PROCESS_RESTART"},
+            )
+        )
+        self.epoch = epoch
+        self._seen = {}
+        return result
+
+    def transport(self, known_at: str) -> dict:
+        if self.progress.head["event"] and clock(known_at) <= clock(
+            self.progress.head["event"]["first_known_at"]
+        ):
+            return {"status": "TRANSPORT_ALREADY_OBSERVED", "order_route": "NONE"}
+        state = {
+            **self.progress.checkpoint,
+            "transport": "CONNECTED",
+            "last_transport_at": known_at,
+        }
+        return self.progress.commit(
+            self.progress.propose(
+                epoch=self.epoch,
+                kind="TRANSPORT",
+                known_at=known_at,
+                checkpoint=state,
+            )
+        )
+
+    def gap(self, known_at: str, reason: str) -> dict:
+        state = {
+            **self.progress.checkpoint,
+            "baseline_valid": False,
+            "transport": "DEGRADED",
+            "gap_reason": reason,
+        }
+        return self.progress.commit(
+            self.progress.propose(
+                epoch=self.epoch,
+                kind="GAP",
+                known_at=known_at,
+                checkpoint=state,
+                details={"reason": reason},
+            )
+        )
+
+    def observe(
+        self,
+        rows: list[dict],
+        known_at: str,
+        *,
+        snapshot: bool = False,
+        raw_sha: str | None = None,
+        raw_text: str | None = None,
+    ) -> dict:
+        if self.epoch is None or not isinstance(rows, list) or len(rows) > 1000:
+            raise ValueError("PUBLIC_NATIVE_FRAME_INVALID")
+        prior = self.progress.checkpoint
+        baseline = not prior.get("baseline_valid", False) or snapshot
+        seen = dict(self._seen)
+        events, fresh = [], 0
+        latest = prior.get("last_native_ms", 0)
+        for row in rows:
+            # Normalize even unselected counterparties: malformed market data
+            # cannot quietly qualify the frame or advance continuity.
+            normalized = normalize_native_trade(
+                row,
+                instrument=self.instrument,
+                watched=self.watched,
+                first_known_at=known_at,
+                stream_epoch=self.epoch,
+            )
+            identity = digest([self.instrument.key, row["time"], row["tid"]])
+            trade_sha = digest(row)
+            old = seen.get(identity)
+            if old is not None and old != trade_sha:
+                raise ValueError("PUBLIC_NATIVE_TRADE_ID_CONFLICT")
+            if not baseline and old is None and row["time"] < latest:
+                raise ValueError("PUBLIC_NATIVE_EVENT_CLOCK_REGRESSION")
+            if old is None:
+                fresh += 1
+                if not baseline:
+                    events.extend(normalized)
+                seen[identity] = trade_sha
+            latest = max(latest, row["time"])
+        if not baseline and not fresh:
+            return {
+                "new_receipts": 0,
+                "status": "DUPLICATE_PUBLIC_NATIVE_FRAME",
+                "order_route": "NONE",
+            }
+        state = {
+            **prior,
+            "baseline_valid": True,
+            "transport": "CONNECTED",
+            "last_transport_at": known_at,
+            "last_market_trade_at": known_at,
+            "last_native_ms": latest,
+            "recent_ids_sha": digest(list(seen.items())[-self.max_ids :]),
+            "recent_ids_count": min(len(seen), self.max_ids),
+            "scope_sha": self.scope_sha,
+            "trade_volume_complete": False,
+            "matched_proposal_count": prior.get("matched_proposal_count", 0) + len(events),
+        }
+        event = self.progress.propose(
+            epoch=self.epoch,
+            kind="BASELINE" if baseline else "OBSERVATION",
+            known_at=known_at,
+            checkpoint=state,
+            raw_sha=raw_sha or digest(rows),
+            source_at=datetime.fromtimestamp(latest / 1000, UTC).isoformat() if rows else None,
+            details={
+                "native_trades": rows,
+                "native_wire": raw_text,
+                "baseline_excluded": baseline,
+                "timing_policy": "FIRST_SIGNAL_PLUS_5M",
+                "candidate_count": len(events),
+                "native_trade_count": len(rows),
+            },
+        )
+        if events:
+            result = self.progress.commit(
+                event,
+                lambda e: self.journal.append_public_wallet_trades(
+                    events,
+                    stream_event=e,
+                ),
+            )
+        else:
+            self.progress.commit(event)
+            result = {"new_receipts": 0, "order_route": "NONE"}
+        self._seen = dict(list(seen.items())[-self.max_ids :])
+        return {**result, "baseline_excluded": baseline, "paper_admitted": False}
+
+
+def reconcile_public_wallet_fills(
+    *,
+    journal: PaperJournal,
+    watched: Mapping[str, str],
+    start_at: str,
+    end_at: str,
+    required_markets: tuple[Instrument, ...],
+    info=None,
+    now=lambda: datetime.now(UTC).isoformat(timespec="microseconds"),
+) -> dict:
+    """Independent public REST comparison, recorded only as later audit evidence.
+
+    The bounded API response does not prove exchange-wide completeness. No
+    recovered row is inserted into the prospective candidate/source tables.
+    """
+    from contextlib import closing
+    from hashlib import sha256
+    import sqlite3
+    from .pm_e4_prospective import _guarded_info
+    from .pm_forward_stream_journal import StreamProgress
+
+    start, end = clock(start_at), clock(end_at)
+    if not 0 <= (end - start).total_seconds() <= 86400 or len(watched) > 10:
+        raise ValueError("PUBLIC_RECONCILIATION_WINDOW_OR_ACCOUNT_BOUND")
+    provider = info or _guarded_info
+    markets = {native_coin(inst): inst for inst in required_markets}
+    summary = {
+        "schema": "paper_public_fill_reconciliation_v1",
+        "start_at": start_at,
+        "end_at": end_at,
+        "independent_matches": 0,
+        "recovered_later": 0,
+        "unresolved": 0,
+        "outside_scope": 0,
+        "accounts_checked": 0,
+        "comparison_complete": False,
+        "comparison_scope": "ONLY_OFFICIAL_API_RETURNED_ROWS",
+        "financial_events_committed": 0,
+        "order_route": "NONE",
+    }
+    for address, wallet in sorted(watched.items(), key=lambda item: item[1]):
+        if (
+            ADDRESS.fullmatch(address) is None
+            or re.fullmatch(r"wallet:[1-9][0-9]*", wallet) is None
+        ):
+            raise ValueError("PUBLIC_RECONCILIATION_CANONICAL_IDENTITY_REQUIRED")
+        response, raw, sha = provider(
+            {
+                "type": "userFillsByTime",
+                "user": address,
+                "startTime": int(start.timestamp() * 1000),
+                "endTime": int(end.timestamp() * 1000),
+                "aggregateByTime": False,
+            }
+        )
+        known = now()  # Actual later availability, never the original trade timestamp.
+        if clock(known) < end or not isinstance(raw, bytes) or sha256(raw).hexdigest() != sha:
+            raise ValueError("PUBLIC_RECONCILIATION_RESPONSE_CLOCK_OR_SHA_INVALID")
+        if not isinstance(response, list) or len(response) > 2000:
+            raise ValueError("PUBLIC_RECONCILIATION_RESPONSE_SHAPE_UNSUPPORTED")
+        with closing(
+            sqlite3.connect("file:" + str(journal.path.resolve()) + "?mode=ro", uri=True)
+        ) as db:
+            db.execute("PRAGMA query_only=ON")
+            db.execute("BEGIN")
+            candidates = {}
+            for payload, payload_sha in db.execute(
+                "SELECT payload,payload_sha FROM public_wallet_trade_receipts WHERE wallet_key=?",
+                (wallet,),
+            ):
+                candidate = json.loads(payload)
+                if digest(candidate) != payload_sha:
+                    raise ValueError("PUBLIC_RECONCILIATION_CANDIDATE_DIVERGENCE")
+                if start <= clock(candidate["source_event_at"]) <= end:
+                    candidates[candidate["event_key"]] = candidate
+        outcomes, seen, matched = [], {}, set()
+        counts = {
+            "independent_matches": 0,
+            "recovered_later": 0,
+            "unresolved": 0,
+            "outside_scope": 0,
+        }
+        for fill in response:
+            if not isinstance(fill, dict):
+                raise ValueError("PUBLIC_RECONCILIATION_FILL_SCHEMA_INVALID")
+            coin, tid, at = fill.get("coin"), fill.get("tid"), fill.get("time")
+            if type(tid) is not int or type(at) is not int or fill.get("side") not in {"A", "B"}:
+                raise ValueError("PUBLIC_RECONCILIATION_FILL_IDENTITY_UNKNOWN")
+            source_at = datetime.fromtimestamp(at / 1000, UTC).isoformat()
+            if not start <= clock(source_at) <= end:
+                raise ValueError("PUBLIC_RECONCILIATION_OUTSIDE_REQUESTED_WINDOW")
+            price, amount = number(fill.get("px")), number(fill.get("sz"))
+            if price <= 0 or amount <= 0:
+                raise ValueError("PUBLIC_RECONCILIATION_FILL_PRICE_SIZE_INVALID")
+            side = "BUY" if fill["side"] == "B" else "SELL"
+            identity = digest([coin, tid, at, side])
+            stable = digest([coin, tid, at, side, str(price), str(amount)])
+            if identity in seen:
+                if seen[identity] != stable:
+                    raise ValueError("PUBLIC_RECONCILIATION_CONFLICTING_OFFICIAL_ID")
+                continue
+            seen[identity] = stable
+            inst = markets.get(coin)
+            if inst is None:
+                counts["outside_scope"] += 1
+                continue
+            key = digest([inst.key, at, tid, wallet, side])
+            candidate = candidates.get(key)
+            if candidate is None:
+                status, counter = "RECOVERED_AT_LATER_TIME", "recovered_later"
+            elif number(candidate["price"]) != price or number(candidate["signed_qty"]) != (
+                amount if side == "BUY" else -amount
+            ):
+                status, counter = "UNRESOLVED_NATIVE_ID_CONFLICT", "unresolved"
+            else:
+                status, counter = "INDEPENDENT_MATCH", "independent_matches"
+                matched.add(key)
+            counts[counter] += 1
+            outcomes.append(
+                {
+                    "event_key": key,
+                    "instrument": inst.key,
+                    "source_event_at": source_at,
+                    "official_native_tid": tid,
+                    "recovery_first_known_at": known,
+                    "original_candidate_first_known_at": candidate["first_known_at"]
+                    if candidate
+                    else None,
+                    "classification": status,
+                    "signal_eligible": False,
+                    "official_fill_sha": digest(fill),
+                }
+            )
+        for key in sorted(candidates.keys() - matched):
+            if not any(row["event_key"] == key for row in outcomes):
+                counts["unresolved"] += 1
+                outcomes.append(
+                    {
+                        "event_key": key,
+                        "classification": "UNRESOLVED_NO_OFFICIAL_MATCH",
+                        "recovery_first_known_at": known,
+                        "signal_eligible": False,
+                    }
+                )
+        progress = StreamProgress(journal, "reconcile:" + wallet)
+        event = progress.propose(
+            epoch=uuid4().hex,
+            kind="RECONCILIATION",
+            known_at=known,
+            checkpoint={
+                "last_checked_end_at": end_at,
+                "comparison_complete": False,
+                "history_limit_reached": len(response) == 2000,
+                **counts,
+            },
+            raw_sha=sha,
+            details={
+                "start_at": start_at,
+                "end_at": end_at,
+                "rows": outcomes,
+                "official_response": response,
+                "signal_eligible": False,
+            },
+        )
+        progress.commit(event)
+        for key, value in counts.items():
+            summary[key] += value
+        summary["accounts_checked"] += 1
+    summary["live_match_status"] = (
+        "INDEPENDENT_WATCHED_MATCH_OBSERVED"
+        if summary["independent_matches"]
+        else "LIVE_MATCH_UNKNOWN"
+    )
+    return summary
 
 
 async def capture_bounded_native_trades(

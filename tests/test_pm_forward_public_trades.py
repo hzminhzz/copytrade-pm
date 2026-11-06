@@ -212,9 +212,13 @@ def test_late_durability_refused_and_chain_tamper_detected(tmp_path, monkeypatch
         as_of=known(301),
     )
     assert first["net_position_delta"] == "2"
-    monkeypatch.setattr(
-        journal_module, "datetime", datetime
-    )  # real commit is far after bucket close
+
+    class LateDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 11, 6, 11, 0, tzinfo=UTC)
+
+    monkeypatch.setattr(journal_module, "datetime", LateDateTime)
     row2 = normalized(6, 33)[0]
     journal.append_public_wallet_trades([row2])
     second = journal.observed_utc_net_delta(
