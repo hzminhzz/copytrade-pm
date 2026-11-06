@@ -1,6 +1,6 @@
 # copytrade-pm handbook — start here
 
-**Continuous observer program #129:** [Authoritative lifecycle, preflight, first-known clocks, health, recovery and release runbook](FORWARD-PAPER-CONTINUOUS-OBSERVER.md); [dated implementation and verification evidence](PERSISTENT-OBSERVER-IMPLEMENTATION-20261106.md). Engineering, bounded transport observation, real 72-hour shadow acceptance and public service authorization are separate statuses.
+**Continuous observer program #129:** [Authoritative lifecycle, preflight, first-known clocks, health, recovery and release runbook](FORWARD-PAPER-CONTINUOUS-OBSERVER.md); [dated implementation and verification evidence](PERSISTENT-OBSERVER-IMPLEMENTATION-20261106.md); [2026-11-06 post-merge independent live blocker diagnostics](PERSISTENT-OBSERVER-POSTMERGE-GATES-20261106.md). Engineering, bounded transport observation, real 72-hour shadow acceptance and public service authorization are separate statuses.
 
 **Current Propr public display capture (2026-11-05, research-only):** [157 unique native markets on 3 physical sockets, source SHA, live transport and zero-financial-event tests](FORWARD-PAPER-PROPR-157-THREE-SOCKETS-20261105.md) and [pinned complete configuration](FORWARD-PAPER-PROPR-157-THREE-SOCKETS-20261105.json). All 158 displayed categories reconcile to 157 unique markets (COPPER deduplicated); the Top-40 five-group layout is retained for logical reporting, not the current physical connection requirement. This is NOT an authenticated Propr account market list or deployed paper worker.
 
