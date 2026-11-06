@@ -93,6 +93,12 @@ def test_continuous_unit_templates_are_distinct_and_cannot_authorize(tmp_path):
     assert "--continuous --watch" in watchdog and "ExecStartPre=" not in watchdog
     assert "ProtectSystem=strict" in collector
     assert "--epochs" not in collector
+    assert "REAL_72H_ACCEPTANCE_BEFORE_PUBLIC_CUTOVER" not in report["requires"]
+    assert "MEASURED_SELECTED_SCOPE_CANARY_ACCEPTANCE" in report["requires"]
+    assert "VERIFIED_ROLLBACK_AND_JOURNAL_ISOLATION" in report["requires"]
+    assert "SEPARATE_PUBLIC_CUTOVER_AUTHORIZATION" in report["requires"]
+    assert report["optional_post_cutover_evidence"] == ["ACTUAL_72H_SOAK_WITH_INCIDENT_RECORD"]
+    assert report["order_route"] == "NONE"
 
 
 def build(tmp_path):

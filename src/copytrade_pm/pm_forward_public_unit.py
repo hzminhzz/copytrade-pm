@@ -356,9 +356,11 @@ def continuous_unit_templates(
             "EXACT_REVIEWED_RELEASE",
             "PRIVATE_NEW_STATE_ROOT",
             "INDEPENDENT_WATCHDOG",
-            "REAL_72H_ACCEPTANCE_BEFORE_PUBLIC_CUTOVER",
+            "MEASURED_SELECTED_SCOPE_CANARY_ACCEPTANCE",
+            "VERIFIED_ROLLBACK_AND_JOURNAL_ISOLATION",
             "SEPARATE_PUBLIC_CUTOVER_AUTHORIZATION",
         ],
+        "optional_post_cutover_evidence": ["ACTUAL_72H_SOAK_WITH_INCIDENT_RECORD"],
         "systemd_activated": False,
         "order_route": "NONE",
     }
