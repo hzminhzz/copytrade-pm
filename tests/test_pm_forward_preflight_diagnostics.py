@@ -48,13 +48,9 @@ def test_diagnostic_reports_independent_provenance_exclusion_and_budget_without_
         },
     )
 
-    def no_proof(_path):
-        raise ValueError("unverified research selection provenance")
-
     def excluded(*_args, **_kwargs):
         raise ValueError("PUBLIC_TRADE_WALLET_PROPFIRM_EXCLUDED")
 
-    monkeypatch.setattr(module, "db_status", no_proof)
     monkeypatch.setattr(module, "registry_watched_addresses", excluded)
     monkeypatch.setattr(
         module,
@@ -79,7 +75,10 @@ def test_diagnostic_reports_independent_provenance_exclusion_and_budget_without_
     report = diagnose_candidate_preflight(**options)
     assert report["status"] == "BLOCKED"
     assert report["gates"]["registry_integrity"]["status"] == "PASS"
-    assert report["gates"]["signed_selection"]["reason_code"] == "STREAM_SELECTION_PROOF_MISSING"
+    assert report["gates"]["signed_selection"] == {
+        "status": "PASS",
+        "scope": "REQUESTED_PORTFOLIO_SEALS_ONLY",
+    }
     assert (
         report["gates"]["watched_wallets"]["reason_code"] == "PUBLIC_TRADE_WALLET_PROPFIRM_EXCLUDED"
     )
@@ -94,7 +93,7 @@ def test_diagnostic_reports_independent_provenance_exclusion_and_budget_without_
     assert report["order_route"] == "NONE"
     assert not new_root.exists()
     assert old.path.read_bytes() == old_head
-    with pytest.raises(ValueError, match="unverified research selection provenance"):
+    with pytest.raises(ValueError, match="PUBLIC_TRADE_WALLET_PROPFIRM_EXCLUDED"):
         candidate_preflight(**options)
 
 
@@ -106,11 +105,6 @@ def test_diagnostic_can_pass_all_checks_but_never_admit_start(tmp_path, monkeypa
         module,
         "db_authority_health",
         lambda _path: {"database_integrity": "VERIFIED", "inventory_sha256": "b" * 64},
-    )
-    monkeypatch.setattr(
-        module,
-        "db_status",
-        lambda _path: {"counts": {"current_research_selection": "OWNER_APPROVED_RESEARCH_ONLY"}},
     )
     monkeypatch.setattr(
         module,
@@ -192,10 +186,6 @@ def test_diagnostic_entrypoint_is_read_only_and_skips_strict_preflight(tmp_path,
         lambda _path: {"database_integrity": "VERIFIED", "inventory_sha256": "b" * 64},
     )
 
-    def no_proof(_path):
-        raise ValueError("unverified research selection provenance")
-
-    monkeypatch.setattr(module, "db_status", no_proof)
     monkeypatch.setattr(
         module,
         "_portfolio_seals",
@@ -222,7 +212,7 @@ def test_diagnostic_entrypoint_is_read_only_and_skips_strict_preflight(tmp_path,
     )
     report = module.continuous_entrypoint(args)
     assert report["status"] == "BLOCKED"
-    assert report["gates"]["signed_selection"]["reason_code"] == "STREAM_SELECTION_PROOF_MISSING"
+    assert report["gates"]["signed_selection"]["status"] == "PASS"
     assert report["gates"]["subscription_budget"]["reason_code"] == (
         "STREAM_CONNECTION_BUDGET_EXCEEDED"
     )
