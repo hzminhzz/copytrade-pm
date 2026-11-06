@@ -1,5 +1,7 @@
 # copytrade-pm handbook — start here
 
+**Vike fill-ingestion safety (2026-11-06):** [live filter-contract finding and fail-closed preflight](VIKE-DATA-RECOVERY-20261106.md). Validating a subscription is not proof of small-fill WebSocket completeness or production data readiness.
+
 **SQLite metadata authority (2026-11-05):** The private wallet registry is the
 single source of truth for current wallets, cohorts and saved portfolios.
 [Mandatory registry lookup contract](WALLET-REGISTRY-AGENT-WORKFLOW.md) and
