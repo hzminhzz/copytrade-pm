@@ -537,6 +537,7 @@ def main() -> None:
     parser.add_argument("--state-root", type=Path, required=True)
     parser.add_argument("--continuous-config", type=Path)
     parser.add_argument("--preflight-only", action="store_true")
+    parser.add_argument("--diagnose-preflight", action="store_true")
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--service-cadence-seconds", type=float, default=60)
     parser.add_argument("--service-cycle-timeout-seconds", type=float, default=600)
@@ -562,7 +563,11 @@ def main() -> None:
             print(json.dumps(result, sort_keys=True))
             raise SystemExit(2) from None
         print(json.dumps(result, indent=2, sort_keys=True))
+        if args.diagnose_preflight and result.get("status") == "BLOCKED":
+            raise SystemExit(2)
         return
+    if args.diagnose_preflight:
+        parser.error("--diagnose-preflight requires --continuous-config and --preflight-only")
     if args.preflight_only:
         parser.error("--preflight-only requires --continuous-config")
     if not args.state_root.is_absolute() or any(
