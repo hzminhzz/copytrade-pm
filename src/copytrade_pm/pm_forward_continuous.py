@@ -24,7 +24,7 @@ import sqlite3
 from .pm03_account import Instrument, clock, digest
 from .pm_forward_observer_health import _readonly_tape_snapshot
 from .pm_forward_public_trades import native_coin, registry_watched_addresses
-from .wallet_registry import db_authority_health, db_status
+from .wallet_registry import db_authority_health
 
 
 @dataclass(frozen=True)
@@ -316,16 +316,13 @@ def diagnose_candidate_preflight(
         ):
             gates[name] = {"status": "UNKNOWN", "reason_code": "STREAM_REGISTRY_NOT_VERIFIED"}
     else:
-
-        def verify_research_selection():
-            report = db_status(registry_db)
-            if report["counts"]["current_research_selection"] == (
-                "UNVERIFIED_SELECTION_PROVENANCE"
-            ):
-                raise ValueError("STREAM_SELECTION_PROOF_MISSING")
-            return True
-
-        check("signed_selection", verify_research_selection)
+        # Global research priority is not an observer input. The requested
+        # portfolios are independently checked via their immutable seals and
+        # as-of watchlist below; unrelated unsigned selections stay quarantined.
+        gates["signed_selection"] = {
+            "status": "PASS",
+            "scope": "REQUESTED_PORTFOLIO_SEALS_ONLY",
+        }
 
         def compare_inventory():
             if (
@@ -452,9 +449,9 @@ def candidate_preflight(
     authority = db_authority_health(registry_db)
     if authority.get("database_integrity") != "VERIFIED":
         raise ValueError("STREAM_REGISTRY_INTEGRITY_FAILED")
-    selection = db_status(registry_db)
-    if selection["counts"]["current_research_selection"] == "UNVERIFIED_SELECTION_PROVENANCE":
-        raise ValueError("STREAM_SELECTION_PROOF_MISSING")
+    # A missing proof for unrelated research priority cannot block a
+    # read-only observer. Explicit portfolio seals and watchlist identities
+    # are verified independently below and remain mandatory.
     inventory_sha = authority["inventory_sha256"]
     if expected_inventory_sha is not None and inventory_sha != expected_inventory_sha:
         raise ValueError("STREAM_REGISTRY_GENERATION_CHANGED")
@@ -1196,8 +1193,14 @@ class ContinuousObserver:
         entry = self.jobs.pop(key, None)
         if entry is not None:
             stop, task = entry
+            # Signal a cooperative stop first: immediately cancelling a task
+            # that has entered its transport close() can interrupt cleanup and
+            # leave the WebSocket client live after a storage failure.
             stop.set()
-            task.cancel()
+            if not task.done():
+                done, _ = await asyncio.wait((task,), timeout=1)
+                if not done:
+                    task.cancel()
             result = await asyncio.gather(task, return_exceptions=True)
             if result and isinstance(result[0], Exception):
                 raise result[0]

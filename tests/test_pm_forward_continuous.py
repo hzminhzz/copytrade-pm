@@ -9,7 +9,7 @@ import pytest
 
 from copytrade_pm.pm03_account import Instrument
 from copytrade_pm.pm_forward_journal import PaperJournal
-from copytrade_pm.pm_forward_continuous import SubscriptionBudget, candidate_preflight
+from copytrade_pm.pm_forward_continuous import MarketScope, SubscriptionBudget, candidate_preflight
 
 BTC = Instrument("hyperliquid", "mainnet:perp:default", "BTC")
 AT = datetime(2026, 11, 6, 12, tzinfo=UTC).isoformat()
@@ -61,6 +61,28 @@ def test_explicit_shared_ip_budget_and_all_native_hedges():
     assert plan["account_orderability"] == "UNKNOWN"
 
 
+def test_selected_scope_ignores_unconfigured_market_but_requires_exact_hedge():
+    hedge = Instrument("hyperliquid", "mainnet:perp:xyz", "BTC")
+    unrelated = Instrument("hyperliquid", "mainnet:perp:default", "ETH")
+    scope = MarketScope((BTC,), SubscriptionBudget())
+    selected = scope.update(
+        {"leader": {"baseline_valid": True, "positions": {hedge.key: "1"}}},
+        expected_accounts=("leader",),
+    )
+    assert selected["required_markets"] == sorted([BTC.key, hedge.key])
+    assert unrelated.key not in selected["required_markets"]
+    assert selected["status"] == "SCOPE_ENUMERATED"
+
+    # A lost snapshot cannot erase the required hedge or fabricate its exit.
+    stale = scope.update(
+        {"leader": {"baseline_valid": False}},
+        expected_accounts=("leader",),
+    )
+    assert stale["required_markets"] == selected["required_markets"]
+    assert stale["status"] == "DEGRADED_SCOPE"
+    assert stale["coverage_complete"] is False
+
+
 def test_preflight_manifest_binds_registry_and_old_evidence(tmp_path, monkeypatch):
     import copytrade_pm.pm_forward_continuous as module
 
@@ -75,11 +97,6 @@ def test_preflight_manifest_binds_registry_and_old_evidence(tmp_path, monkeypatc
             "database_integrity": "VERIFIED",
             "inventory_sha256": "b" * 64,
         },
-    )
-    monkeypatch.setattr(
-        module,
-        "db_status",
-        lambda _: {"counts": {"current_research_selection": "OWNER_APPROVED_RESEARCH_ONLY"}},
     )
     monkeypatch.setattr(
         module,
