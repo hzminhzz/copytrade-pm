@@ -1,5 +1,8 @@
+from datetime import datetime, timedelta
 from hashlib import sha256
 import json
+
+import pytest
 
 from copytrade_pm.pm_forward_journal import PaperJournal
 from copytrade_pm.pm_forward_public_trades import (
@@ -89,3 +92,66 @@ def test_no_match_and_incomplete_or_wrong_shape_remain_unknown(tmp_path):
     assert result["independent_matches"] == 0
     assert result["comparison_complete"] is False
     assert result["financial_events_committed"] == 0
+
+
+def test_reconciliation_uses_inclusive_native_millisecond_boundaries(tmp_path):
+    journal = PaperJournal(tmp_path / "private")
+    feed = PersistentPublicMarket(journal, BTC, {BUYER: "wallet:17"}, scope_sha="c" * 64)
+    feed.begin(known(0))
+    feed.observe([trade(1, 1)], known(2))
+    feed.observe([trade(2, 3)], known(4))
+    original = journal.audit_public_wallet_trade_tape("wallet:17", BTC.key)
+    start = (datetime.fromisoformat(known(3)) + timedelta(microseconds=999)).isoformat()
+    end = (datetime.fromisoformat(known(8)) + timedelta(microseconds=999)).isoformat()
+    calls = []
+
+    def info(request):
+        calls.append(request)
+        rows = [official(2, 3), official(3, 8)]
+        raw = json.dumps(rows).encode()
+        return rows, raw, sha256(raw).hexdigest()
+
+    result = reconcile_public_wallet_fills(
+        journal=journal,
+        watched={BUYER: "wallet:17"},
+        start_at=start,
+        end_at=end,
+        required_markets=(BTC,),
+        info=info,
+        now=lambda: known(10),
+    )
+    assert calls[0]["startTime"] == official(2, 3)["time"]
+    assert calls[0]["endTime"] == official(3, 8)["time"]
+    assert result["independent_matches"] == 1
+    assert result["recovered_later"] == 1
+    assert result["boundary_policy"] == "INCLUSIVE_NATIVE_MILLISECONDS"
+    assert journal.audit_public_wallet_trade_tape("wallet:17", BTC.key) == original
+    event = verify_streams(journal.path)["streams"]["reconcile:wallet:17"]["event"]
+    assert event["details"]["api_start_time_ms"] == calls[0]["startTime"]
+    assert event["details"]["api_end_time_ms"] == calls[0]["endTime"]
+    assert event["first_known_at"] == known(10)
+    assert all(row["signal_eligible"] is False for row in event["details"]["rows"])
+
+
+@pytest.mark.parametrize("edge, offset", [("startTime", -1), ("endTime", 1)])
+def test_reconciliation_rejects_rows_beyond_native_request_bounds(tmp_path, edge, offset):
+    journal = PaperJournal(tmp_path / "private")
+
+    def info(request):
+        row = official(2, 3)
+        row["time"] = request[edge] + offset
+        rows = [row]
+        raw = json.dumps(rows).encode()
+        return rows, raw, sha256(raw).hexdigest()
+
+    with pytest.raises(ValueError, match="PUBLIC_RECONCILIATION_OUTSIDE_REQUESTED_WINDOW"):
+        reconcile_public_wallet_fills(
+            journal=journal,
+            watched={BUYER: "wallet:17"},
+            start_at=known(3),
+            end_at=known(8),
+            required_markets=(BTC,),
+            info=info,
+            now=lambda: known(10),
+        )
+    assert "reconcile:wallet:17" not in verify_streams(journal.path)["streams"]

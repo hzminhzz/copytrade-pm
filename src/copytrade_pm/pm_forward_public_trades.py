@@ -605,12 +605,19 @@ def reconcile_public_wallet_fills(
     start, end = clock(start_at), clock(end_at)
     if not 0 <= (end - start).total_seconds() <= 86400 or len(watched) > 10:
         raise ValueError("PUBLIC_RECONCILIATION_WINDOW_OR_ACCOUNT_BOUND")
+    # The provider accepts inclusive integer milliseconds, while callers retain
+    # microsecond UTC clocks. Compare both sources against the actual wire range.
+    # A boundary overlap remains later audit evidence, never a new signal.
+    start_ms, end_ms = int(start.timestamp() * 1000), int(end.timestamp() * 1000)
     provider = info or _guarded_info
     markets = {native_coin(inst): inst for inst in required_markets}
     summary = {
         "schema": "paper_public_fill_reconciliation_v1",
         "start_at": start_at,
         "end_at": end_at,
+        "api_start_time_ms": start_ms,
+        "api_end_time_ms": end_ms,
+        "boundary_policy": "INCLUSIVE_NATIVE_MILLISECONDS",
         "independent_matches": 0,
         "recovered_later": 0,
         "unresolved": 0,
@@ -631,8 +638,8 @@ def reconcile_public_wallet_fills(
             {
                 "type": "userFillsByTime",
                 "user": address,
-                "startTime": int(start.timestamp() * 1000),
-                "endTime": int(end.timestamp() * 1000),
+                "startTime": start_ms,
+                "endTime": end_ms,
                 "aggregateByTime": False,
             }
         )
@@ -654,7 +661,8 @@ def reconcile_public_wallet_fills(
                 candidate = json.loads(payload)
                 if digest(candidate) != payload_sha:
                     raise ValueError("PUBLIC_RECONCILIATION_CANDIDATE_DIVERGENCE")
-                if start <= clock(candidate["source_event_at"]) <= end:
+                at_ms = int(clock(candidate["source_event_at"]).timestamp() * 1000)
+                if start_ms <= at_ms <= end_ms:
                     candidates[candidate["event_key"]] = candidate
         outcomes, seen, matched = [], {}, set()
         counts = {
@@ -670,7 +678,7 @@ def reconcile_public_wallet_fills(
             if type(tid) is not int or type(at) is not int or fill.get("side") not in {"A", "B"}:
                 raise ValueError("PUBLIC_RECONCILIATION_FILL_IDENTITY_UNKNOWN")
             source_at = datetime.fromtimestamp(at / 1000, UTC).isoformat()
-            if not start <= clock(source_at) <= end:
+            if not start_ms <= at <= end_ms:
                 raise ValueError("PUBLIC_RECONCILIATION_OUTSIDE_REQUESTED_WINDOW")
             price, amount = number(fill.get("px")), number(fill.get("sz"))
             if price <= 0 or amount <= 0:
@@ -740,6 +748,9 @@ def reconcile_public_wallet_fills(
             details={
                 "start_at": start_at,
                 "end_at": end_at,
+                "api_start_time_ms": start_ms,
+                "api_end_time_ms": end_ms,
+                "boundary_policy": "INCLUSIVE_NATIVE_MILLISECONDS",
                 "rows": outcomes,
                 "official_response": response,
                 "signal_eligible": False,

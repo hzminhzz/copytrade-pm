@@ -147,7 +147,10 @@ Replayed data cannot create a second wallet-side receipt or improve its clock.
 Independent public `userFillsByTime` comparisons run at the refresh cadence.
 The API returns at most 2000 rows per response and only the most recent 10000
 fills remain available. The implemented comparison is explicitly bounded to
-returned official rows, not a claim of complete exchange history. Results are
+returned official rows, not a claim of complete exchange history. Comparisons use
+the exact inclusive integer-millisecond request boundaries; original microsecond
+UTC bounds and later local response clocks remain in the audit record. A repeated
+boundary row cannot create a new prospective signal. Results are
 INDEPENDENT_MATCH, RECOVERED_AT_LATER_TIME or UNRESOLVED. Recovered fills are
 audit records only and are never inserted as earlier prospective candidates.
 No late recovery resets the existing FIRST_SIGNAL_PLUS_5M deadline.
