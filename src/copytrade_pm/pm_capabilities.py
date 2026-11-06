@@ -44,6 +44,8 @@ GROUPS = {
     "copytrade-pm-public-trades": ("source.public_trades", "source", "PROTECTED_MUTATION"),
     "copytrade-pm-source-scope": ("source.scope", "source", "PROTECTED_MUTATION"),
     "copytrade-pm-paper-watchdog": ("paper.watchdog", "paper", "PROTECTED_MUTATION"),
+    "copytrade-pm-paper-standby": ("paper.standby", "paper", "PROTECTED_MUTATION"),
+    "copytrade-pm-paper-unit-bundle": ("paper.unit_bundle", "paper", "LOCAL_MUTATION"),
     "copytrade-pm-paper-registry-audit": ("paper.identity", "paper", "READ_ONLY"),
     "copytrade-pm-paper-readiness": ("paper.readiness", "paper", "READ_ONLY"),
     "copytrade-pm-paper-source-campaign": ("paper.source_campaign", "paper", "PROTECTED_MUTATION"),
@@ -159,6 +161,13 @@ NATIVE = {
         "paper",
         "READ_ONLY",
         "PM03_FINANCIAL_JOURNAL",
+    ),
+    "paper.identity_reseal_preview": (
+        "copytrade_pm.pm_forward_registry_identity",
+        "copytrade-pm-paper-registry-audit --prospective-reseal-preview --portfolio P1",
+        "paper",
+        "READ_ONLY",
+        "UNSIGNED_ASOF_ALIAS_MATCH_ONLY_NOT_PAPER_ADMISSION",
     ),
     "research.offline": (
         "copytrade_pm.pm_offline_job",
@@ -498,7 +507,11 @@ def inventory(root: Path = ROOT) -> list[dict]:
                 "dependencies": [],
                 "required_arguments": NATIVE_REQUIRED_ARGUMENTS.get(cap),
                 "preflight": [],
-                "documentation": DOCS[family],
+                "documentation": (
+                    "docs/P1-P14-PROSPECTIVE-RESEAL-PREFLIGHT-20261106.md"
+                    if cap == "paper.identity_reseal_preview"
+                    else DOCS[family]
+                ),
                 "available": _module_available(module, root),
                 "limitations": [
                     "Consult owner contract; scientific and trading gates are separate"

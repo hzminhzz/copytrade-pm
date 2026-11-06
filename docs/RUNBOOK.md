@@ -8,8 +8,24 @@
 
 **Preferred new market selection:** [complete Propr display 157-market three-physical-WebSocket configuration and bounded canary](FORWARD-PAPER-PROPR-157-THREE-SOCKETS-20261105.md). Use `--market-file docs/FORWARD-PAPER-PROPR-157-THREE-SOCKETS-20261105.json --propr-snapshot /home/quant/.local/share/copytrade/reports/five-pod-20261029-research/PROPR_PUBLIC_ASSET_UNIVERSE_20261030.json`. Start read-only verification with `--parallel-shards 1` because existing tracker/source sockets share Hyperliquid per-IP limits; parallel 3 is implemented but requires `--ack-shared-ip-connection-budget` after independently measuring headroom, plus performance/restart qualification. Source is a Propr browser-display snapshot, **not** an authenticated order-eligible API universe. The 13-market and 40-market examples below are historical canaries, not a currently complete Propr-displayed scope.
 
-
 Follow [public market-wide trade acquisition, first-known receipt, UTC policy, and blocked paper execution](FORWARD-PAPER-PUBLIC-TRADES-20261105.md) for `copytrade-pm-public-trades --mode observe` and `--mode plan` examples. The new capability is `source.public_trades`; query `copytrade-pm capabilities show source.public_trades` and registry `doctor` first. To test other pairs use repeated `--instrument` or the example `--market-file docs/FORWARD-PAPER-MARKET-EXAMPLE-20261105.json` (13 native/HIP-3 markets), with bounded `--parallel-shards 2` and per-market receipt diagnostics. For the owner-selected full 40-market scope use [the 5-shard 8-market configuration](FORWARD-PAPER-MARKET-TOP40-SHARDS-20261105.json) with `--parallel-shards 5` and [its verification runbook](FORWARD-PAPER-TOP40-FIVE-SHARD-20261105.md); the legacy eight-market per-WS cap is a code constant, not a CLI flag. The newer Propr display 157-market configuration uses a separately validated maximum of 128 symbols per physical WS; complete first-known wallet coverage remains UNKNOWN until independently reconciled. The CLI writes **only a new owner-private research journal**, not the installed observer, production tracker, or PM-03 financial events. Run the documented tests and preserve the existing protected P1/P14 NO_TRADE state.
+
+## Protected P1/P14 operational staging (2026-11-05)
+
+The [guarded standby/watchdog/root systemd candidate runbook](FORWARD-PAPER-PROTECTED-OPS-STAGING-20261105.md)
+contains staging, independent OS prerequisites, HALT-latch semantics and rollback.
+Use `copytrade-pm-paper-standby` only as a **no-order standby**, and
+`copytrade-pm-paper-unit-bundle` only for SHA-pinned **uninstalled** root unit
+candidates. No `--apply` is available; no financial paper or independent
+protected deployment is attested. Confirm live services separately.
+
+## P1/P14 prospective reseal preflight (read-only)
+
+The [identity preflight runbook](P1-P14-PROSPECTIVE-RESEAL-PREFLIGHT-20261106.md)
+uses the existing `copytrade-pm-paper-registry-audit --prospective-reseal-preview`
+to verify as-known canonical aliases and private addresses for a **new**
+research-only signed selection. The output is unsigned; historical P1/P14
+seals are unchanged and remain blocked, and no paper execution is authorized.
 
 ## Authoritative SQLite metadata inventory (2026-11-05)
 

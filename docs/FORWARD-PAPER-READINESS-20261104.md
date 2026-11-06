@@ -2,23 +2,6 @@
 
 **Decision: BLOCKED_NO_TRADE for P1 and P14.** This report is based on bounded, true first-local public observations. It is *not* a paper trade, a backtest, a production service, or scientific qualification.
 
-## Source admission mode boundary (2026-11-06 engineering correction)
-
-The whole-book validator `admit_source_book` now rejects **all real-source
-inputs by default**, including a self-declared `synthetic_fixture=true`
-inside a valid-looking source JSON. A source's own flags, SHA digest, position
-marks or reported NAV do not authenticate the provider or prove atomic
-parent/subaccount collateral.
-
-Only explicitly labeled PM-03/PM-04 **synthetic fixture** call sites opt in
-using `allow_synthetic_fixture=True`. They must still pass every whole-book,
-causal-clock, risk and source-hash check; such a simulation remains
-`FORWARD_PAPER_SIMULATED_v1`, `order_route=NONE`, and cannot be counted as
-independent prospective execution or alpha. Live source observation and
-read-only readiness do **not** opt in. No real-source attestation mechanism is
-implemented by this change; `INDEPENDENT_REAL_BOOK_ATTESTATION_UNAVAILABLE`
-remains the correct live reason.
-
 ## Point-in-time audit correction (2026-11-06; code awaiting separate release)
 
 The read-only readiness CLI accepts `--as-of`, but previously chose the
@@ -44,6 +27,42 @@ scope, and a later native quote. This is a read-model integrity correction,
 not retroactively obtained source NAV, signed operator approval or executable
 market capacity. The deployed observer remains on its independently pinned
 release; this change is not deployed by creating a pull request.
+
+## Source admission mode boundary (2026-11-06 engineering correction)
+
+The whole-book validator `admit_source_book` now rejects **all real-source
+inputs by default**, including a self-declared `synthetic_fixture=true`
+inside a valid-looking source JSON. A source's own flags, SHA digest, position
+marks or reported NAV do not authenticate the provider or prove atomic
+parent/subaccount collateral.
+
+Only explicitly labeled PM-03/PM-04 **synthetic fixture** call sites opt in
+using `allow_synthetic_fixture=True`. They must still pass every whole-book,
+causal-clock, risk and source-hash check; such a simulation remains
+`FORWARD_PAPER_SIMULATED_v1`, `order_route=NONE`, and cannot be counted as
+independent prospective execution or alpha. Live source observation and
+read-only readiness do **not** opt in. No real-source attestation mechanism is
+implemented by this change; `INDEPENDENT_REAL_BOOK_ATTESTATION_UNAVAILABLE`
+remains the correct live reason.
+
+### Official Hyperliquid collateral-accounting constraint
+
+[Hyperliquid's account-abstraction documentation](https://hyperliquid.gitbook.io/hyperliquid-docs/trading/account-abstraction-modes)
+states that unified-account and portfolio-margin balances and holds reside in
+the spot clearinghouse state; individual perp-DEX user state balances are **not
+meaningful standalone NAV**. Shared USDC/USDH or portfolio collateral must not
+be counted once per DEX. The [official portfolio-margin documentation](https://hyperliquid.gitbook.io/hyperliquid-docs/trading/portfolio-margin)
+also describes offsets between eligible spot and perpetual holdings, so simply
+adding quoted balances and perp margin values cannot recover account equity.
+
+**Observed private read-only P14 diagnostic (2026-11-06 check):** four of five
+wallets returned `unifiedAccount`, one returned `disabled` from the official
+`userAbstraction` endpoint. The remaining `disabled` mode does **not**
+establish full cross-DEX/parent/subaccount collateral/position coverage.
+Even a complete per-DEX public snapshot or a sequential REST poll cannot
+independently attest an atomic source-equity denominator. Continue to report
+`BLOCKED_NO_TRADE` until actual source NAV/positions and execution capacity
+can be reconciled with provider-level provenance.
 
 ## Evidence and actual admission gaps
 

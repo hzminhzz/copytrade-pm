@@ -156,22 +156,168 @@ def audit_frozen_member_resolution(
     }
 
 
+def preview_prospective_reseal(
+    *,
+    registry_db: Path,
+    primary_dir: Path,
+    secondary_dir: Path,
+    portfolio_id: str,
+    as_of: str | None = None,
+) -> dict:
+    """Read-only PIT identity preflight for a NEW signed research selection.
+
+    This does not repair an original P1/P14 seal. An operator's separate
+    Ed25519 signature plus an independently reviewed key is still required.
+    """
+    from datetime import UTC, timezone
+
+    from . import wallet_registry_signed_catalog as signed
+
+    if portfolio_id not in ("P1", "P14"):
+        raise ValueError("UNKNOWN_APPROVED_PORTFOLIO")
+    cutoff = datetime.fromisoformat(as_of) if as_of is not None else datetime.now(UTC)
+    if cutoff.tzinfo is None or cutoff > datetime.now(UTC):
+        raise ValueError("PROSPECTIVE_PREVIEW_CLOCK_INVALID")
+    cutoff_utc = cutoff.astimezone(timezone.utc).isoformat()
+    # Independently audit and preserve the original sealed portfolio's
+    # membership/canonical private-address evidence, including historical
+    # post-seal warnings. It is deliberately not overwritten or promoted.
+    historical = audit_frozen_member_resolution(
+        registry_db=registry_db,
+        primary_dir=primary_dir,
+        secondary_dir=secondary_dir,
+        portfolio_id=portfolio_id,
+    )
+    if cutoff < datetime.fromisoformat(historical["selection_known_at"]):
+        raise ValueError("PROSPECTIVE_CUTOFF_PRECEDES_ORIGINAL_SELECTION")
+    members = P1 if portfolio_id == "P1" else P14
+    db_path = Path(registry_db)
+    if db_path.is_symlink() or not db_path.is_file():
+        raise ValueError("REGISTRY_NOT_TRUSTED_FILE")
+    rows = []
+    seen_ids: set[int] = set()
+    with closing(sqlite3.connect("file:" + str(db_path.resolve()) + "?mode=ro", uri=True)) as conn:
+        conn.execute("PRAGMA query_only=ON")
+        conn.execute("BEGIN")
+        for alias in members:
+            _, address, locator_sha = _private_locator(
+                alias, primary_dir=primary_dir, secondary_dir=secondary_dir
+            )
+            observed = conn.execute(
+                "SELECT a.wallet_id,a.known_at,w.venue,w.address "
+                "FROM wallet_aliases a JOIN wallets w ON w.wallet_id=a.wallet_id "
+                "WHERE a.alias=? ORDER BY a.known_at,a.wallet_id LIMIT 257",
+                (alias,),
+            ).fetchall()
+            if len(observed) > 256:
+                raise ValueError("PROSPECTIVE_ALIAS_PROVENANCE_UNBOUNDED")
+            eligible = []
+            for ident, known_raw, venue, observed_addr in observed:
+                known = datetime.fromisoformat(known_raw)
+                if known.tzinfo is None:
+                    raise ValueError("PROSPECTIVE_ALIAS_CLOCK_UNTRUSTED")
+                if known <= cutoff:
+                    eligible.append((ident, known.astimezone(timezone.utc), venue, observed_addr))
+            canonical_ids = {ident for ident, _, _, _ in eligible}
+            if len(canonical_ids) > 1:
+                raise ValueError("PROSPECTIVE_ALIAS_IDENTITY_CONFLICT")
+            known_id = next(iter(canonical_ids)) if canonical_ids else None
+            if known_id is not None and (
+                any(
+                    venue != "hyperliquid" or found_addr.lower() != address
+                    for _, _, venue, found_addr in eligible
+                )
+                or known_id in seen_ids
+            ):
+                raise ValueError("PROSPECTIVE_ALIAS_ADDRESS_OR_DUPLICATE_WALLET")
+            if known_id is not None:
+                seen_ids.add(known_id)
+            rows.append(
+                {
+                    "alias": alias,
+                    "status": "PIT_ALIAS_ADDRESS_MATCH_ONLY"
+                    if known_id is not None
+                    else "BLOCKED_NO_ASOF_ALIAS",
+                    "alias_known_by_asof": known_id is not None,
+                    "alias_first_known_at": min(
+                        (known.isoformat() for _, known, _, _ in eligible), default=None
+                    ),
+                    "historical_locator_sha256": locator_sha,
+                    "address_sha256": sha256(address.encode()).hexdigest(),
+                    "real_account_scope_attested": False,
+                }
+            )
+        conn.execute("ROLLBACK")
+    identity_complete = len(rows) == len(members) and all(
+        item["alias_known_by_asof"] for item in rows
+    )
+    # Unlike P1/P14 originals, this is an entirely NEW namespace-qualified
+    # unsigned research suggestion. Signed catalog assigns the actual first-
+    # known timestamp at private verified import, never this preview timestamp.
+    proposal_id = (
+        "paper.prospective/"
+        + portfolio_id
+        + "-"
+        + cutoff.astimezone(timezone.utc).strftime("%Y%m%d")
+    )
+    unsigned = {
+        "schema": signed.SCHEMA,
+        "scope": signed.SCOPE,
+        "definitions": {proposal_id: {"members": list(members)}},
+        "selections": [
+            {"portfolio_id": proposal_id, "role": "RESEARCH_CANDIDATE", "priority": None}
+        ],
+        "trading_authorized": False,
+    }
+    if identity_complete:
+        signed._parse(json.dumps(unsigned, sort_keys=True, separators=(",", ":")).encode())
+    return {
+        "schema": "paper_prospective_identity_reseal_preflight_v1",
+        "portfolio_id": portfolio_id,
+        "as_of": cutoff_utc,
+        "original_selection_known_at": historical["selection_known_at"],
+        "original_definition_sha256": historical["registry_definition_sha256"],
+        "original_aliases_post_seal": historical["post_seal_binding_aliases"],
+        "member_count": len(members),
+        "members": rows,
+        "identity_asof_complete": identity_complete,
+        "status": "SIGNER_REVIEW_REQUIRED" if identity_complete else "BLOCKED_IDENTITY_INCOMPLETE",
+        "unsigned_candidate": unsigned if identity_complete else None,
+        "signed_proof_provided": False,
+        "operator_approved_new_selection": False,
+        "source_nav_attested": False,
+        "market_execution_attested": False,
+        "paper_admitted": False,
+        "trading_authorized": False,
+        "order_route": "NONE",
+        "registry_mutated": False,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--registry", type=Path, required=True)
     parser.add_argument("--primary-dir", type=Path, required=True)
     parser.add_argument("--secondary-dir", type=Path, required=True)
     parser.add_argument("--portfolio", choices=("P1", "P14"), required=True)
-    args = parser.parse_args()
-    print(
-        json.dumps(
-            audit_frozen_member_resolution(
-                registry_db=args.registry,
-                primary_dir=args.primary_dir,
-                secondary_dir=args.secondary_dir,
-                portfolio_id=args.portfolio,
-            ),
-            indent=2,
-            sort_keys=True,
-        )
+    parser.add_argument(
+        "--prospective-reseal-preview",
+        action="store_true",
+        help="Read-only PIT identity check and unsigned candidate; NOT a seal or paper authorization",
     )
+    parser.add_argument("--as-of", help="UTC-offset observation cutoff (audit only)")
+    args = parser.parse_args()
+    if args.as_of and not args.prospective_reseal_preview:
+        parser.error("--as-of requires --prospective-reseal-preview")
+    common = dict(
+        registry_db=args.registry,
+        primary_dir=args.primary_dir,
+        secondary_dir=args.secondary_dir,
+        portfolio_id=args.portfolio,
+    )
+    report = (
+        preview_prospective_reseal(**common, as_of=args.as_of)
+        if args.prospective_reseal_preview
+        else audit_frozen_member_resolution(**common)
+    )
+    print(json.dumps(report, indent=2, sort_keys=True))

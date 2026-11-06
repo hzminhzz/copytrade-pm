@@ -8,6 +8,16 @@
 
 [The forward public-trade contract](FORWARD-PAPER-PUBLIC-TRADES-20261105.md) adds a read-only market-wide buyer/seller filter to `pm_forward_public_trades` using the SQLite-sealed portfolio registry. A separate additive journal tape stores first-known wallet fills, durable commit clocks, disconnect gaps, five-minute UTC net-delta observations, and as-of public quotes. All are provisional; `PM03/PM04` remain the only financial accounting/target authorities. The existing rolling `ForwardBatch` contract is unchanged by default, with opt-in UTC close or UTC close-plus-five-minute policies. The new source code does not create `PAPER_RUNNING` or execute a financial event.
 
+## Protected standby operational boundary (2026-11-05)
+
+[The guarded standby/watchdog candidate](FORWARD-PAPER-PROTECTED-OPS-STAGING-20261105.md)
+adds self-PID SHA heartbeats, a separate watchdog with a persistent HALT latch,
+and system-level unit definitions pinned to a source SHA. It contains **no
+financial execution interface** and must not be confused with the existing
+PM-03/04 journal, public observer or protected paper admission. Installation
+requires root-managed identities and a root-owned release; these are currently
+unavailable, and the component explicitly reports standby rather than running.
+
 ## Public observer service boundary (2026-11-05)
 
 The [public P1/P14 observer deployment contract](FORWARD-PAPER-PUBLIC-OBSERVER-SERVICE-20261105.md)

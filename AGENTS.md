@@ -1,3 +1,11 @@
+## Protected paper operations
+
+For P1/P14 worker, watchdog, HALT recovery, root service installation or
+rollback, follow [the guarded protected-ops runbook](docs/FORWARD-PAPER-PROTECTED-OPS-STAGING-20261105.md).
+A staged unit bundle or running standby heartbeat is **not** an installed
+independent protected financial worker; require root-owned OS identity,
+release, journal and full financial admission evidence before promotion.
+
 ## Mandatory native-first capability discovery
 
 **Continuous observer program #129 (2026-11-06):** Follow [the continuous observer contract](docs/FORWARD-PAPER-CONTINUOUS-OBSERVER.md), [dated implementation evidence](docs/PERSISTENT-OBSERVER-IMPLEMENTATION-20261106.md), and [resource/provenance remediation](docs/PERSISTENT-OBSERVER-RESOURCE-REMEDIATION-20261106.md). Latest unsigned research-selection provenance is not SQLite corruption, but remains a strict observer-start blocker. Source-ABC configurable account-window/socket bounds retain old defaults and are NOT installed; respect the shared-IP 10-user limit even if sockets are consolidated. Use the existing `paper.observer` CLI with `--continuous-config`; `--preflight-only` creates no journal or network session. Add `--diagnose-preflight` for a read-only multi-gate blocker report; it never admits startup, even if its diagnostics pass. Stream progress and legacy receipts commit atomically. A reconnect baseline is never a new trade; later REST recovery is audit evidence only. Missing NAV does not block read-only capture, but registry/exclusion, shared-IP and financial gates remain binding. Continuous watchdog `--watch` writes private status/history and is LOCAL_MUTATION; health and shadow reports are READ_ONLY. Do not install or cut over the active public unit without the separate #141/#142 gates.
