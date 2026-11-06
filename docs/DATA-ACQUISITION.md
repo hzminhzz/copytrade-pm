@@ -8,10 +8,10 @@ Use [the continuous observer contract](FORWARD-PAPER-CONTINUOUS-OBSERVER.md) for
 
 ## Public market-wide trade capture (experimental, 2026-11-05)
 
-**Current complete Propr public-display research scope:** [157 unique native assets / three physical WS groups](FORWARD-PAPER-PROPR-157-THREE-SOCKETS-20261105.md), sourced from dated, SHA-pinned 158-entry public Propr display snapshot and independently verified against live Hyperliquid default and `xyz` metadata. Equities, commodities and indices are included; two display categories contain the same `COPPER` market. Larger explicit 8/88/61 physical sockets extend—not replace—legacy 8-market sharding. Live test used `--parallel-shards 1` for shared-IP safety; actual concurrent capacity and real Propr order eligibility are not proven. This is observer-only, not a runtime admission or execution credential.
+**Dated Propr public-display research scope (2026-11-05):** [157 unique native assets / three physical WS groups](FORWARD-PAPER-PROPR-157-THREE-SOCKETS-20261105.md), sourced from dated, SHA-pinned 158-entry public Propr display snapshot and independently verified against live Hyperliquid default and `xyz` metadata. Equities, commodities and indices are included; two display categories contain the same `COPPER` market. Larger explicit 8/88/61 physical sockets extend—not replace—legacy 8-market sharding. Live test used `--parallel-shards 1` for shared-IP safety; actual concurrent capacity and real Propr order eligibility are not proven. This is observer-only, not a runtime admission or execution credential.
 
 
-[Native public trade first-known receipt and UTC net-delta contract](FORWARD-PAPER-PUBLIC-TRADES-20261105.md) implements an opt-in bounded `trades` WS filter for sealed, SQLite-resolved public wallets, with buyer/seller signatures, per-session baseline exclusion, stream-gap evidence and provisional immutable journals. Legacy flat allowlists support ≤128 markets with eight symbols per socket; the new versioned Propr display layout supports 157 markets on three named 8/88/61 physical sockets (each ≤128 internally), with per-market observed frames and no silent market omissions. See [the non-authoritative 13-market example](FORWARD-PAPER-MARKET-EXAMPLE-20261105.json), and the [exact user-selected 40-market five-shard configuration and test evidence](FORWARD-PAPER-TOP40-FIVE-SHARD-20261105.md). It is not an authenticated whole-wallet account ledger; a disconnected stream is not a complete timeline, and reported quantities are not PM-03 follower orders. Owner-private address lists are read from SQLite, not from Markdown. Requires independent `userFills`, TWAP, position/NAV and L2-capacity reconciliation before any financial paper admission.
+[Native public trade first-known receipt and UTC net-delta contract](FORWARD-PAPER-PUBLIC-TRADES-20261105.md) implements an opt-in bounded `trades` WS filter for sealed, SQLite-resolved public wallets, with buyer/seller signatures, per-session baseline exclusion, stream-gap evidence and provisional immutable journals. Legacy flat allowlists support ≤128 markets with eight symbols per socket; the new versioned Propr display layout supports 157 markets on three named 8/88/61 physical sockets (each ≤128 internally), with per-market observed frames and no silent market omissions. See [the non-authoritative 13-market example](FORWARD-PAPER-MARKET-EXAMPLE-20261105.json), and the [exact user-selected 40-market five-shard configuration and test evidence](FORWARD-PAPER-TOP40-FIVE-SHARD-20261105.md). It is not an authenticated whole-wallet account ledger; a disconnected stream is not a complete timeline, and reported quantities are not PM-03 follower orders. Owner-private address lists are read from SQLite, not from Markdown. Financial paper admission still requires independent fill/TWAP evidence, complete selected positions, follower equity/risk and executable-market reconciliation. Leader NAV is required only for explicit legacy allocation-over-NAV sizing.
 
 **Use this for “get wallet fills,” “new wallet,” “fix gaps,” “get 1m OHLCV,” or “start forward capture.”** Read [INDEX](INDEX.md) and [ARCHITECTURE](ARCHITECTURE.md) first. No commands in this guide authorize orders. Offline auditing is distinct from vendor/SDK downloads. Live source snapshot inspected 2026-10-31; private paths can change.
 
@@ -39,8 +39,8 @@ The `userAbstraction` response is a scalar JSON string, one of `disabled`,
 `default`, `dexAbstraction`, `unifiedAccount`, `portfolioMargin`. The collector
 validates the exact response, SHA and local receipt clock, stores it in the
 existing collateral diagnostic chain, and leaves `source_equity=null` and
-`order_route=NONE`. An unknown/unavailable mode is blocked, never assumed to
-mean standard. `unifiedAccount` and `portfolioMargin` cannot use independent
+`order_route=NONE`. An unknown/unavailable mode blocks that collateral diagnostic and is never
+assumed to mean standard; it is not a universal fixed-k position gate. `unifiedAccount` and `portfolioMargin` cannot use independent
 perp-DEX account values as an additive whole-wallet denominator; `default` and
 `dexAbstraction` also require separate accounting interpretation. The
 read-only readiness join explicitly reports these mode blockers and missing
@@ -49,9 +49,10 @@ market price or vendor record is promoted to a financial execution gate.
 
 ### Approved perpetuals-only capture (2026-11-05)
 
-Follower scope = `PERPETUALS_ONLY`. Source positions cover *all* open native
-perpetual DEX markets, including HIP-3 and hedges, for each known parent and
-linked subaccount. No spot position, spot trade, vault deposit or staking event
+Follower scope = `PERPETUALS_ONLY`. Within the explicitly selected account
+scope, source positions must cover *all* open native perpetual DEX markets,
+including HIP-3 and hedges. Include a linked subaccount when selected; discovery
+of unrelated accounts does not expand the mandatory fixed-k scope. No spot position, spot trade, vault deposit or staking event
 is a copy instruction. The public spot-state request is retained **only** to
 read quote collateral for unified-margin perpetuals: the diagnostic retains
 USDC/USDH `total` and `hold` values with their original response SHA and
@@ -64,10 +65,12 @@ readers: the excluded vault slot is explicitly marked
 API acquisition or a fabricated zero balance. New diagnostics carry
 `copy_scope=PERPETUALS_ONLY` and
 `status=BLOCKED_PERPETUAL_COLLATERAL_RECONCILIATION`. Legacy SHA-chained
-receipts are accepted unchanged and retain their earlier scope. The readiness
-audit does not require vault freshness in perp-only mode, but still requires
-timely public spot collateral/mode evidence and a whole-wallet reconciled
-sizing denominator. Unified/portfolio-margin accounts cannot use their
+receipts are accepted unchanged and retain their earlier scope. **Explicit
+legacy allocation-over-NAV readiness** does not require vault freshness in
+perp-only mode, but still requires timely public spot collateral/mode evidence
+and its reconciled sizing denominator. Default fixed-k readiness uses selected
+perp positions and verified follower risk; these source-collateral diagnostics
+do not supply a mandatory denominator. Unified/portfolio-margin accounts cannot use their
 individual perp-DEX `accountValue` as equity. Do not replace missing source
 NAV with native quote balances, a fixed source leverage, or retrospective
 HyperX funding/PnL. Asynchronous account books are not atomic.
@@ -78,15 +81,27 @@ monitor provider errors/rate limits before expanding beyond the existing
 observer. One WebSocket frame per subject is **not** an atomic parent/child
 and spot/vault snapshot. Per-account DEX values cannot be summed into whole
 wallet equity without mode-specific settlement and collateral reconciliation.
-The observer and current frozen P1/P14 deployment remain distinct from the
-current research selection E6/E2; no protected paper-worker activation or
-wallet roster change is implied.
+The P1/P14 public-observer configuration is separate from research-selection
+priority and protected financial workers. E6/E2 belonged to the dated Gemini V2
+selection; use `portfolio --current` and preserve any provenance rejection for
+the actual current selection. No roster change or financial activation is implied.
 
 Official references: [Info endpoint](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint), [perpetual account state](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint/perpetuals), [WebSocket subscriptions](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket/subscriptions), [account modes](https://hyperliquid.gitbook.io/hyperliquid-docs/trading/account-abstraction-modes), and [provider rate limits](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/rate-limits-and-user-limits).
 
-## Current inventory index (2026-11-04, partial release)
+## Authoritative inventory and historical checkpoints
 
-The owner-private SQLite [wallet registry checkpoint](WALLET-REGISTRY-STATUS-20261104.md) indexes the 158-wallet research cohort and deployed tracker configuration as **metadata only**. The `copytrade-wallet-registry doctor` command checks live source fingerprints, including the frozen 36-wallet evidence references and tracker ledger identity. It does **not** download fills, reconstruct whole-book equity, enroll trackers, change existing source files, or certify follower trading. Keep original HyperX/Parquet/ledger sources authoritative. Its deployment/acceptance remains incomplete under issues #44–#55.
+Owner-private SQLite is the current wallet/cohort/portfolio **metadata** authority.
+The linked [2026-11-04 checkpoint](WALLET-REGISTRY-STATUS-20261104.md) preserves its
+historical 158-wallet cut; do not reuse that count as live inventory. Run
+`copytrade-wallet-registry doctor` and `status` for physical integrity, schema and
+inventory SHA. Signed-selection provenance is a separate gate: missing proof
+remains blocked even when SQLite is healthy. Historical source hashes and the
+original 36-wallet evidence remain preserved; legacy files cannot overwrite
+SQLite authority. These commands do not download fills, enroll trackers, mutate
+source evidence or certify follower economics. Verify the installed metadata
+reader separately with `python scripts/registry_release.py verify` and the
+[release runbook](WALLET-REGISTRY-RELEASE-RUNBOOK.md). Independent paper-instance,
+scientific and financial authorization gates remain separate from reader deployment.
 
 ## Recovery operations added 2026-11-01
 
