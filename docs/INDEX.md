@@ -22,6 +22,7 @@ Original historical seals remain blocked; independent operator signature,
 complete account NAV and market execution evidence are still required.
 
 **SQLite is authoritative for operational wallet/cohort/portfolio metadata (approved 2026-11-05).** Follow [native SQLite registration and legacy-writer lock](SQLITE-NATIVE-LEGACY-LOCK-20261105.md) for read-only discovery, backup-gated new cohorts, explicit import fencing and rollback boundaries. Original scientific evidence, market Parquet, tracker subscriptions and paper/broker financial truth have independent authority.
+**Vike fill-ingestion safety (2026-11-06):** [live filter-contract finding and fail-closed preflight](VIKE-DATA-RECOVERY-20261106.md). Validating a subscription is not proof of small-fill WebSocket completeness or production data readiness.
 
 **SQLite metadata authority (2026-11-05):** The private wallet registry is the
 single source of truth for current wallets, cohorts and saved portfolios.

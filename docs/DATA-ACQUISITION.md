@@ -15,6 +15,10 @@ Use [the continuous observer contract](FORWARD-PAPER-CONTINUOUS-OBSERVER.md) for
 
 **Use this for “get wallet fills,” “new wallet,” “fix gaps,” “get 1m OHLCV,” or “start forward capture.”** Read [INDEX](INDEX.md) and [ARCHITECTURE](ARCHITECTURE.md) first. No commands in this guide authorize orders. Offline auditing is distinct from vendor/SDK downloads. Live source snapshot inspected 2026-10-31; private paths can change.
 
+## Additional independent Vike recovery (2026-11-06, research only)
+
+The [Vike historical fill reconciliation, native confirmation, raw and corrected SHA manifests](VIKE-DATA-RECOVERY-20261106.md) establish an isolated, immutable W028 research recovery. The original HyperX pages, SQLite registry, and forward-paper journal are untouched. Vike WebSocket small-fill and whole-account NAV are **not verified**; no live ingestion or sizing is admitted. The native verifier is bounded and read-only, not a replacement for prospective local receipt timestamps.
+
 ## Official Hyperliquid public API as the forward source (2026-11-05)
 
 **ADOPTED for prospective account observations, NOT independently reconciled
