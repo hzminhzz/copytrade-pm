@@ -185,6 +185,12 @@ def readonly_source_health() -> dict:
         "desired": indexed["counts"]["desired"],
         "subscribed": indexed["counts"]["subscribed"],
         "sealed_portfolio_definitions": indexed["counts"]["sealed_portfolio_definitions"],
+        "current_research_selection": indexed["counts"]["current_research_selection"],
+        "research_selection_integrity": (
+            "BLOCKED_MISSING_EXTERNAL_PROOF"
+            if indexed["counts"]["current_research_selection"] == "UNVERIFIED_SELECTION_PROVENANCE"
+            else "VERIFIED"
+        ),
         "registered_paper_runs": indexed["counts"]["registered_paper_runs"],
         "runtime_admitted": "UNKNOWN",
         "receipt_health": "UNKNOWN",
@@ -329,17 +335,24 @@ def active_revision(control: Path = CONTROL) -> str | None:
 def _installed_doctor(release: Path) -> None:
     # First create an isolated package environment from the exact pinned
     # release. No network, broker, source or tracker writes allowed.
-    raw = command(
-        "uv",
-        "run",
-        "--offline",
-        "--frozen",
-        "--no-dev",
-        "--directory",
-        str(release),
-        "copytrade-wallet-registry",
-        "doctor",
-    )
+    try:
+        raw = command(
+            "uv", "run", "--offline", "--frozen", "--no-dev",
+            "--directory", str(release), "copytrade-wallet-registry", "doctor",
+        )
+    except subprocess.CalledProcessError as exc:
+        # A read-only metadata release may diagnose an unrelated unsigned
+        # research selection. Preserve its BLOCKED result; never admit it.
+        if exc.returncode != 2:
+            raise
+        data = json.loads(exc.stdout)
+        if (
+            data.get("research_selection_integrity") != "BLOCKED_MISSING_EXTERNAL_PROOF"
+            or data.get("trading_authorized") is not False
+            or data.get("scientifically_qualified") is not False
+        ):
+            raise ValueError("pinned-release doctor failure is not selection-only") from exc
+        raw = exc.stdout
     data = json.loads(raw)
     if (
         data.get("authority") != "SQLITE"

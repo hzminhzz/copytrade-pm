@@ -1,60 +1,43 @@
 # copytrade-pm handbook — start here
 
-**Binding copy-sizing decision (2026-11-06):** [Risk-budgeted fixed-k, source NAV optional by default](RISK-BUDGETED-K-SIZING-20261106.md). Future agents must not block fixed-k implementation or paper research for missing leader NAV; follower equity, selected positions, risk and authorization remain mandatory.
+The [7 November reconciliation record](RECONCILIATION-20261107.md) explains PR and preserved-work dispositions. Refresh live state before using its dated evidence.
 
-**Continuous observer program #129:** [Authoritative lifecycle, preflight, first-known clocks, health, recovery and release runbook](FORWARD-PAPER-CONTINUOUS-OBSERVER.md); [dated implementation and verification evidence](PERSISTENT-OBSERVER-IMPLEMENTATION-20261106.md); [2026-11-06 post-merge independent live blocker diagnostics](PERSISTENT-OBSERVER-POSTMERGE-GATES-20261106.md); [resource remediation and 50-default/50-HIP-3 public socket probes](PERSISTENT-OBSERVER-RESOURCE-REMEDIATION-20261106.md). Engineering, bounded transport observation, real 72-hour shadow acceptance and public service authorization are separate statuses.
+Use live GitHub, private SQLite, original source evidence, financial journals and
+verified deployment metadata for current facts. OptMem and dated studies provide
+context. [AGENTS.md](../AGENTS.md) defines the execution workflow.
 
-**Current Propr public display capture (2026-11-05, research-only):** [157 unique native markets on 3 physical sockets, source SHA, live transport and zero-financial-event tests](FORWARD-PAPER-PROPR-157-THREE-SOCKETS-20261105.md) and [pinned complete configuration](FORWARD-PAPER-PROPR-157-THREE-SOCKETS-20261105.json). All 158 displayed categories reconcile to 157 unique markets (COPPER deduplicated); the Top-40 five-group layout is retained for logical reporting, not the current physical connection requirement. This is NOT an authenticated Propr account market list or deployed paper worker.
+## Canonical guides
 
-**Exact 40-market five-shard source layout (2026-11-05):** [Sealed 5×8 market scope](FORWARD-PAPER-MARKET-TOP40-SHARDS-20261105.json) and [live/positive deterministic verification](FORWARD-PAPER-TOP40-FIVE-SHARD-20261105.md). Forty markets verified against official metadata; bounded WebSocket smoke received 628 frames, but P1/E2 had zero fills in the preceding hour and live wallet detection remains UNPROVEN. No financial paper activation.
+| Responsibility | Guide |
+| --- | --- |
+| Repository ownership and data flow | [Architecture](ARCHITECTURE.md) |
+| Wallet/cohort/portfolio discovery | [Registry-first workflow](WALLET-REGISTRY-AGENT-WORKFLOW.md) |
+| Protected native metadata writes | [Native SQLite controls](SQLITE-NATIVE-LEGACY-LOCK-20261105.md) |
+| Registry release, verification and rollback | [Registry release runbook](WALLET-REGISTRY-RELEASE-RUNBOOK.md) |
+| Default fixed-k sizing; leader NAV optional | [Sizing policy](RISK-BUDGETED-K-SIZING-20261106.md) |
+| Signed producer/Guardian handoff | [Production handoff](PRODUCTION-HANDOFF.md) |
+| Source acquisition and retrospective recovery | [Data acquisition](DATA-ACQUISITION.md), [Vike contract](VIKE-DATA-RECOVERY-20261106.md) |
+| Persistent public observation | [Continuous observer](FORWARD-PAPER-CONTINUOUS-OBSERVER.md) |
+| Protected standby/watchdog staging | [Protected operations](FORWARD-PAPER-PROTECTED-OPS-STAGING-20261105.md) |
+| Native capability discovery and operator commands | [Agent operations](AGENT-NATIVE-OPERATIONS.md), [Runbook](RUNBOOK.md) |
+| Scientific evidence and signoff | [Qualification](QUALIFICATION.md), [Governance](GOVERNANCE-GATES.md) |
+| Portfolio/prop-challenge comparisons | [Native contract EV tool](CONTRACT-PORTFOLIO-EV-TOOL-20261105.md) |
+| Recover and resume blocked work | [Blocker recovery](BLOCKER-RECOVERY.md) |
 
-**Forward public market trades (2026-11-05, research-only):** [Causal market-wide wallet fills and UTC bucket planning](FORWARD-PAPER-PUBLIC-TRADES-20261105.md) extend the native SQLite PaperJournal without financial orders. Public trade receipts and top-level quote estimates are provisional; leader NAV, capacity, protected worker activation and forward economics remain BLOCKED. The existing P1/P14 observer is unchanged.
+Private SQLite governs indexed metadata; Guardian in prop-production governs
+protected follower finance. A public observer is not a financial paper worker.
+The current research selection can remain BLOCKED_MISSING_EXTERNAL_PROOF while
+physical SQLite integrity and explicit historical lookups verify successfully.
+Default fixed-k does not require leader whole-account NAV. Legacy NAV-relative
+studies below retain their original assumptions.
 
-**Protected paper-worker operations (2026-11-05, staged only):**
-[P1/P14 no-order standby, independent HALT-latching watchdog, pinned root
-systemd candidate and rollback gates](FORWARD-PAPER-PROTECTED-OPS-STAGING-20261105.md).
-Real root-managed units are **not installed**; the coding user lacks unattended
-sudo, source NAV and market admission remain blocked. No financial paper promotion.
+The reviewed default branches are copytrade-pm/main, trading-connector/main and
+prop-production/feat/account-guardian-program. Recheck GitHub rather than assuming
+those pointers never change. The application owns the single compatibility pin
+manifest and local cross-repository runner; installed revisions require separate
+OS/release verification.
 
-**P1/P14 prospective wallet-identity reseal preflight (2026-11-06):**
-[read-only PIT audit and unsigned research-selection candidate](P1-P14-PROSPECTIVE-RESEAL-PREFLIGHT-20261106.md).
-Original historical seals remain blocked; independent operator signature,
-complete account NAV and market execution evidence are still required.
-
-**SQLite is authoritative for operational wallet/cohort/portfolio metadata (approved 2026-11-05).** Follow [native SQLite registration and legacy-writer lock](SQLITE-NATIVE-LEGACY-LOCK-20261105.md) for read-only discovery, backup-gated new cohorts, explicit import fencing and rollback boundaries. Original scientific evidence, market Parquet, tracker subscriptions and paper/broker financial truth have independent authority.
-**Vike fill-ingestion safety (2026-11-06):** [live filter-contract finding and fail-closed preflight](VIKE-DATA-RECOVERY-20261106.md). Validating a subscription is not proof of small-fill WebSocket completeness or production data readiness.
-
-**SQLite metadata authority (2026-11-05):** The private wallet registry is the
-single source of truth for current wallets, cohorts and saved portfolios.
-New owner-approved exclusion decisions have a separate protected, append-only native
-path; see [native lock, registration and exclusion contracts](SQLITE-NATIVE-LEGACY-LOCK-20261105.md).
-For provider validation, wallet screening statistics and point-in-time discipline,
-see [ML4T methodology lessons](ML4T-METHODOLOGY-LESSONS.md) and the
-[dated real-cohort evidence audit](ML4T-REGISTRY-EVIDENCE-AUDIT-20261105.md).
-[Mandatory registry lookup contract](WALLET-REGISTRY-AGENT-WORKFLOW.md) and
-[read-only pinned release/rollback guide](WALLET-REGISTRY-RELEASE-RUNBOOK.md)
-distinguish the SQLite inventory SHA from legacy CSV import evidence.
-
-
-**Pod portfolio contract comparison (research only):** [native read-only EV ranking tool, input schema and blocked-evidence behavior](CONTRACT-PORTFOLIO-EV-TOOL-20261105.md). Run `copytrade-pm contracts rules` or `copytrade-pm contracts compare --portfolio gemini.phase4/E6 --portfolio gemini.phase4/E2`. A positive modeled score is not scientific qualification or account authorization.
-
-**Research-only actuarial simulator:** [challenge-to-payout contract assumptions, reproducible 100,000-path scorecards and limitations](CONTRACT-ACTUARY-RESEARCH-20261105.md). Run `copytrade-pm-actuary --help` after installing the optional `actuary` dependency. This is synthetic economics, not real follower qualification or an account purchase recommendation.
-
-**Agent-native entrypoint:** [capability discovery and read-only operator CLI](AGENT-NATIVE-OPERATIONS.md).
-Before implementing new features, use `copytrade-pm capabilities list`, `show`
-and `validate` to identify the authoritative native interface; wallet/portfolio
-queries additionally require the live registry-first workflow. For native
-wallet inventory use `wallets list --cohort ...`; for independently SHA-verified
-executed Polars jobs use `research list --cache-root PRIVATE_CACHE`.
-For prospective public P1/P14 receipts, see the [pinned observer-only service and rollback](FORWARD-PAPER-PUBLIC-OBSERVER-SERVICE-20261105.md); it is not a protected financial paper worker.
-See [P1 operational discovery acceptance](AGENT-OPERATIONS-P1-ACCEPTANCE-20261105.md)
-and [P2 agent trace evaluator](AGENT-TRACE-EVAL-20261105.md). P2 engineering
-may pass while independent observed model-choice evidence is still blocked.
-
-
-**Audience:** an engineer/researcher taking over `hzminhzz/copytrade-pm`, or an operator tracing one wallet from HyperX evidence through PM-01, PM-02, and PM-03. **Canonical entry point for this repo.** Recovery inspection: **2026-11-01**, PR17 verified at `d3e0ce916c2f0b64ad36593f55b261607ec0cbdd`; E0/E4 recovery merged through PR18 at `7a8be42dbee374f7ce3d5702f98dadc638853f4a`. Recheck live Git and private source manifests before acting.
-
-## Read in this order
+## Detailed and historical references
 
 **Agent requirement:** any live wallet, evaluation, exclusion, portfolio, paper status or deployment question must first follow [the mandatory registry-first workflow](WALLET-REGISTRY-AGENT-WORKFLOW.md), including `doctor` source SHA/as-of and installed release verification. OptMem and dated narrative reports only point to sources; they do not authorize live status.
 
@@ -62,7 +45,7 @@ may pass while independent observed model-choice evidence is still blocked.
 | --- | --- | --- |
 | **VPS operator quick start (read-only)** | [Operator guide](OPERATOR-GUIDE-20261104.md) | Pinned-release commands, saved wallet/portfolio discovery, service checks, evidence statuses and safe rollback boundaries |
 | **Mandatory registry-first agent workflow** | [Registry lookup and evidence contract](WALLET-REGISTRY-AGENT-WORKFLOW.md) | Required commands, source generation, namespace/as-of, release vs paper vs scientific/trading authority; incident and OptMem discipline |
-| **Current portfolio selections and wallet/evaluation queries** | [Research catalog interface](WALLET-REGISTRY-STATUS-20261104.md), [Gemini Portfolio Freeze V2](decisions/2026-11-04-gemini-phase6-portfolio-freeze-v2.md), [V2 JSON roster](decisions/2026-11-04-gemini-phase6-portfolio-freeze-v2.json) | **E6 new primary, E2 challenger, P1 baseline, P14 archived from new priority**; no running roster/service changes; distinguish saved research from active paper |
+| **Current portfolio selections and wallet/evaluation queries** | [Research catalog interface](WALLET-REGISTRY-STATUS-20261104.md), [Gemini Portfolio Freeze V2](decisions/2026-11-04-gemini-phase6-portfolio-freeze-v2.md), [V2 JSON roster](decisions/2026-11-04-gemini-phase6-portfolio-freeze-v2.json) | Dated V2: E6 primary, E2 challenger, P1 baseline, P14 archived; query SQLite for the current selection and its provenance |
 | Operate private SQLite inventory (standalone research read; WR/FP acceptance partial) | [wallet status](WALLET-STATUS.md), [acceptance matrix](WALLET-REGISTRY-ACCEPTANCE-20261104.md), [registry checkpoint](WALLET-REGISTRY-STATUS-20261104.md), [paper boundary](WALLET-REGISTRY-PAPER-CONTRACT-20261104.md), [negative evidence](WALLET-REGISTRY-SIGNED-NEGATIVE-EVIDENCE-20261104.md), [release/rollback](WALLET-REGISTRY-RELEASE-RUNBOOK.md), [review hardening / future signed selections](WALLET-REGISTRY-REVIEW-HARDENING-20261104.md) | SHA-bound metadata, 158 research wallets in dated snapshot, 22 exclusions, read-only runtime adapters; **NOT** trading authority |
 | **Run approved Polars milestone #2 engineering tests and check scientific blockers** | [Milestone #2 two-track acceptance](OFFLINE-MILESTONE2-ENGINEERING-ACCEPTANCE-20261104.md), [engineering verification matrix](OFFLINE-MILESTONE2-ENGINEERING-VERIFICATION-20261104.md), [sealed 90-day historical-oracle research job](OFFLINE-HL94-ORACLE-JOB-20261104.json), [operator runbook](RUNBOOK.md) | Single manifest-driven CLI yields immutable PM-03 synthetic fixture report or SHA-sealed real historical-oracle SCREEN_ONLY report; no genuine first-known, real contractual PASS or trading authorization |
 | **Audit real local Hyperliquid historical fills and Polars minute matching** | [90-day real historical-oracle evidence](OFFLINE-PIT-REAL-ORACLE-20261104.md) | 94 SHA-pinned source files, 450,172 in-window perp fills, 216 markets and SHA-verified 1m alignment; **not** historical NAV/PIT follower P&L |
@@ -87,7 +70,7 @@ may pass while independent observed model-choice evidence is still blocked.
 | Inspect optional PM-04 three-pod shadow hardening | [PM-04 contract](PM-04-shadow-hardening.md) | Versioned pod targets, batching, risk budgets, read-only external evidence and no-live-order gate; Issue #12 |
 | Reproduce PM-04 18-case engineering acceptance | [PM-04 acceptance matrix](PM-04-acceptance.md) | Fixed-input 18 scenarios, fault recovery, comparison and manual halt/reconciliation runbook |
 | Review integrated A/B/C intent and source operations | [Recovery integration](RECOVERY-INTEGRATION.md) | PR7/15/16 lineage, exact whole-book handoff, bounded durable source capture |
-| Implement wallet-equity-relative sizing, including missed trades | [Equity-normalized wallet exposure](EQUITY-WEIGHT-SIZING.md) | Source notional/equity, follower pod capital, catch-up and historical NAV availability |
+| Reproduce explicit legacy wallet-equity-relative sizing | [Equity-normalized wallet exposure](EQUITY-WEIGHT-SIZING.md) | Source notional/equity, follower pod capital, catch-up and historical NAV availability |
 | Execute equity-weighted Q3 3-pod portfolio research | [Q3 sparse-equity execution results](Q3-SPARSE-EQUITY-PORTFOLIO-EXECUTION-20261102.md) | 84 hindsight combinations; source-NAV carry, A/B/C risk and exposure fidelity, 3 capacity-stress follow-ups; zero qualified |
 | Inspect the W042/W044/W028 replay and mark-ordering regression | [Q3 W042 + W044 + W028 results](Q3-TRIO-W042-W044-W028-20261102.md) | Four executed equity-weight scenarios, SHA audit, missed risk exposure and PM03 quote-mark correction; not qualified |
 | Review archived gross-notional proxy run | [Q3 conditional observed-chain replay](HISTORICAL-THREE-WALLET-COMPARISON.md) | Historical 84-combo predecessor, not the source-equity sizing objective |
@@ -96,6 +79,8 @@ may pass while independent observed model-choice evidence is still blocked.
 | Understand the extraction itself | [Provenance](PROVENANCE.md) | Filtered source history and verified original PM-01/PM-02 byte parity |
 
 Start a task with `AGENTS.md`, this index, the relevant source code/tests, then the **live** issue and PR; do not treat an archived report as a current service or data state.
+
+Research selection and documentation updates make no running roster/service changes. Worker admission and deployment require their separate verified contracts.
 
 **Combo 2 paper-only development:** [single-issue, five-minute paper tracker guide](COMBO2-PAPER.md) links the frozen spec and one-work-item plan. This is a local synthetic engineering preview, not a live Propr automation.
 

@@ -280,8 +280,9 @@ def compare_rest(con: sqlite3.Connection, wallet: str, start_cursor: str, key: s
             frame_cursor = _cursor(entry.get("cursor"))
             if initial < frame_cursor <= end:
                 rest_ids.add(item["event_id"])
-                stored = con.execute("SELECT raw_event_sha256 FROM frames WHERE event_id=?",
-                                     (item["event_id"],)).fetchone()
+                stored = con.execute(
+                    "SELECT raw_event_sha256 FROM frames WHERE event_id=?", (item["event_id"],)
+                ).fetchone()
                 if stored is not None and stored[0] != _digest(item)[1]:
                     payload_conflicts.add(item["event_id"])
         next_cursor = page.get("next_cursor")

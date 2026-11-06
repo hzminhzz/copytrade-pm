@@ -129,7 +129,8 @@ def simulate(
             funded_now = active & funded
             daily_peak[challenge] = np.maximum(daily_peak[challenge], equity[challenge])
             evaluation_made[challenge] = np.maximum(
-                evaluation_made[challenge], daily_peak[challenge] - equity[challenge])
+                evaluation_made[challenge], daily_peak[challenge] - equity[challenge]
+            )
             # Continuous HWM is updated each monitoring step; EOD HWM only
             # ratchets after the final step. No intrabar Brownian bridge.
             update_hwm = step == steps_per_day - 1
@@ -240,10 +241,14 @@ def simulate(
         "evaluation_breach_before_pass_probability": float(evaluation_breached.mean()),
         "evaluation_timeout_probability": float(evaluation_timed_out.mean()),
         "conditional_pass_time_days": float(np.nanmean(evaluation_pass_time))
-        if np.isfinite(evaluation_pass_time).any() else None,
+        if np.isfinite(evaluation_pass_time).any()
+        else None,
         "conditional_pass_time_standard_error": float(
-            np.nanstd(evaluation_pass_time, ddof=1) / np.sqrt(np.isfinite(evaluation_pass_time).sum()))
-        if np.isfinite(evaluation_pass_time).sum() > 1 else None,
+            np.nanstd(evaluation_pass_time, ddof=1)
+            / np.sqrt(np.isfinite(evaluation_pass_time).sum())
+        )
+        if np.isfinite(evaluation_pass_time).sum() > 1
+        else None,
         "maximum_daily_adverse_excursion": float(evaluation_made.max()),
         "made_95th_percentile": float(np.quantile(evaluation_made, 0.95)),
         "first_payout_probability": float(first_payout_probability),

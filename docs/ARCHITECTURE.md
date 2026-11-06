@@ -2,7 +2,7 @@
 
 ## Default sizing boundary (owner decision, 2026-11-06)
 
-New copytrading work uses [NAV-free selected-account fixed-k sizing](RISK-BUDGETED-K-SIZING-20261106.md): `k * native source position quantity`, bounded against actual **follower** equity, market capacity, pod loss, drawdown, pending orders and Guardian finance. Source whole-wallet NAV and unrelated subaccounts are optional diagnostics, not blockers. Historical equity-normalized E0/fidelity contracts remain strict opt-in and unchanged; do not falsely claim source-equity replication for fixed-k. Source/market first-known, selected account identity, full position scope and independent broker admission remain required.
+New copytrading work uses [NAV-free selected-account fixed-k sizing](RISK-BUDGETED-K-SIZING-20261106.md): `k * native source position quantity * source mark` as target notional, converted at the independent follower quote and bounded against actual **follower** equity, market capacity, pod loss, drawdown, pending orders and Guardian finance. Source whole-wallet NAV and unrelated subaccounts are optional diagnostics, not blockers. Historical equity-normalized E0/fidelity contracts remain strict opt-in and unchanged; do not falsely claim source-equity replication for fixed-k. Source/market first-known, selected account identity, full position scope and independent broker admission remain required.
 
 ## Continuous public observation
 
@@ -19,8 +19,9 @@ adds self-PID SHA heartbeats, a separate watchdog with a persistent HALT latch,
 and system-level unit definitions pinned to a source SHA. It contains **no
 financial execution interface** and must not be confused with the existing
 PM-03/04 journal, public observer or protected paper admission. Installation
-requires root-managed identities and a root-owned release; these are currently
-unavailable, and the component explicitly reports standby rather than running.
+requires root-managed identities and a root-owned release. Inspect the OS and
+pinned deployment evidence before claiming installation; the component reports
+standby and cannot establish protected financial execution.
 
 ## Public observer service boundary (2026-11-05)
 

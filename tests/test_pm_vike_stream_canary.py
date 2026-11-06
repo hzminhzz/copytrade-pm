@@ -175,8 +175,12 @@ def test_rest_extra_event_blocks_parity(tmp_path, monkeypatch):
 def test_replayed_gap_still_latches_without_rewinding_cursor(tmp_path):
     with closing(canary.open_journal(tmp_path / "private")) as con:
         canary.apply_frame(con, frame(cursor="1793930404464-0009"), WALLET, canary.utc_now())
-        canary.apply_frame(con, {"type": "gap", "channel": canary.CHANNEL,
-                                "cursor": "1793930404464-0001"}, WALLET, canary.utc_now())
+        canary.apply_frame(
+            con,
+            {"type": "gap", "channel": canary.CHANNEL, "cursor": "1793930404464-0001"},
+            WALLET,
+            canary.utc_now(),
+        )
         assert canary.head(con) == "1793930404464-0009"
         assert con.execute("SELECT had_gap FROM checkpoint").fetchone()[0] == 1
 
@@ -186,10 +190,15 @@ def test_same_native_id_with_different_rest_payload_cannot_prove_parity(tmp_path
         msg = frame()
         canary.apply_frame(con, msg, WALLET, canary.utc_now())
         drifted = {**msg["event"], "data": {**msg["event"]["data"], "price": 999}}
-        monkeypatch.setattr(canary, "rest_request", lambda *_: {
-            "events": [{"cursor": msg["cursor"], "event": drifted}],
-            "next_cursor": msg["cursor"], "has_more": False,
-        })
+        monkeypatch.setattr(
+            canary,
+            "rest_request",
+            lambda *_: {
+                "events": [{"cursor": msg["cursor"], "event": drifted}],
+                "next_cursor": msg["cursor"],
+                "has_more": False,
+            },
+        )
         result = canary.compare_rest(con, WALLET, "1793930404464-0000", "dummy")
         assert result["status"] == "INCONCLUSIVE_OR_PARITY_MISMATCH"
         assert result["payload_conflict_count"] == 1

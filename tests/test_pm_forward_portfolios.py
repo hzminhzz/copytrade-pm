@@ -1,5 +1,6 @@
 """FP-09 blocked-yet-independent P1 and P14 portfolio admission."""
 
+from contextlib import closing
 from dataclasses import replace
 from hashlib import sha256
 import json
@@ -8,6 +9,8 @@ import sqlite3
 
 import pytest
 
+from copytrade_pm import wallet_registry as reg
+from copytrade_pm import wallet_registry_catalog as catalog
 from copytrade_pm.pm_forward_admission import admit_source_book
 from copytrade_pm.pm_forward_paper import PaperCampaign
 from copytrade_pm.pm_forward_portfolios import (
@@ -23,15 +26,18 @@ from copytrade_pm.pm_forward_source_campaign import _ALIAS
 from test_pm_forward_admission import _alter
 from test_pm_forward_fill import _source_book
 from test_pm_forward_journal import T, manifest
+from test_wallet_registry_catalog import AFTER, WHALE, _v2_snapshot
 
 
-def test_two_frozen_10k_accounts_and_shared_source_fanout() -> None:
+def test_two_frozen_10k_accounts_and_shared_source_fanout(tmp_path: Path) -> None:
     assert P1.members == ("S035", "S051", "S053")
     assert len(P14.members) == 5 and "S064" in P14.members
     assert "Whale_0x5f94" in P14.members
     assert P1.nominal_risk_per_member == "200"
     assert P14.nominal_risk_per_member == "120"
-    coordinator = PaperPortfolioView(PaperCampaign())
+    coordinator = PaperPortfolioView(
+        PaperCampaign(), registry_db=_fixture_registry(tmp_path / "registry.sqlite")
+    )
     coordinator.register(P1, replace(manifest("p1", "p1_account"), portfolio_sha=P1.sha))
     coordinator.register(P14, replace(manifest("p14", "p14_account"), portfolio_sha=P14.sha))
     for name in ("P1", "P14"):
@@ -59,7 +65,9 @@ def test_two_frozen_10k_accounts_and_shared_source_fanout() -> None:
     assert coordinator.status("P1")["account"] == coordinator.campaign.status("p1")["account"]
 
 
-def test_new_e6_e2_research_priorities_cannot_silently_register_as_legacy_fp09() -> None:
+def test_new_e6_e2_research_priorities_cannot_silently_register_as_legacy_fp09(
+    tmp_path: Path,
+) -> None:
     v2 = Path(__file__).resolve().parents[1] / (
         "docs/decisions/2026-11-04-gemini-phase6-portfolio-freeze-v2.json"
     )
@@ -78,7 +86,9 @@ def test_new_e6_e2_research_priorities_cannot_silently_register_as_legacy_fp09()
     assert {entry["canonical_alias"] for entry in study["portfolios"]["P14"]["members"]} == set(
         WR_P14
     )
-    view = PaperPortfolioView(PaperCampaign())
+    view = PaperPortfolioView(
+        PaperCampaign(), registry_db=_fixture_registry(tmp_path / "registry.sqlite")
+    )
     for name in ("E6", "E2"):
         candidate = FrozenPaperPortfolio(
             name,
@@ -98,8 +108,10 @@ def test_new_e6_e2_research_priorities_cannot_silently_register_as_legacy_fp09()
     assert view.portfolios == {} and view.run_ids == {}
 
 
-def test_resealing_or_cross_portfolio_manifest_fails() -> None:
-    view = PaperPortfolioView(PaperCampaign())
+def test_resealing_or_cross_portfolio_manifest_fails(tmp_path: Path) -> None:
+    view = PaperPortfolioView(
+        PaperCampaign(), registry_db=_fixture_registry(tmp_path / "registry.sqlite")
+    )
     with pytest.raises(ValueError, match="PORTFOLIO_MANIFEST_SHA_MISMATCH"):
         view.register(P1, replace(manifest("p1", "acct"), portfolio_sha=P14.sha))
     view.register(P1, replace(manifest("p1", "acct"), portfolio_sha=P1.sha))
@@ -107,61 +119,15 @@ def test_resealing_or_cross_portfolio_manifest_fails() -> None:
         view.register(P14, replace(manifest("p1", "other"), portfolio_sha=P14.sha))
 
 
+@pytest.fixture(autouse=True)
+def _synthetic_registry_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(catalog, "WHALE_ADDRESS_SHA256", sha256(WHALE.encode()).hexdigest())
+
+
 def _fixture_registry(db_path: Path) -> Path:
-    conn = sqlite3.connect(db_path)
-    conn.execute("""
-        CREATE TABLE portfolio_versions (
-            portfolio_id TEXT NOT NULL,
-            version INTEGER NOT NULL,
-            status TEXT NOT NULL,
-            source_doc TEXT NOT NULL,
-            known_at TEXT NOT NULL,
-            sizing_contract TEXT NOT NULL,
-            PRIMARY KEY(portfolio_id, version)
-        );
-    """)
-    conn.execute("""
-        CREATE TABLE portfolio_seals (
-            portfolio_id TEXT NOT NULL,
-            version INTEGER NOT NULL,
-            definition_sha256 TEXT NOT NULL,
-            doc_sha256 TEXT NOT NULL,
-            source_revision TEXT NOT NULL,
-            selection_known_at TEXT NOT NULL,
-            PRIMARY KEY(portfolio_id, version)
-        );
-    """)
-    conn.execute("""
-        INSERT INTO portfolio_versions VALUES
-            ('gemini.phase4/E6', 1, 'RESEARCH_SELECTION_ONLY', 'docs/decisions/2026-11-04-gemini-phase6-portfolio-freeze-v2.json', '2026-11-04T09:06:33+00:00', 'GEMINI_REFERENCE_K_NOT_EXECUTABLE'),
-            ('gemini.phase4/E2', 1, 'RESEARCH_SELECTION_ONLY', 'docs/decisions/2026-11-04-gemini-phase6-portfolio-freeze-v2.json', '2026-11-04T09:06:33+00:00', 'GEMINI_REFERENCE_K_NOT_EXECUTABLE')
-    """)
-    conn.execute("""
-        CREATE TABLE portfolio_memberships (
-            portfolio_id TEXT NOT NULL,
-            version INTEGER NOT NULL,
-            member_alias TEXT NOT NULL,
-            wallet_id INTEGER,
-            PRIMARY KEY(portfolio_id, version, member_alias)
-        );
-    """)
-    conn.execute(
-        "INSERT INTO portfolio_seals VALUES ('gemini.phase4/E6', 1, 'sha_fixture_e6', 'doc_sha', 'rev', '2026-11-04T09:06:33+00:00'), ('gemini.phase4/E2', 1, 'sha_fixture_e2', 'doc_sha', 'rev', '2026-11-04T09:06:33+00:00')"
-    )
-    conn.execute("""
-        INSERT INTO portfolio_memberships VALUES
-            ('gemini.phase4/E6', 1, 'ACT04', 333),
-            ('gemini.phase4/E6', 1, 'CM-002', 282),
-            ('gemini.phase4/E6', 1, 'S051-BTC', 195),
-            ('gemini.phase4/E6', 1, 'S053-HYPE', 37),
-            ('gemini.phase4/E6', 1, 'Whale_0x5f94', 146),
-            ('gemini.phase4/E2', 1, 'ACT04', 333),
-            ('gemini.phase4/E2', 1, 'S051-BTC', 195),
-            ('gemini.phase4/E2', 1, 'S053-HYPE', 37)
-    """)
-    conn.commit()
-    conn.close()
-    return db_path
+    db, snapshot = _v2_snapshot(db_path.parent)
+    reg.apply(db, snapshot, AFTER)
+    return db
 
 
 def test_dynamic_sealed_portfolio_loading_with_isolated_fixture(tmp_path: Path) -> None:
@@ -204,5 +170,38 @@ def test_tampered_sealed_portfolio_fails_closed(tmp_path: Path) -> None:
     conn.commit()
     conn.close()
 
+    with pytest.raises(ValueError, match="UNSEALED_FORWARD_PAPER_PORTFOLIO"):
+        load_sealed_paper_portfolio("gemini.phase4/E6", test_db)
+
+
+@pytest.mark.parametrize("tamper", ["fixture_prefix", "member", "document_bytes"])
+def test_sealed_portfolio_rejects_unverified_fixture_or_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tamper: str
+) -> None:
+    test_db = _fixture_registry(tmp_path / "registry.sqlite")
+    with closing(sqlite3.connect(test_db)) as conn, conn:
+        if tamper == "fixture_prefix":
+            conn.execute(
+                "UPDATE portfolio_seals SET definition_sha256 = 'sha_fixture_forged' "
+                "WHERE portfolio_id = 'gemini.phase4/E6'"
+            )
+        elif tamper == "member":
+            # Simulate damaged bytes after bypassing only this isolated fixture's
+            # write guards; the independent read verifier must still reject it.
+            triggers = conn.execute(
+                "SELECT name FROM sqlite_master "
+                "WHERE type = 'trigger' AND tbl_name = 'portfolio_memberships'"
+            ).fetchall()
+            for (name,) in triggers:
+                conn.execute('DROP TRIGGER "' + name.replace('"', '""') + '"')
+            conn.execute(
+                "UPDATE portfolio_memberships SET member_alias = 'UNSEALED_MEMBER' "
+                "WHERE portfolio_id = 'gemini.phase4/E6' AND member_alias = 'ACT04'"
+            )
+        else:
+            source = Path(__file__).resolve().parents[1] / catalog.V2_FILE
+            changed = tmp_path / "changed.json"
+            changed.write_bytes(source.read_bytes() + b"\n")
+            monkeypatch.setattr(catalog, "V2_FILE", str(changed))
     with pytest.raises(ValueError, match="UNSEALED_FORWARD_PAPER_PORTFOLIO"):
         load_sealed_paper_portfolio("gemini.phase4/E6", test_db)

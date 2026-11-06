@@ -472,6 +472,63 @@ def test_pointer_repair_rejects_tampered_committed_release(
     assert active(control) == b
 
 
+def installed_responses(monkeypatch, doctor, code=2):
+    def response(*args, **kwargs):
+        if args[-1] == "doctor":
+            if code:
+                raise subprocess.CalledProcessError(code, args, output=json.dumps(doctor))
+            return json.dumps(doctor)
+        if args[-1] == "paper":
+            return '{"global_running_count":"UNKNOWN"}'
+        return json.dumps(
+            {
+                "schema": "copytrade_contract_rule_catalog_v1",
+                "contracts": [1, 2, 3],
+                "trading_authorized": False,
+                "scientifically_qualified": False,
+            }
+        )
+
+    monkeypatch.setattr(release, "command", response)
+
+
+def test_metadata_release_keeps_missing_external_selection_proof_blocked(tmp_path, monkeypatch):
+    doctor = {
+        "authority": "SQLITE",
+        "database_integrity": "VERIFIED",
+        "inventory_sha256": "a" * 64,
+        "research_selection_integrity": "BLOCKED_MISSING_EXTERNAL_PROOF",
+        "trading_authorized": False,
+        "scientifically_qualified": False,
+    }
+    installed_responses(monkeypatch, doctor)
+    release._installed_doctor(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"database_integrity": "FAILED"},
+        {"research_selection_integrity": "UNKNOWN"},
+        {"trading_authorized": True},
+        {"scientifically_qualified": True},
+    ],
+)
+def test_metadata_release_never_accepts_other_doctor_failure(tmp_path, monkeypatch, change):
+    doctor = {
+        "authority": "SQLITE",
+        "database_integrity": "VERIFIED",
+        "inventory_sha256": "a" * 64,
+        "research_selection_integrity": "BLOCKED_MISSING_EXTERNAL_PROOF",
+        "trading_authorized": False,
+        "scientifically_qualified": False,
+        **change,
+    }
+    installed_responses(monkeypatch, doctor)
+    with pytest.raises((ValueError, subprocess.CalledProcessError)):
+        release._installed_doctor(tmp_path)
+
+
 def test_preview_does_not_require_clean_worktree() -> None:
     repo = Path(__file__).resolve().parents[1]
     state = release.snapshot_state(repo, enforce_clean=False)

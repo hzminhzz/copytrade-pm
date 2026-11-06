@@ -282,13 +282,16 @@ def registry_watched_addresses(
             ).fetchall()
             if not members or any(row["wallet_id"] is None for row in members):
                 raise ValueError("PUBLIC_TRADE_PORTFOLIO_IDENTITY_UNRESOLVED")
-            _verify_sealed_definition_sha(
+            verified = _verify_sealed_definition_sha(
                 conn,
                 pid,
                 version,
                 tuple(row["member_alias"] for row in members),
                 seal["definition_sha256"],
+                as_of=as_of,
             )
+            if verified["alias_resolution_complete"] is not True:
+                raise ValueError("PUBLIC_TRADE_PORTFOLIO_IDENTITY_UNRESOLVED")
             for row in members:
                 if row["venue"] != "hyperliquid" or row["network"] != "mainnet":
                     raise ValueError("PUBLIC_TRADE_NON_HL_WALLET")

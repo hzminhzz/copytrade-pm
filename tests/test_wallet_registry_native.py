@@ -272,22 +272,35 @@ def test_native_version_verification_requires_exact_archived_membership(tmp_path
     db, _, baseline = seed(tmp_path)
     lock = native.lock_legacy_import(db, expected=baseline, apply=True, now=NOW)
     source = manifest(tmp_path)
-    first = native.register_cohort(db, source, expected=lock["inventory_sha256"],
-                                  apply=True, now=NOW)
-    source.write_text(json.dumps({"schema": "sqlite_wallet_import_v1", "cohort": "native-wave",
-                                 "wallets": [{"address": address(7), "aliases": ["NATIVE007"]}]}))
+    first = native.register_cohort(
+        db, source, expected=lock["inventory_sha256"], apply=True, now=NOW
+    )
+    source.write_text(
+        json.dumps(
+            {
+                "schema": "sqlite_wallet_import_v1",
+                "cohort": "native-wave",
+                "wallets": [{"address": address(7), "aliases": ["NATIVE007"]}],
+            }
+        )
+    )
     native.register_cohort(db, source, expected=first["inventory_sha256"], apply=True, now=NOW)
     with closing(registry.connect(db, True)) as con, con:
         if damage == "extra_member":
-            wallet = con.execute("SELECT wallet_id FROM wallets WHERE address=?",
-                                 (address(9),)).fetchone()[0]
+            wallet = con.execute(
+                "SELECT wallet_id FROM wallets WHERE address=?", (address(9),)
+            ).fetchone()[0]
             con.execute("INSERT INTO cohort_memberships VALUES('native-wave',1,?,?)", (wallet, NOW))
         elif damage == "missing_inherited":
-            con.execute("DELETE FROM cohort_memberships WHERE cohort_id='native-wave' AND version=2 "
-                        "AND wallet_id=(SELECT wallet_id FROM wallets WHERE address=?)", (address(6),))
+            con.execute(
+                "DELETE FROM cohort_memberships WHERE cohort_id='native-wave' AND version=2 "
+                "AND wallet_id=(SELECT wallet_id FROM wallets WHERE address=?)",
+                (address(6),),
+            )
         else:
-            con.execute("UPDATE cohort_memberships SET known_at=? WHERE cohort_id='native-wave'",
-                        (INITIAL,))
+            con.execute(
+                "UPDATE cohort_memberships SET known_at=? WHERE cohort_id='native-wave'", (INITIAL,)
+            )
     with pytest.raises(ValueError, match="NATIVE_COHORT_MEMBERSHIP"):
         registry.db_authority_health(db)
 
