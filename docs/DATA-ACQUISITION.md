@@ -1,5 +1,7 @@
 # Wallet data acquisition and provenance
 
+**Superseding owner decision, 2026-11-06:** [Fixed-k source-NAV-optional sizing](RISK-BUDGETED-K-SIZING-20261106.md) is the default for new copytrading work. The copied **selected perp position scope** and causal receipt integrity are mandatory; leader whole-account equity, unified collateral and unrelated subaccount NAV are **not** required for fixed-k. The official feed remains the positional source; collateral diagnostics remain useful but do not veto fixed-k. Existing equity-relative fidelity studies stay strict and opt-in.
+
 ## Persistent prospective acquisition
 
 Use [the continuous observer contract](FORWARD-PAPER-CONTINUOUS-OBSERVER.md) for native full-state replacement validation, excluded connection baselines, raw local receipt timestamps, exact DEX identity, rolling CCXT cache recovery and independent official fill comparisons. Recovery is recorded at its actual later availability and cannot become earlier forward evidence. SQLite receipts and checkpoints commit together. Retain partial evidence with null unverified NAV; do not waive selection, exclusion, sizing or admission gates.
@@ -12,6 +14,10 @@ Use [the continuous observer contract](FORWARD-PAPER-CONTINUOUS-OBSERVER.md) for
 [Native public trade first-known receipt and UTC net-delta contract](FORWARD-PAPER-PUBLIC-TRADES-20261105.md) implements an opt-in bounded `trades` WS filter for sealed, SQLite-resolved public wallets, with buyer/seller signatures, per-session baseline exclusion, stream-gap evidence and provisional immutable journals. Legacy flat allowlists support ≤128 markets with eight symbols per socket; the new versioned Propr display layout supports 157 markets on three named 8/88/61 physical sockets (each ≤128 internally), with per-market observed frames and no silent market omissions. See [the non-authoritative 13-market example](FORWARD-PAPER-MARKET-EXAMPLE-20261105.json), and the [exact user-selected 40-market five-shard configuration and test evidence](FORWARD-PAPER-TOP40-FIVE-SHARD-20261105.md). It is not an authenticated whole-wallet account ledger; a disconnected stream is not a complete timeline, and reported quantities are not PM-03 follower orders. Owner-private address lists are read from SQLite, not from Markdown. Requires independent `userFills`, TWAP, position/NAV and L2-capacity reconciliation before any financial paper admission.
 
 **Use this for “get wallet fills,” “new wallet,” “fix gaps,” “get 1m OHLCV,” or “start forward capture.”** Read [INDEX](INDEX.md) and [ARCHITECTURE](ARCHITECTURE.md) first. No commands in this guide authorize orders. Offline auditing is distinct from vendor/SDK downloads. Live source snapshot inspected 2026-10-31; private paths can change.
+
+## Additional independent Vike recovery (2026-11-06, research only)
+
+The [Vike historical fill reconciliation, native confirmation, raw and corrected SHA manifests](VIKE-DATA-RECOVERY-20261106.md) establish an isolated, immutable W028 research recovery. The original HyperX pages, SQLite registry, and forward-paper journal are untouched. Vike WebSocket small-fill and whole-account NAV are **not verified**; no live ingestion or sizing is admitted. The native verifier is bounded and read-only, not a replacement for prospective local receipt timestamps.
 
 ## Official Hyperliquid public API as the forward source (2026-11-05)
 

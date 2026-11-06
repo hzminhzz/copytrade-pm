@@ -1,5 +1,9 @@
 # Research operator runbook — verified CLI sequence
 
+## Binding source-sizing policy (2026-11-06)
+
+**Default:** `FIXED_K_NATIVE_QUANTITY`, selected-account position scope; no leader whole-account NAV requirement. Use `copytrade-pm-paper-readiness --sizing-policy FIXED_K_NATIVE_QUANTITY` for P1/P14 read-only readiness; this does **not** admit trading. Legacy equity-normalized studies require the opt-in `--sizing-policy ALLOCATION_OVER_LIVE_NAV`. Never stop fixed-k progress for missing leader NAV. Keep canonical identities, first-local clocks, selected positions, verified follower equity, risk and protected execution gates. See [full decision and safety checklist](RISK-BUDGETED-K-SIZING-20261106.md).
+
 ## Continuous public observer operations
 
 [The continuous observer runbook](FORWARD-PAPER-CONTINUOUS-OBSERVER.md) defines the tested preflight/capture/health/shadow-report commands, private state, shared-IP budgeting, restart and backup procedure, independent watchdog history and uninstalled unit templates. [The dated program evidence](PERSISTENT-OBSERVER-IMPLEMENTATION-20261106.md) records actual status. A bounded canary is not the 72-hour shadow. Public cutover retains its separate operator authorization and trusted-release gate.
@@ -8,8 +12,28 @@
 
 **Preferred new market selection:** [complete Propr display 157-market three-physical-WebSocket configuration and bounded canary](FORWARD-PAPER-PROPR-157-THREE-SOCKETS-20261105.md). Use `--market-file docs/FORWARD-PAPER-PROPR-157-THREE-SOCKETS-20261105.json --propr-snapshot /home/quant/.local/share/copytrade/reports/five-pod-20261029-research/PROPR_PUBLIC_ASSET_UNIVERSE_20261030.json`. Start read-only verification with `--parallel-shards 1` because existing tracker/source sockets share Hyperliquid per-IP limits; parallel 3 is implemented but requires `--ack-shared-ip-connection-budget` after independently measuring headroom, plus performance/restart qualification. Source is a Propr browser-display snapshot, **not** an authenticated order-eligible API universe. The 13-market and 40-market examples below are historical canaries, not a currently complete Propr-displayed scope.
 
-
 Follow [public market-wide trade acquisition, first-known receipt, UTC policy, and blocked paper execution](FORWARD-PAPER-PUBLIC-TRADES-20261105.md) for `copytrade-pm-public-trades --mode observe` and `--mode plan` examples. The new capability is `source.public_trades`; query `copytrade-pm capabilities show source.public_trades` and registry `doctor` first. To test other pairs use repeated `--instrument` or the example `--market-file docs/FORWARD-PAPER-MARKET-EXAMPLE-20261105.json` (13 native/HIP-3 markets), with bounded `--parallel-shards 2` and per-market receipt diagnostics. For the owner-selected full 40-market scope use [the 5-shard 8-market configuration](FORWARD-PAPER-MARKET-TOP40-SHARDS-20261105.json) with `--parallel-shards 5` and [its verification runbook](FORWARD-PAPER-TOP40-FIVE-SHARD-20261105.md); the legacy eight-market per-WS cap is a code constant, not a CLI flag. The newer Propr display 157-market configuration uses a separately validated maximum of 128 symbols per physical WS; complete first-known wallet coverage remains UNKNOWN until independently reconciled. The CLI writes **only a new owner-private research journal**, not the installed observer, production tracker, or PM-03 financial events. Run the documented tests and preserve the existing protected P1/P14 NO_TRADE state.
+
+## Protected P1/P14 operational staging (2026-11-05)
+
+The [guarded standby/watchdog/root systemd candidate runbook](FORWARD-PAPER-PROTECTED-OPS-STAGING-20261105.md)
+contains staging, independent OS prerequisites, HALT-latch semantics and rollback.
+Use `copytrade-pm-paper-standby` only as a **no-order standby**, and
+`copytrade-pm-paper-unit-bundle` only for SHA-pinned **uninstalled** root unit
+candidates. No `--apply` is available; no financial paper or independent
+protected deployment is attested. Confirm live services separately.
+
+## P1/P14 prospective reseal preflight (read-only)
+
+The [identity preflight runbook](P1-P14-PROSPECTIVE-RESEAL-PREFLIGHT-20261106.md)
+uses the existing `copytrade-pm-paper-registry-audit --prospective-reseal-preview`
+to verify as-known canonical aliases and private addresses for a **new**
+research-only signed selection. The output is unsigned; historical P1/P14
+seals are unchanged and remain blocked, and no paper execution is authorized.
+
+## Canonical SQLite registry; legacy importer is historical
+
+Run `copytrade-wallet-registry doctor` for SQLite integrity and `native status` for the explicit legacy-writer lock. Current research cohorts and approved selections come from SQLite, not old CSV/Markdown catalogs. Optional `doctor --legacy-audit` reports importer provenance only. A reviewed `native lock --apply` blocks `sync --apply` and installed old binaries from replacing the operational registry. New cohorts use `native register` with a 0600 private manifest and exact inventory SHA. Reviewed, append-only exclusions use `native exclude` with exact manifest SHA plus inventory SHA; neither action revokes an old decision or writes tracker subscriptions, starts workers, calculates PnL or authorizes trades. See [the native authority/rollback contract](SQLITE-NATIVE-LEGACY-LOCK-20261105.md).
 
 ## Authoritative SQLite metadata inventory (2026-11-05)
 
@@ -391,7 +415,7 @@ When any operation fails or returns BLOCKED, execute [RECOVER](BLOCKER-RECOVERY.
 
 Routine research/CLI operation has **no per-turn judge call**. For material frozen-roster, policy or qualification decisions, follow the [protected governance boundary](GOVERNANCE-GATES.md) and run `copytrade-pm-review-gate --help` to inspect the read-only signature-check interface. An unavailable independent reviewer blocks only that protected decision; no current CLI confers scientific qualification or trading permission.
 
-Before merging any non-trivial code or data-contract change: preserve dirty work, read `AGENTS.md`, inspect GitHub and real VPS sources, write behavior tests at the consumer seam, run **both** CI-equivalent dependency variants, Ruff and build, inspect diff and evidence SHA, update handbook links if CLI or source boundaries changed, push and wait for actual required checks. Do **not** confuse successful engineering with scientific qualification or deployment. Protected `main` requires `verify (core)` and `verify (market)`, strict current-base checks; no force push. Never touch production `hyperliquid-expert-ensemble` as a side effect of this repository.
+Before merging a non-trivial code or data-contract change, preserve dirty work, read `AGENTS.md`, inspect GitHub and the VPS, test the consumer behavior, run core and all-extra suites, Ruff and package build, inspect the actual diff, and update the owning guide. GitHub Actions is optional; inspect and respect actual branch protections without bypass. Cross-repository acceptance uses prop-production's pinned compatibility manifest and `scripts/verify-local.sh all`. Record exact SHAs and results. Engineering verification is separate from deployment, science and trading authorization. Do not modify hyperliquid-expert-ensemble as a side effect.
 
 ## Offline Polars v2 synthetic fixture runner (2026-11-04; draft PR #92)
 

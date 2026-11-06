@@ -20,6 +20,13 @@ CLASSES = frozenset({"READ_ONLY", "LOCAL_MUTATION", "PROTECTED_MUTATION", "BROKE
 # Classifications describe the exposed DEFAULT entry point; subcommands have
 # their own reviewed records. Never infer safety from a command name.
 GROUPS = {
+    "copytrade-pm-production-export": ("production.export.cli", "registry", "LOCAL_MUTATION"),
+    "copytrade-pm-production-manifest": (
+        "production.manifest.cli",
+        "registry",
+        "PROTECTED_MUTATION",
+    ),
+    "copytrade-pm-production-economics": ("production.economics.cli", "research", "READ_ONLY"),
     "copytrade-pm-replay": ("historical.replay", "historical", "LOCAL_MUTATION"),
     "copytrade-pm-rank": ("manager.rank", "qualification", "LOCAL_MUTATION"),
     "copytrade-pm-handoff": ("portfolio.handoff", "portfolio", "LOCAL_MUTATION"),
@@ -44,6 +51,8 @@ GROUPS = {
     "copytrade-pm-public-trades": ("source.public_trades", "source", "PROTECTED_MUTATION"),
     "copytrade-pm-source-scope": ("source.scope", "source", "PROTECTED_MUTATION"),
     "copytrade-pm-paper-watchdog": ("paper.watchdog", "paper", "PROTECTED_MUTATION"),
+    "copytrade-pm-paper-standby": ("paper.standby", "paper", "PROTECTED_MUTATION"),
+    "copytrade-pm-paper-unit-bundle": ("paper.unit_bundle", "paper", "LOCAL_MUTATION"),
     "copytrade-pm-paper-registry-audit": ("paper.identity", "paper", "READ_ONLY"),
     "copytrade-pm-paper-readiness": ("paper.readiness", "paper", "READ_ONLY"),
     "copytrade-pm-paper-source-campaign": ("paper.source_campaign", "paper", "PROTECTED_MUTATION"),
@@ -57,6 +66,13 @@ GROUPS = {
 # for the broader parent executable. No subcommand inherits READ_ONLY.
 REGISTRY_OPERATIONS = {
     "status": "READ_ONLY",
+    "native status": "READ_ONLY",
+    "native lock": "READ_ONLY",
+    "native lock --apply": "PROTECTED_MUTATION",
+    "native register": "READ_ONLY",
+    "native register --apply": "PROTECTED_MUTATION",
+    "native exclude": "READ_ONLY",
+    "native exclude --apply": "PROTECTED_MUTATION",
     "doctor": "READ_ONLY",
     "runtime": "READ_ONLY",
     "report --redacted": "READ_ONLY",
@@ -76,6 +92,27 @@ REGISTRY_OPERATIONS = {
     "signed-selection --apply": "PROTECTED_MUTATION",
 }
 NATIVE = {
+    "production.metadata": (
+        "copytrade_pm.production_export",
+        "python -m copytrade_pm.production_export --help",
+        "registry",
+        "READ_ONLY",
+        "CONSISTENT_SQLITE_SNAPSHOT_SCOPE_REQUIRED_LEGACY_NAV_ONLY",
+    ),
+    "production.release": (
+        "copytrade_pm.production_manifest",
+        "python -m copytrade_pm.production_manifest --help",
+        "registry",
+        "PROTECTED_MUTATION",
+        "INDEPENDENT_SIGNED_SQLITE_POLICY_AND_SOURCE_SCOPE_REQUIRED",
+    ),
+    "production.economics": (
+        "copytrade_pm.production_economics",
+        "python -m copytrade_pm.production_economics --help",
+        "research",
+        "READ_ONLY",
+        "MATCHED_PREDECLARED_NET_FOLLOWER_POLICY_TAPES_REQUIRED",
+    ),
     "wallet.inventory": (
         "copytrade_pm.wallet_registry_catalog",
         "copytrade-pm wallets list --cohort research-108",
@@ -159,6 +196,13 @@ NATIVE = {
         "paper",
         "READ_ONLY",
         "PM03_FINANCIAL_JOURNAL",
+    ),
+    "paper.identity_reseal_preview": (
+        "copytrade_pm.pm_forward_registry_identity",
+        "copytrade-pm-paper-registry-audit --prospective-reseal-preview --portfolio P1",
+        "paper",
+        "READ_ONLY",
+        "UNSIGNED_ASOF_ALIAS_MATCH_ONLY_NOT_PAPER_ADMISSION",
     ),
     "research.offline": (
         "copytrade_pm.pm_offline_job",
@@ -328,6 +372,10 @@ DOCS = {
     "historical": "docs/RUNBOOK.md",
 }
 REGISTRY_REQUIRED_ARGUMENTS = {
+    "native lock": ["--expected-inventory-sha SHA256"],
+    "native lock --apply": ["--expected-inventory-sha SHA256"],
+    "native register": ["--manifest PRIVATE_PATH", "--expected-inventory-sha SHA256"],
+    "native register --apply": ["--manifest PRIVATE_PATH", "--expected-inventory-sha SHA256"],
     "wallet --alias": ["--alias ALIAS"],
     "wallet --address": ["--address ADDRESS"],
     "cohort": ["NAME"],
@@ -498,7 +546,11 @@ def inventory(root: Path = ROOT) -> list[dict]:
                 "dependencies": [],
                 "required_arguments": NATIVE_REQUIRED_ARGUMENTS.get(cap),
                 "preflight": [],
-                "documentation": DOCS[family],
+                "documentation": (
+                    "docs/P1-P14-PROSPECTIVE-RESEAL-PREFLIGHT-20261106.md"
+                    if cap == "paper.identity_reseal_preview"
+                    else DOCS[family]
+                ),
                 "available": _module_available(module, root),
                 "limitations": [
                     "Consult owner contract; scientific and trading gates are separate"

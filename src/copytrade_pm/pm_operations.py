@@ -87,11 +87,18 @@ def _registry_query(db: Path, command: list[str]) -> object:
 
 
 def _generation(db: Path) -> dict:
+    """The live SQLite inventory hash, never the age of the legacy importer."""
     info = _registry_query(db, ["status"])
+    verified = registry.db_authority_health(db)
     return {
-        "status": info["freshness"],
-        "sha": info["generation"]["manifest_sha256"],
-        "observed_at": info["generation"]["observed_at"],
+        "status": "VERIFIED",
+        "sha": verified["inventory_sha256"],
+        "observed_at": (
+            info["generation"].get("sqlite_native_updated_at")
+            or info["generation"].get("legacy_import_locked_at")
+            or info["generation"].get("observed_at")
+        ),
+        "legacy_import_freshness": info["freshness"],
         "counts": info["counts"],
     }
 
@@ -170,7 +177,7 @@ def _read_registry(db: Path, command: list[str], capability: str, asof: str | No
             sha256=gen["sha"],
             source_observed_at=gen["observed_at"],
             limitations=[
-                "Indexed freshness is based on the stored generation clock; run doctor for live source parity",
+                "SQLite integrity is authoritative; the dated legacy import timestamp is not an inventory freshness gate",
                 "Registry identity/read success does not establish worker health or trading authority",
             ],
         )
@@ -259,7 +266,7 @@ def _wallets(db: Path, args: argparse.Namespace) -> dict:
             source_observed_at=generation["observed_at"],
             limitations=[
                 "Indexed wallet attributes are source snapshots, not real-time equity or first-known trade receipts",
-                "Run registry doctor separately for live source parity",
+                "Run registry doctor for SQLite integrity; live tracker freshness is independent",
             ],
         )
     except (ValueError, OSError, RuntimeError, sqlite3.Error, KeyError, TypeError) as exc:

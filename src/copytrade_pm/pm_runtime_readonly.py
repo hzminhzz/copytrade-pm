@@ -111,14 +111,38 @@ def paper_unit_inventory() -> dict:
             or x["load_state"] == "error"
             for x in records.values()
         )
-        state = "DEGRADED" if any_active or any_unknown else "NOT_RUNNING"
+        # Actual protected candidates are SYSTEM services, not user units.
+        # Never conclude NOT_RUNNING from the user manager alone.
+        from .pm_forward_release import read_only_protected_system_inventory
+
+        system = read_only_protected_system_inventory(runner=subprocess.run)
+        system_active = any(x["active_state"] == "active" for x in system["units"])
+        system_unavailable = bool(system["unavailable"])
+        system_unknown = any(
+            x["active_state"] in ("failed", "activating", "deactivating")
+            or x["load_state"] == "error"
+            for x in system["units"]
+        )
+        state = (
+            "UNKNOWN"
+            if system_unavailable
+            else "DEGRADED"
+            if any_active or any_unknown or system_active or system_unknown
+            else "NOT_RUNNING"
+        )
         return {
             "state": state,
             "units": records,
-            "scope": "THREE_KNOWN_PROTECTED_PAPER_UNITS_ONLY",
+            "system_units": system["units"],
+            "system_unit_inventory": system["status"],
+            "scope": "USER_AND_SYSTEM_KNOWN_PROTECTED_UNIT_NAMES",
             "protected_worker_attested": False,
-            "reason": "ACTIVE_UNIT_REQUIRES_INDEPENDENT_JOURNAL_AND_HEARTBEAT"
-            if any_active
+            "reason": "SYSTEM_PROTECTED_UNIT_INVENTORY_INCOMPLETE"
+            if system_unavailable
+            else "ACTIVE_UNIT_REQUIRES_INDEPENDENT_JOURNAL_AND_HEARTBEAT"
+            if any_active or system_active
+            else "SYSTEMD_SERVICE_STATE_REQUIRES_ATTENTION"
+            if any_unknown or system_unknown
             else "NO_ACTIVE_KNOWN_PROTECTED_PAPER_UNITS",
         }
     except ValueError, OSError, subprocess.TimeoutExpired:

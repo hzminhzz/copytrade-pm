@@ -1,5 +1,9 @@
 # Architecture: evidence, manager governance, shadow account
 
+## Default sizing boundary (owner decision, 2026-11-06)
+
+New copytrading work uses [NAV-free selected-account fixed-k sizing](RISK-BUDGETED-K-SIZING-20261106.md): `k * native source position quantity * source mark` as target notional, converted at the independent follower quote and bounded against actual **follower** equity, market capacity, pod loss, drawdown, pending orders and Guardian finance. Source whole-wallet NAV and unrelated subaccounts are optional diagnostics, not blockers. Historical equity-normalized E0/fidelity contracts remain strict opt-in and unchanged; do not falsely claim source-equity replication for fixed-k. Source/market first-known, selected account identity, full position scope and independent broker admission remain required.
+
 ## Continuous public observation
 
 [The continuous observer contract](FORWARD-PAPER-CONTINUOUS-OBSERVER.md) adds lifecycle orchestration and additive stream checkpoints to existing source, CCXT and public-trade owners. `PaperJournal` remains the single receipt authority; atomic checkpoint hooks preserve old SHA-linked bytes. A bounded serialized writer publishes in-memory state only after commit. Parent/child identities and dynamic hedge requirements remain explicit. Independent health verifies current feeds while preserving historical gaps and negative financial status. No financial accounting owner or default five-minute policy changes.
@@ -7,6 +11,17 @@
 ## Public market-wide trade stream and UTC planning (2026-11-05)
 
 [The forward public-trade contract](FORWARD-PAPER-PUBLIC-TRADES-20261105.md) adds a read-only market-wide buyer/seller filter to `pm_forward_public_trades` using the SQLite-sealed portfolio registry. A separate additive journal tape stores first-known wallet fills, durable commit clocks, disconnect gaps, five-minute UTC net-delta observations, and as-of public quotes. All are provisional; `PM03/PM04` remain the only financial accounting/target authorities. The existing rolling `ForwardBatch` contract is unchanged by default, with opt-in UTC close or UTC close-plus-five-minute policies. The new source code does not create `PAPER_RUNNING` or execute a financial event.
+
+## Protected standby operational boundary (2026-11-05)
+
+[The guarded standby/watchdog candidate](FORWARD-PAPER-PROTECTED-OPS-STAGING-20261105.md)
+adds self-PID SHA heartbeats, a separate watchdog with a persistent HALT latch,
+and system-level unit definitions pinned to a source SHA. It contains **no
+financial execution interface** and must not be confused with the existing
+PM-03/04 journal, public observer or protected paper admission. Installation
+requires root-managed identities and a root-owned release. Inspect the OS and
+pinned deployment evidence before claiming installation; the component reports
+standby and cannot establish protected financial execution.
 
 ## Public observer service boundary (2026-11-05)
 
@@ -84,6 +99,10 @@ registered only in SQLite remain included but carry `UNVERIFIED_IMPORT_LABEL`
 provenance until independently documented. PM-03 finance, first-known source
 NAV, source/market receipts, protected paper workers and trading authorization
 remain separately attested authorities, not columns in the registry.
+
+## SQLite-native operational authority (owner approved 2026-11-05)
+
+Following merged PR #111, owner-private SQLite is the canonical current wallet and research-portfolio metadata registry; `doctor` validates SQLite content and checksum without importing historical CSVs. The `native lock` operation fences legacy source writes with a verified online backup and database triggers. `native register` appends versioned research cohorts and alias evidence without changing live tracker subscriptions. Legacy CSV/JSON/Markdown remains historical provenance. No separate database is created; paper journals, source books, broker orders, research Parquet/DuckDB, independently signed qualification and risk authorization retain their own authority. See [the cutover contract](SQLITE-NATIVE-LEGACY-LOCK-20261105.md).
 
 ## Private registry boundary (2026-11-04, partial implementation)
 

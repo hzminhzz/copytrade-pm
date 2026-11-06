@@ -1,4 +1,6 @@
-# Equity-normalized wallet exposure — authoritative research sizing (2026-11-02)
+# Equity-normalized wallet exposure — historical fidelity sizing (2026-11-02)
+
+**Owner policy update 2026-11-06:** The owner adopted [risk-budgeted fixed-k](RISK-BUDGETED-K-SIZING-20261106.md) as the **default** for new copytrading research and execution. This 2026-11-02 source-NAV formula remains the strict, optional **leader-equity-relative fidelity** contract, **not** a universal source NAV prerequisite or a veto over fixed-k work. Existing historical results are preserved; do not recast their outcomes as fixed-k results.
 
 ## Decision
 

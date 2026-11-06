@@ -397,6 +397,66 @@ def test_supervisor_marks_partial_channels_degraded_but_stays_no_trade():
     asyncio.run(run())
 
 
+def test_observer_service_reports_gap_classes_without_leaking_wallets_or_errors():
+    async def run():
+        stop = asyncio.Event()
+        outputs = []
+
+        async def capture():
+            return {
+                "status": "BLOCKED_NO_TRADE",
+                "order_route": "NONE",
+                "native_inventory": {"observed_native_market_count": 24},
+                "source_capture_gaps": [
+                    {
+                        "member": "PRIVATE_WALLET_ALIAS",
+                        "reason": "NO_ACCOUNT_BOOK_RECEIPT_THIS_EPOCH",
+                    },
+                    {
+                        "member": "PRIVATE_WALLET_ALIAS",
+                        "reason": "SOURCE_CAPTURE_ERRORS_THIS_EPOCH",
+                    },
+                    {"member": "PRIVATE_WALLET_ALIAS", "reason": "PRIVATE_INTERNAL_REASON"},
+                ],
+                "market_shards": [
+                    {"status": "DEGRADED", "stream_failures": {"SECRET_SYMBOL": ["private"]}},
+                    {"status": "BOUNDED_CAPTURE_ENDED", "stream_failures": {}},
+                ],
+                "market_failures": [{"reason": "ConnectionError:/private/secret/source-root"}],
+            }
+
+        def record(row):
+            outputs.append(row)
+            stop.set()
+
+        await run_readonly_observer_service(
+            run_cycle=capture,
+            pause_seconds=30,
+            stop=stop,
+            report=record,
+        )
+        assert len(outputs) == 1
+        report = outputs[0]
+        assert report["status"] == "DEGRADED_OBSERVER_EVIDENCE"
+        assert report["capture_gaps"] == 5
+        assert report["capture_gap_breakdown"] == {
+            "source_book_missing": 1,
+            "source_capture_error": 1,
+            "source_other_gap": 1,
+            "market_shard_degraded": 1,
+            "market_unhandled_failure": 1,
+        }
+        assert report["financial_events_committed"] == 0
+        assert report["order_route"] == "NONE"
+        serialized = json.dumps(report)
+        assert "PRIVATE_WALLET_ALIAS" not in serialized
+        assert "SECRET_SYMBOL" not in serialized
+        assert "/private/secret" not in serialized
+        assert "PRIVATE_INTERNAL_REASON" not in serialized
+
+    asyncio.run(run())
+
+
 def test_observer_idle_heartbeat_refresh_does_not_claim_new_captures():
     async def run():
         stop = asyncio.Event()

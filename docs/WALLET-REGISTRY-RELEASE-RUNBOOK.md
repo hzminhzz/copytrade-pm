@@ -1,8 +1,22 @@
-# Registry-only read-only release and rollback — 2026-11-04
+# Registry-only read-only release and rollback
 
 **Scope:** controlled, owner-approved activation of the standalone SQLite **metadata** registry. No timer, no new daemon, no broker/order route, and no restart or mutation of the production tracker, ensemble, source-ABC or forward-paper workers. The registry database already exists independently at `/home/quant/.local/share/copytrade/registry/wallet_registry.sqlite`; this release mechanism pins and activates a *read-only on-demand consumer*, not a financial or source-observation authority.
 
-## 2026-11-05 authority correction
+## Selection provenance and read-only release compatibility
+
+Doctor exit 2 is accepted by the release controller only when physical SQLite
+integrity is VERIFIED, the inventory SHA is valid, selection integrity is exactly
+BLOCKED_MISSING_EXTERNAL_PROOF, and science/trading remain false. This permits a
+reviewed metadata reader to diagnose the unresolved selection. It does not admit
+that selection to an observer or financial worker, supply an external signature,
+rewrite frozen identities or mutate the database. Other doctor failures abort.
+
+Before rollback, verify the named target against the current database and its
+recorded source hashes. The previous release may be incompatible; directory age
+is not proof of a usable rollback. Preserve the active compatible reader and use
+explicit pointer deactivation if no compatible rollback target exists.
+
+## Historical 2026-11-05 authority correction
 
 The authoritative source for **metadata inventory** is the owner-private SQLite
 file, not legacy CSV/Markdown. The release preflight checks `doctor`
@@ -22,11 +36,15 @@ leaving the database, tracked service units and staged release untouched, then
 re-activate a reviewed compatible release. Deactivation is not a successful
 rollback to an incompatible old binary.
 
+## Native SQLite owner-lock compatibility
+
+The owner-approved [SQLite-native lock contract](SQLITE-NATIVE-LEGACY-LOCK-20261105.md) adds explicit, backed-up `native lock` activation and protected `native register` cohort writes. This does not create a new database or alternative read authority: PR #111 already made SQLite canonical for wallet inventory and selection. Verify a pinned release built with `wallet_registry_native.py` before executing the lock. Legacy imports may continue as *read-only historical diagnostics*; automatic `sync --apply` is blocked after the lock. Keep the old release pointer and online backup until independent code and DB verification pass. Code-pointer rollback must not assume old importer write compatibility.
+
 ## Preconditions
 
 **Mandatory for future agents:** follow [the registry-first read and evidence workflow](WALLET-REGISTRY-AGENT-WORKFLOW.md). Git `main`, private SQLite generation and **installed pinned revision** are distinct. Never assume a code merge activated an upgrade. The current checked source-only safety fix PR #91 at `e5d9933` prevents future retroactive frozen membership writes; the observed installed release at this dated checkpoint was `5d7b4d7`. Existing historical DB backfills require separately reviewed recovery, not silent pointer movement.
 
-1. Use the **clean reviewed Git feature branch** in a DevSpace worktree, not a dirty `main` checkout. Inspect GitHub CI and release commit. Stop on unexpected non-Git source drift.
+1. Use the **clean reviewed Git feature branch** in a DevSpace worktree, not a dirty `main` checkout. Inspect the approved release commit, commit-bound local evidence and actual GitHub protections; hosted Actions is optional. Stop on unexpected non-Git source drift.
 2. Run the full core and optional native-market test suites, Ruff, formatting, `uv build`, the original PM-02 36-wallet frozen parity regression, source/ledger doctor and local [docs reference audit](WALLET-REGISTRY-ACCEPTANCE-20261104.md).
 3. Capture service names, active state and MainPID for `copytrade-tracker.service`, `copytrade-ensemble.service`, `copytrade-source-abc.service`. Their source/financial DBs are explicitly out of scope.
 4. The `doctor` must show `authority=SQLITE`, `database_integrity=VERIFIED`, a 64-digit `inventory_sha256` and a supported schema. The legacy source SHA/import clock is *diagnostic* rather than a deployment gate. An observed 2026-11-04 newer cut had 158 research, 22 excluded, 264 configured/subscribed and 11 sealed definitions (source manifest `e2836aab5ef6ef79306e9dfe732d8768c3b1ca6af29efbda066b37f03646a18f`). Older 215/150/seven values were a distinct historical cut. If actual counts/SHAs drift, stop and review the new source generation before any activation.

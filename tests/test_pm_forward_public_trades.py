@@ -784,53 +784,66 @@ def test_five_shard_wallet_buy_sell_captured_for_all_40_and_no_paper_execution(
 
 
 def test_registry_only_sealed_resolves_and_exclusions_fail_closed(tmp_path):
+    from pathlib import Path
+
+    from copytrade_pm import wallet_registry as registry_owner
+    from copytrade_pm import wallet_registry_portfolios as contracts
+
     registry = tmp_path / "registry.sqlite3"
-    conn = sqlite3.connect(registry)
-    conn.executescript("""
-        CREATE TABLE wallets(wallet_id INTEGER PRIMARY KEY,venue TEXT,network TEXT,address TEXT);
-        CREATE TABLE portfolio_versions(
-            portfolio_id TEXT,version INTEGER,status TEXT,source_doc TEXT,
-            sizing_contract TEXT,PRIMARY KEY(portfolio_id,version)
-        );
-        CREATE TABLE portfolio_memberships(
-            portfolio_id TEXT,version INTEGER,member_alias TEXT,wallet_id INTEGER
-        );
-        CREATE TABLE portfolio_seals(
-            portfolio_id TEXT,version INTEGER,definition_sha256 TEXT,
-            doc_sha256 TEXT,source_revision TEXT,selection_known_at TEXT
-        );
-        CREATE TABLE exclusions(wallet_id INTEGER,reason TEXT);
-    """)
-    conn.execute("INSERT INTO wallets VALUES (1,'hyperliquid','mainnet',?)", (BUYER,))
-    conn.execute(
-        "INSERT INTO portfolio_versions VALUES ('test/E6',1,'FROZEN','src.md','whole_book')"
-    )
-    conn.execute("INSERT INTO portfolio_memberships VALUES ('test/E6',1,'W1',1)")
-    params = {
-        "schema": "wallet_portfolio_definition_v1",
-        "portfolio_id": "test/E6",
-        "aliases": ["W1"],
-        "source_commit": "sha",
-        "source_doc_sha256": "a" * 64,
-        "selection_known_at": known(0),
-        "status": "FROZEN",
-        "sizing_contract": "whole_book",
-        "source_identity_proven": False,
-        "order_route": "NONE",
-    }
-    conn.execute(
-        "INSERT INTO portfolio_seals VALUES (?,?,?,?,?,?)",
-        ("test/E6", 1, digest(params), "a" * 64, "sha", known(0)),
-    )
-    conn.commit()
-    conn.close()
-    assert registry_watched_addresses(registry, ("test/E6",), as_of=known(301)) == {
-        BUYER: "wallet:1"
+    definition = contracts.read_decisions(
+        Path(__file__).resolve().parents[1], registry_owner.PORTFOLIOS, observed_at=known(301)
+    )["P1"]
+    payload = definition["payload"]
+    with closing(sqlite3.connect(registry)) as conn, conn:
+        conn.executescript("""
+            CREATE TABLE wallets(wallet_id INTEGER PRIMARY KEY,venue TEXT,network TEXT,address TEXT);
+            CREATE TABLE wallet_aliases(alias TEXT,wallet_id INTEGER,known_at TEXT);
+            CREATE TABLE portfolio_versions(
+                portfolio_id TEXT,version INTEGER,status TEXT,source_doc TEXT,
+                sizing_contract TEXT,PRIMARY KEY(portfolio_id,version)
+            );
+            CREATE TABLE portfolio_memberships(
+                portfolio_id TEXT,version INTEGER,member_alias TEXT,wallet_id INTEGER
+            );
+            CREATE TABLE portfolio_seals(
+                portfolio_id TEXT,version INTEGER,definition_sha256 TEXT,
+                doc_sha256 TEXT,source_revision TEXT,selection_known_at TEXT
+            );
+            CREATE TABLE exclusions(wallet_id INTEGER,reason TEXT);
+        """)
+        for ident, (alias, address) in enumerate(
+            zip(payload["aliases"], (BUYER, SELLER, OUTSIDER), strict=True), start=1
+        ):
+            conn.execute(
+                "INSERT INTO wallets VALUES (?,'hyperliquid','mainnet',?)", (ident, address)
+            )
+            conn.execute("INSERT INTO portfolio_memberships VALUES ('P1',1,?,?)", (alias, ident))
+            conn.execute("INSERT INTO wallet_aliases VALUES (?,?,?)", (alias, ident, known(0)))
+        conn.execute(
+            "INSERT INTO portfolio_versions VALUES ('P1',1,?,?,?)",
+            (payload["status"], contracts.DECISIONS["P1"]["path"], payload["sizing_contract"]),
+        )
+        conn.execute(
+            "INSERT INTO portfolio_seals VALUES ('P1',1,?,?,?,?)",
+            (
+                definition["definition_sha256"],
+                payload["source_doc_sha256"],
+                payload["source_commit"],
+                payload["selection_known_at"],
+            ),
+        )
+    # Even populated frozen IDs cannot establish alias identity before it was known.
+    with pytest.raises(ValueError, match="IDENTITY_UNRESOLVED"):
+        registry_watched_addresses(registry, ("P1",), as_of=known(-1))
+    assert registry_watched_addresses(registry, ("P1",), as_of=known(301)) == {
+        BUYER: "wallet:1",
+        SELLER: "wallet:2",
+        OUTSIDER: "wallet:3",
     }
     with closing(sqlite3.connect(registry)) as db, db:
         db.execute("INSERT INTO exclusions VALUES (1,'BLOCKED')")
     with pytest.raises(ValueError, match="EXCLUDED"):
-        registry_watched_addresses(registry, ("test/E6",), as_of=known(301))
+        registry_watched_addresses(registry, ("P1",), as_of=known(301))
 
 
 def test_public_wallet_receipts_survive_verified_backup(tmp_path, monkeypatch):

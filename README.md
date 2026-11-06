@@ -1,62 +1,82 @@
 # copytrade-pm
 
-**Black-box wallet portfolio-manager research and prop-firm challenge preparation.** PM-01 and PM-02 are extracted from `hyperliquid-expert-ensemble` as a separate, auditable Python package. PM-03 implements a **shadow-only, deterministic consolidated account and risk supervisor**, developed in [Issue #2](https://github.com/hzminhzz/copytrade-pm/issues/2) and documented in [PM-03 architecture and contract register](docs/PM-03-shadow-account.md). This is NOT a real Propr account, an approved automation system, or scientifically qualified wallet selection.
+Research, public observation and deterministic shadow accounting for wallet
+copytrading. This package does not hold broker credentials, submit real orders
+or authorize trading.
 
-This repository is **shadow-only**: no trading credentials, no broker integration, no live orders or live risk promotion.
+Start with [the handbook](docs/INDEX.md), then the owning source module and its
+behavioral tests. [AGENTS.md](AGENTS.md) defines the direct execution workflow.
+Dated studies retain their original assumptions and evidence; inspect live Git,
+SQLite and deployments before claiming current state.
 
-**Start here: [copytrade-pm handbook](docs/INDEX.md).** It is the canonical map from [wallet fill acquisition](docs/DATA-ACQUISITION.md) through [source/PM architecture](docs/ARCHITECTURE.md), [step-by-step research commands](docs/RUNBOOK.md) and [scientific qualification gates](docs/QUALIFICATION.md). The older PM-01/PM-02 reports are dated research records, not current operating instructions.
+## System ownership
 
-## System roles
+| Repository / authority | Responsibility |
+| --- | --- |
+| copytrade-pm | Private wallet/portfolio metadata, source evidence, research, public observation, PM-03/PM-04 shadow simulation |
+| trading-connector | Independent provider transports, normalization and optional ML4T bridges |
+| prop-production | Guardian follower finance, risk permits, durable production intents and SHADOW services |
+| Private source records and financial journals | Actual observations and account state; never inferred from Git |
+| Deployment metadata | Installed revision and verified contract pins; may intentionally differ from development HEAD |
 
-- **PM-01:** reconstruct observable whole-wallet portfolios from sealed historical fills and independent first-known observations; replay hypothetical followers with exact Hyperliquid instrument identity, latency, funding, fees, market-only comparators, missing-data guards and explicit coverage status.
-- **PM-02:** immutable manager evidence cards, independence diagnostics, conservative hypothetical risk-budget proposals, historical/prospective separation and lifecycle research decisions. The [sealed local receipt-to-outcome adapter](docs/PM-01-prospective-ledger.md) is an opt-in evidence input to the PM-02 CLI; unreviewed WS/REST receipts are never automatically qualified.
-- **PM-03 (engineering research):** one Decimal-based deterministic shadow account simulator, exact instrument/PM target netting and virtual internal crosses, modeled capacity/fees/partial fills, dated public Propr rulebook with contract fail-closed defaults, central graded risk authority, immutable replay-first event memory, and three-policy identical-path synthetic stress comparisons. Never assume research fills are Propr fills. [PM-03 design and reproducibility](docs/PM-03-shadow-account.md).
+The source baseline is reviewed GitHub `main`. Fetch before comparison; preserve
+dirty primary checkouts and other sessions. Use a clean isolated checkout for
+verification. The three-repository compatibility pins are owned by
+`prop-production/src/prop_production/compatibility.json`; its local acceptance
+runner records the containing application commit and companion revisions.
 
-## Quickstart
+## Sizing and evidence
 
-Requires Python 3.14 and [uv](https://docs.astral.sh/uv/).
+The default is **FIXED_K_NATIVE_QUANTITY**: signed k × selected leader native
+position quantity × source mark gives target notional, converted at an independent
+follower quote. Leader NAV is optional. Follower equity, selected source scope,
+causal receipts, reconciliation, market evidence and risk remain mandatory.
+
+Explicit `ALLOCATION_OVER_LIVE_NAV` retains its legacy leader-NAV requirement.
+See [sizing policy](docs/RISK-BUDGETED-K-SIZING-20261106.md),
+[production handoff](docs/PRODUCTION-HANDOFF.md) and
+[scientific qualification](docs/QUALIFICATION.md).
+Synthetic tests, retrospective vendor PnL and public heartbeats do not establish
+executable follower economics or trading permission.
+
+## Quickstart and local verification
+
+Requires Python 3.14 and uv. Commands below use synthetic/offline test inputs.
 
 ```bash
-uv sync --group dev
-uv run --group dev python -m pytest -q tests
-uv run --group dev ruff check src tests
-uv run --group dev python -m copytrade_pm.pm_fill_replay --help
-uv run --group dev python -m copytrade_pm.pm_manager --help
-uv run --group dev python -m copytrade_pm.pm_handoff --help
-uv run --group dev python -m copytrade_pm.pm03_cli --help
-uv run --group dev python -m copytrade_pm.pm_prospective_cli --help
+uv run --frozen --group dev pytest -q tests
+uv run --frozen --all-extras --group dev pytest -q tests
+uv run --frozen --all-extras --group dev ruff check src tests
+uv run --frozen --all-extras --group dev ruff format --check src tests
+uv build --no-sources
+uv run --frozen --all-extras --group dev copytrade-pm capabilities validate
 ```
 
-The committed **GitHub Actions CI** workflow runs these tests, Ruff lint/format and wheel build with core and market-extra dependencies on every PR into `main`. Consult [live GitHub checks](https://github.com/hzminhzz/copytrade-pm/actions) and the dated verification record in the [handbook](docs/INDEX.md); do not treat old test counts in imported plans as current suite results.
+GitHub Actions is optional for this program. Respect actual branch protections
+and record clean commit-bound local results. Cross-repository acceptance uses
+`bash scripts/verify-local.sh all` in prop-production with the pinned companion
+checkouts. Passing tests proves engineering behavior, not economic qualification.
 
-Native Hyperliquid 1-minute Parquet and vendor-data research uses the optional Polars/Pandas extra:
+For wallet/portfolio questions, follow the
+[registry-first workflow](docs/WALLET-REGISTRY-AGENT-WORKFLOW.md).
+Run `doctor`, `status`, `native status` and installed-release verification.
+A physically valid SQLite database can still contain a blocked unsigned research
+selection. Preserve that distinction and never rewrite history to make it pass.
 
-```bash
-uv run --extra market --group dev python -m pytest -q tests
-```
+For source acquisition and bounded public observation, follow
+[DATA-ACQUISITION](docs/DATA-ACQUISITION.md) and
+[the continuous observer runbook](docs/FORWARD-PAPER-CONTINUOUS-OBSERVER.md).
+For private registry release and recovery use
+[the release runbook](docs/WALLET-REGISTRY-RELEASE-RUNBOOK.md).
 
-CLI entry points: `copytrade-pm-replay`, `copytrade-pm-rank`, `copytrade-pm-scope`, `copytrade-pm-market-audit`, `copytrade-pm-handoff`, `copytrade-pm-research`, **`copytrade-pm-shadow`**, and **`copytrade-pm-receipts`** (offline evidence-only).
+## Historical contracts
 
-Synthetic example, with a content-addressed owner-private report:
+PM-01 reconstructs sealed historical source books and hypothetical followers.
+PM-02 owns manager evidence and research governance. PM-03/PM-04 own this
+repository's deterministic shadow accounting and target policy contracts.
+Preserve the original frozen 36-wallet PM-01 cohort and replay-v2 interface;
+new cohorts do not silently alter historical evidence.
 
-```bash
-uv run --group dev copytrade-pm-shadow --input examples/pm03_synthetic.json --output-dir /tmp/copytrade-pm03-shadow-demo
-```
-
-No credentials or API connectivity are used by the PM-03 CLI.
-
-The source research artifacts and private data remain under their existing VPS owner-private paths. Supply paths explicitly to the CLI, never commit data or credentials. For exact verified paths, which tools call a vendor and which remain offline, see the [data-acquisition guide](docs/DATA-ACQUISITION.md). Imported historical documentation under `docs/PM-*.md` records source-era results; current commands use `copytrade_pm` rather than `ensemble`.
-
-## Scientific status
-
-- 36 historical source wallets (6 original + 10 Wave 1 + 20 Wave 2).
-- Four shortlisted wallets passed a **90% Propr-native 1m market-day data gate**, not a profitable follower or full-book execution gate.
-- **Zero scientifically qualified manager seats**. PM-02's real-data research recommendation remains five EMPTY seats and zero actionable R.
-- Historical HyperX fill times are not first-known follower signals. Source account completeness, execution capacity, Propr market identity and contractual compliance remain unresolved.
-- Synthetic PM-03 scenarios are implemented for accounting, stress and policy research; they **must never** be advertised as real challenge pass probabilities. Verified public Propr defaults do not establish account-specific trading authorization or guaranteed broker fills.
-
-## Evidence and Git history
-
-The imported code retains a **12-commit filtered PM-only Git ancestry**, merged with the destination's initialization history. See [migration provenance](docs/PROVENANCE.md) and [original PM integration PR #8](https://github.com/hzminhzz/hyperliquid-expert-ensemble/pull/8). Git was filtered by *paths*; original commit IDs changed, and the mapping is documented. No original runtime, Telegram, deployment files, untracked research or secret data was imported.
-
-The legacy ensemble advisory service remains owned and deployed independently by `hyperliquid-expert-ensemble`.
+The filtered 12-commit PM-only source ancestry is documented in
+[PROVENANCE](docs/PROVENANCE.md). The legacy ensemble service remains owned and
+deployed independently by hyperliquid-expert-ensemble.
