@@ -1,5 +1,7 @@
 # Forward-paper real-input readiness and cost stress — 2026-11-04
 
+**Policy update 2026-11-06 (supersedes NAV veto, not this historical audit):** [Approved fixed-k policy](RISK-BUDGETED-K-SIZING-20261106.md) makes missing **leader** whole-account NAV a diagnostic, not an admission blocker. The CLI now defaults to `FIXED_K_NATIVE_QUANTITY` (selected parent perps only); use `--sizing-policy ALLOCATION_OVER_LIVE_NAV` to reproduce this report's historical whole-wallet NAV/fidelity blockers. P1/P14 remain `BLOCKED_NO_TRADE` for unresolved pinned identities, stale/incomplete independent source/market observations, protected paper worker and risk/financial authorization. Historical table below remains a dated observation, not the current policy.
+
 **Decision: BLOCKED_NO_TRADE for P1 and P14.** This report is based on bounded, true first-local public observations. It is *not* a paper trade, a backtest, a production service, or scientific qualification.
 
 ## Point-in-time audit correction (2026-11-06; code awaiting separate release)

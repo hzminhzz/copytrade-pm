@@ -1,5 +1,7 @@
 # Wallet data acquisition and provenance
 
+**Superseding owner decision, 2026-11-06:** [Fixed-k source-NAV-optional sizing](RISK-BUDGETED-K-SIZING-20261106.md) is the default for new copytrading work. The copied **selected perp position scope** and causal receipt integrity are mandatory; leader whole-account equity, unified collateral and unrelated subaccount NAV are **not** required for fixed-k. The official feed remains the positional source; collateral diagnostics remain useful but do not veto fixed-k. Existing equity-relative fidelity studies stay strict and opt-in.
+
 ## Persistent prospective acquisition
 
 Use [the continuous observer contract](FORWARD-PAPER-CONTINUOUS-OBSERVER.md) for native full-state replacement validation, excluded connection baselines, raw local receipt timestamps, exact DEX identity, rolling CCXT cache recovery and independent official fill comparisons. Recovery is recorded at its actual later availability and cannot become earlier forward evidence. SQLite receipts and checkpoints commit together. Retain partial evidence with null unverified NAV; do not waive selection, exclusion, sizing or admission gates.

@@ -1,5 +1,9 @@
 # Research operator runbook — verified CLI sequence
 
+## Binding source-sizing policy (2026-11-06)
+
+**Default:** `FIXED_K_NATIVE_QUANTITY`, selected-account position scope; no leader whole-account NAV requirement. Use `copytrade-pm-paper-readiness --sizing-policy FIXED_K_NATIVE_QUANTITY` for P1/P14 read-only readiness; this does **not** admit trading. Legacy equity-normalized studies require the opt-in `--sizing-policy ALLOCATION_OVER_LIVE_NAV`. Never stop fixed-k progress for missing leader NAV. Keep canonical identities, first-local clocks, selected positions, verified follower equity, risk and protected execution gates. See [full decision and safety checklist](RISK-BUDGETED-K-SIZING-20261106.md).
+
 ## Continuous public observer operations
 
 [The continuous observer runbook](FORWARD-PAPER-CONTINUOUS-OBSERVER.md) defines the tested preflight/capture/health/shadow-report commands, private state, shared-IP budgeting, restart and backup procedure, independent watchdog history and uninstalled unit templates. [The dated program evidence](PERSISTENT-OBSERVER-IMPLEMENTATION-20261106.md) records actual status. A bounded canary is not the 72-hour shadow. Public cutover retains its separate operator authorization and trusted-release gate.

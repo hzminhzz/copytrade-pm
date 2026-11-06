@@ -1,5 +1,9 @@
 # Architecture: evidence, manager governance, shadow account
 
+## Default sizing boundary (owner decision, 2026-11-06)
+
+New copytrading work uses [NAV-free selected-account fixed-k sizing](RISK-BUDGETED-K-SIZING-20261106.md): `k * native source position quantity`, bounded against actual **follower** equity, market capacity, pod loss, drawdown, pending orders and Guardian finance. Source whole-wallet NAV and unrelated subaccounts are optional diagnostics, not blockers. Historical equity-normalized E0/fidelity contracts remain strict opt-in and unchanged; do not falsely claim source-equity replication for fixed-k. Source/market first-known, selected account identity, full position scope and independent broker admission remain required.
+
 ## Continuous public observation
 
 [The continuous observer contract](FORWARD-PAPER-CONTINUOUS-OBSERVER.md) adds lifecycle orchestration and additive stream checkpoints to existing source, CCXT and public-trade owners. `PaperJournal` remains the single receipt authority; atomic checkpoint hooks preserve old SHA-linked bytes. A bounded serialized writer publishes in-memory state only after commit. Parent/child identities and dynamic hedge requirements remain explicit. Independent health verifies current feeds while preserving historical gaps and negative financial status. No financial accounting owner or default five-minute policy changes.
