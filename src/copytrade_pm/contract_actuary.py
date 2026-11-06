@@ -99,6 +99,11 @@ def simulate(
     funded_age = np.zeros(paths, dtype=np.int16)
     eval_age = np.zeros(paths, dtype=np.int16)
     funded_day_open = np.zeros(paths, dtype=np.float64)
+    evaluation_breached = np.zeros(paths, dtype=bool)
+    evaluation_timed_out = np.zeros(paths, dtype=bool)
+    evaluation_pass_time = np.full(paths, np.nan)
+    daily_peak = np.zeros(paths, dtype=np.float64)
+    evaluation_made = np.zeros(paths, dtype=np.float64)
     max_days = evaluation_days * len(contract.targets) + funded_days
     sigma_step = daily_sigma / np.sqrt(steps_per_day)
     mu_step = (daily_mu - daily_cost) / steps_per_day
@@ -107,6 +112,7 @@ def simulate(
         promoted_today = np.zeros(paths, dtype=bool)
         # At midnight, new daily equity baseline; no stale daily PnL.
         daily_base[active] = equity[active]
+        daily_peak[active] = equity[active]
         funded_day_open[active & funded] = equity[active & funded]
         for step in range(steps_per_day):
             if not active.any():
@@ -121,6 +127,9 @@ def simulate(
             equity[active] += size * (mu_step + sigma_step * z[active])
             challenge = active & ~funded
             funded_now = active & funded
+            daily_peak[challenge] = np.maximum(daily_peak[challenge], equity[challenge])
+            evaluation_made[challenge] = np.maximum(
+                evaluation_made[challenge], daily_peak[challenge] - equity[challenge])
             # Continuous HWM is updated each monitoring step; EOD HWM only
             # ratchets after the final step. No intrabar Brownian bridge.
             update_hwm = step == steps_per_day - 1
@@ -141,6 +150,7 @@ def simulate(
             )
             floor = np.maximum(hwm - trailing, daily_base - daily_limit)
             hit = active & (equity <= floor)
+            evaluation_breached |= hit & ~funded
             ruined_before_payout |= hit & (paid_count == 0)
             ruined |= hit
             active[hit] = False
@@ -156,7 +166,9 @@ def simulate(
                 equity[hit_target] = 0
                 hwm[hit_target] = 0
                 daily_base[hit_target] = 0
+                daily_peak[hit_target] = 0
                 promotes = hit_target & (phase >= len(contract.targets))
+                evaluation_pass_time[promotes] = day + (step + 1) / steps_per_day
                 funded[promotes] = True
                 promoted_today[promotes] = True
                 funded_age[promotes] = 0
@@ -167,6 +179,7 @@ def simulate(
         in_eval = active & ~funded
         eval_age[in_eval] += 1
         expired_eval = in_eval & (eval_age >= evaluation_days)
+        evaluation_timed_out |= expired_eval
         expired_before_payout |= expired_eval & (paid_count == 0)
         active[expired_eval] = False
         # The UTC day of promotion is partial; never grant a qualifying
@@ -223,6 +236,16 @@ def simulate(
         "paths": paths,
         "seed": seed,
         "funded_probability": float(funded_probability),
+        "evaluation_pass_probability": float(np.isfinite(evaluation_pass_time).mean()),
+        "evaluation_breach_before_pass_probability": float(evaluation_breached.mean()),
+        "evaluation_timeout_probability": float(evaluation_timed_out.mean()),
+        "conditional_pass_time_days": float(np.nanmean(evaluation_pass_time))
+        if np.isfinite(evaluation_pass_time).any() else None,
+        "conditional_pass_time_standard_error": float(
+            np.nanstd(evaluation_pass_time, ddof=1) / np.sqrt(np.isfinite(evaluation_pass_time).sum()))
+        if np.isfinite(evaluation_pass_time).sum() > 1 else None,
+        "maximum_daily_adverse_excursion": float(evaluation_made.max()),
+        "made_95th_percentile": float(np.quantile(evaluation_made, 0.95)),
         "first_payout_probability": float(first_payout_probability),
         "ruin_before_first_payout": float(ruined_before_payout.mean()),
         "evaluation_expired_before_first_payout": float(expired_before_payout.mean()),

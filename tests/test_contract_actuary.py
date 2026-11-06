@@ -138,6 +138,16 @@ def test_phase_specific_sizing_is_applied() -> None:
         simulate(contract, phase_bet_sizes=(1,))
 
 
+def test_stage_reset_does_not_count_as_daily_market_loss() -> None:
+    contract = Contract("two-stage", 1, (10, 100), 1000, 1000, 1000, None, False)
+    result = simulate(
+        contract, paths=1, daily_sigma=0, daily_mu=20,
+        evaluation_days=1, funded_days=1, steps_per_day=4,
+    )
+    assert result["maximum_daily_adverse_excursion"] == 0
+    assert result["made_95th_percentile"] == 0
+
+
 def test_same_seed_reproduces_all_statistics() -> None:
     a = simulate(CONTRACTS[1], paths=400, evaluation_days=20, funded_days=20, seed=3)
     b = simulate(CONTRACTS[1], paths=400, evaluation_days=20, funded_days=20, seed=3)
