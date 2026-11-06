@@ -11,6 +11,7 @@ financial worker, change a frozen portfolio, or submit orders.
 | --- | --- |
 | Registry and frozen membership | Existing SQLite registry doctor, sealed portfolios and exclusions |
 | Candidate preflight | `copytrade-pm-paper-observe --continuous-config CONFIG --preflight-only` |
+| Independent blocker report | Same command with `--diagnose-preflight` (read-only, never admits startup) |
 | Persistent capture | Same command without `--preflight-only` |
 | Independent current health | `copytrade-pm-paper-observer-health --continuous --state-root ROOT` |
 | Independent continuous witness | Same health command with `--watch --expected-revision SHA` |
@@ -96,6 +97,27 @@ private paths, symlinks/hardlinks, writer lease, financial-journal collisions,
 protected legacy heads and resource plan. It creates no journal and opens no
 network connection. Missing NAV is not a startup gate. A real integrity,
 selection-provenance or exclusion failure remains a gate and must not be waived.
+
+When strict preflight stops on the first error, rerun the **same pinned**
+configuration and arguments with `--preflight-only --diagnose-preflight`.
+This read-only mode reports registry integrity, signed-selection provenance,
+frozen portfolio seals, exclusion-aware watched-wallet eligibility, recorded
+unique-account count, resource-plan feasibility, protected-journal heads and
+inventory stability as **independent gates**. It also runs when the configured
+connection reservation already exceeds provider limits, to expose that error
+alongside an unrelated provenance error. It creates no state directory, journal,
+network connection or service, and returns exit code 2 if any gate is blocked.
+Even a fully green diagnostic is `DIAGNOSTIC_ONLY` with
+`safe_to_start=false`, not startup permission. Strict preflight must be rerun.
+
+When the watchlist is rejected, the account count may come from the recorded
+sealed membership set; it is labeled `SEALED_MEMBERSHIP_ESTIMATE`, **not**
+an eligible watched-wallet population. `shared_ip_reservations_operator_verified=false`
+is always reported: configured reservations do not prove real-world connection
+capacity. The diagnostic never changes a research selection, repairs missing
+Ed25519 proofs, drops an excluded member or relaxes financial admission.
+Unknown provider exceptions are redacted to a reason class rather than
+printing native addresses or private data.
 
 ## Frame semantics and first-known clocks
 

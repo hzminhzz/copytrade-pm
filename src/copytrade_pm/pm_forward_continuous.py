@@ -229,6 +229,197 @@ def _portfolio_seals(db_path: Path, ids: tuple[str, ...], *, as_of: str) -> dict
     return result
 
 
+def _diagnostic_sealed_account_count(db_path: Path, seals: dict) -> int:
+    """Count unique recorded identities without admitting excluded accounts.
+
+    This is a capacity estimate only; no historical wallet identity, watchlist
+    membership or source NAV is certified by these metadata rows.
+    """
+    ids: set[int] = set()
+    with closing(sqlite3.connect("file:" + str(db_path.resolve()) + "?mode=ro", uri=True)) as db:
+        db.execute("PRAGMA query_only=ON")
+        db.execute("BEGIN")
+        for pid, seal in seals.items():
+            rows = db.execute(
+                "SELECT wallet_id FROM portfolio_memberships WHERE portfolio_id=? AND version=?",
+                (pid, seal["version"]),
+            ).fetchall()
+            if not rows or any(row[0] is None for row in rows):
+                raise ValueError("STREAM_DIAGNOSTIC_ACCOUNT_COUNT_UNKNOWN")
+            ids.update(row[0] for row in rows)
+    return len(ids)
+
+
+def diagnose_candidate_preflight(
+    *,
+    registry_db: Path,
+    state_root: Path,
+    instruments: tuple[Instrument, ...],
+    revision: str,
+    as_of: str,
+    budget: SubscriptionBudget,
+    protected_roots: tuple[Path, ...] = (),
+    portfolio_ids: tuple[str, ...] = ("P1", "P14"),
+    expected_inventory_sha: str | None = None,
+) -> dict:
+    """Read-only multi-gate report; never an alternative admission path.
+
+    Run independent checks even when one fails so operators see provenance,
+    exclusion and shared-IP blockers in one invocation. No service, network,
+    registry write or journal creation is performed.
+    """
+    clock(as_of)
+    gates: dict[str, dict] = {}
+
+    def check(name: str, operation):
+        try:
+            result = operation()
+        except (OSError, ValueError, KeyError, TypeError, sqlite3.Error) as exc:
+            reason = (
+                "STREAM_SELECTION_PROOF_MISSING"
+                if name == "signed_selection"
+                and str(exc) == "unverified research selection provenance"
+                else _reason(exc)
+            )
+            gates[name] = {"status": "BLOCKED", "reason_code": reason}
+            return None
+        gates[name] = {"status": "PASS"}
+        return result
+
+    def inspect_authority():
+        if registry_db.is_symlink() or not registry_db.is_file():
+            raise ValueError("STREAM_REGISTRY_FILE_INVALID")
+        result = db_authority_health(registry_db)
+        if result.get("database_integrity") != "VERIFIED":
+            raise ValueError("STREAM_REGISTRY_INTEGRITY_FAILED")
+        return result
+
+    check("private_state", lambda: _private_candidate_path(state_root, protected_roots))
+    if not re.fullmatch(r"[0-9a-f]{40}", revision):
+        gates["revision"] = {"status": "BLOCKED", "reason_code": "STREAM_RELEASE_REVISION_INVALID"}
+    else:
+        gates["revision"] = {"status": "PASS"}
+    registry_db = Path(registry_db)
+    authority = check("registry_integrity", inspect_authority)
+    seals = None
+    watched = None
+    account_count = None
+    count_source = "UNKNOWN"
+    if authority is None:
+        for name in (
+            "signed_selection",
+            "inventory_generation",
+            "portfolio_seals",
+            "watched_wallets",
+            "account_census",
+            "registry_stability",
+        ):
+            gates[name] = {"status": "UNKNOWN", "reason_code": "STREAM_REGISTRY_NOT_VERIFIED"}
+    else:
+        check("signed_selection", lambda: db_status(registry_db))
+
+        def compare_inventory():
+            if (
+                expected_inventory_sha is not None
+                and authority["inventory_sha256"] != expected_inventory_sha
+            ):
+                raise ValueError("STREAM_REGISTRY_GENERATION_CHANGED")
+            return True
+
+        check("inventory_generation", compare_inventory)
+        seals = check(
+            "portfolio_seals",
+            lambda: _portfolio_seals(registry_db, portfolio_ids, as_of=as_of),
+        )
+        watched = check(
+            "watched_wallets",
+            lambda: registry_watched_addresses(registry_db, portfolio_ids, as_of=as_of),
+        )
+        if watched is not None:
+            account_count = len(watched)
+            count_source = "ELIGIBLE_WATCHLIST"
+            gates["account_census"] = {"status": "PASS"}
+        elif seals is not None:
+            account_count = check(
+                "account_census",
+                lambda: _diagnostic_sealed_account_count(registry_db, seals),
+            )
+            count_source = "SEALED_MEMBERSHIP_ESTIMATE" if account_count is not None else "UNKNOWN"
+        else:
+            gates["account_census"] = {
+                "status": "UNKNOWN",
+                "reason_code": "STREAM_ACCOUNT_COUNT_UNKNOWN",
+            }
+
+        def recheck_inventory():
+            if (
+                db_authority_health(registry_db)["inventory_sha256"]
+                != authority["inventory_sha256"]
+            ):
+                raise ValueError("STREAM_REGISTRY_GENERATION_CHANGED")
+            return True
+
+        check("registry_stability", recheck_inventory)
+
+    if account_count is not None:
+        check("subscription_budget", lambda: budget.plan(instruments, account_count=account_count))
+    else:
+        gates["subscription_budget"] = {
+            "status": "UNKNOWN",
+            "reason_code": "STREAM_ACCOUNT_COUNT_UNKNOWN",
+        }
+
+    def verify_protected_heads():
+        for old in protected_roots:
+            path = Path(old) / "paper-events.sqlite3"
+            if path.exists():
+                _readonly_tape_snapshot(path)
+        return True
+
+    check("protected_journals", verify_protected_heads)
+    return {
+        "schema": "paper_continuous_preflight_diagnostic_v1",
+        "status": "BLOCKED"
+        if any(row["status"] != "PASS" for row in gates.values())
+        else "DIAGNOSTIC_ONLY",
+        "revision": revision,
+        "as_of": as_of,
+        "inventory_sha256": authority["inventory_sha256"] if authority else None,
+        "portfolio_count": len(portfolio_ids),
+        "configured_market_count": len(instruments),
+        "estimated_unique_accounts": account_count,
+        "account_count_basis": count_source,
+        "shared_ip_reservations_operator_verified": False,
+        "candidate_connections_estimate": (
+            int(account_count > 0)
+            + (len(instruments) + budget.ccxt_markets_per_socket - 1)
+            // budget.ccxt_markets_per_socket
+            + (len(instruments) + budget.public_markets_per_socket - 1)
+            // budget.public_markets_per_socket
+            if account_count is not None
+            and budget.ccxt_markets_per_socket > 0
+            and budget.public_markets_per_socket > 0
+            else None
+        ),
+        "reserved_connections_configured": budget.reserved_connections,
+        "max_connections": budget.max_connections,
+        "candidate_users_estimate": account_count,
+        "reserved_users_configured": budget.reserved_users,
+        "max_users": budget.max_users,
+        "candidate_subscriptions_estimate": (
+            account_count + 3 * len(instruments) if account_count is not None else None
+        ),
+        "reserved_subscriptions_configured": budget.reserved_subscriptions,
+        "max_subscriptions": budget.max_subscriptions,
+        "gates": gates,
+        "safe_to_start": False,
+        "strict_preflight_still_required": True,
+        "financial_admission": "BLOCKED_NO_TRADE",
+        "paper_observed": False,
+        "order_route": "NONE",
+    }
+
+
 def candidate_preflight(
     *,
     registry_db: Path,
@@ -328,7 +519,9 @@ def runtime_revision() -> str:
     return manifest["revision"]
 
 
-def load_continuous_config(path: Path) -> tuple[dict, tuple[Instrument, ...], SubscriptionBudget]:
+def load_continuous_config(
+    path: Path, *, allow_budget_failures_for_diagnostics: bool = False
+) -> tuple[dict, tuple[Instrument, ...], SubscriptionBudget]:
     from .pm_forward_public_trades import load_public_market_shards
 
     if path.is_symlink() or not path.is_file() or path.stat().st_size > 128_000:
@@ -402,7 +595,15 @@ def load_continuous_config(path: Path) -> tuple[dict, tuple[Instrument, ...], Su
     if not instruments:
         raise ValueError("STREAM_CONFIG_MARKET_SCOPE_EMPTY")
     budget = SubscriptionBudget(**config["budget"])
-    budget.plan(instruments, account_count=0)
+    try:
+        budget.plan(instruments, account_count=0)
+    except ValueError as exc:
+        if not allow_budget_failures_for_diagnostics or str(exc) not in {
+            "STREAM_CONNECTION_BUDGET_EXCEEDED",
+            "STREAM_USER_BUDGET_EXCEEDED",
+            "STREAM_SUBSCRIPTION_BUDGET_EXCEEDED",
+        }:
+            raise
     for name, minimum, maximum in (
         ("min_free_bytes", 100_000_000, 1_000_000_000_000),
         ("max_journal_bytes", 1_000_000, 1_000_000_000_000),
@@ -428,11 +629,28 @@ def continuous_entrypoint(args) -> dict:
     )
     from .pm_forward_source_campaign import _ALIAS
 
-    config, configured, budget = load_continuous_config(args.continuous_config)
+    diagnose = getattr(args, "diagnose_preflight", False)
+    config, configured, budget = load_continuous_config(
+        args.continuous_config, allow_budget_failures_for_diagnostics=diagnose
+    )
     actual_revision = runtime_revision()
     if actual_revision != config["revision"]:
         raise ValueError("STREAM_CONFIG_RELEASE_REVISION_MISMATCH")
     now = _now()
+    if diagnose:
+        if not args.preflight_only:
+            raise ValueError("STREAM_DIAGNOSTIC_REQUIRES_PREFLIGHT_ONLY")
+        return diagnose_candidate_preflight(
+            registry_db=args.registry,
+            state_root=args.state_root,
+            instruments=configured,
+            revision=actual_revision,
+            as_of=now,
+            budget=budget,
+            protected_roots=tuple(Path(path) for path in config["protected_roots"]),
+            portfolio_ids=tuple(config["portfolio_ids"]),
+            expected_inventory_sha=config["inventory_sha256"],
+        )
     manifest = candidate_preflight(
         registry_db=args.registry,
         state_root=args.state_root,
