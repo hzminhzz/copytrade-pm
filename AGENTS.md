@@ -1,5 +1,8 @@
 # copytrade-pm execution contract
 
+**Observer proof isolation (2026-11-07):** For a public read-only observer, verify the explicitly requested SQLite portfolio seals, as-of resolved watchlist, inventory generation, native market scope and resource budgets. Missing signatures for unrelated current research priorities must not block this observer. Never admit an explicitly unverified selection; the global registry doctor still reports its research provenance as blocked. All observers remain `NO_TRADE`.
+
+
 ## Start with live evidence
 
 ChatGPT is the direct executor. Do not delegate coding to another agent unless

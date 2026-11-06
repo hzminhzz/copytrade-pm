@@ -1,5 +1,10 @@
 # Research operator runbook — verified CLI sequence
 
+## Read-only observer research-proof isolation (2026-11-07)
+
+`candidate_preflight` validates SQLite physical integrity and inventory SHA, then requires **only the requested** portfolio seals and resolved as-of watchlist. A missing external signature for another research priority is reported by registry `doctor` but does not block this independent observer. Explicitly selecting an unsealed portfolio remains blocked. The diagnostic `signed_selection` result now means `REQUESTED_PORTFOLIO_SEALS_ONLY`, not global research qualification. No observer preflight authorizes paper finance or broker orders.
+
+
 ## Binding source-sizing policy (2026-11-06)
 
 **Default:** `FIXED_K_NATIVE_QUANTITY`, selected-account position scope; no leader whole-account NAV requirement. Use `copytrade-pm-paper-readiness --sizing-policy FIXED_K_NATIVE_QUANTITY` for P1/P14 read-only readiness; this does **not** admit trading. Legacy equity-normalized studies require the opt-in `--sizing-policy ALLOCATION_OVER_LIVE_NAV`. Never stop fixed-k progress for missing leader NAV. Keep canonical identities, first-local clocks, selected positions, verified follower equity, risk and protected execution gates. See [full decision and safety checklist](RISK-BUDGETED-K-SIZING-20261106.md).

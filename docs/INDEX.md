@@ -1,5 +1,8 @@
 # copytrade-pm handbook — start here
 
+**Public observer readiness:** unrelated unsigned research selections do not block independently sealed selected-portfolio preflight. Registry research-selection integrity remains a separate blocked diagnostic; explicit unverified portfolio requests still fail closed. See [continuous observer](FORWARD-PAPER-CONTINUOUS-OBSERVER.md).
+
+
 The [7 November reconciliation record](RECONCILIATION-20261107.md) explains PR and preserved-work dispositions. Refresh live state before using its dated evidence.
 
 Use live GitHub, private SQLite, original source evidence, financial journals and
