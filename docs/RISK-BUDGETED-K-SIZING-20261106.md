@@ -6,7 +6,7 @@
 
 | Dimension | Default: `FIXED_K_NATIVE_QUANTITY` | Opt-in: `ALLOCATION_OVER_LIVE_NAV` |
 | --- | --- | --- |
-| Target | `leader_native_qty × independently selected signed k` | `leader_qty × leader_mark / verified leader_nav × follower_allocation` |
+| Target | `leader_signed_qty × source_mark × independently selected signed k` (notional) | `leader_qty × leader_mark / verified leader_nav × follower_allocation` |
 | Leader whole-account NAV | **Not required** | Required; independently reconciled PIT |
 | Source position scope | Complete **explicitly selected** leader account/perp venue set (e.g., parent perp account only); do not silently claim unrelated subaccounts | Complete scope required by that fidelity policy |
 | Leader open trades | Position snapshots preferred; deduplicate fills, preserve net exposure and actual selected-scope exits | Equity-relative complete source exposures |
@@ -15,9 +15,9 @@
 | Fidelity claim | **No** assertion of exact leader leverage/equity-relative exposure | Only with verified source NAV and time-aligned evidence |
 | Trade authorization | Separate protected execution approval | Separate protected execution approval |
 
-For fixed-k, use the **full selected position vector**, never `k × independent fill size` as if each fill were current exposure. A leader position changing from 2 to 3 BTC with `k=0.04` means follower target changes from 0.08 BTC to 0.12 BTC. The Guardian must reconcile the delta against **actual** follower inventory. Source NAV, quote spot balances, and sums of per-DEX collateral are neither inputs nor substitutes.
+For fixed-k, use the **full selected position vector**, never `k × independent fill size` as if each fill were current exposure. At the same source and follower price, 2→3 BTC with `k=0.04` produces a 0.08→0.12 BTC follower target. If prices differ, the **notional** remains `k × leader signed notional`, and follower quantity is `target_notional / follower_mark`. Guardian reconciles against **actual** follower inventory. Source NAV, quote spot balances, and sums of per-DEX collateral are neither inputs nor substitutes.
 
-The native pure function `copytrade_pm.pm_exposure_sizing.target_from_fixed_k` is a **research intent**, with explicit validated k, follower marks, follower equity, gross/single-market exposure caps, and a declared pod loss budget. It returns `order_route=NONE`, `risk_supervisor_required=true`; it does **not** independently enforce hard stops or permit execution. The prop application owns signed k and real Guardian enforcement.
+The native pure function `copytrade_pm.pm_exposure_sizing.target_from_fixed_k` is a **research intent**, with explicit validated k, source and follower marks, follower equity, gross/single-market exposure caps, and a declared pod loss budget. It returns `order_route=NONE`, `risk_supervisor_required=true`; it does **not** independently enforce hard stops or permit execution. The prop application owns signed k and real Guardian enforcement.
 
 The `copytrade-pm-paper-readiness` CLI defaults to `FIXED_K_NATIVE_QUANTITY`; it treats whole source collateral and unrelated child account coverage as optional diagnostics for a **selected parent-perps-only** strategy. It still verifies source/market hash chains, position clocks, canonical account identity, selected all-DEX perp scope, quote freshness and protected worker evidence. It continues to return `BLOCKED_NO_TRADE` when those actual requirements are missing. Only explicit `--sizing-policy ALLOCATION_OVER_LIVE_NAV` invokes the legacy whole-wallet NAV/child/collateral gates.
 

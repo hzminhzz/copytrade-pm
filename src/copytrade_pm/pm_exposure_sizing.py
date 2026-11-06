@@ -123,6 +123,7 @@ def target_from_fixed_k(
     *,
     source_quantities: Mapping[str, D],
     k: D,
+    source_marks: Mapping[str, D],
     follower_marks: Mapping[str, D],
     follower_equity_usd: D,
     max_gross_notional_usd: D,
@@ -131,8 +132,9 @@ def target_from_fixed_k(
 ) -> dict[str, object]:
     """NAV-free signed-position mirroring intent, never a live risk permit.
 
-    Quantity is scaled directly by a preselected fixed k; source account
-    NAV and parent/child collateral sums are not referenced. Caller must
+    Leader signed position NOTIONAL is multiplied by the preselected k.
+    Follower quantity is the resulting notional divided by follower mark;
+    source and follower prices may differ. No leader NAV is used. Caller must
     independently verify selected source position scope, local receipt clocks,
     follower quote freshness and account-bound policy provenance. The Guardian
     owns actual loss-stop, margin, drawdown and order authorization.
@@ -147,9 +149,10 @@ def target_from_fixed_k(
     loss_budget = _decimal(pod_loss_budget_usd, positive=True)
     if loss_budget > equity:
         raise ValueError("POD_LOSS_BUDGET_EXCEEDS_FOLLOWER_EQUITY")
-    marks = _marks(set(positions), follower_marks, accept_extra=True)
-    quantities = {key: qty * ratio for key, qty in positions.items()}
-    notionals = {key: quantities[key] * marks[key] for key in positions}
+    leader_marks = _marks(set(positions), source_marks, accept_extra=True)
+    follower_prices = _marks(set(positions), follower_marks, accept_extra=True)
+    notionals = {key: qty * leader_marks[key] * ratio for key, qty in positions.items()}
+    quantities = {key: notional / follower_prices[key] for key, notional in notionals.items()}
     if sum((abs(v) for v in notionals.values()), ZERO) > gross_limit:
         raise ValueError("FIXED_K_GROSS_NOTIONAL_CAP")
     if any(abs(v) > market_limit for v in notionals.values()):
