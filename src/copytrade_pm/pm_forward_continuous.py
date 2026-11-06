@@ -316,7 +316,6 @@ def diagnose_candidate_preflight(
         ):
             gates[name] = {"status": "UNKNOWN", "reason_code": "STREAM_REGISTRY_NOT_VERIFIED"}
     else:
-
         # Global research priority is not an observer input. The requested
         # portfolios are independently checked via their immutable seals and
         # as-of watchlist below; unrelated unsigned selections stay quarantined.
