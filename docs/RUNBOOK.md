@@ -1,5 +1,16 @@
 # Research operator runbook — verified CLI sequence
 
+## Continuous public observer operations
+
+[The continuous observer runbook](FORWARD-PAPER-CONTINUOUS-OBSERVER.md) defines the tested preflight/capture/health/shadow-report commands, private state, shared-IP budgeting, restart and backup procedure, independent watchdog history and uninstalled unit templates. [The dated program evidence](PERSISTENT-OBSERVER-IMPLEMENTATION-20261106.md) records actual status. A bounded canary is not the 72-hour shadow. Public cutover retains its separate operator authorization and trusted-release gate.
+
+## 2026-11-05 opt-in public wallet trade canary and UTC scheduler
+
+**Preferred new market selection:** [complete Propr display 157-market three-physical-WebSocket configuration and bounded canary](FORWARD-PAPER-PROPR-157-THREE-SOCKETS-20261105.md). Use `--market-file docs/FORWARD-PAPER-PROPR-157-THREE-SOCKETS-20261105.json --propr-snapshot /home/quant/.local/share/copytrade/reports/five-pod-20261029-research/PROPR_PUBLIC_ASSET_UNIVERSE_20261030.json`. Start read-only verification with `--parallel-shards 1` because existing tracker/source sockets share Hyperliquid per-IP limits; parallel 3 is implemented but requires `--ack-shared-ip-connection-budget` after independently measuring headroom, plus performance/restart qualification. Source is a Propr browser-display snapshot, **not** an authenticated order-eligible API universe. The 13-market and 40-market examples below are historical canaries, not a currently complete Propr-displayed scope.
+
+
+Follow [public market-wide trade acquisition, first-known receipt, UTC policy, and blocked paper execution](FORWARD-PAPER-PUBLIC-TRADES-20261105.md) for `copytrade-pm-public-trades --mode observe` and `--mode plan` examples. The new capability is `source.public_trades`; query `copytrade-pm capabilities show source.public_trades` and registry `doctor` first. To test other pairs use repeated `--instrument` or the example `--market-file docs/FORWARD-PAPER-MARKET-EXAMPLE-20261105.json` (13 native/HIP-3 markets), with bounded `--parallel-shards 2` and per-market receipt diagnostics. For the owner-selected full 40-market scope use [the 5-shard 8-market configuration](FORWARD-PAPER-MARKET-TOP40-SHARDS-20261105.json) with `--parallel-shards 5` and [its verification runbook](FORWARD-PAPER-TOP40-FIVE-SHARD-20261105.md); the legacy eight-market per-WS cap is a code constant, not a CLI flag. The newer Propr display 157-market configuration uses a separately validated maximum of 128 symbols per physical WS; complete first-known wallet coverage remains UNKNOWN until independently reconciled. The CLI writes **only a new owner-private research journal**, not the installed observer, production tracker, or PM-03 financial events. Run the documented tests and preserve the existing protected P1/P14 NO_TRADE state.
+
 ## Authoritative SQLite metadata inventory (2026-11-05)
 
 Use `copytrade-wallet-registry doctor` for `authority=SQLITE`,

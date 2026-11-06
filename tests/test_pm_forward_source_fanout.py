@@ -35,6 +35,47 @@ from test_pm_forward_admission import _alter
 T = datetime.fromtimestamp(1793294400, UTC)
 
 
+def test_continuous_parent_and_child_receipts_keep_exact_isolated_fanout(tmp_path):
+    from copytrade_pm.pm_forward_source_stream import PersistentAccount
+
+    source = source_five(tmp_path)
+    # The same frozen parent alias owns distinct native account hashes.
+    for n, address in enumerate(("0x" + f"{1:040x}", "0x" + f"{9:040x}"), 1):
+        feed = PersistentAccount(
+            journal=source,
+            alias="S035" if n == 1 else "S035_sub_test",
+            address=address,
+            parent_alias="S035",
+            dex_catalog=[None, {"name": "xyz"}],
+            subaccounts=None,
+            scope_sha="a" * 64,
+        )
+        frame = deepcopy(sample_state())
+        frame["user"] = address
+        feed.begin((T + timedelta(seconds=2 + n * 2)).isoformat())
+        feed.observe(
+            {"channel": "allDexsClearinghouseState", "data": frame},
+            (T + timedelta(seconds=3 + n * 2)).isoformat(),
+        )
+    original = sha256(source.path.read_bytes()).hexdigest()
+    p1, p14 = PaperJournal(tmp_path / "P1"), PaperJournal(tmp_path / "P14")
+    first = fanout_frozen_source_receipts(source_db=source.path, p1_journal=p1, p14_journal=p14)
+    assert first["all_destinations_reconciled"]
+    assert p1.source_status("S035")["cursor"] == 3
+    assert p14.source_status("S035")["head_sha"] == source.source_status("S035")["head_sha"]
+    again = fanout_frozen_source_receipts(source_db=source.path, p1_journal=p1, p14_journal=p14)
+    assert all(
+        row["imported_new"] == 0
+        for portfolio in again["portfolios"].values()
+        for row in portfolio["source_cursors"].values()
+    )
+    for journal in (source, p1, p14):
+        with closing(sqlite3.connect(journal.path)) as db:
+            assert db.execute("SELECT COUNT(*) FROM runs").fetchone() == (0,)
+            assert db.execute("SELECT COUNT(*) FROM events").fetchone() == (0,)
+    assert sha256(source.path.read_bytes()).hexdigest() == original
+
+
 def source_five(tmp_path):
     source = PaperJournal(tmp_path / "source")
     for index, alias in enumerate(P14.members, 1):

@@ -25,6 +25,8 @@ from .pm_e4_prospective import (
     _guarded_info,
     _subaccount_roster,
 )
+from .pm03_account import clock, digest
+from .pm_forward_stream_journal import StreamProgress
 from .pm_forward_journal import PaperJournal
 from .pm_forward_source_observation import append_public_scope, read_public_all_dex_scope
 
@@ -60,6 +62,286 @@ def _perpetual_collateral_balances(balances: list) -> tuple[dict, int]:
             raise ValueError("SOURCE_SPOT_QUOTE_BALANCE_NONFINITE")
         quote[coin] = {"total": str(total), "hold": str(held) if held is not None else None}
     return dict(sorted(quote.items())), other
+
+
+async def discover_persistent_family(
+    parents: dict[str, str], *, info=_guarded_info, now=lambda: datetime.now(UTC).isoformat()
+) -> dict:
+    """Acquire metadata once per unique parent; return explicit private identity.
+
+    No NAV is derived. A missing/invalid child census fails this refresh; callers
+    retain prior requirements and report UNKNOWN instead of treating it as flat.
+    """
+    from .pm_e4_prospective import _dex_universe
+
+    if not parents or len(set(a.lower() for a in parents.values())) != len(parents):
+        raise ValueError("SOURCE_FAMILY_PARENT_IDENTITY_DUPLICATE")
+    if any(ADDRESS.fullmatch(address) is None for address in parents.values()):
+        raise ValueError("SOURCE_PUBLIC_WALLET_ADDRESS_INVALID")
+
+    async def fetch(request):
+        payload, raw, sha = await asyncio.to_thread(info, request)
+        known = now()
+        if not isinstance(raw, bytes) or sha256(raw).hexdigest() != sha:
+            raise ValueError("SOURCE_METADATA_RAW_SHA_MISMATCH")
+        return payload, sha, known
+
+    catalog, catalog_sha, catalog_known = await fetch({"type": "perpDexs"})
+    _dex_universe(catalog)
+    children = await asyncio.gather(
+        *[fetch({"type": "subAccounts", "user": address}) for address in parents.values()]
+    )
+    accounts, proof = {}, {}
+    seen = set()
+    for (alias, address), (raw_subs, sha, known) in zip(parents.items(), children, strict=True):
+        members = _subaccount_roster(raw_subs, address)
+        for child in [address, *members]:
+            canonical = child.lower()
+            if canonical in seen:
+                raise ValueError("SOURCE_FAMILY_SHARED_CHILD_AMBIGUOUS")
+            seen.add(canonical)
+            name = (
+                alias
+                if canonical == address.lower()
+                else (alias + "_sub_" + sha256(canonical.encode()).hexdigest()[:12])
+            )
+            accounts[name] = {
+                "address": canonical,
+                "parent_alias": alias,
+                "subaccounts": raw_subs if name == alias else None,
+                "identity_sha": sha256(canonical.encode()).hexdigest(),
+            }
+        proof[alias] = {
+            "subaccount_sha": sha,
+            "first_known_at": known,
+            "account_count": 1 + len(members),
+        }
+    scope = {
+        "accounts": {
+            alias: {"parent_alias": row["parent_alias"], "identity_sha": row["identity_sha"]}
+            for alias, row in sorted(accounts.items())
+        },
+        "dex_catalog_sha": catalog_sha,
+    }
+    return {
+        "accounts": accounts,
+        "catalog": catalog,
+        "catalog_sha": catalog_sha,
+        "catalog_known_at": catalog_known,
+        "parent_proofs": proof,
+        "scope_sha": digest(scope),
+        "scope": scope,
+        "source_equity": None,
+        "whole_wallet_equity_attested": False,
+        "order_route": "NONE",
+    }
+
+
+class PersistentAccount:
+    """Current per-account full-census state; snapshots never become trades.
+
+    The existing strict parser requires every catalogued DEX and each DEX's
+    assetPositions array. Delta-shaped/unknown envelopes are unsupported.
+    Disappearance is an observed state difference, never a verified close.
+    """
+
+    def __init__(
+        self,
+        *,
+        journal: PaperJournal,
+        alias: str,
+        address: str,
+        dex_catalog: object,
+        subaccounts: object,
+        parent_alias: str,
+        scope_sha: str,
+    ):
+        if ADDRESS.fullmatch(address) is None:
+            raise ValueError("SOURCE_PUBLIC_WALLET_ADDRESS_INVALID")
+        self.journal, self.alias, self.address = journal, alias, address.lower()
+        self.dex_catalog, self.subaccounts = dex_catalog, subaccounts
+        self.parent_alias, self.scope_sha = parent_alias, scope_sha
+        self.progress = StreamProgress(journal, "account:" + alias)
+        self.epoch = None
+
+    @property
+    def checkpoint(self) -> dict:
+        state = self.progress.checkpoint
+        if self.epoch is None:
+            state["baseline_valid"] = False
+        return state
+
+    def begin(self, known_at: str, *, reason: str = "CONNECT_OR_PROCESS_RESTART") -> dict:
+        from uuid import uuid4
+
+        epoch = uuid4().hex
+        state = {
+            **self.checkpoint,
+            "baseline_valid": False,
+            "transport": "CONNECTING",
+            "subscription_acknowledged": False,
+            "scope_sha": self.scope_sha,
+            "parent_alias": self.parent_alias,
+            "account_sha": sha256(self.address.encode()).hexdigest(),
+            "source_equity": None,
+            "last_transport_at": known_at,
+            "gap_reason": reason,
+        }
+        event = self.progress.propose(
+            epoch=epoch, kind="GAP", known_at=known_at, checkpoint=state, details={"reason": reason}
+        )
+        result = self.progress.commit(event)
+        self.epoch = epoch
+        return result
+
+    def transport(self, known_at: str, *, status: str = "CONNECTED") -> dict:
+        if self.progress.head["event"] and clock(known_at) <= clock(
+            self.progress.head["event"]["first_known_at"]
+        ):
+            return {"status": "TRANSPORT_ALREADY_OBSERVED", "order_route": "NONE"}
+        if self.epoch is None:
+            raise ValueError("SOURCE_EPOCH_NOT_STARTED")
+        state = {**self.checkpoint, "transport": status, "last_transport_at": known_at}
+        return self.progress.commit(
+            self.progress.propose(
+                epoch=self.epoch,
+                kind="TRANSPORT",
+                known_at=known_at,
+                checkpoint=state,
+            )
+        )
+
+    def gap(self, known_at: str, reason: str) -> dict:
+        state = {
+            **self.checkpoint,
+            "baseline_valid": False,
+            "transport": "DEGRADED",
+            "gap_reason": reason,
+        }
+        return self.progress.commit(
+            self.progress.propose(
+                epoch=self.epoch,
+                kind="GAP",
+                known_at=known_at,
+                checkpoint=state,
+                details={"reason": reason},
+            )
+        )
+
+    def observe(
+        self, frame: dict, known_at: str, *, raw_sha: str | None = None, raw_text: str | None = None
+    ) -> dict:
+        if self.epoch is None:
+            raise ValueError("SOURCE_EPOCH_NOT_STARTED")
+        body = frame.get("data") if isinstance(frame, dict) else None
+        if (
+            not isinstance(body, dict)
+            or set(frame) - {"channel", "data", "isSnapshot"}
+            or ("isSnapshot" in frame and type(frame["isSnapshot"]) is not bool)
+            or ("isSnapshot" in body and type(body["isSnapshot"]) is not bool)
+            or set(body) - {"user", "clearinghouseStates", "isSnapshot"}
+        ):
+            raise ValueError("SOURCE_FRAME_REPLACEMENT_SEMANTICS_UNKNOWN")
+        receipt = read_public_all_dex_scope(
+            alias=self.parent_alias,
+            address=self.address,
+            frame=frame,
+            dex_catalog=self.dex_catalog,
+            discovered_subaccounts=self.subaccounts,
+            first_known_at=known_at,
+        )
+        book = receipt["source_book"]
+        prior = self.checkpoint
+        clocks = {row["dex"]: row["state_at"] for row in book["per_dex_margin_diagnostics"]}
+        if any(at < prior.get("dex_clocks", {}).get(dex, 0) for dex, at in clocks.items()):
+            raise ValueError("SOURCE_NATIVE_CLOCK_REGRESSION")
+        semantic_sha = digest({key: value for key, value in body.items() if key != "isSnapshot"})
+        baseline = (
+            not prior.get("baseline_valid", False)
+            or body.get("isSnapshot", False)
+            or frame.get("isSnapshot", False)
+        )
+        if not baseline and semantic_sha == prior.get("semantic_sha"):
+            return {
+                "classification": "DUPLICATE",
+                "signal_eligible": False,
+                "position_changes": {},
+                "order_route": "NONE",
+            }
+        positions = book["positions"]
+        before = prior.get("positions", {})
+        changes = (
+            {}
+            if baseline
+            else {
+                key: {
+                    "previous": before.get(key),
+                    "current": positions.get(key),
+                    "trade_verified": False,
+                }
+                for key in sorted(before.keys() | positions.keys())
+                if before.get(key) != positions.get(key)
+            }
+        )
+        if not baseline and changes and clocks == prior.get("dex_clocks"):
+            raise ValueError("SOURCE_SAME_CLOCK_CONFLICTING_POSITIONS")
+        classification = (
+            "BASELINE" if baseline else ("OBSERVED_STATE_CHANGE" if changes else "UNCHANGED_STATE")
+        )
+        receipt = {
+            **receipt,
+            "observation_kind": classification,
+            "stream_epoch": self.epoch,
+            "signal_eligible": False,
+        }
+        state = {
+            **prior,
+            "baseline_valid": True,
+            "transport": "CONNECTED",
+            "last_transport_at": known_at,
+            "last_state_at": known_at,
+            "source_event_at": receipt["source_event_at"],
+            "positions": positions,
+            "dex_clocks": clocks,
+            "semantic_sha": semantic_sha,
+            "position_margin_diagnostics": book["position_margin_diagnostics"],
+            "discovered_subaccounts": book["subaccounts"],
+            "source_equity": None,
+            "scope_sha": self.scope_sha,
+            "parent_alias": self.parent_alias,
+            "last_receipt_sha": digest(receipt),
+        }
+        event = self.progress.propose(
+            epoch=self.epoch,
+            kind="BASELINE" if baseline else ("OBSERVATION" if changes else "UNCHANGED"),
+            known_at=known_at,
+            source_at=receipt["source_event_at"],
+            checkpoint=state,
+            raw_sha=raw_sha or digest(frame),
+            details={
+                "classification": classification,
+                "position_changes": changes,
+                "native_frame": frame,
+                "native_wire": raw_text,
+            },
+        )
+        result = self.progress.commit(
+            event,
+            lambda progress: append_public_scope(
+                self.journal,
+                alias=self.parent_alias,
+                seq=None,
+                receipt=receipt,
+                stream_event=progress,
+            ),
+        )
+        return {
+            **result,
+            "classification": classification,
+            "position_changes": changes,
+            "signal_eligible": False,
+            "order_route": "NONE",
+        }
 
 
 async def bounded_source_scope_capture(

@@ -24,9 +24,17 @@ class Admission:
 
 
 def admit_source_book(
-    source: dict[str, Any] | None, *, decision_at: str, fill_at: str
+    source: dict[str, Any] | None,
+    *,
+    decision_at: str,
+    fill_at: str,
+    allow_synthetic_fixture: bool = False,
 ) -> Admission:
-    """Fail closed unless native whole-book and collateral scope are attested."""
+    """Fail closed for real input; only explicit fixture callers may simulate.
+
+    A snapshot's own synthetic_fixture boolean is never independent live
+    provenance. The protected/live read path must not enable fixture mode.
+    """
     if source is None or not isinstance(source, dict):
         return Admission(False, ("MISSING_SOURCE_BOOK",), None, None, {}, {})
     reasons: list[str] = []
@@ -130,8 +138,10 @@ def admit_source_book(
         except ValueError, TypeError:
             reasons.append("SOURCE_POSITION_MARKS_INVALID")
             source_marks = {}
-    # No reader may turn an arbitrary JSON boolean into live source attestation.
-    if source.get("synthetic_fixture") is not True:
+    # User-supplied JSON flags do NOT constitute authenticated source NAV.
+    # Only the deliberately labeled, fixture-only PM-03/04 test callers may
+    # enable synthetic simulation. Real-source callers default to rejection.
+    if allow_synthetic_fixture is not True or source.get("synthetic_fixture") is not True:
         reasons.append("INDEPENDENT_REAL_BOOK_ATTESTATION_UNAVAILABLE")
     if reasons:
         return Admission(False, tuple(sorted(set(reasons))), sha, None, {}, {})

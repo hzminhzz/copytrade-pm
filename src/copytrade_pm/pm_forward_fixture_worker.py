@@ -92,7 +92,9 @@ class FixturePaperWorker:
             raise ValueError("WALLET_NOT_IN_SEALED_PORTFOLIO")
         if book.get("wallet_id") != alias:
             raise ValueError("SOURCE_ALIAS_MISMATCH")
-        admission = admit_source_book(book, decision_at=captured_at, fill_at=captured_at)
+        admission = admit_source_book(
+            book, decision_at=captured_at, fill_at=captured_at, allow_synthetic_fixture=True
+        )
         if not admission.admitted:
             return {"status": "BLOCKED_SOURCE", "reasons": list(admission.reason_codes)}
         if clock(book["first_known_at"]) > clock(captured_at):
@@ -118,7 +120,9 @@ class FixturePaperWorker:
                 missing.append(alias)
             else:
                 _, receipt, book = captured
-                validated = admit_source_book(book, decision_at=decision_at, fill_at=decision_at)
+                validated = admit_source_book(
+                    book, decision_at=decision_at, fill_at=decision_at, allow_synthetic_fixture=True
+                )
                 if (
                     not validated.admitted
                     or (clock(decision_at) - clock(receipt["captured_at"])).total_seconds()
@@ -172,7 +176,10 @@ class FixturePaperWorker:
             if cursors.get(alias, 0) + 1 != seq:
                 raise ValueError("PAPER_SOURCE_SEQUENCE_BACKLOG_NOT_CONSUMED")
             admission = admit_source_book(
-                book, decision_at=decision_at, fill_at=hypothetical_fill_at
+                book,
+                decision_at=decision_at,
+                fill_at=hypothetical_fill_at,
+                allow_synthetic_fixture=True,
             )
             if not admission.admitted or admission.source_equity is None:
                 raise ValueError("PAPER_SOURCE_ADMISSION_LOST")

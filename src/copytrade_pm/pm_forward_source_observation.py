@@ -128,8 +128,9 @@ def append_public_scope(
     journal: PaperJournal,
     *,
     alias: str,
-    seq: int,
+    seq: int | None,
     receipt: dict,
+    stream_event: dict | None = None,
 ) -> dict:
     if receipt.get("source_id") != alias or receipt.get("status") != (
         "BLOCKED_INCOMPLETE_WHOLE_WALLET"
@@ -151,4 +152,6 @@ def append_public_scope(
         != digest({key: value for key, value in book.items() if key != "snapshot_sha"})
     ):
         raise ValueError("SOURCE_BOOK_RECEIPT_HASH_MISMATCH")
-    return journal.append_source_receipt(alias, seq, digest(receipt), receipt)
+    return journal.append_source_receipt(
+        alias, seq, digest(receipt), receipt, stream_event=stream_event
+    )

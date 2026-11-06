@@ -22,12 +22,17 @@ def wheel(root: Path, filename: str = "copytrade_pm-0.1.0-py3-none-any.whl") -> 
     path = root / filename
     version = filename.split("-")[1]
     buffer = BytesIO()
+    members = {
+        "copytrade_pm/__init__.py": f"__version__={version!r}\n",
+        f"copytrade_pm-{version}.dist-info/WHEEL": (
+            "Wheel-Version: 1.0\nGenerator: test\nRoot-Is-Purelib: true\nTag: py3-none-any\n"
+        ),
+    }
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("copytrade_pm/__init__.py", f"__version__={version!r}\n")
-        archive.writestr(
-            f"copytrade_pm-{version}.dist-info/WHEEL",
-            "Wheel-Version: 1.0\nGenerator: test\nRoot-Is-Purelib: true\nTag: py3-none-any\n",
-        )
+        for name, content in members.items():
+            # Wheel bytes, including ZIP metadata, must be identical on replay.
+            entry = zipfile.ZipInfo(name, date_time=(2026, 11, 4, 12, 0, 0))
+            archive.writestr(entry, content, compress_type=zipfile.ZIP_DEFLATED)
     path.write_bytes(buffer.getvalue())
     return path
 

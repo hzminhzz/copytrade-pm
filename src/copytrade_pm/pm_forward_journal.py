@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from contextlib import closing, contextmanager
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 import fcntl
 import json
@@ -19,6 +20,7 @@ from typing import Iterator
 from .pm03_account import Account, RiskState, Rulebook, clock, digest, number
 from .pm_e4_prospective import PUBLIC_ACCOUNT_MODES
 from .pm_forward_paper import PaperManifest
+from .pm_forward_stream_journal import SCHEMA as STREAM_SCHEMA, append_checkpoint
 
 
 def _json(value: object) -> str:
@@ -126,6 +128,51 @@ class PaperJournal:
                     PRIMARY KEY (run_id, source_id, seq),
                     UNIQUE (run_id, event_id)
                 );
+                -- Public market trade evidence is provisional. A trade is not
+                -- a whole-wallet NAV attestation or an executable paper order.
+                CREATE TABLE IF NOT EXISTS public_wallet_trade_heads (
+                    wallet_key TEXT NOT NULL,
+                    instrument TEXT NOT NULL,
+                    cursor INTEGER NOT NULL,
+                    known_at TEXT NOT NULL,
+                    chain_sha TEXT NOT NULL,
+                    PRIMARY KEY(wallet_key, instrument)
+                );
+                CREATE TABLE IF NOT EXISTS public_wallet_trade_receipts (
+                    wallet_key TEXT NOT NULL,
+                    instrument TEXT NOT NULL,
+                    seq INTEGER NOT NULL,
+                    event_key TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    payload_sha TEXT NOT NULL,
+                    prior_sha TEXT NOT NULL,
+                    chain_sha TEXT NOT NULL,
+                    known_at TEXT NOT NULL,
+                    committed_at TEXT NOT NULL,
+                    PRIMARY KEY(wallet_key, instrument, seq),
+                    UNIQUE(wallet_key, instrument, event_key),
+                    FOREIGN KEY(wallet_key, instrument)
+                        REFERENCES public_wallet_trade_heads(wallet_key, instrument)
+                );
+                CREATE INDEX IF NOT EXISTS idx_public_trade_bucket
+                ON public_wallet_trade_receipts(wallet_key, instrument, known_at, committed_at);
+                CREATE TABLE IF NOT EXISTS public_trade_stream_gaps (
+                    gap_sha TEXT PRIMARY KEY,
+                    instrument TEXT NOT NULL,
+                    stream_epoch TEXT NOT NULL,
+                    observed_at TEXT NOT NULL,
+                    reason TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS provisional_utc_buckets (
+                    bucket_key TEXT PRIMARY KEY,
+                    wallet_key TEXT NOT NULL,
+                    instrument TEXT NOT NULL,
+                    start_at TEXT NOT NULL,
+                    end_at TEXT NOT NULL,
+                    plan_sha TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    status TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS events (
                     run_id TEXT NOT NULL REFERENCES runs(run_id),
                     seq INTEGER NOT NULL,
@@ -141,6 +188,7 @@ class PaperJournal:
                 );
                 """
             )
+            db.executescript(STREAM_SCHEMA)
         os.chmod(self.path, 0o600)
 
     @contextmanager
@@ -148,7 +196,10 @@ class PaperJournal:
         fd = os.open(self._lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            db = sqlite3.connect(self.path, timeout=0, isolation_level=None)
+            # The exclusive writer lease remains nonblocking. A short SQLite
+            # wait tolerates WAL open/close transitions caused by independent
+            # read-only verifiers; it does not permit a second lease owner.
+            db = sqlite3.connect(self.path, timeout=1, isolation_level=None)
             try:
                 db.execute("PRAGMA journal_mode=WAL")
                 db.execute("PRAGMA synchronous=FULL")
@@ -161,6 +212,18 @@ class PaperJournal:
         finally:
             fcntl.flock(fd, fcntl.LOCK_UN)
             os.close(fd)
+
+    def append_stream_event(self, event: dict) -> dict:
+        """Persist a transport/gap/checkpoint event without a financial effect."""
+        with self._writer() as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                result = append_checkpoint(db, event, [])
+                db.execute("COMMIT")
+            except Exception:
+                db.execute("ROLLBACK")
+                raise
+        return result
 
     @staticmethod
     def _apply(account: Account, event: dict) -> dict:
@@ -249,6 +312,7 @@ class PaperJournal:
                 event.get("source_book"),
                 decision_at=event["event_at"],
                 fill_at=event["hypothetical_fill_at"],
+                allow_synthetic_fixture=event.get("fixture_attested") is True,
             )
             if not admission.admitted:
                 account.risk = RiskState.RED
@@ -704,14 +768,20 @@ class PaperJournal:
         }
 
     def append_source_receipt(
-        self, source_id: str, sequence: int, receipt_id: str, receipt: dict
+        self,
+        source_id: str,
+        sequence: int | None,
+        receipt_id: str,
+        receipt: dict,
+        *,
+        stream_event: dict | None = None,
     ) -> dict:
         """Import one already-captured receipt, never create a subscription."""
         if (
             not source_id
             or not receipt_id
-            or not isinstance(sequence, int)
-            or sequence <= 0
+            or (sequence is None and stream_event is None)
+            or (sequence is not None and (type(sequence) is not int or sequence <= 0))
             or len(source_id) > 128
             or len(receipt_id) > 128
         ):
@@ -740,6 +810,11 @@ class PaperJournal:
                 if old is not None:
                     if old[0] != receipt_sha:
                         raise ValueError("CONFLICTING_SOURCE_RECEIPT")
+                    append_checkpoint(
+                        db,
+                        stream_event,
+                        [{"kind": "source", "key": [source_id, receipt_id], "sha": receipt_sha}],
+                    )
                     db.execute("COMMIT")
                     return {
                         "source_id": source_id,
@@ -753,6 +828,8 @@ class PaperJournal:
                     (source_id,),
                 ).fetchone()
                 expected = last[0] + 1 if last else 1
+                if sequence is None:
+                    sequence = expected
                 if sequence != expected:
                     raise ValueError("SOURCE_SEQUENCE_GAP_OR_CONFLICT")
                 previous = last[1] if last else "0" * 64
@@ -769,10 +846,23 @@ class PaperJournal:
                         chained,
                     ),
                 )
+                append_checkpoint(
+                    db,
+                    stream_event,
+                    [{"kind": "source", "key": [source_id, receipt_id], "sha": receipt_sha}],
+                )
                 db.execute("COMMIT")
             except Exception:
                 db.execute("ROLLBACK")
                 raise
+        if stream_event is not None:
+            return {
+                "source_id": source_id,
+                "cursor": sequence,
+                "head_sha": chained,
+                "status": "RECORDED_UNADMITTED_SOURCE",
+                "paper_admitted": False,
+            }
         return self.source_status(source_id)
 
     @staticmethod
@@ -918,7 +1008,9 @@ class PaperJournal:
             else:
                 raise ValueError("SOURCE_ACCOUNT_MODE_STATUS_INVALID")
 
-    def append_collateral_diagnostic(self, report: dict) -> dict:
+    def append_collateral_diagnostic(
+        self, report: dict, *, stream_event: dict | None = None
+    ) -> dict:
         """Durably SHA-chain incomplete spot/vault scopes, never authorize finance."""
         self._check_collateral_diagnostic(report)
         account = report["account_address_sha256"]
@@ -946,6 +1038,11 @@ class PaperJournal:
                     )
                 elif old[0] != receipt_sha:
                     raise ValueError("SOURCE_COLLATERAL_RECEIPT_CONFLICT")
+                append_checkpoint(
+                    db,
+                    stream_event,
+                    [{"kind": "collateral", "key": [account, receipt_sha], "sha": receipt_sha}],
+                )
                 db.execute("COMMIT")
             except Exception:
                 db.execute("ROLLBACK")
@@ -1054,14 +1151,18 @@ class PaperJournal:
                     or number(row["price"]) <= 0
                     or number(row["amount_base"]) <= 0
                     or clock(row["source_event_at"]) > clock(row["first_known_at"])
-                    or clock(row["first_known_at"]) != known
+                    or (
+                        clock(row["first_known_at"]) > known
+                        if batch.get("local_clock_semantics") == "PER_NATIVE_TRADE_FIRST_RECEIPT"
+                        else clock(row["first_known_at"]) != known
+                    )
                 ):
                     raise ValueError
                 seen.add(row["native_trade_id"])
         except ValueError, TypeError, KeyError:
             raise ValueError("PAPER_CCXT_TRADE_BATCH_INVALID") from None
 
-    def append_market_trade_batch(self, batch: dict) -> dict:
+    def append_market_trade_batch(self, batch: dict, *, stream_event: dict | None = None) -> dict:
         """Immutable partial observed trades, never executable volume evidence."""
         self._validate_market_trade_batch(batch)
         instrument = batch["instrument"]
@@ -1075,6 +1176,11 @@ class PaperJournal:
                     (instrument, batch_sha),
                 ).fetchone()
                 if duplicate is not None:
+                    append_checkpoint(
+                        db,
+                        stream_event,
+                        [{"kind": "trades", "key": [instrument, batch_sha], "sha": batch_sha}],
+                    )
                     db.execute("COMMIT")
                     return {
                         "status": "DUPLICATE_PARTIAL_TRADE_OBSERVATION",
@@ -1133,6 +1239,11 @@ class PaperJournal:
                         chain_sha,
                         received,
                     ),
+                )
+                append_checkpoint(
+                    db,
+                    stream_event,
+                    [{"kind": "trades", "key": [instrument, batch_sha], "sha": batch_sha}],
                 )
                 db.execute("COMMIT")
             except Exception:
@@ -1236,7 +1347,7 @@ class PaperJournal:
         if failed:
             raise ValueError("PAPER_CCXT_QUOTE_INVALID:" + ",".join(failed))
 
-    def append_market_quote(self, quote: dict) -> dict:
+    def append_market_quote(self, quote: dict, *, stream_event: dict | None = None) -> dict:
         """One public CCXT L2 capture, never a trade-capacity or wallet signal.
 
         The private SQLite market receipt is locally SHA-chained and
@@ -1259,6 +1370,11 @@ class PaperJournal:
                 if existing is not None:
                     if existing[0] != raw_sha:
                         raise ValueError("PAPER_MARKET_QUOTE_CONFLICT")
+                    append_checkpoint(
+                        db,
+                        stream_event,
+                        [{"kind": "quote", "key": [instrument, raw_sha], "sha": raw_sha}],
+                    )
                     db.execute("COMMIT")
                     return {"status": "DUPLICATE_MARKET_QUOTE", "quote_sha": raw_sha}
                 head = db.execute(
@@ -1317,6 +1433,11 @@ class PaperJournal:
                         event_at,
                         known_at,
                     ),
+                )
+                append_checkpoint(
+                    db,
+                    stream_event,
+                    [{"kind": "quote", "key": [instrument, raw_sha], "sha": raw_sha}],
                 )
                 db.execute("COMMIT")
             except Exception:
@@ -1393,6 +1514,471 @@ class PaperJournal:
             "order_route": "NONE",
         }
 
+    @staticmethod
+    def _validate_public_wallet_trade(event: dict) -> None:
+        """Market-wide public trades are wallet-position *observations*, never NAV."""
+        from .pm03_account import Instrument
+
+        if not isinstance(event, dict) or event.get("schema") != "paper_public_wallet_trade_v1":
+            raise ValueError("PUBLIC_WALLET_TRADE_SCHEMA_INVALID")
+        wallet = event.get("wallet_key")
+        if (
+            not isinstance(wallet, str)
+            or not wallet.startswith("wallet:")
+            or not wallet[7:].isdecimal()
+            or int(wallet[7:]) <= 0
+        ):
+            raise ValueError("PUBLIC_WALLET_TRADE_CANONICAL_ID_REQUIRED")
+        instrument = Instrument.parse(event.get("instrument", ""))
+        if instrument.venue != "hyperliquid" or not instrument.market.startswith("mainnet:perp:"):
+            raise ValueError("PUBLIC_WALLET_TRADE_NOT_NATIVE_PERP")
+        if (
+            event.get("evidence_class") != "PUBLIC_TRADE_PROVISIONAL_NO_NAV"
+            or event.get("order_route") != "NONE"
+            or event.get("provider_signed") is not False
+            or event.get("source_account_complete") is not False
+            or event.get("paper_admitted") is not False
+        ):
+            raise ValueError("PUBLIC_WALLET_TRADE_FALSE_ADMISSION")
+        epoch = event.get("stream_epoch")
+        sha = event.get("source_trade_sha")
+        watchlist_sha = event.get("watchlist_sha")
+        if (
+            not isinstance(watchlist_sha, str)
+            or len(watchlist_sha) != 64
+            or any(c not in "0123456789abcdef" for c in watchlist_sha)
+        ):
+            raise ValueError("PUBLIC_WALLET_TRADE_WATCHLIST_PROVENANCE_REQUIRED")
+        if (
+            not isinstance(epoch, str)
+            or len(epoch) != 32
+            or any(c not in "0123456789abcdef" for c in epoch)
+            or not isinstance(sha, str)
+            or len(sha) != 64
+            or any(c not in "0123456789abcdef" for c in sha)
+        ):
+            raise ValueError("PUBLIC_WALLET_TRADE_PROVENANCE_INVALID")
+        t = event.get("source_timestamp_ms")
+        tid = event.get("native_tid")
+        if type(t) is not int or t <= 0 or type(tid) is not int or tid < 0:
+            raise ValueError("PUBLIC_WALLET_TRADE_NATIVE_ID_INVALID")
+        side = event.get("wallet_side")
+        if side not in {"BUY", "SELL"} or event.get("event_key") != digest(
+            [event["instrument"], t, tid, wallet, side]
+        ):
+            raise ValueError("PUBLIC_WALLET_TRADE_IDENTITY_MISMATCH")
+        if number(event.get("price")) <= 0:
+            raise ValueError("PUBLIC_WALLET_TRADE_PRICE_INVALID")
+        qty = number(event.get("signed_qty"))
+        if qty == 0 or (qty > 0) != (side == "BUY"):
+            raise ValueError("PUBLIC_WALLET_TRADE_SIGN_MISMATCH")
+        try:
+            source = datetime.fromtimestamp(t / 1000, tz=UTC)
+            if clock(event["source_event_at"]) != source or source > clock(event["first_known_at"]):
+                raise ValueError
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("PUBLIC_WALLET_TRADE_CLOCK_INVALID") from exc
+
+    def append_public_wallet_trades(
+        self, events: list[dict], *, stream_event: dict | None = None
+    ) -> dict:
+        """Atomically append one or more first-known public wallet trade observations.
+
+        On reconnect, a duplicate may have a later first-known clock; the
+        original receipt remains immutable. A conflicting native trade fails.
+        """
+        if not isinstance(events, list) or not events:
+            raise ValueError("PUBLIC_WALLET_TRADE_BATCH_EMPTY")
+        for event in events:
+            self._validate_public_wallet_trade(event)
+        unique = {}
+        for event in events:
+            key = (event["wallet_key"], event["instrument"], event["event_key"])
+            prior = unique.setdefault(key, event)
+            if prior != event:
+                raise ValueError("PUBLIC_WALLET_TRADE_BATCH_CONFLICT")
+        appended, duplicates = 0, 0
+        receipt_refs = []
+        with self._writer() as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                committed_at = datetime.now(UTC).isoformat(timespec="microseconds")
+                for event in sorted(
+                    unique.values(),
+                    key=lambda item: (
+                        item["wallet_key"],
+                        item["instrument"],
+                        item["first_known_at"],
+                        item["event_key"],
+                    ),
+                ):
+                    wallet, inst = event["wallet_key"], event["instrument"]
+                    event_key = event["event_key"]
+                    existing = db.execute(
+                        "SELECT payload FROM public_wallet_trade_receipts "
+                        "WHERE wallet_key=? AND instrument=? AND event_key=?",
+                        (wallet, inst, event_key),
+                    ).fetchone()
+                    if existing is not None:
+                        previous = json.loads(existing[0])
+                        # Transport epoch and first-known can change after reconnect.
+                        stable = (
+                            "source_event_at",
+                            "source_timestamp_ms",
+                            "native_tid",
+                            "source_trade_sha",
+                            "wallet_side",
+                            "price",
+                            "signed_qty",
+                        )
+                        if any(previous[field] != event[field] for field in stable):
+                            raise ValueError("PUBLIC_WALLET_TRADE_CONFLICTING_REPLAY")
+                        duplicates += 1
+                        receipt_refs.append(
+                            {
+                                "kind": "public",
+                                "key": [wallet, inst, event_key],
+                                "sha": digest(previous),
+                            }
+                        )
+                        continue
+                    if clock(event["first_known_at"]) > clock(committed_at):
+                        raise ValueError("PUBLIC_WALLET_TRADE_RECEIPT_IN_FUTURE")
+                    head = db.execute(
+                        "SELECT cursor,known_at,chain_sha FROM public_wallet_trade_heads "
+                        "WHERE wallet_key=? AND instrument=?",
+                        (wallet, inst),
+                    ).fetchone()
+                    if head is None:
+                        cursor, previous_sha = 0, "0" * 64
+                    else:
+                        cursor, last_known, previous_sha = head
+                        if clock(event["first_known_at"]) < clock(last_known):
+                            raise ValueError("PUBLIC_WALLET_TRADE_LOCAL_CLOCK_REGRESSION")
+                        prior = db.execute(
+                            "SELECT payload,payload_sha,prior_sha,chain_sha,committed_at "
+                            "FROM public_wallet_trade_receipts "
+                            "WHERE wallet_key=? AND instrument=? AND seq=?",
+                            (wallet, inst, cursor),
+                        ).fetchone()
+                        if (
+                            prior is None
+                            or digest(json.loads(prior[0])) != prior[1]
+                            or prior[3] != previous_sha
+                            or prior[3]
+                            != digest([wallet, inst, cursor, prior[1], prior[2], prior[4]])
+                        ):
+                            raise ValueError("PUBLIC_WALLET_TRADE_HEAD_DIVERGENCE")
+                    seq = cursor + 1
+                    payload_sha = digest(event)
+                    # Bind the durable commit clock; it is PIT-critical and
+                    # must not be retroactively backdated in SQLite.
+                    next_sha = digest([wallet, inst, seq, payload_sha, previous_sha, committed_at])
+                    if head is None:
+                        db.execute(
+                            "INSERT INTO public_wallet_trade_heads VALUES (?,?,?,?,?)",
+                            (wallet, inst, seq, event["first_known_at"], next_sha),
+                        )
+                    else:
+                        db.execute(
+                            "UPDATE public_wallet_trade_heads SET cursor=?,known_at=?,chain_sha=? "
+                            "WHERE wallet_key=? AND instrument=?",
+                            (seq, event["first_known_at"], next_sha, wallet, inst),
+                        )
+                    db.execute(
+                        "INSERT INTO public_wallet_trade_receipts VALUES (?,?,?,?,?,?,?,?,?,?)",
+                        (
+                            wallet,
+                            inst,
+                            seq,
+                            event_key,
+                            _json(event),
+                            payload_sha,
+                            previous_sha,
+                            next_sha,
+                            event["first_known_at"],
+                            committed_at,
+                        ),
+                    )
+                    appended += 1
+                    receipt_refs.append(
+                        {"kind": "public", "key": [wallet, inst, event_key], "sha": payload_sha}
+                    )
+                append_checkpoint(db, stream_event, receipt_refs)
+                db.execute("COMMIT")
+            except Exception:
+                db.execute("ROLLBACK")
+                raise
+        return {
+            "status": "RECORDED_PROVISIONAL_WALLET_TRADES",
+            "new_receipts": appended,
+            "duplicates": duplicates,
+            "paper_admitted": False,
+            "order_route": "NONE",
+        }
+
+    def append_public_trade_gap(
+        self, *, instrument: str, stream_epoch: str, observed_at: str, reason: str
+    ) -> dict:
+        from .pm03_account import Instrument
+
+        inst = Instrument.parse(instrument)
+        if inst.venue != "hyperliquid" or not inst.market.startswith("mainnet:perp:"):
+            raise ValueError("PUBLIC_TRADE_GAP_MARKET_INVALID")
+        if (
+            len(stream_epoch) != 32
+            or any(c not in "0123456789abcdef" for c in stream_epoch)
+            or reason
+            not in {
+                "INITIAL_BASELINE",
+                "RECONNECT",
+                "DISCONNECT",
+                "TIMEOUT",
+                "INTEGRITY_FAILURE",
+                "BOUNDED_CAPTURE_ENDED",
+            }
+        ):
+            raise ValueError("PUBLIC_TRADE_GAP_REASON_INVALID")
+        clock(observed_at)
+        identity = digest([instrument, stream_epoch, observed_at, reason])
+        with self._writer() as db:
+            db.execute(
+                "INSERT OR IGNORE INTO public_trade_stream_gaps VALUES (?,?,?,?,?)",
+                (identity, instrument, stream_epoch, observed_at, reason),
+            )
+        return {"status": "COVERAGE_GAP_RECORDED", "gap_sha": identity, "order_route": "NONE"}
+
+    def audit_public_wallet_trade_tape(self, wallet_key: str, instrument: str) -> dict:
+        """Verify the entire prospective chain once, outside hot bucket reads."""
+        uri = "file:" + str(self.path.resolve()) + "?mode=ro"
+        with closing(sqlite3.connect(uri, uri=True, timeout=0)) as db:
+            db.execute("PRAGMA query_only=ON")
+            db.execute("BEGIN")  # consistent receipt rows and chain head
+            rows = db.execute(
+                "SELECT seq,event_key,payload,payload_sha,prior_sha,chain_sha,known_at,committed_at "
+                "FROM public_wallet_trade_receipts "
+                "WHERE wallet_key=? AND instrument=? ORDER BY seq",
+                (wallet_key, instrument),
+            ).fetchall()
+            head = db.execute(
+                "SELECT cursor,known_at,chain_sha FROM public_wallet_trade_heads "
+                "WHERE wallet_key=? AND instrument=?",
+                (wallet_key, instrument),
+            ).fetchone()
+        previous, last_known = "0" * 64, None
+        for index, (seq, event_key, raw, sha, prior, chain, known, committed) in enumerate(rows, 1):
+            event = json.loads(raw)
+            self._validate_public_wallet_trade(event)
+            if (
+                seq != index
+                or event["event_key"] != event_key
+                or event["wallet_key"] != wallet_key
+                or event["instrument"] != instrument
+                or digest(event) != sha
+                or prior != previous
+                or chain != digest([wallet_key, instrument, seq, sha, prior, committed])
+                or clock(committed) < clock(known)
+                or known != event["first_known_at"]
+                or (last_known and clock(known) < clock(last_known))
+            ):
+                raise ValueError("PUBLIC_WALLET_TRADE_TAPE_DIVERGENCE")
+            previous, last_known = chain, known
+        if (head is None and rows) or (
+            head is not None and head != (len(rows), last_known, previous)
+        ):
+            raise ValueError("PUBLIC_WALLET_TRADE_HEAD_DIVERGENCE")
+        return {
+            "status": "VERIFIED_PROVISIONAL_TAPE",
+            "receipts": len(rows),
+            "head_sha": previous,
+            "source_complete": False,
+            "paper_admitted": False,
+        }
+
+    def observed_utc_net_delta(
+        self, wallet_key: str, instrument: str, *, bucket_start_at: str, as_of: str
+    ) -> dict:
+        """Read only events durably available by the UTC bucket close.
+
+        A retrospective backfill cannot be executed at its original event time.
+        Even an intact provisional tape is NEVER a complete leader book/NAV.
+        """
+        start = clock(bucket_start_at).astimezone(UTC)
+        if start.second or start.microsecond or start.minute % 5:
+            raise ValueError("PUBLIC_WALLET_BUCKET_NOT_UTC_ALIGNED")
+        end = start + timedelta(minutes=5)
+        as_of_dt = clock(as_of)
+        if as_of_dt < end:
+            return {
+                "status": "WAIT",
+                "bucket_end_at": end.isoformat(),
+                "paper_admitted": False,
+                "order_route": "NONE",
+            }
+        uri = "file:" + str(self.path.resolve()) + "?mode=ro"
+        with closing(sqlite3.connect(uri, uri=True, timeout=0)) as db:
+            db.execute("PRAGMA query_only=ON")
+            db.execute("BEGIN")  # atomic receipt/gap snapshot at the requested as-of
+            rows = db.execute(
+                "SELECT seq,payload,payload_sha,prior_sha,chain_sha,known_at,committed_at "
+                "FROM public_wallet_trade_receipts "
+                "WHERE wallet_key=? AND instrument=? AND known_at>=? AND known_at<? "
+                "AND committed_at<=? ORDER BY seq",
+                (
+                    wallet_key,
+                    instrument,
+                    start.isoformat(),
+                    end.isoformat(),
+                    as_of_dt.astimezone(UTC).isoformat(),
+                ),
+            ).fetchall()
+            gaps = db.execute(
+                "SELECT COUNT(*) FROM public_trade_stream_gaps "
+                "WHERE instrument=? AND observed_at>=? AND observed_at<?",
+                (instrument, start.isoformat(), end.isoformat()),
+            ).fetchone()[0]
+        net = gross = Decimal("0")
+        count = late = 0
+        provenance = []
+        for seq, raw, sha, prior, chain, known, committed in rows:
+            event = json.loads(raw)
+            self._validate_public_wallet_trade(event)
+            if (
+                digest(event) != sha
+                or event["wallet_key"] != wallet_key
+                or event["instrument"] != instrument
+                or event["first_known_at"] != known
+                or chain != digest([wallet_key, instrument, seq, sha, prior, committed])
+                or clock(committed) < clock(known)
+            ):
+                raise ValueError("PUBLIC_WALLET_BUCKET_RECEIPT_DIVERGENCE")
+            if clock(committed) > end:
+                late += 1
+                continue
+            count += 1
+            qty = number(event["signed_qty"])
+            net += qty
+            gross += abs(qty)
+            provenance.append(sha)
+        return {
+            "schema": "paper_public_utc_net_delta_v1",
+            "status": "BLOCKED_NO_WHOLE_WALLET_NAV_OR_CONTINUITY",
+            "wallet_key": wallet_key,
+            "instrument": instrument,
+            "bucket_start_at": start.isoformat(),
+            "bucket_end_at": end.isoformat(),
+            "read_at": as_of,
+            "event_count": count,
+            "late_event_count": late,
+            "gap_count": gaps,
+            "net_position_delta": str(net),
+            "gross_observed_turnover": str(gross),
+            "receipt_set_sha": digest(provenance),
+            "source_complete": False,
+            "whole_wallet_nav_attested": False,
+            "paper_admitted": False,
+            "order_route": "NONE",
+        }
+
+    def persist_observed_utc_bucket(self, report: dict) -> dict:
+        """Persist one immutable, nonfinancial bucket. Never submit a fill."""
+        if (
+            report.get("schema") != "paper_public_utc_net_delta_v1"
+            or report.get("status") != "BLOCKED_NO_WHOLE_WALLET_NAV_OR_CONTINUITY"
+            or report.get("paper_admitted") is not False
+            or report.get("order_route") != "NONE"
+            or clock(report["read_at"]) < clock(report["bucket_end_at"])
+        ):
+            raise ValueError("PUBLIC_BUCKET_POSITIVE_ADMISSION_FORBIDDEN")
+        expected = self.observed_utc_net_delta(
+            report["wallet_key"],
+            report["instrument"],
+            bucket_start_at=report["bucket_start_at"],
+            as_of=report["read_at"],
+        )
+        if expected != report:
+            raise ValueError("PUBLIC_BUCKET_RECOMPUTATION_DIVERGENCE")
+        key = digest([report["wallet_key"], report["instrument"], report["bucket_start_at"]])
+        # The read clock is audit metadata, not part of the immutable policy/result.
+        # A second read with identical evidence must remain idempotent.
+        sha = digest({key: value for key, value in report.items() if key != "read_at"})
+        with self._writer() as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                prior = db.execute(
+                    "SELECT plan_sha FROM provisional_utc_buckets WHERE bucket_key=?", (key,)
+                ).fetchone()
+                if prior is not None and prior[0] != sha:
+                    raise ValueError("PUBLIC_BUCKET_MUTATION_REQUIRES_CORRECTION")
+                if prior is None:
+                    db.execute(
+                        "INSERT INTO provisional_utc_buckets VALUES (?,?,?,?,?,?,?,?)",
+                        (
+                            key,
+                            report["wallet_key"],
+                            report["instrument"],
+                            report["bucket_start_at"],
+                            report["bucket_end_at"],
+                            sha,
+                            _json(report),
+                            report["status"],
+                        ),
+                    )
+                db.execute("COMMIT")
+            except Exception:
+                db.execute("ROLLBACK")
+                raise
+        return {
+            "status": "BLOCKED_PROVISIONAL_BUCKET_PERSISTED",
+            "bucket_key": key,
+            "plan_sha": sha,
+            "paper_admitted": False,
+        }
+
+    def first_eligible_quote_after(
+        self,
+        instrument: str,
+        *,
+        due_at: str,
+        checked_at: str,
+        max_wait_seconds: int = 10,
+        max_book_age_seconds: int = 20,
+    ) -> dict:
+        """PIT-safe earliest received quote after deadline; never a future bar."""
+        if not (0 < max_wait_seconds <= 60 and 0 < max_book_age_seconds <= 30):
+            raise ValueError("PUBLIC_QUOTE_AGE_POLICY_INVALID")
+        due, checked = clock(due_at), clock(checked_at)
+        if checked < due:
+            return {"status": "WAIT", "order_route": "NONE"}
+        uri = "file:" + str(self.path.resolve()) + "?mode=ro"
+        with closing(sqlite3.connect(uri, uri=True, timeout=0)) as db:
+            db.execute("PRAGMA query_only=ON")
+            row = db.execute(
+                "SELECT payload,payload_sha FROM market_quote_receipts "
+                "WHERE instrument=? AND known_at>=? AND known_at<=? "
+                "ORDER BY known_at,seq LIMIT 1",
+                (instrument, due.astimezone(UTC).isoformat(), checked.astimezone(UTC).isoformat()),
+            ).fetchone()
+        if row is None:
+            return {"status": "BLOCKED_NO_POST_DEADLINE_QUOTE", "order_route": "NONE"}
+        quote = json.loads(row[0])
+        self._validate_market_quote(quote)
+        if digest(quote) != row[1]:
+            raise ValueError("PUBLIC_QUOTE_SHA_DIVERGENCE")
+        quote_time = clock(quote["first_known_at"])
+        if (quote_time - due).total_seconds() > max_wait_seconds or (
+            quote_time - clock(quote["source_event_at"])
+        ).total_seconds() > max_book_age_seconds:
+            return {"status": "BLOCKED_STALE_OR_LATE_QUOTE", "order_route": "NONE"}
+        return {
+            "status": "QUOTE_OBSERVED_SCENARIO_ONLY",
+            "quote": quote,
+            "quote_sha": row[1],
+            "actual_observed_at": quote["first_known_at"],
+            "executed": False,
+            "order_route": "NONE",
+        }
+
     def restore(self, run_id: str) -> dict:
         with self._writer() as db:
             return self._verify(db, run_id)
@@ -1425,6 +2011,12 @@ class PaperJournal:
             source_ids = [
                 row[0] for row in source.execute("SELECT DISTINCT source_id FROM source_receipts")
             ]
+            observed_wallet_markets = [
+                (row[0], row[1])
+                for row in source.execute(
+                    "SELECT wallet_key,instrument FROM public_wallet_trade_heads"
+                )
+            ]
             collateral_accounts = [
                 row[0]
                 for row in source.execute("SELECT DISTINCT account_sha FROM source_scope_receipts")
@@ -1439,6 +2031,11 @@ class PaperJournal:
             copied = recovered.source_status(source_id)
             if original["head_sha"] != copied["head_sha"]:
                 raise ValueError("PAPER_BACKUP_SOURCE_RECEIPT_MISMATCH")
+        for wallet_key, instrument in observed_wallet_markets:
+            original = self.audit_public_wallet_trade_tape(wallet_key, instrument)
+            copied = recovered.audit_public_wallet_trade_tape(wallet_key, instrument)
+            if original["head_sha"] != copied["head_sha"]:
+                raise ValueError("PAPER_BACKUP_PUBLIC_WALLET_TRADE_MISMATCH")
         for market in trade_markets:
             original = self.market_trade_status(market)
             copied = recovered.market_trade_status(market)
@@ -1449,4 +2046,8 @@ class PaperJournal:
             copied = recovered.market_quote_status(market)
             if original["journal_head_sha"] != copied["journal_head_sha"]:
                 raise ValueError("PAPER_BACKUP_MARKET_QUOTE_MISMATCH")
+        from .pm_forward_stream_journal import verify_streams
+
+        if verify_streams(self.path)["head_sha"] != verify_streams(recovered.path)["head_sha"]:
+            raise ValueError("PAPER_BACKUP_STREAM_CHECKPOINT_MISMATCH")
         return {run_id: recovered.restore(run_id)["journal_head_sha"] for run_id in run_ids}

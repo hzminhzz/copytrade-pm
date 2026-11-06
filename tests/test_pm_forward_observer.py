@@ -453,7 +453,7 @@ def test_unbounded_observer_service_graceful_stop_and_bounded_reports():
             nonlocal called
             called += 1
             if called == 1:
-                raise ConnectionError("websocket outage")
+                raise ConnectionError("private wallet 0x" + "a" * 40 + " /secret/path")
             if called == 3:
                 stop.set()
             return {
@@ -482,6 +482,9 @@ def test_unbounded_observer_service_graceful_stop_and_bounded_reports():
         )
         assert result["epochs"] == 3
         assert result["failed_epochs"] == 1
+        assert outputs[0]["reason"] == "OBSERVER_CAPTURE_FAILURE:ConnectionError"
+        assert "/secret/path" not in json.dumps(outputs)
+        assert "0x" + "a" * 40 not in json.dumps(outputs)
         assert waits == [30, 30]
         assert [entry["status"] for entry in outputs] == [
             "DEGRADED_OBSERVER_FAILURE",

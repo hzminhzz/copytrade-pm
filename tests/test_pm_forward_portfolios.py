@@ -40,12 +40,19 @@ def test_two_frozen_10k_accounts_and_shared_source_fanout() -> None:
         assert state["account"]["quantities"] == {}
         assert state["source_admission"] == "BLOCKED"
         assert state["order_route"] == "NONE"
-    shared = admit_source_book(_source_book(), decision_at=T, fill_at=T)
+    shared = admit_source_book(
+        _source_book(), decision_at=T, fill_at=T, allow_synthetic_fixture=True
+    )
     result = coordinator.observe("S035", shared)
     assert result == {"P1": "BLOCKED", "P14": "BLOCKED"}
     assert "S064" in coordinator.status("P14")["missing_members"]
     assert "S064" not in coordinator.status("P1")["missing_members"]
-    broken = admit_source_book(_alter(_source_book(), source_equity=None), decision_at=T, fill_at=T)
+    broken = admit_source_book(
+        _alter(_source_book(), source_equity=None),
+        decision_at=T,
+        fill_at=T,
+        allow_synthetic_fixture=True,
+    )
     coordinator.observe("S064", broken)
     assert "S064" in coordinator.status("P14")["rejected_members"]
     assert coordinator.status("P1")["rejected_members"] == {}
@@ -138,7 +145,9 @@ def _fixture_registry(db_path: Path) -> Path:
             PRIMARY KEY(portfolio_id, version, member_alias)
         );
     """)
-    conn.execute("INSERT INTO portfolio_seals VALUES ('gemini.phase4/E6', 1, 'sha_fixture_e6', 'doc_sha', 'rev', '2026-11-04T09:06:33+00:00'), ('gemini.phase4/E2', 1, 'sha_fixture_e2', 'doc_sha', 'rev', '2026-11-04T09:06:33+00:00')")
+    conn.execute(
+        "INSERT INTO portfolio_seals VALUES ('gemini.phase4/E6', 1, 'sha_fixture_e6', 'doc_sha', 'rev', '2026-11-04T09:06:33+00:00'), ('gemini.phase4/E2', 1, 'sha_fixture_e2', 'doc_sha', 'rev', '2026-11-04T09:06:33+00:00')"
+    )
     conn.execute("""
         INSERT INTO portfolio_memberships VALUES
             ('gemini.phase4/E6', 1, 'ACT04', 333),
@@ -184,11 +193,14 @@ def test_dynamic_view_registration_and_status_with_fixture(tmp_path: Path) -> No
     assert "ACT04" in status["missing_members"]
     assert "CM-002" in status["missing_members"]
 
+
 def test_tampered_sealed_portfolio_fails_closed(tmp_path: Path) -> None:
     test_db = _fixture_registry(tmp_path / "tampered_reg.sqlite")
     # Deliberately tamper with the membership of gemini.phase4/E6 in DB
     conn = sqlite3.connect(test_db)
-    conn.execute("UPDATE portfolio_seals SET definition_sha256 = 'stale_tampered_sha' WHERE portfolio_id = 'gemini.phase4/E6'")
+    conn.execute(
+        "UPDATE portfolio_seals SET definition_sha256 = 'stale_tampered_sha' WHERE portfolio_id = 'gemini.phase4/E6'"
+    )
     conn.commit()
     conn.close()
 

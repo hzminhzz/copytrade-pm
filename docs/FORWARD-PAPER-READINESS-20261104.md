@@ -2,6 +2,49 @@
 
 **Decision: BLOCKED_NO_TRADE for P1 and P14.** This report is based on bounded, true first-local public observations. It is *not* a paper trade, a backtest, a production service, or scientific qualification.
 
+## Source admission mode boundary (2026-11-06 engineering correction)
+
+The whole-book validator `admit_source_book` now rejects **all real-source
+inputs by default**, including a self-declared `synthetic_fixture=true`
+inside a valid-looking source JSON. A source's own flags, SHA digest, position
+marks or reported NAV do not authenticate the provider or prove atomic
+parent/subaccount collateral.
+
+Only explicitly labeled PM-03/PM-04 **synthetic fixture** call sites opt in
+using `allow_synthetic_fixture=True`. They must still pass every whole-book,
+causal-clock, risk and source-hash check; such a simulation remains
+`FORWARD_PAPER_SIMULATED_v1`, `order_route=NONE`, and cannot be counted as
+independent prospective execution or alpha. Live source observation and
+read-only readiness do **not** opt in. No real-source attestation mechanism is
+implemented by this change; `INDEPENDENT_REAL_BOOK_ATTESTATION_UNAVAILABLE`
+remains the correct live reason.
+
+## Point-in-time audit correction (2026-11-06; code awaiting separate release)
+
+The read-only readiness CLI accepts `--as-of`, but previously chose the
+**newest** source-account receipt, collateral diagnostic and market quote
+even when those records were known **after** the requested cutoff. The
+financial gate still blocked every run, but historical reports could leak
+future portfolio exposures and apparent quote/collateral availability.
+
+The corrected audit validates each entire SHA chain first, then projects the
+as-known prefix: sources require both `first_known_at` and local
+`captured_at` by the requested cutoff, collateral diagnostic records require
+all observed response clocks by that cutoff, and market quotes require
+`first_known_at` by the cutoff. After a later/future collateral record,
+no subsequent record is treated as a causally valid earlier prefix.
+Independent observer-health callers omit the cutoff and continue validating
+the full latest chain. Missing or future records remain `BLOCKED`, never
+filled with a current-price/NAV proxy.
+
+Synthetic fault tests cover a source receipt known before but captured
+**after** a historical cutoff, a later position/hedge market that must not
+appear in the required-market inventory, a later diagnostic collateral
+scope, and a later native quote. This is a read-model integrity correction,
+not retroactively obtained source NAV, signed operator approval or executable
+market capacity. The deployed observer remains on its independently pinned
+release; this change is not deployed by creating a pull request.
+
 ## Evidence and actual admission gaps
 
 The read-only `copytrade-pm-paper-readiness` command joins three separate authorities without modifying any of them: (1) sealed WR-06 portfolio identity + owner-private historical address locator (identity only), (2) official all-DEX per-parent Hyperliquid source receipts and (3) CCXT Pro first-local L2 quote receipts.

@@ -24,7 +24,10 @@ _ALLOWED = frozenset({"PM04_CONFIG", "PM04_SIGNAL", "PM04_TICK"})
 def _check_source_target(account: Account, event: dict) -> dict | None:
     book = event.get("source_book")
     admission = admit_source_book(
-        book, decision_at=event["event_at"], fill_at=event["hypothetical_fill_at"]
+        book,
+        decision_at=event["event_at"],
+        fill_at=event["hypothetical_fill_at"],
+        allow_synthetic_fixture=event.get("fixture_attested") is True,
     )
     if not admission.admitted:
         account.risk = RiskState.RED

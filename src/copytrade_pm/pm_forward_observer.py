@@ -466,10 +466,25 @@ async def run_readonly_observer_service(
             raise
         except Exception as exc:
             failures += 1
+            # Service logs are outside private SQLite evidence storage.
+            # Preserve a diagnostic exception class, not raw provider text
+            # that could contain addresses, market identities or paths.
+            error_class = type(exc).__name__
+            if error_class not in {
+                "TimeoutError",
+                "ConnectionError",
+                "ValueError",
+                "OSError",
+                "RuntimeError",
+                "JSONDecodeError",
+                "KeyError",
+                "TypeError",
+            }:
+                error_class = "OtherError"
             event = {
                 "epoch": epochs,
                 "status": "DEGRADED_OBSERVER_FAILURE",
-                "reason": type(exc).__name__ + ":" + str(exc)[:130],
+                "reason": "OBSERVER_CAPTURE_FAILURE:" + error_class,
             }
         # No unbounded in-memory report list. A failed sink stops the observer
         # instead of silently losing its runtime failure evidence.
@@ -520,6 +535,8 @@ def main() -> None:
     parser.add_argument("--primary-dir", type=Path, required=True)
     parser.add_argument("--secondary-dir", type=Path, required=True)
     parser.add_argument("--state-root", type=Path, required=True)
+    parser.add_argument("--continuous-config", type=Path)
+    parser.add_argument("--preflight-only", action="store_true")
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--service-cadence-seconds", type=float, default=60)
     parser.add_argument("--service-cycle-timeout-seconds", type=float, default=600)
@@ -530,6 +547,24 @@ def main() -> None:
     parser.add_argument("--market-shard-size", type=int, default=8)
     parser.add_argument("--pause-seconds", type=float, default=3)
     args = parser.parse_args()
+    if args.continuous_config is not None:
+        from .pm_forward_continuous import continuous_entrypoint, _reason
+
+        try:
+            result = continuous_entrypoint(args)
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            result = {
+                "status": "BLOCKED_CONTINUOUS_PREFLIGHT_OR_CAPTURE",
+                "error_type": type(exc).__name__,
+                "reason_code": _reason(exc),
+                "order_route": "NONE",
+            }
+            print(json.dumps(result, sort_keys=True))
+            raise SystemExit(2) from None
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return
+    if args.preflight_only:
+        parser.error("--preflight-only requires --continuous-config")
     if not args.state_root.is_absolute() or any(
         part in {".git", ".devspace"} for part in args.state_root.resolve().parts
     ):

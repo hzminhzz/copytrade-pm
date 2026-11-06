@@ -1,5 +1,16 @@
 # Agent-native capability discovery and read-only operations
 
+## Continuous observer capabilities
+
+Discover `paper.observer.preflight` (READ_ONLY), `paper.observer.continuous` (PROTECTED_MUTATION), `paper.observer.continuous_health` (READ_ONLY), `paper.observer.continuous_watchdog` (LOCAL_MUTATION), `paper.observer.shadow_report` (READ_ONLY) and `market.continuous_canary` (PROTECTED_MUTATION). [The continuous contract](FORWARD-PAPER-CONTINUOUS-OBSERVER.md) supplies required paths and gates. Aggregate `health --observer-state-root` detects continuous heartbeat evidence without granting protected-worker or provider authority.
+
+## Public trade observation capability (2026-11-05)
+
+**Latest scope:** Use [Propr-displayed 157-market three-WS mapping](FORWARD-PAPER-PROPR-157-THREE-SOCKETS-20261105.md) before selecting a transport layout. Version `paper_public_physical_sockets_v1` requires the original Propr snapshot file via `--propr-snapshot` and full instrument parity validation; the public Propr listing is not account-specific executable permission. Three named physical sockets have sizes 8/88/61, local per-socket cap 128; the legacy eight-market layout and five original Top-40 logical groups remain for historical comparison. Observed transport was sequential, not an always-on three-WS production service. The CLI fails closed on `--parallel-shards > 1` without `--ack-shared-ip-connection-budget` for this Propr configuration; operator must independently verify shared-IP headroom.
+
+
+`source.public_trades` / `copytrade-pm-public-trades` is a reviewed `PROTECTED_MUTATION` CLI (because it creates a local private evidence journal). It reads canonical portfolio identity from SQLite, subscribes read-only to bounded public Hyperliquid market trades (`--mode observe`), or seals provisional five-minute UTC buckets with quote as-of checks (`--mode plan`). Market selection is explicit: repeated `--instrument`, a legacy <=128 flat allowlist, the former eight-market physical-shard layout, or the 157-market Propr display configuration with three physical sockets (8/88/61) and mandatory dated snapshot parity. The new exact named [40-market five-shard layout](FORWARD-PAPER-TOP40-FIVE-SHARD-20261105.md) was live-smoke-tested across 5 concurrent sockets (40 market baselines, 39 post-baseline activity, 0 watched fills); the 10 default / 3 HIP-3 previous tests also remain only transport evidence. Independent matched wallet detection and full source completeness remain unproven. Both modes retain `order_route=NONE`, `paper_admitted=false`, `financial_events_committed=0`. This is NOT a protected financial paper-worker capability and must never claim source NAV or active follower trading. See [the detailed source/clock contract](FORWARD-PAPER-PUBLIC-TRADES-20261105.md).
+
 ## Architecture decision (2026-11-04)
 
 **Option B selected:** one repo-wide discovery directory plus a small read-only
