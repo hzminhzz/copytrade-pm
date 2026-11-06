@@ -21,8 +21,15 @@ sudo, source NAV and market admission remain blocked. No financial paper promoti
 Original historical seals remain blocked; independent operator signature,
 complete account NAV and market execution evidence are still required.
 
+**SQLite is authoritative for operational wallet/cohort/portfolio metadata (approved 2026-11-05).** Follow [native SQLite registration and legacy-writer lock](SQLITE-NATIVE-LEGACY-LOCK-20261105.md) for read-only discovery, backup-gated new cohorts, explicit import fencing and rollback boundaries. Original scientific evidence, market Parquet, tracker subscriptions and paper/broker financial truth have independent authority.
+
 **SQLite metadata authority (2026-11-05):** The private wallet registry is the
 single source of truth for current wallets, cohorts and saved portfolios.
+New owner-approved exclusion decisions have a separate protected, append-only native
+path; see [native lock, registration and exclusion contracts](SQLITE-NATIVE-LEGACY-LOCK-20261105.md).
+For provider validation, wallet screening statistics and point-in-time discipline,
+see [ML4T methodology lessons](ML4T-METHODOLOGY-LESSONS.md) and the
+[dated real-cohort evidence audit](ML4T-REGISTRY-EVIDENCE-AUDIT-20261105.md).
 [Mandatory registry lookup contract](WALLET-REGISTRY-AGENT-WORKFLOW.md) and
 [read-only pinned release/rollback guide](WALLET-REGISTRY-RELEASE-RUNBOOK.md)
 distinguish the SQLite inventory SHA from legacy CSV import evidence.

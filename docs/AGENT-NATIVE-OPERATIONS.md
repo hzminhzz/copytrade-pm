@@ -23,6 +23,10 @@ financial authority; paper status is an independent journal/worker concern.
 No new database, order route, source collector, financial calculator, web server
 or scheduler is introduced. This directory is descriptive, **not authorization**.
 
+## SQLite native write operations (approved 2026-11-05)
+
+The canonical operational wallet registry is SQLite (merged PR #111), even when dated CSV/JSON source imports have drifted. `copytrade-wallet-registry native status` is read-only; `native lock`, `native register` and `native exclude` default to reviewed previews; `--apply` is a protected mutation requiring a private backup and exact `inventory_sha256`. Native exclusion decisions additionally require an exact private manifest SHA and registered wallet identity, and cannot revoke old exclusions. A locked database rejects legacy `sync --apply` and older writer transactions. Agents must query the registry instead of searching historical Markdown. Read [the interface/rollback contract](SQLITE-NATIVE-LEGACY-LOCK-20261105.md) and [ML4T evidence discipline](ML4T-METHODOLOGY-LESSONS.md).
+
 ## Native-first workflow
 
 Before adding any Python module, CLI or data-access path, agents **must**:

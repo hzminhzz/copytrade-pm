@@ -22,6 +22,10 @@ leaving the database, tracked service units and staged release untouched, then
 re-activate a reviewed compatible release. Deactivation is not a successful
 rollback to an incompatible old binary.
 
+## Native SQLite owner-lock compatibility
+
+The owner-approved [SQLite-native lock contract](SQLITE-NATIVE-LEGACY-LOCK-20261105.md) adds explicit, backed-up `native lock` activation and protected `native register` cohort writes. This does not create a new database or alternative read authority: PR #111 already made SQLite canonical for wallet inventory and selection. Verify a pinned release built with `wallet_registry_native.py` before executing the lock. Legacy imports may continue as *read-only historical diagnostics*; automatic `sync --apply` is blocked after the lock. Keep the old release pointer and online backup until independent code and DB verification pass. Code-pointer rollback must not assume old importer write compatibility.
+
 ## Preconditions
 
 **Mandatory for future agents:** follow [the registry-first read and evidence workflow](WALLET-REGISTRY-AGENT-WORKFLOW.md). Git `main`, private SQLite generation and **installed pinned revision** are distinct. Never assume a code merge activated an upgrade. The current checked source-only safety fix PR #91 at `e5d9933` prevents future retroactive frozen membership writes; the observed installed release at this dated checkpoint was `5d7b4d7`. Existing historical DB backfills require separately reviewed recovery, not silent pointer movement.

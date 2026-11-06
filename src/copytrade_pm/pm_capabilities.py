@@ -62,6 +62,13 @@ GROUPS = {
 # for the broader parent executable. No subcommand inherits READ_ONLY.
 REGISTRY_OPERATIONS = {
     "status": "READ_ONLY",
+    "native status": "READ_ONLY",
+    "native lock": "READ_ONLY",
+    "native lock --apply": "PROTECTED_MUTATION",
+    "native register": "READ_ONLY",
+    "native register --apply": "PROTECTED_MUTATION",
+    "native exclude": "READ_ONLY",
+    "native exclude --apply": "PROTECTED_MUTATION",
     "doctor": "READ_ONLY",
     "runtime": "READ_ONLY",
     "report --redacted": "READ_ONLY",
@@ -349,6 +356,10 @@ DOCS = {
     "historical": "docs/RUNBOOK.md",
 }
 REGISTRY_REQUIRED_ARGUMENTS = {
+    "native lock": ["--expected-inventory-sha SHA256"],
+    "native lock --apply": ["--expected-inventory-sha SHA256"],
+    "native register": ["--manifest PRIVATE_PATH", "--expected-inventory-sha SHA256"],
+    "native register --apply": ["--manifest PRIVATE_PATH", "--expected-inventory-sha SHA256"],
     "wallet --alias": ["--alias ALIAS"],
     "wallet --address": ["--address ADDRESS"],
     "cohort": ["NAME"],

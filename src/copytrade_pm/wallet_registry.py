@@ -20,6 +20,7 @@ import stat
 from contextlib import closing, contextmanager
 import fcntl
 
+from . import wallet_registry_native as native
 from . import wallet_registry_portfolios as portfolio_contract
 from . import wallet_registry_catalog as catalog
 from . import wallet_registry_signed_catalog as signed_catalog
@@ -492,6 +493,10 @@ def apply(db: Path, snapshot: dict, when: str) -> dict:
     with private_lock(db):
         if db.is_symlink():
             raise PermissionError("registry database symlink is forbidden")
+        if db.exists() and db.stat().st_size:
+            with closing(connect(db, False)) as current:
+                if native.locked(current):
+                    raise ValueError("LEGACY_SOURCE_IMPORT_DISABLED")
         if db.exists():
             if stat.S_IMODE(db.stat().st_mode) != 0o600:
                 raise PermissionError("registry database must have mode 0600")
@@ -901,6 +906,9 @@ def db_authority_health(db: Path) -> dict:
         }
         if any(count == 0 for count in counts.values()):
             raise ValueError("REGISTRY_EMPTY_REGISTERED_COHORT")
+        native.locked(con)  # Verify all protective triggers when legacy writes are disabled.
+        native.verify_native_cohort_archives(db, con)
+        native.verify_exclusion_archives(db, con)
         for table in AUTHORITATIVE_INVENTORY_TABLES:
             records = con.execute(f"SELECT * FROM {table}").fetchall()
             encoded = sorted(
@@ -1014,6 +1022,8 @@ def db_status(db: Path) -> dict:
             "generation": meta,
             "source_shas": sources,
             "freshness": freshness,
+            "authority": "SQLITE",
+            "legacy_import": "DISABLED" if native.locked(con) else "UNLOCKED_LEGACY_WRITER",
         }
 
 
@@ -1065,6 +1075,23 @@ def cli(argv: list[str] | None = None) -> int:
     flags.add_argument("--dry-run", action="store_true")
     flags.add_argument("--apply", action="store_true")
     sub.add_parser("status")
+    native_cmd = sub.add_parser("native", help="Owner-private SQLite writes, legacy lock")
+    native_sub = native_cmd.add_subparsers(dest="native_action", required=True)
+    native_sub.add_parser("status")
+    native_lock = native_sub.add_parser("lock")
+    native_lock.add_argument("--expected-inventory-sha", required=True)
+    native_lock.add_argument("--apply", action="store_true")
+    native_register = native_sub.add_parser("register")
+    native_register.add_argument("--expected-inventory-sha", required=True)
+    native_register.add_argument("--manifest", required=True, type=Path)
+    native_register.add_argument("--apply", action="store_true")
+    native_exclude = native_sub.add_parser(
+        "exclude", help="Append owner-reviewed, SHA-pinned private exclusion decisions"
+    )
+    native_exclude.add_argument("--expected-inventory-sha", required=True)
+    native_exclude.add_argument("--expected-manifest-sha", required=True)
+    native_exclude.add_argument("--manifest", required=True, type=Path)
+    native_exclude.add_argument("--apply", action="store_true")
     doctor = sub.add_parser("doctor", help="Verify the authoritative SQLite ledger")
     doctor.add_argument(
         "--legacy-audit",
@@ -1116,6 +1143,10 @@ def cli(argv: list[str] | None = None) -> int:
     science.add_argument("--apply", action="store_true", help="index verified negative only")
     args = parser.parse_args(argv)
     if args.command == "sync":
+        if args.apply and args.db.exists() and args.db.stat().st_size:
+            with closing(connect(args.db, False)) as con:
+                if native.locked(con):
+                    raise ValueError("LEGACY_SOURCE_IMPORT_DISABLED")
         snapshot = collect(args.root, args.tracker_env, args.decision_repo)
         result = status(snapshot)
         if args.apply:
@@ -1123,6 +1154,56 @@ def cli(argv: list[str] | None = None) -> int:
         print(json.dumps(result, sort_keys=True))
     elif args.command == "status":
         print(json.dumps(db_status(args.db), sort_keys=True))
+    elif args.command == "native":
+        if args.native_action == "status":
+            with closing(connect(args.db, False)) as con:
+                disabled = native.locked(con)
+            print(
+                json.dumps(
+                    {
+                        "authority": "SQLITE",
+                        "legacy_import": "DISABLED" if disabled else "UNLOCKED_LEGACY_WRITER",
+                        "inventory_sha256": db_authority_health(args.db)["inventory_sha256"],
+                    },
+                    sort_keys=True,
+                )
+            )
+        elif args.native_action == "lock":
+            print(
+                json.dumps(
+                    native.lock_legacy_import(
+                        args.db,
+                        expected=args.expected_inventory_sha,
+                        apply=args.apply,
+                    ),
+                    sort_keys=True,
+                )
+            )
+        elif args.native_action == "register":
+            print(
+                json.dumps(
+                    native.register_cohort(
+                        args.db,
+                        args.manifest,
+                        expected=args.expected_inventory_sha,
+                        apply=args.apply,
+                    ),
+                    sort_keys=True,
+                )
+            )
+        elif args.native_action == "exclude":
+            print(
+                json.dumps(
+                    native.append_exclusions(
+                        args.db,
+                        args.manifest,
+                        expected=args.expected_inventory_sha,
+                        expected_manifest_sha=args.expected_manifest_sha,
+                        apply=args.apply,
+                    ),
+                    sort_keys=True,
+                )
+            )
     elif args.command == "doctor":
         try:
             authority = db_authority_health(args.db)

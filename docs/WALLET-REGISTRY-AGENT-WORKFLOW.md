@@ -4,6 +4,10 @@
 
 **Owner-approved operating contract (2026-11-04).** Read this after `AGENTS.md` and before answering any question about **which wallets exist, are being evaluated, excluded, watched, or belong to a portfolio**, or which portfolios are **saved, selected, frozen, paper-running, or eligible for deployment**. Use this same procedure before implementing wallet/portfolio changes or documenting their operational state. OptMem and Markdown are navigation and dated decisions, **not** substitutes for the current indexed source.
 
+## SQLite write authority and legacy freeze — 2026-11-05
+
+`doctor` and `native status` inspect the SQLite registry first. The full SQLite `inventory_sha256` is the current version identity. `source_manifest_sha256` is historical evidence lineage; CSV/JSON/Markdown cannot replace current wallet/cohort/selection state. To enforce this across old writers, the explicit reviewed `native lock --apply` takes a private online backup and installs SQLite triggers. Once locked, use `native register` for new, separately versioned cohorts and a distinct protected `native exclude` for reviewed append-only exclusion decisions; never `sync --apply`. Exclusions must be registered-wallet-only, private SHA-pinned and known-at on receipt; no automatic revocation. Old frozen PM-01 evidence stays intact. Tracker subscriptions, paper NAV and authorization remain independent. [Full migration and rollback policy](SQLITE-NATIVE-LEGACY-LOCK-20261105.md).
+
 ## SQLite is metadata authority — 2026-11-05
 
 The owner-private SQLite database governs current wallet/cohort/alias/exclusion
