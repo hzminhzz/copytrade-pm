@@ -107,7 +107,11 @@ def test_diagnostic_can_pass_all_checks_but_never_admit_start(tmp_path, monkeypa
         "db_authority_health",
         lambda _path: {"database_integrity": "VERIFIED", "inventory_sha256": "b" * 64},
     )
-    monkeypatch.setattr(module, "db_status", lambda _path: {})
+    monkeypatch.setattr(
+        module,
+        "db_status",
+        lambda _path: {"counts": {"current_research_selection": "OWNER_APPROVED_RESEARCH_ONLY"}},
+    )
     monkeypatch.setattr(
         module,
         "registry_watched_addresses",

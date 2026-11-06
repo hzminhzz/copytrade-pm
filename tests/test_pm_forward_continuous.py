@@ -76,7 +76,11 @@ def test_preflight_manifest_binds_registry_and_old_evidence(tmp_path, monkeypatc
             "inventory_sha256": "b" * 64,
         },
     )
-    monkeypatch.setattr(module, "db_status", lambda _: {})
+    monkeypatch.setattr(
+        module,
+        "db_status",
+        lambda _: {"counts": {"current_research_selection": "OWNER_APPROVED_RESEARCH_ONLY"}},
+    )
     monkeypatch.setattr(
         module,
         "registry_watched_addresses",

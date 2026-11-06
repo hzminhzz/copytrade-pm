@@ -985,7 +985,18 @@ def db_status(db: Path) -> dict:
         counts["sealed_portfolio_definitions"] = con.execute(
             "SELECT COUNT(DISTINCT portfolio_id) FROM portfolio_seals"
         ).fetchone()[0]
-        selection = catalog.list_selection(con, datetime.now(timezone.utc).isoformat())
+        # Missing proof for an *unrelated future research selection* does not
+        # corrupt the owner-private SQLite inventory. Keep metadata inspectable,
+        # but never promote the unverified source to a current portfolio.
+        try:
+            selection = catalog.list_selection(con, datetime.now(timezone.utc).isoformat())
+        except ValueError as exc:
+            if str(exc) != "unverified research selection provenance":
+                raise
+            selection = {
+                "selection_state": "UNVERIFIED_SELECTION_PROVENANCE",
+                "portfolios": [],
+            }
         counts["current_research_selection"] = selection["selection_state"]
         counts["current_research_portfolios"] = len(selection["portfolios"])
         qualified = qualification_contract.status(con)
@@ -1146,19 +1157,30 @@ def cli(argv: list[str] | None = None) -> int:
                         "authoritative": False,
                         "error_type": type(exc).__name__,
                     }
+            selection_proof_blocked = (
+                indexed["counts"]["current_research_selection"] == "UNVERIFIED_SELECTION_PROVENANCE"
+            )
             print(
                 json.dumps(
                     {
                         **authority,
                         "indexed_research_unique": indexed["counts"]["research_unique"],
                         "indexed_import_clock_freshness": indexed["freshness"],
+                        "research_selection_integrity": (
+                            "BLOCKED_MISSING_EXTERNAL_PROOF"
+                            if selection_proof_blocked
+                            else "VERIFIED"
+                        ),
+                        "current_research_selection": indexed["counts"][
+                            "current_research_selection"
+                        ],
                         "legacy_inputs": audit,
                         "runtime_admitted": "UNKNOWN",
                     },
                     sort_keys=True,
                 )
             )
-            return 0
+            return 2 if selection_proof_blocked else 0
         except (OSError, ValueError, sqlite3.Error) as exc:
             print(
                 json.dumps(

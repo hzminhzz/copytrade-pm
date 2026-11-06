@@ -45,14 +45,27 @@ MAX_SUBSCRIPTIONS_PER_CONNECTION = 15
 MAX_CONCURRENT_USER_ACCOUNTS = 10
 
 
-def account_window(subjects: dict[str, str], index: int) -> tuple[dict[str, str], int]:
-    """Bound unique accounts across every connection in this observer."""
-    count = (len(subjects) + MAX_CONCURRENT_USER_ACCOUNTS - 1) // MAX_CONCURRENT_USER_ACCOUNTS
+def account_window(
+    subjects: dict[str, str],
+    index: int,
+    *,
+    max_accounts_per_window: int = MAX_CONCURRENT_USER_ACCOUNTS,
+) -> tuple[dict[str, str], int]:
+    """Bound unique accounts across every connection on the shared IP.
+
+    Lowering the cap is a cooperative resource reservation, not an assertion
+    that other processes actually respect it.
+    """
+    if (
+        type(max_accounts_per_window) is not int
+        or not 1 <= max_accounts_per_window <= MAX_CONCURRENT_USER_ACCOUNTS
+        or not subjects
+    ):
+        raise ValueError("E4_INVALID_SHARED_IP_ACCOUNT_RESERVATION")
+    count = (len(subjects) + max_accounts_per_window - 1) // max_accounts_per_window
     if type(index) is not int or not 0 <= index < count:
         raise ValueError("E4_INVALID_ACCOUNT_WINDOW")
-    keys = list(subjects)[
-        index * MAX_CONCURRENT_USER_ACCOUNTS : (index + 1) * MAX_CONCURRENT_USER_ACCOUNTS
-    ]
+    keys = list(subjects)[index * max_accounts_per_window : (index + 1) * max_accounts_per_window]
     return {key: subjects[key] for key in keys}, count
 
 
@@ -150,7 +163,19 @@ async def session(
     stop_event: asyncio.Event | None = None,
     pods: tuple[str, ...] = PODS,
     account_window_index: int = 0,
+    max_accounts_per_window: int = MAX_CONCURRENT_USER_ACCOUNTS,
+    max_subscriptions_per_connection: int = MAX_SUBSCRIPTIONS_PER_CONNECTION,
 ) -> dict:
+    if (
+        type(max_subscriptions_per_connection) is not int
+        or not 1 <= max_subscriptions_per_connection <= 128
+    ):
+        raise ValueError("E4_SUBSCRIPTION_SOCKET_BOUND_INVALID")
+    if (
+        type(max_accounts_per_window) is not int
+        or not 1 <= max_accounts_per_window <= MAX_CONCURRENT_USER_ACCOUNTS
+    ):
+        raise ValueError("E4_INVALID_SHARED_IP_ACCOUNT_RESERVATION")
     if not MIN_SESSION_SECONDS <= session_seconds <= MAX_SESSION_SECONDS:
         raise ValueError("E4_INVALID_SESSION_DURATION")
     if not MIN_SAMPLE_SECONDS <= sample_seconds <= MAX_SAMPLE_SECONDS:
@@ -197,7 +222,13 @@ async def session(
             key: sha256(value.lower().encode()).hexdigest() for key, value in subjects.items()
         }
         all_subjects = subjects
-        subjects, window_count = account_window(all_subjects, account_window_index)
+        subjects, window_count = account_window(
+            all_subjects,
+            account_window_index,
+            max_accounts_per_window=max_accounts_per_window,
+        )
+        report["configured_accounts_per_window"] = max_accounts_per_window
+        report["configured_subscriptions_per_socket"] = max_subscriptions_per_connection
         report["observed_scope_subjects"] = sorted(subjects)
         report["unobserved_subjects"] = sorted(set(all_subjects) - set(subjects))
         report["account_window_index"] = account_window_index
@@ -213,7 +244,7 @@ async def session(
                 for kind in SUBSCRIPTIONS
             ]
             connections = []
-            for start in range(0, len(subscriptions), MAX_SUBSCRIPTIONS_PER_CONNECTION):
+            for start in range(0, len(subscriptions), max_subscriptions_per_connection):
                 ws = await stack.enter_async_context(
                     websockets.connect(
                         WS_URL,
@@ -225,7 +256,7 @@ async def session(
                     )
                 )
                 connections.append(ws)
-                for subscription in subscriptions[start : start + MAX_SUBSCRIPTIONS_PER_CONNECTION]:
+                for subscription in subscriptions[start : start + max_subscriptions_per_connection]:
                     await ws.send(json.dumps({"method": "subscribe", "subscription": subscription}))
             report["connection"] = "CONNECTED"
             report["connection_count"] = len(connections)
