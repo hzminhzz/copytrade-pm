@@ -121,8 +121,11 @@ Native WebSocket first-known time is captured immediately after raw receive,
 before JSON decode or queueing. The exact raw string is hashed and retained in
 private evidence. The pinned CCXT 4.5.91 hook captures inbound time before its
 JSON/provider dispatch, and binds each native trade to its earliest local clock.
-Upgrading CCXT requires a new instrumentation check. Native trade identity uses
-coin, block time and `tid`; `tid` alone is not globally unique.
+The returned CCXT cache, its ingress stamp and per-trade clock map are copied
+in the same coroutine before yielding to the supervisor. A newer raw callback
+must not be paired with an older resolved cache. Upgrading CCXT requires a new
+instrumentation check. Native trade identity uses coin, block time and `tid`;
+`tid` alone is not globally unique.
 
 Source time, local first-known time, SQLite commit time, financial decision time
 and hypothetical fill time remain separate. The trade cache is cloned for
@@ -228,8 +231,13 @@ The current installer still enforces its release gate. No new template bypasses 
 
 Rehearse candidate installation, bad launch, bad health and restoration using
 isolated unit names and separate state. Check the prior pinned reader against
-the copied additive schema. Then stop the rehearsal units and preserve their
-evidence. Actual public cutover may change only its specifically authorized
+the copied additive schema. Reader compatibility must be checked per tape:
+release `27b7a6912c18f50eadb1e3fe08010dd0b42fce9a` rejects the newer
+`BLOCKED_PERPETUAL_COLLATERAL_RECONCILIATION` diagnostic, so rollback must pair
+that release with its preserved legacy journal. Do not point it at a new
+continuous account journal or rewrite diagnostic bytes to make it parse. The
+new reader accepts both diagnostic generations. Then stop the rehearsal units
+and preserve their evidence. Actual public cutover may change only its specifically authorized
 unit/release. Tracker, source-ABC, ensemble, broker and financial services remain
 outside this program.
 

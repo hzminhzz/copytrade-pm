@@ -788,14 +788,28 @@ async def _ccxt_channel(market, channel, *, feed, timer, writer, stop, now):
     await writer.submit(lambda: market.begin(channel, now()))
     pending = None
     last_transport = None
+
+    async def receive_snapshot():
+        # No scheduling boundary between CCXT returning its cache and capturing
+        # the corresponding ingress clock. The supervisor may resume after a
+        # newer raw frame; pairing that newer clock with this cache is a false gap.
+        raw = deepcopy(
+            await (
+                feed._exchange.watch_order_book(symbol, 5)
+                if channel == "quote"
+                else feed._exchange.watch_trades(symbol, None, 1000)
+            )
+        )
+        stamp = timer.stamp(
+            channel, coin, native_time=raw.get("timestamp") if channel == "quote" else None
+        )
+        first_known = timer.trade_clocks(coin, stamp["epoch"]) if channel == "trades" else None
+        return raw, stamp, first_known
+
     try:
         while not stop.is_set():
             try:
-                pending = asyncio.create_task(
-                    feed._exchange.watch_order_book(symbol, 5)
-                    if channel == "quote"
-                    else feed._exchange.watch_trades(symbol, None, 1000)
-                )
+                pending = asyncio.create_task(receive_snapshot())
                 timed_out = False
                 while not stop.is_set() and not pending.done():
                     await asyncio.wait([pending], timeout=10)
@@ -825,10 +839,7 @@ async def _ccxt_channel(market, channel, *, feed, timer, writer, stop, now):
                         raise TimeoutError("CCXT_SILENT_TRANSPORT")
                 if stop.is_set():
                     break
-                raw = deepcopy(await pending)
-                stamp = timer.stamp(
-                    channel, coin, native_time=raw.get("timestamp") if channel == "quote" else None
-                )
+                raw, stamp, first_known = await pending
                 known = stamp["known_at"]
                 if (token is not None and token != stamp["epoch"]) or timed_out:
                     await writer.submit(lambda: market.begin(channel, known))
@@ -836,7 +847,6 @@ async def _ccxt_channel(market, channel, *, feed, timer, writer, stop, now):
                 if channel == "quote":
                     await writer.submit(lambda: market.quote(raw, known))
                 else:
-                    first_known = timer.trade_clocks(coin, token)
                     await writer.submit(
                         lambda: market.trades(list(raw), known, first_known_by_id=first_known)
                     )
