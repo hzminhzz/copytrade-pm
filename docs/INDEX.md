@@ -1,5 +1,7 @@
 # copytrade-pm handbook — start here
 
+**Binding copy-sizing decision (2026-11-06):** [Risk-budgeted fixed-k, source NAV optional by default](RISK-BUDGETED-K-SIZING-20261106.md). Future agents must not block fixed-k implementation or paper research for missing leader NAV; follower equity, selected positions, risk and authorization remain mandatory.
+
 **SQLite metadata authority (2026-11-05):** The private wallet registry is the
 single source of truth for current wallets, cohorts and saved portfolios.
 [Mandatory registry lookup contract](WALLET-REGISTRY-AGENT-WORKFLOW.md) and

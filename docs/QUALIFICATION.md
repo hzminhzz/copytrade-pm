@@ -1,5 +1,7 @@
 # Evidence and qualification gates
 
+**Owner decision 2026-11-06:** The default [fixed-k copytrading policy](RISK-BUDGETED-K-SIZING-20261106.md) does **not** require leader whole-account NAV. Qualification instead needs independently matched **follower** PnL with costs, actual account positions, selected leader position scope/receipts, matched market quotes and risk evidence; source-equity fidelity is a *separate* opt-in scientific claim. Older sections below refer to historical equity-relative studies and must not be used as blanket NAV vetoes over fixed-k.
+
 ## Polars offline milestone #2 two independent result dimensions (2026-11-04)
 
 Read [two-track engineering acceptance](OFFLINE-MILESTONE2-ENGINEERING-ACCEPTANCE-20261104.md)

@@ -119,6 +119,60 @@ def target_from_weights(
     return notionals, quantities
 
 
+def target_from_fixed_k(
+    *,
+    source_quantities: Mapping[str, D],
+    k: D,
+    follower_marks: Mapping[str, D],
+    follower_equity_usd: D,
+    max_gross_notional_usd: D,
+    max_market_notional_usd: D,
+    pod_loss_budget_usd: D,
+) -> dict[str, object]:
+    """NAV-free signed-position mirroring intent, never a live risk permit.
+
+    Quantity is scaled directly by a preselected fixed k; source account
+    NAV and parent/child collateral sums are not referenced. Caller must
+    independently verify selected source position scope, local receipt clocks,
+    follower quote freshness and account-bound policy provenance. The Guardian
+    owns actual loss-stop, margin, drawdown and order authorization.
+    """
+    positions = _book(source_quantities)
+    ratio = _decimal(k, positive=True)
+    if ratio > D("10"):
+        raise ValueError("FIXED_K_POLICY_OUT_OF_BOUNDS")
+    equity = _decimal(follower_equity_usd, positive=True)
+    gross_limit = _decimal(max_gross_notional_usd, positive=True)
+    market_limit = _decimal(max_market_notional_usd, positive=True)
+    loss_budget = _decimal(pod_loss_budget_usd, positive=True)
+    if loss_budget > equity:
+        raise ValueError("POD_LOSS_BUDGET_EXCEEDS_FOLLOWER_EQUITY")
+    marks = _marks(set(positions), follower_marks, accept_extra=True)
+    quantities = {key: qty * ratio for key, qty in positions.items()}
+    notionals = {key: quantities[key] * marks[key] for key in positions}
+    if sum((abs(v) for v in notionals.values()), ZERO) > gross_limit:
+        raise ValueError("FIXED_K_GROSS_NOTIONAL_CAP")
+    if any(abs(v) > market_limit for v in notionals.values()):
+        raise ValueError("FIXED_K_MARKET_NOTIONAL_CAP")
+    return {
+        "schema": "copytrade_risk_budgeted_fixed_k_intent_v1",
+        "status": "RESEARCH_INTENT_REQUIRES_GUARDIAN",
+        "sizing_policy": "FIXED_K_NATIVE_QUANTITY",
+        "k": str(ratio),
+        "target_quantities": {key: str(value) for key, value in quantities.items()},
+        "target_notionals_usd": {key: str(value) for key, value in notionals.items()},
+        "follower_equity_usd": str(equity),
+        "max_gross_notional_usd": str(gross_limit),
+        "max_market_notional_usd": str(market_limit),
+        "pod_loss_budget_usd": str(loss_budget),
+        "source_nav_required": False,
+        "leader_equity_relative_fidelity_claimed": False,
+        "risk_supervisor_required": True,
+        "order_route": "NONE",
+        "trading_authorized": False,
+    }
+
+
 def build_intent(
     book: WalletBook,
     *,

@@ -17,6 +17,7 @@ import sqlite3
 
 from .pm03_account import clock, digest
 from .pm_forward_admission import admit_source_book
+from .pm_fixed_k_source_scope import assess_selected_parent_perp_scope
 from .pm_forward_journal import PaperJournal
 from .pm_forward_registry_identity import (
     P1,
@@ -200,7 +201,11 @@ def audit_live_paper_readiness(
     as_of: str,
     max_source_age_seconds: float = 180,
     max_quote_age_seconds: float = 30,
+    sizing_policy: str = "FIXED_K_NATIVE_QUANTITY",
 ) -> dict:
+    if sizing_policy not in ("FIXED_K_NATIVE_QUANTITY", "ALLOCATION_OVER_LIVE_NAV"):
+        raise ValueError("UNSUPPORTED_SOURCE_SIZING_POLICY")
+    fixed_k = sizing_policy == "FIXED_K_NATIVE_QUANTITY"
     now = clock(as_of)
     identity = audit_frozen_member_resolution(
         registry_db=registry_db,
@@ -222,9 +227,11 @@ def audit_live_paper_readiness(
             source = _source(db, alias)
             collateral = _collateral(db, identity_sha[member])
             reasons: list[str] = []
-            if collateral["cursor"] == 0:
+            # Collateral is always independently SHA-checked by _collateral,
+            # but is diagnostic-only for signed fixed-k native quantities.
+            if not fixed_k and collateral["cursor"] == 0:
                 reasons.append("COLLATERAL_DIAGNOSTICS_MISSING")
-            else:
+            elif not fixed_k:
                 mode_known = collateral["last_account_mode_known_at"]
                 if (
                     collateral["account_mode_status"] != "OFFICIAL_PUBLIC_ACCOUNT_MODE_OBSERVED"
@@ -267,12 +274,13 @@ def audit_live_paper_readiness(
             observed_children = set(child_receipts)
             missing_children = declared_children - observed_children
             extra_children = observed_children - declared_children
-            if missing_children:
-                reasons.append("DISCOVERED_SUBACCOUNT_POSITION_SCOPE_MISSING")
-            if extra_children:
-                reasons.append("UNMATCHED_SUBACCOUNT_SOURCE_RECEIPT")
-            if child_receipts:
-                reasons.append("NON_ATOMIC_SUBACCOUNT_OBSERVATIONS")
+            if not fixed_k:
+                if missing_children:
+                    reasons.append("DISCOVERED_SUBACCOUNT_POSITION_SCOPE_MISSING")
+                if extra_children:
+                    reasons.append("UNMATCHED_SUBACCOUNT_SOURCE_RECEIPT")
+                if child_receipts:
+                    reasons.append("NON_ATOMIC_SUBACCOUNT_OBSERVATIONS")
             if receipt is None:
                 reasons.append("NO_FIRST_LOCAL_WALLET_RECEIPT")
                 source_event = None
@@ -284,17 +292,27 @@ def audit_live_paper_readiness(
                 book = receipt["source_book"]
                 if book.get("account_id") != identity_sha[member]:
                     reasons.append("SOURCE_REGISTRY_ADDRESS_IDENTITY_MISMATCH")
-                gate = admit_source_book(book, decision_at=as_of, fill_at=as_of)
-                reasons.extend(gate.reason_codes)
-                required_market.update(book["positions"].keys())
-                # A strictly parent-only snapshot cannot create whole-wallet NAV.
-                if receipt.get("status") == "BLOCKED_INCOMPLETE_WHOLE_WALLET":
-                    reasons.append("PARENT_ONLY_ACCOUNT_SCOPE")
+                if fixed_k:
+                    scope = assess_selected_parent_perp_scope(
+                        book, decision_at=as_of, max_age_seconds=max_source_age_seconds
+                    )
+                    reasons.extend(scope["reasons"])
+                    # Public per-account evidence is observable, not an
+                    # independent signed source execution authorization.
+                    reasons.append("SELECTED_SCOPE_REAL_EXECUTION_ATTESTATION_PENDING")
+                else:
+                    gate = admit_source_book(book, decision_at=as_of, fill_at=as_of)
+                    reasons.extend(gate.reason_codes)
+                    if receipt.get("status") == "BLOCKED_INCOMPLETE_WHOLE_WALLET":
+                        reasons.append("PARENT_ONLY_ACCOUNT_SCOPE")
+                if isinstance(book.get("positions"), dict):
+                    required_market.update(book["positions"].keys())
             # Distinct child accounts must contribute their signed exposure
             # instruments to the requested market universe, even if those
             # per-account receipts cannot be assembled into atomic NAV.
-            for child in child_receipts.values():
-                required_market.update(child["source_book"]["positions"])
+            if not fixed_k:
+                for child in child_receipts.values():
+                    required_market.update(child["source_book"]["positions"])
             sources.append(
                 {
                     "member": member,
@@ -309,7 +327,9 @@ def audit_live_paper_readiness(
                     "last_first_known_at": source_event,
                     "head_sha": source["head_sha"],
                     "collateral_diagnostics": collateral,
-                    "admitted": not reasons,
+                    "admitted": not reasons and not fixed_k,
+                    "selected_parent_scope_research_only": fixed_k,
+                    "source_nav_required": not fixed_k,
                     "reason_codes": sorted(set(reasons)),
                 }
             )
@@ -344,12 +364,9 @@ def audit_live_paper_readiness(
         + [reason for item in sources for reason in item["reason_codes"]]
         + [reason for item in market for reason in item["reason_codes"]]
     )
-    reasons.extend(
-        [
-            "PROTECTED_PAPER_WORKER_NOT_ATTESTED",
-            "INDEPENDENT_PARENT_SUBACCOUNT_NAV_NOT_RECONCILED",
-        ]
-    )
+    reasons.append("PROTECTED_PAPER_WORKER_NOT_ATTESTED")
+    if not fixed_k:
+        reasons.append("INDEPENDENT_PARENT_SUBACCOUNT_NAV_NOT_RECONCILED")
     return {
         "schema": "paper_live_readiness_v1",
         "portfolio": portfolio_id,
@@ -366,6 +383,9 @@ def audit_live_paper_readiness(
         "market": market,
         "needed_native_market_count": len(required_market),
         "source_wallet_equity_attested": False,
+        "source_nav_required": not fixed_k,
+        "sizing_policy": sizing_policy,
+        "selected_account_scope": "PARENT_PERPS_ONLY" if fixed_k else "WHOLE_WALLET",
         "trade_volume_complete": False,
         "paper_observed": False,
         "order_route": "NONE",
@@ -381,6 +401,11 @@ def main() -> None:
     parser.add_argument("--market-db", type=Path, required=True)
     parser.add_argument("--portfolio", choices=("P1", "P14"), required=True)
     parser.add_argument("--as-of", default=datetime.now(UTC).isoformat())
+    parser.add_argument(
+        "--sizing-policy",
+        choices=("FIXED_K_NATIVE_QUANTITY", "ALLOCATION_OVER_LIVE_NAV"),
+        default="FIXED_K_NATIVE_QUANTITY",
+    )
     args = parser.parse_args()
     print(
         json.dumps(
@@ -392,6 +417,7 @@ def main() -> None:
                 market_db=args.market_db,
                 portfolio_id=args.portfolio,
                 as_of=args.as_of,
+                sizing_policy=args.sizing_policy,
             ),
             indent=2,
             sort_keys=True,

@@ -1,5 +1,7 @@
 # Wallet data acquisition and provenance
 
+**Superseding owner decision, 2026-11-06:** [Fixed-k source-NAV-optional sizing](RISK-BUDGETED-K-SIZING-20261106.md) is the default for new copytrading work. The copied **selected perp position scope** and causal receipt integrity are mandatory; leader whole-account equity, unified collateral and unrelated subaccount NAV are **not** required for fixed-k. The official feed remains the positional source; collateral diagnostics remain useful but do not veto fixed-k. Existing equity-relative fidelity studies stay strict and opt-in.
+
 **Use this for “get wallet fills,” “new wallet,” “fix gaps,” “get 1m OHLCV,” or “start forward capture.”** Read [INDEX](INDEX.md) and [ARCHITECTURE](ARCHITECTURE.md) first. No commands in this guide authorize orders. Offline auditing is distinct from vendor/SDK downloads. Live source snapshot inspected 2026-10-31; private paths can change.
 
 ## Official Hyperliquid public API as the forward source (2026-11-05)

@@ -44,7 +44,7 @@ def _setup(tmp_path):
     return registry, primary, secondary, source, market
 
 
-def audit(roots, portfolio):
+def audit(roots, portfolio, *, sizing_policy="FIXED_K_NATIVE_QUANTITY"):
     registry, primary, secondary, source, market = roots
     return audit_live_paper_readiness(
         registry_db=registry,
@@ -54,6 +54,7 @@ def audit(roots, portfolio):
         market_db=market.path,
         portfolio_id=portfolio,
         as_of="2026-11-04T04:00:10+00:00",
+        sizing_policy=sizing_policy,
     )
 
 
@@ -70,11 +71,15 @@ def test_all_approved_portfolios_stay_blocked_on_partial_source_and_registry(tmp
     assert len(p14["registry"]["unresolved_aliases"]) == 5
     assert p1["source"][0]["admitted"] is False
     assert p1["source"][0]["collateral_diagnostics"]["cursor"] == 0
-    assert "COLLATERAL_DIAGNOSTICS_MISSING" in p1["source"][0]["reason_codes"]
+    assert "COLLATERAL_DIAGNOSTICS_MISSING" not in p1["source"][0]["reason_codes"]
+    assert "SELECTED_SCOPE_REAL_EXECUTION_ATTESTATION_PENDING" in p1["source"][0]["reason_codes"]
     assert p1["source_wallet_equity_attested"] is False
     assert p1["trade_volume_complete"] is False
     assert p1["order_route"] == "NONE"
-    assert "INDEPENDENT_PARENT_SUBACCOUNT_NAV_NOT_RECONCILED" in p1["reason_codes"]
+    assert p1["sizing_policy"] == "FIXED_K_NATIVE_QUANTITY"
+    assert p1["source_nav_required"] is False
+    assert "INDEPENDENT_PARENT_SUBACCOUNT_NAV_NOT_RECONCILED" not in p1["reason_codes"]
+    assert "SOURCE_EQUITY_OR_COLLATERAL_UNKNOWN" not in p1["reason_codes"]
     assert "UNSEALED_FROZEN_MEMBER_WALLET_IDS" in p14["reason_codes"]
     assert "MISSING_FOLLOWER_MARKET_QUOTE" in p1["reason_codes"]
     assert len(p1["market"]) > 0
@@ -92,7 +97,7 @@ def test_readiness_audits_diagnostic_collateral_chain_without_promoting_nav(tmp_
     report["account_address_sha256"] = sha256(address.lower().encode()).hexdigest()
     source.append_collateral_diagnostic(report)
     before = source.collateral_scope_status(report["account_address_sha256"])
-    observed = audit(roots, "P1")
+    observed = audit(roots, "P1", sizing_policy="ALLOCATION_OVER_LIVE_NAV")
     first = observed["source"][0]
     assert first["collateral_diagnostics"]["cursor"] == 1
     assert first["collateral_diagnostics"]["head_sha"] == before["head_sha"]
@@ -125,7 +130,7 @@ def test_official_unified_mode_blocks_independent_dex_nav_even_with_source_recei
         "source_signed": False,
     }
     source.append_collateral_diagnostic(report)
-    first = audit(roots, "P1")["source"][0]
+    first = audit(roots, "P1", sizing_policy="ALLOCATION_OVER_LIVE_NAV")["source"][0]
     assert first["collateral_diagnostics"]["last_account_mode"] == "unifiedAccount"
     assert "SHARED_COLLATERAL_MODE_BLOCKS_PER_DEX_NAV_SUM" in first["reason_codes"]
     assert "COLLATERAL_SCOPE_NOT_ATOMIC_NAV" in first["reason_codes"]
@@ -149,7 +154,7 @@ def test_parent_discovered_subaccount_missing_from_observations_blocks(tmp_path)
         first_known_at=(datetime.fromtimestamp(1793294400, UTC) + timedelta(seconds=4)).isoformat(),
     )
     append_public_scope(source, alias="S035", seq=2, receipt=receipt)
-    first = audit(roots, "P1")["source"][0]
+    first = audit(roots, "P1", sizing_policy="ALLOCATION_OVER_LIVE_NAV")["source"][0]
     assert first["declared_subaccount_count"] == 1
     assert first["observed_subaccount_receipt_count"] == 0
     assert first["missing_subaccount_receipt_count"] == 1
@@ -187,7 +192,7 @@ def test_perps_only_scope_skips_vault_but_never_promotes_quote_balance_to_nav(tm
         "source_signed": False,
     }
     source.append_collateral_diagnostic(report)
-    first = audit(roots, "P1")["source"][0]
+    first = audit(roots, "P1", sizing_policy="ALLOCATION_OVER_LIVE_NAV")["source"][0]
     assert first["collateral_diagnostics"]["copy_scope"] == "PERPETUALS_ONLY"
     assert first["collateral_diagnostics"]["last_vault_known_at"] is None
     assert "COLLATERAL_SCOPE_STALE_OR_MISSING" not in first["reason_codes"]
@@ -213,7 +218,7 @@ def test_subaccount_latest_receipt_cannot_replace_parent_and_hedges_stay_visible
         first_known_at=(datetime.fromtimestamp(1793294400, UTC) + timedelta(seconds=3)).isoformat(),
     )
     append_public_scope(source, alias="S035", seq=2, receipt=child)
-    observed = audit(roots, "P1")
+    observed = audit(roots, "P1", sizing_policy="ALLOCATION_OVER_LIVE_NAV")
     first = observed["source"][0]
     assert first["first_local_receipts"] == 2
     assert first["observed_distinct_account_count"] == 2

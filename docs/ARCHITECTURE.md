@@ -1,5 +1,9 @@
 # Architecture: evidence, manager governance, shadow account
 
+## Default sizing boundary (owner decision, 2026-11-06)
+
+New copytrading work uses [NAV-free selected-account fixed-k sizing](RISK-BUDGETED-K-SIZING-20261106.md): `k * native source position quantity`, bounded against actual **follower** equity, market capacity, pod loss, drawdown, pending orders and Guardian finance. Source whole-wallet NAV and unrelated subaccounts are optional diagnostics, not blockers. Historical equity-normalized E0/fidelity contracts remain strict opt-in and unchanged; do not falsely claim source-equity replication for fixed-k. Source/market first-known, selected account identity, full position scope and independent broker admission remain required.
+
 ## Public observer service boundary (2026-11-05)
 
 The [public P1/P14 observer deployment contract](FORWARD-PAPER-PUBLIC-OBSERVER-SERVICE-20261105.md)

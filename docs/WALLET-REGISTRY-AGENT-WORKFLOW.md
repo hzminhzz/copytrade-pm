@@ -1,5 +1,7 @@
 # Mandatory registry-first workflow for wallet and portfolio agents
 
+**Mandatory source-sizing clarification (2026-11-06):** SQLite remains metadata authority, not source-NAV authority. New default fixed-k copytrading [requires selected source position scope and follower risk, **not leader whole-account NAV**](RISK-BUDGETED-K-SIZING-20261106.md). Do not stop agents or demand leader NAV unless the selected policy is explicitly `ALLOCATION_OVER_LIVE_NAV`. Continue registry signature/identity and actual operational/readiness gates independently.
+
 **Owner-approved operating contract (2026-11-04).** Read this after `AGENTS.md` and before answering any question about **which wallets exist, are being evaluated, excluded, watched, or belong to a portfolio**, or which portfolios are **saved, selected, frozen, paper-running, or eligible for deployment**. Use this same procedure before implementing wallet/portfolio changes or documenting their operational state. OptMem and Markdown are navigation and dated decisions, **not** substitutes for the current indexed source.
 
 ## SQLite is metadata authority — 2026-11-05
