@@ -72,6 +72,44 @@ For native verification use `python -m copytrade_pm.pm_vike_native_verify` with 
 
 **Known limitation:** The archive reader expects `vike_w028_part_NNN.json` chunks under `--vike-dir`, and this v1 implementation is deliberately bounded to W028; it is not a multi-wallet ingestion worker.
 
+## Continuation: 2026-11-06 registry provenance, NAV and Vike canary
+
+### Registry truth: physical bytes vs research authority
+
+The current SQLite and six relevant historical backup files all contain **zero** `research_selection_proofs` rows. None can restore an independently reviewed signature by rolling back. `copytrade-wallet-registry doctor` now includes `selection_diagnostics` on failure, without changing its fail-closed exit code 2 or metadata authority. Actual read-only output identifies:
+
+- Reviewed pinned V2 source `21f4e940...`: six selections, `PINNED_V2_LEGACY`; it is not required to have an Ed25519 signature.
+- `a899f0f6a4331c246307189f3ab75d87e1a515b84a2e926073ce33ff994ce9eb`: `regime.macro/TriadA` and `regime.macro/TriadChop`, `MISSING_SIGNED_PROOF`.
+- `sqlite_physical_integrity=VERIFIED`, `selection_provenance=BLOCKED`, `doctor_ready=false`. No keys were generated; no registry or sealed portfolio rows changed.
+
+The only acceptable repair is an independently trusted, externally reviewed signer manifest and public key fingerprint through the existing `signed-selection` backed-up import mechanism. The live missing row cannot be recreated from a Vike feed, old V2 decision or an invented signing key.
+
+### Actual NAV audit: W028 and P1/P14
+
+Official Hyperliquid public `userAbstraction` reported W028 in **`unifiedAccount`** mode. `subAccounts` returned **seven linked subaccounts**. Its parent `spotClearinghouseState` reported a USDC total of **39,162.65464661** and USDC on hold of **39,160.623702** at observation time (2026-11-06); these are quote collateral quantities, not source equity. No atomic whole-account family snapshot was obtained. Do not sum Vike main accountValue and HIP-3/DEX values or treat the spot quote as capital.
+
+Read-only `copytrade-pm-paper-readiness` against the current P1/P14 observer journal returned `BLOCKED_NO_TRADE` for **both** portfolios. All five observed accounts had incomplete independent NAV scope; four were in unifiedAccount mode, one was disabled; frozen alias identities remained `UNSEALED_FROZEN_MEMBER_WALLET_IDS`. P1 needed 12 observed native market instruments, P14 needed 26, while venue quote freshness and executable volume were also blocked. No broker or worker mutation was made.
+
+### Read-only Vike stream canary: implemented, live not authenticated
+
+The `pm_vike_stream_canary` research CLI implements:
+
+- A single wallet-scoped `hl.fills` subscription with **explicit `min_usd: 0`**, a dedicated key on the `X-API-KEY` handshake header (never a URL query token), and Vike's required JSON `{"action":"pong"}` response to server ping frames.
+- Per-subscription frame cursor persistence, replay deduplication by `event_id`, source timestamp versus **fresh first-local receipt timestamp**, immutable raw event hash and evidence in an isolated `0700` directory / `0600` SQLite journal.
+- Atomic event+cursor checkpoints, no cursor rewind on duplicate, fail-closed gap handling, bounded REST cursor catch-up with the same wallet and `min_usd=0` filters. REST/WS parity only reports a *sample* if both sets agree, the stream had no gap, pages are complete and at least one actual sub-$1,000 event was observed.
+- Bounded duration, bounded pages, no broker route. Without `VIKE_API_KEY` in the VPS environment or explicit acknowledgment of a **dedicated key**, it refuses to start or create local state. The Vike MCP OAuth session is not exposed to the VPS.
+
+Proposed bounded run **only after provisioning a distinct read-only key in a protected VPS environment**:
+
+```bash
+uv run --frozen --extra source --group dev python -m copytrade_pm.pm_vike_stream_canary \
+  --registry-db /home/quant/.local/share/copytrade/registry/wallet_registry.sqlite \
+  --alias W028 --state-root /home/quant/.local/share/copytrade/reports/vike-stream-canary-20261106 \
+  --seconds 60 --live --dedicated-key-only
+```
+
+The code is an opt-in research tool, **not** a permanently deployed collector, and has **not** connected to live Vike WS. The VPS variables `VIKE_API_KEY`, `VIKE_TOKEN` and `VIKE_ACCESS_TOKEN` were not configured at inspection. Vike's official [API reference](https://vike.io/data/api) limits one active connection per key/path; new sockets replace old sockets with close 4410. Never share a streaming key with an active production consumer. Official stream reference: [event channels](https://vike.io/docs/data/reference/stream-channels). REST cursor retention is three days; a source idle gap must not be silently interpreted as complete observations.
+
 ## Remaining blockers — not production data ready
 
 1. **SQLite signed selection provenance**: the actual private database passed SQLite `PRAGMA integrity_check` but had **0 rows in `research_selection_proofs`** while required signed selection records exist in the application. The registry `doctor` fails. Reimport only authentic owner-signed source evidence through the approved, backed-up registry release process. Vike cannot resolve this provenance defect. Do not fabricate a signature.

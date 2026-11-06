@@ -23,6 +23,7 @@ import fcntl
 from . import wallet_registry_portfolios as portfolio_contract
 from . import wallet_registry_catalog as catalog
 from . import wallet_registry_signed_catalog as signed_catalog
+from .wallet_registry_provenance_diagnostics import inspect_provenance
 from . import wallet_registry_qualification as qualification_contract
 from . import wallet_registry_science_proofs as scientific_proofs
 from . import wallet_registry_runs as paper_contract
@@ -1160,6 +1161,10 @@ def cli(argv: list[str] | None = None) -> int:
             )
             return 0
         except (OSError, ValueError, sqlite3.Error) as exc:
+            # Preserve legacy fail-closed doctor contract, but make the physical
+            # integrity vs. missing signed research selection distinction clear.
+            # No account addresses or signing material are printed.
+            provenance = inspect_provenance(args.db)
             print(
                 json.dumps(
                     {
@@ -1167,6 +1172,8 @@ def cli(argv: list[str] | None = None) -> int:
                         "authority": "SQLITE",
                         "database_integrity": "FAILED",
                         "error_type": type(exc).__name__,
+                        "selection_diagnostics": provenance,
+                        "doctor_ready": False,
                         "trading_authorized": False,
                         "scientifically_qualified": False,
                     },
