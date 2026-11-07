@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 ALLOWED_PATH = "/v1/account-risk"
 FIXTURE_PATH = "/v1/fixture-states"
-MAX_BYTES = 32_768
+MAX_BYTES = 131_072
 
 
 def build_projection(reader: "DashboardReader") -> dict:
@@ -94,7 +94,10 @@ def build_projection(reader: "DashboardReader") -> dict:
         for x in snapshot.get("incidents", [])[:40]
         if safe_text(x, 96)
     ]
+    from .grafana_capabilities import build_capabilities
+
     return {
+        "capabilities": build_capabilities(reader),
         "schema": "grafana_account_risk_v1",
         "generated_at": snapshot["retrieved_at"],
         "coverage": "VERIFIED" if all(r["grade"] == "VERIFIED" for r in rows) else "INCOMPLETE",
@@ -181,6 +184,25 @@ def create_app(
                         "STALE": 3,
                         "UNKNOWN": 5,
                     }.get(metric["value"], 23)
+        # Independent Grafana-managed alert evaluation consumes validated,
+        # gateway-derived numeric failure flags. These are presentation
+        # indicators, never evidence of Guardian financial health.
+        published_age = result.get("publication_age_seconds")
+        capabilities = result.get("capabilities") or {}
+        result["monitoring"] = {
+            "generation_fault": int(
+                not isinstance(published_age, (int, float))
+                or published_age > 45
+                or result.get("generation_sha256") is None
+            ),
+            "account_evidence_fault": int(result.get("coverage") != "VERIFIED"),
+            "operational_evidence_fault": int(
+                any(
+                    capabilities.get(key, {}).get("status") != "VERIFIED"
+                    for key in ("portfolios", "execution", "health", "wallets")
+                )
+            ),
+        }
         payload = json.dumps(result, separators=(",", ":"), allow_nan=False).encode()
         if len(payload) > MAX_BYTES:
             return JSONResponse({"error": "PROJECTION_TOO_LARGE"}, status_code=503)

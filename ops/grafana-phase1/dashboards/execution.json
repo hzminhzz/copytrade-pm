@@ -1,0 +1,316 @@
+{
+  "uid": "copytrade-execution-v1",
+  "title": "Execution | T+300s | Copytrade",
+  "tags": [
+    "copytrade",
+    "read-only",
+    "staging",
+    "evidence-plane"
+  ],
+  "schemaVersion": 41,
+  "version": 1,
+  "timezone": "utc",
+  "refresh": "15s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "templating": {
+    "list": []
+  },
+  "editable": false,
+  "graphTooltip": 0,
+  "links": [
+    {
+      "title": "Pods & Portfolio",
+      "type": "dashboards",
+      "asDropdown": false,
+      "includeVars": false,
+      "keepTime": false,
+      "targetBlank": false,
+      "tags": [],
+      "url": "/d/copytrade-pods-portfolio-v1"
+    },
+    {
+      "title": "Execution | T+300s",
+      "type": "dashboards",
+      "asDropdown": false,
+      "includeVars": false,
+      "keepTime": false,
+      "targetBlank": false,
+      "tags": [],
+      "url": "/d/copytrade-execution-v1"
+    },
+    {
+      "title": "Health & Incidents",
+      "type": "dashboards",
+      "asDropdown": false,
+      "includeVars": false,
+      "keepTime": false,
+      "targetBlank": false,
+      "tags": [],
+      "url": "/d/copytrade-health-incidents-v1"
+    },
+    {
+      "title": "Wallet Explorer",
+      "type": "dashboards",
+      "asDropdown": false,
+      "includeVars": false,
+      "keepTime": false,
+      "targetBlank": false,
+      "tags": [],
+      "url": "/d/copytrade-wallet-explorer-v1"
+    }
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "ONE ORDER INTENT IS NOT ONE BROKER FILL",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 2
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**READ-ONLY · EVIDENCE FIRST · NOT TRADING AUTHORIZATION**"
+      }
+    },
+    {
+      "id": 2,
+      "type": "text",
+      "title": "Operator interpretation",
+      "gridPos": {
+        "x": 0,
+        "y": 2,
+        "w": 24,
+        "h": 3
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "First-known +300, decision, durable intent, broker acceptance, fills and reconciliation are distinct causal clocks. Multiple independent intents do not satisfy the single-market-order expectation. Unknown receipt outcomes remain UNKNOWN."
+      }
+    },
+    {
+      "id": 3,
+      "type": "table",
+      "title": "CAPABILITY PROVENANCE",
+      "datasource": {
+        "uid": "risk-projection-v1",
+        "type": "yesoreyeram-infinity-datasource"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 24,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "risk-projection-v1",
+            "type": "yesoreyeram-infinity-datasource"
+          },
+          "type": "json",
+          "source": "url",
+          "url": "http://projection:17800/v1/account-risk",
+          "parser": "backend",
+          "format": "table",
+          "root_selector": "capabilities.execution",
+          "columns": [
+            {
+              "selector": "status",
+              "text": "Source coverage",
+              "type": "string"
+            },
+            {
+              "selector": "authority",
+              "text": "Source authority",
+              "type": "string"
+            },
+            {
+              "selector": "source_observed_at",
+              "text": "Source observed",
+              "type": "string"
+            },
+            {
+              "selector": "error_code",
+              "text": "Source error",
+              "type": "string"
+            }
+          ],
+          "url_options": {
+            "method": "GET"
+          },
+          "filters": [],
+          "computed_columns": []
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "custom": {
+            "align": "auto",
+            "inspect": false
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "EXECUTION | T+300S · BOUNDED EVIDENCE",
+      "datasource": {
+        "uid": "risk-projection-v1",
+        "type": "yesoreyeram-infinity-datasource"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 24,
+        "h": 13
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "risk-projection-v1",
+            "type": "yesoreyeram-infinity-datasource"
+          },
+          "type": "json",
+          "source": "url",
+          "url": "http://projection:17800/v1/account-risk",
+          "parser": "backend",
+          "format": "table",
+          "root_selector": "capabilities.execution.rows",
+          "columns": [
+            {
+              "selector": "intent",
+              "text": "Intent ID",
+              "type": "string"
+            },
+            {
+              "selector": "decision",
+              "text": "Decision ID",
+              "type": "string"
+            },
+            {
+              "selector": "market",
+              "text": "Market",
+              "type": "string"
+            },
+            {
+              "selector": "source_event_ms",
+              "text": "Source event (ms)",
+              "type": "number"
+            },
+            {
+              "selector": "first_known_ms",
+              "text": "First-known (ms)",
+              "type": "number"
+            },
+            {
+              "selector": "due_ms",
+              "text": "T+300s due (ms)",
+              "type": "number"
+            },
+            {
+              "selector": "decision_ms",
+              "text": "Decision (ms)",
+              "type": "number"
+            },
+            {
+              "selector": "intent_ms",
+              "text": "Intent (ms)",
+              "type": "number"
+            },
+            {
+              "selector": "accept_ms",
+              "text": "Broker accepted (ms)",
+              "type": "number"
+            },
+            {
+              "selector": "fill_ms",
+              "text": "Fill (ms)",
+              "type": "number"
+            },
+            {
+              "selector": "reconcile_ms",
+              "text": "Reconciled (ms)",
+              "type": "number"
+            },
+            {
+              "selector": "fills",
+              "text": "Fills",
+              "type": "number"
+            },
+            {
+              "selector": "grade",
+              "text": "Evidence",
+              "type": "string"
+            },
+            {
+              "selector": "reason",
+              "text": "Classification",
+              "type": "string"
+            }
+          ],
+          "url_options": {
+            "method": "GET"
+          },
+          "filters": [],
+          "computed_columns": []
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "custom": {
+            "align": "auto",
+            "inspect": false
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "type": "text",
+      "title": "Authority boundary",
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 24,
+        "h": 2
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Execution classifications require genuine owner-bound receipts; no modeled fill is represented as broker-executed."
+      }
+    }
+  ]
+}

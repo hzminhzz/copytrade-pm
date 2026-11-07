@@ -56,7 +56,7 @@ def safe_decimal(value: object) -> str | None:
 
 SCHEMA = "copytrade_evidence_generation_v1"
 PAYLOAD_SCHEMA = "grafana_account_risk_v1"
-MAX_SIZE = 32_768
+MAX_SIZE = 131_072
 MAX_AGE_SECONDS = 45
 METRICS = (
     "Guardian state",
@@ -225,7 +225,13 @@ def _safe_projection(value: dict) -> dict:
                 or item.get("source") != "SYNTHETIC_ONLY"
             ):
                 raise EvidenceInvalid("FIXTURE_HISTORY_INVALID")
+    from .grafana_capabilities import validate_capabilities
+
+    capabilities = value.get("capabilities")
+    if capabilities is not None:
+        capabilities = validate_capabilities(capabilities)
     return {
+        **({"capabilities": capabilities} if capabilities is not None else {}),
         **({"history": history} if value["synthetic"] else {}),
         "schema": PAYLOAD_SCHEMA,
         "generated_at": value["generated_at"],
@@ -334,8 +340,24 @@ def read_generation(
         for r in projection["metrics"]
         if r["grade"] == "VERIFIED" and r["source_observed_at"] is not None
     ]
-    stale = age > MAX_AGE_SECONDS or any(x > MAX_AGE_SECONDS for x in observed_ages)
-    if stale:
+    publisher_stale = age > MAX_AGE_SECONDS
+    risk_stale = publisher_stale or any(x > MAX_AGE_SECONDS for x in observed_ages)
+    for section in projection.get("capabilities", {}).values():
+        if not isinstance(section, dict) or "status" not in section:
+            continue
+        source_time = parse_utc(section.get("source_observed_at"))
+        source_stale = (
+            source_time is not None and (now - source_time).total_seconds() > MAX_AGE_SECONDS
+        )
+        if (publisher_stale or source_stale) and section["status"] == "VERIFIED":
+            section["status"] = "STALE"
+            section["error_code"] = "EVIDENCE_AGE_EXCEEDED"
+            for item in section["rows"]:
+                if item.get("grade") == "VERIFIED":
+                    item["grade"] = "STALE"
+                if item.get("source_grade") == "VERIFIED":
+                    item["source_grade"] = "STALE"
+    if risk_stale:
         for row in projection["metrics"]:
             if row["grade"] == "VERIFIED":
                 row["grade"] = "STALE"
@@ -353,7 +375,13 @@ def no_evidence(reason: str, now: datetime | None = None) -> dict:
     now = now or _utc_now()
     if reason not in {"EVIDENCE_UNAVAILABLE", "EVIDENCE_CORRUPT", "PUBLISHER_FAILED"}:
         reason = "EVIDENCE_CORRUPT"
+    from .grafana_capabilities import CAPABILITY_SCHEMA, FIELDS, unavailable
+
     return {
+        "capabilities": {
+            "schema": CAPABILITY_SCHEMA,
+            **{name: unavailable(name, reason) for name in FIELDS},
+        },
         "schema": PAYLOAD_SCHEMA,
         "generated_at": now.isoformat(),
         "published_at": None,
