@@ -2,7 +2,10 @@
 
 Parent: [#153](https://github.com/hzminhzz/copytrade-pm/issues/153). TD-11/12/13/14: [#164](https://github.com/hzminhzz/copytrade-pm/issues/164), [#165](https://github.com/hzminhzz/copytrade-pm/issues/165), [#166](https://github.com/hzminhzz/copytrade-pm/issues/166), [#167](https://github.com/hzminhzz/copytrade-pm/issues/167).
 
-**Authority: source implementation and disposable staging only. Not production deployed; no trading authorization.** Guardian remains financial/risk authority; SQLite is canonical registry. No dashboard origin can invoke HALT/RECOVER, orders, registry writes, broker credentials, or privileged capture creation.
+**Historical Phase 3 source/staging scope, retained for provenance.** The later
+operator-authorized `quant` deployment and its live acceptance/limitations are in
+[the 2026-11-07 runtime receipt](DASHBOARD-QUANT-DEPLOYMENT-20261107.md).
+Guardian remains financial/risk authority; SQLite is canonical registry. No dashboard origin can invoke HALT/RECOVER, orders, registry writes, broker credentials, or privileged capture creation.
 
 ## TD-11: independent incident dry-run
 
