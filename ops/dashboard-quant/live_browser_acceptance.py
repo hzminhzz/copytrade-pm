@@ -84,8 +84,12 @@ def main() -> None:
                 width,
                 height,
             ]
-            driver.get(BASE + "/login")
+            # Start at the root, as a first-time Omarchy browser would.
+            # It must show the private login form, not ACCESS_DENIED.
+            driver.get(BASE + "/")
+            assert driver.current_url == BASE + "/login", driver.current_url
             assert "Private risk viewer" in driver.page_source
+            assert "ACCESS_DENIED" not in driver.page_source
             driver.find_element(By.NAME, "secret").send_keys(private_secret())
             driver.find_element(By.CSS_SELECTOR, "button[type='submit']").click()
             await_body(driver, "Operations · Account risk", "Account and risk headroom")
@@ -152,7 +156,7 @@ def main() -> None:
         "screenshot_count": count,
         "route_render_p50_ms": round(p50, 1),
         "route_render_p95_ms": round(p95, 1),
-        "production_release": "a51d0a675f2-cfaf2c4136f4",
+        "production_release": "29d006131662-aa94784c356f",
         "credential_printed": False,
     }
     (ARTIFACTS / "live-browser-receipt.json").write_text(json.dumps(result, indent=2))

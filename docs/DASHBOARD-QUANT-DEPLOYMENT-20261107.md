@@ -129,3 +129,41 @@ be evaluated against its completed live mobile/browser criteria. TD-14 #167
 has actual private installation/rollback evidence; final closure depends on
 reconciling its original prerequisite #166 and the explicit user-approved
 `quant` identity exception. Keep each conclusion evidence-specific.
+
+## Follow-up: anonymous tailnet browser receives ACCESS_DENIED
+
+The requested remote tailnet peer was visible as connected and answered a
+Tailscale peer ping. That proves a transport path, **not** that the browser has
+an authenticated dashboard session or that its tailnet ACL has been
+independently reviewed.
+
+The real HTTPS endpoint returned `GET /login = 200`, but anonymous
+`GET /` and `GET /health` returned `401 ACCESS_DENIED`. The signed-cookie
+middleware was correctly rejecting unauthenticated access, but showed a
+machine-oriented denial instead of a human login page.
+
+The reviewed correction now redirects **only** anonymous GET/HEAD
+navigational pages to `/login` using HTTP 303, with private `no-store`
+headers and no forwarded untrusted URL parameters. The login still
+requires the independently generated private viewer secret.
+Untrusted Host, forged Origin, API, kernel-mutation routes and anonymous
+WebSockets remain denied as before. This does **not** make Tailscale
+identity alone sufficient for login.
+
+| New installed correction | Evidence |
+| --- | --- |
+| Source fix commit | `29d006131662978653abc7e455591b20221f7607` |
+| Wheel SHA256 | `aa94784c356f6fed2d39ea1922c4725a9266d145deeb6fd6f24d375f6bc9b6a7` |
+| Current service release | `releases/29d006131662-aa94784c356f` |
+| Local regression | Red before fix (expected 303, actual 401); green after |
+| Full source suite | 1,495 passed, 3 skipped; Ruff/format/Marimo/capabilities passed |
+| Real HTTPS login root | GET `/` 303 to `/login`, GET `/login` 200, anonymous GET `/api/kernel/ws` 401 |
+| Real login | Cookie issuance and authenticated page access passed; anonymous WSS denied |
+| Real Firefox | 24 view×viewport checks; fresh anonymous root navigation redirected to login; registry query showed Inventory SHA; 24 screenshots retained privately |
+| Route render timings | p50 593.4 ms; p95 869.4 ms for the 24 checked views |
+| Protected services | Six original PIDs/restart counters unchanged during replacement |
+
+The old candidate `a51d0a675f2-cfaf2c4136f4` remains available for an
+isolated dashboard-only rollback. The previous historical HTTP 401 observations
+elsewhere in this document were accurate **before** this redirect correction.
+Guardian journal/cadence and owner-capture limitations remain unchanged.
