@@ -97,8 +97,12 @@ def source_native_inventory(
     instruments: set[Instrument] = set()
     missing: list[str] = []
     accounts = 0
-    with closing(sqlite3.connect(uri, uri=True, timeout=0)) as db:
+    # Native scope verification also runs while the CCXT quote writer is
+    # active. Read-only queries may wait briefly without skipping any SHA
+    # checks or observing a mixed point-in-time source snapshot.
+    with closing(sqlite3.connect(uri, uri=True, timeout=3.0)) as db:
         db.execute("PRAGMA query_only=ON")
+        db.execute("BEGIN")
         for member in P14:
             alias = _ALIAS[member]
             tape = _source(db, alias)
@@ -493,6 +497,8 @@ async def run_readonly_observer_service(
                 "JSONDecodeError",
                 "KeyError",
                 "TypeError",
+                "OperationalError",
+                "DatabaseError",
             }:
                 error_class = "OtherError"
             event = {

@@ -27,7 +27,10 @@ OS writer lease, before SQLite transaction startup. Every other PM-03 /
 `PaperJournal` caller retains the original zero-wait fail-closed behavior.
 The source observer's read-only, SHA-chain heartbeat verifier also waits up
 to **three seconds** for transient WAL schema contention without bypassing
-any individual historical hash/chain checks. This prevents a normal
+any individual historical hash/chain checks. Source native-inventory and
+P1/P14 readiness auditing use the same bounded read timeout and a pinned
+read-only `BEGIN` snapshot for each query scope. No stale evidence is
+reclassified as fresh; hash and as-of verification remain mandatory. This prevents a normal
 source/quote lock collision from killing the entire market-data service
 without making duplicate financial events possible.
 Paper readers keep reading that shared SQLite, without a restart or changing
@@ -88,8 +91,9 @@ source/quote `PaperJournal` writer-lock collision. The quote-only bounded
 pre-transaction retry was added with adversarial regression tests before
 releasing the corrected collector. A source heartbeat also restarted after
 the verifier used SQLite `timeout=0` on the actively written quote tape;
-the source-only writer lease and verified-reader waits above address that
-independent contention failure. These are engineering reliability fixes,
+subsequent source-cycle readiness also had zero-timeout source/market reads.
+The source-only writer lease and verified-reader waits above address these
+independent contention failures. These are engineering reliability fixes,
 not proof of a complete forward T+5 fill/exit.
 
 Do not stop any Guardian, Bybit, Propr, dashboard, ensemble or unrelated

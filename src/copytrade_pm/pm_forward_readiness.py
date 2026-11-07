@@ -39,8 +39,12 @@ def _read_db(path: Path) -> sqlite3.Connection:
     if path.is_symlink() or not path.is_file():
         raise ValueError("PAPER_EVIDENCE_DB_MISSING_OR_SYMLINK")
     uri = "file:" + str(path.resolve()) + "?mode=ro"
-    conn = sqlite3.connect(uri, uri=True, timeout=0)
+    # Shared live source/quote data have concurrent WAL writes. A bounded
+    # wait avoids spurious readiness failure on brief SQLite schema locks,
+    # while the read transaction preserves an exact verified as-of snapshot.
+    conn = sqlite3.connect(uri, uri=True, timeout=3.0)
     conn.execute("PRAGMA query_only=ON")
+    conn.execute("BEGIN")
     return conn
 
 

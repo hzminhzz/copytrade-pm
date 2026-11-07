@@ -13,6 +13,7 @@ from copytrade_pm.pm_forward_journal import PaperJournal
 from copytrade_pm.pm_forward_readiness import (
     _collateral,
     _market,
+    _read_db,
     _source,
     audit_live_paper_readiness,
 )
@@ -63,6 +64,15 @@ def audit(roots, portfolio, *, sizing_policy="FIXED_K_NATIVE_QUANTITY"):
         as_of="2026-11-04T04:00:10+00:00",
         sizing_policy=sizing_policy,
     )
+
+
+def test_live_readonly_scope_pins_wal_snapshot_and_forbids_mutation(tmp_path):
+    root = PaperJournal(tmp_path / "source")
+    with closing(_read_db(root.path)) as reader:
+        assert reader.execute("PRAGMA query_only").fetchone()[0] == 1
+        assert reader.in_transaction
+        with pytest.raises(sqlite3.OperationalError):
+            reader.execute("CREATE TABLE live_reader_should_not_write(x INT)")
 
 
 def test_all_approved_portfolios_stay_blocked_on_partial_source_and_registry(tmp_path):
