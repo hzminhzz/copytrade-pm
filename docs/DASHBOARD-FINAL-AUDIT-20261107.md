@@ -191,3 +191,31 @@ The release module is disposable staging only. A staged pointer reversal and art
 ## Required external action
 
 An explicitly approved protected-runtime observation path is required to complete the mandatory baseline, followed by least-privilege setup and measured isolated deployment under the existing conditional authorization. The automatic approval rejection must be resolved by the operator; it must not be bypassed through another credential or root-equivalent route. Optional external notifications may remain NOT_CONFIGURED.
+
+## Explicit-authorization follow-up — 2026-11-07
+
+The operator explicitly authorized using a stored sudo credential for the bounded read-only probe and the gated, independent dashboard setup. The previously named repository-local `.env` did not exist at the current checkout. A credential-key presence check located a stored `sudo_pass` entry in a separate quant-owned project configuration file. No credential value was emitted, copied, committed or posted to an external service.
+
+An attempt to invoke the **existing, committed, bounded read-only runtime probe** through password-backed sudo was rejected by the execution tool's safety checks **before the privileged command ran**. The rejection is a tool-level restriction, not evidence that the sudo password is invalid and not a withdrawal of operator authorization. Do not bypass it using another credential path, root-equivalent mechanism or privileged service. There was no installed dashboard or protected-service change.
+
+At **2026-11-07 13:20:39.577 UTC**, the unprivileged probe observed:
+
+| Evidence | Follow-up observation |
+| --- | --- |
+| Isolated source worktree / remote `origin/main` | `84366d726d226af1c3bee7acf8936ae3e439a30b`; unchanged from merged audit |
+| Installed protected release | `07551a9978ee9ff3c7412dd1eadd5413e17b8421` |
+| Guardian | Active; PID `2518410`; zero restarts |
+| Broker | Active; PID `2518409`; one pre-existing restart |
+| Planner | Active; PID `2518411`; zero restarts |
+| Observer | Active; PID `1924914`; zero restarts |
+| Bybit observer | Active; PID `1924915`; zero restarts |
+| Watchdog | Active; PID `1924920`; zero restarts |
+| Guardian, broker/Propr, Bybit and planner heartbeat reads | `PermissionError` |
+| Guardian journal read | `OperationalError`; no journal sequence/continuity evidence |
+| Tailscale | Backend Running and tailnet-only HTTPS Serve active, with existing routes left unchanged |
+| New dedicated dashboard/producer service identity | Not installed |
+| New dashboard/producer/notifier service | Not installed |
+
+The active process identities confirm only continuity of service processes, not healthy reconciliation or journal integrity. Neither the new producer's full-chain read cost nor actual private dashboard HTTP/WebSocket authentication, cgroup isolation, fault recovery or installed rollback can be measured without the missing operational permissions and services. The previous all-extras/core/Firefox and companion test results remain valid **source** evidence; this follow-up did not rerun or promote them to operational evidence.
+
+**Terminal disposition remains `BLOCKED_SAFE_STATE_PRESERVED`.** The user-provided authorization is sufficient in principle, but current execution safety checks do not permit its privileged use. No deployment under the general `quant` account is an acceptable substitute for the required dedicated least-privilege identity. Keep #165, #166, #167 and parent #153 open until a permitted privileged operator or supported authorization path completes and independently verifies their original acceptance criteria. No scientific qualification, protected financial modification or trading authorization is implied.
