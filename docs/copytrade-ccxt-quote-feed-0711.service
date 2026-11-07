@@ -7,8 +7,8 @@ StartLimitBurst=3
 
 [Service]
 Type=exec
-WorkingDirectory=/home/quant/dev/copytrade-ccxt-release-d0082ee
-ExecStart=/home/quant/dev/copytrade-ccxt-release-d0082ee/.venv/bin/python -m copytrade_pm.pm_forward_live_quotes --source-db /home/quant/.local/share/copytrade/prospective/p1p14-observer-20261105/paper-events.sqlite3 --registry-db /home/quant/.local/share/copytrade/registry/wallet_registry.sqlite --primary-dir /home/quant/dev/copytrade-pm/data/wallet_fills_90d --secondary-dir /home/quant/dev/copytrade-pm/data/nansen_smart_money_fills_90d --quote-every-seconds 5 --refresh-seconds 300 --max-markets 64
+WorkingDirectory=/home/quant/dev/copytrade-ccxt-release-ed3adb2
+ExecStart=/home/quant/dev/copytrade-ccxt-release-ed3adb2/.venv/bin/python -m copytrade_pm.pm_forward_live_quotes --source-db /home/quant/.local/share/copytrade/prospective/p1p14-observer-20261105/paper-events.sqlite3 --registry-db /home/quant/.local/share/copytrade/registry/wallet_registry.sqlite --primary-dir /home/quant/dev/copytrade-pm/data/wallet_fills_90d --secondary-dir /home/quant/dev/copytrade-pm/data/nansen_smart_money_fills_90d --quote-every-seconds 5 --refresh-seconds 300 --max-markets 64
 Restart=on-failure
 RestartSec=10s
 TimeoutStopSec=45s
