@@ -272,7 +272,15 @@ def test_public_cli_preflight_and_capture_with_fake_transports(
     monkeypatch.setattr(module, "candidate_preflight", lambda **kwargs: manifest)
     monkeypatch.setattr(module, "registry_watched_addresses", lambda *a, **k: {WALLET: "wallet:17"})
     monkeypatch.setattr(identity, "P1", ("member",))
-    monkeypatch.setattr(identity, "audit_frozen_member_resolution", lambda **k: None)
+    monkeypatch.setattr(
+        identity,
+        "audit_frozen_member_resolution",
+        lambda **k: {
+            "portfolio_id": k["portfolio_id"],
+            "status": "BLOCKED",
+            "post_seal_binding_aliases": ["member"],
+        },
+    )
     monkeypatch.setattr(identity, "_private_locator", lambda *a, **k: (None, WALLET, None))
     monkeypatch.setattr(campaign, "_ALIAS", {"member": "S035"})
 
@@ -310,6 +318,13 @@ def test_public_cli_preflight_and_capture_with_fake_transports(
     assert report["order_route"] == "NONE"
     if preflight_only:
         assert not root.exists() and env.requests == []
+        assert report["portfolio_historical_pit"]["P1"] == {
+            "original_selection_pit": "BLOCKED",
+            "post_seal_member_count": 1,
+            "capture_policy": "NEW_FIRST_KNOWN_OBSERVATION_ONLY",
+            "historical_replay_admitted": False,
+        }
+        assert report["prospective_first_known_not_before"]
     else:
         assert report["financial_events_committed"] == 0
         assert verify_streams(root / "paper-events.sqlite3")["integrity"] == "VERIFIED"

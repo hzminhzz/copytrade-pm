@@ -3,7 +3,7 @@
 **Public observer readiness:** unrelated unsigned research selections do not block independently sealed selected-portfolio preflight. Registry research-selection integrity remains a separate blocked diagnostic; explicit unverified portfolio requests still fail closed. See [continuous observer](FORWARD-PAPER-CONTINUOUS-OBSERVER.md).
 
 
-The [7 November reconciliation record](RECONCILIATION-20261107.md) explains PR and preserved-work dispositions. Refresh live state before using its dated evidence.
+The [7 November reconciliation record](RECONCILIATION-20261107.md) explains PR and preserved-work dispositions. The [selected-observer P0 execution audit](SELECTED-OBSERVER-P0-EXECUTION-20261107.md) records the actual shared-IP capacity and selected-provenance blockers; it does not authorize deployment. Refresh live state before using dated evidence.
 
 Use live GitHub, private SQLite, original source evidence, financial journals and
 verified deployment metadata for current facts. OptMem and dated studies provide

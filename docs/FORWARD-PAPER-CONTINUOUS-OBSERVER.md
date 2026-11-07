@@ -100,6 +100,18 @@ signed proof for a *different, unrequested research selection* is a separate
 registry science diagnostic, not an observer gate. An explicitly requested
 unsealed/invalid portfolio, source identity or exclusion still fails closed.
 
+The actual continuous-entrypoint manifest records the **original frozen**
+portfolio identity audit separately from the **current as-of** eligible
+watchlist. For a portfolio whose alias was first registered after its original
+seal, `original_selection_pit=BLOCKED` and
+`capture_policy=NEW_FIRST_KNOWN_OBSERVATION_ONLY`; real new receipts may
+be observed prospectively without rewriting an older selection timestamp.
+This does not qualify historical replay or follower economics, and is not
+permission to ignore selected-wallet exclusions or shared-IP limits.
+Diagnostic `signed_selection` reports PASS only when the requested
+portfolio seals were actually verified, not merely when the global research
+selection was ignored.
+
 When strict preflight stops on the first error, rerun the **same pinned**
 configuration and arguments with `--preflight-only --diagnose-preflight`.
 This read-only mode reports registry integrity, requested-portfolio seal

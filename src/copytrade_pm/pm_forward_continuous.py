@@ -317,13 +317,8 @@ def diagnose_candidate_preflight(
             gates[name] = {"status": "UNKNOWN", "reason_code": "STREAM_REGISTRY_NOT_VERIFIED"}
     else:
         # Global research priority is not an observer input. The requested
-        # portfolios are independently checked via their immutable seals and
-        # as-of watchlist below; unrelated unsigned selections stay quarantined.
-        gates["signed_selection"] = {
-            "status": "PASS",
-            "scope": "REQUESTED_PORTFOLIO_SEALS_ONLY",
-        }
-
+        # portfolios are independently checked via their immutable seals;
+        # never report selected provenance as PASS before checking those seals.
         def compare_inventory():
             if (
                 expected_inventory_sha is not None
@@ -336,6 +331,15 @@ def diagnose_candidate_preflight(
         seals = check(
             "portfolio_seals",
             lambda: _portfolio_seals(registry_db, portfolio_ids, as_of=as_of),
+        )
+        gates["signed_selection"] = (
+            {"status": "PASS", "scope": "REQUESTED_PORTFOLIO_SEALS_ONLY"}
+            if seals is not None
+            else {
+                "status": "BLOCKED",
+                "reason_code": "STREAM_SELECTED_PORTFOLIO_NOT_VERIFIED",
+                "scope": "REQUESTED_PORTFOLIO_SEALS_ONLY",
+            }
         )
         watched = check(
             "watched_wallets",
@@ -676,16 +680,32 @@ def continuous_entrypoint(args) -> dict:
     manifest["market_scope_sha"] = config.get(
         "market_scope_sha", digest([i.key for i in configured])
     )
-    manifest["manifest_sha"] = digest(manifest)
     watched = registry_watched_addresses(args.registry, tuple(config["portfolio_ids"]), as_of=now)
     parents = {}
+    historical_pit = {}
     for pid in config["portfolio_ids"]:
-        audit_frozen_member_resolution(
+        audit = audit_frozen_member_resolution(
             registry_db=args.registry,
             primary_dir=args.primary_dir,
             secondary_dir=args.secondary_dir,
             portfolio_id=pid,
         )
+        if (
+            not isinstance(audit, dict)
+            or audit.get("portfolio_id") != pid
+            or audit.get("status") not in ("PIT_IDENTITY_RESOLVED_ONLY", "BLOCKED")
+            or not isinstance(audit.get("post_seal_binding_aliases"), list)
+        ):
+            raise ValueError("STREAM_HISTORICAL_IDENTITY_AUDIT_INVALID")
+        # Current, independently resolved as-of watchlist is usable for NEW
+        # read-only receipts. A late historical binding never backdates the
+        # original frozen portfolio or supplies follower PnL admission.
+        historical_pit[pid] = {
+            "original_selection_pit": audit["status"],
+            "post_seal_member_count": len(audit["post_seal_binding_aliases"]),
+            "capture_policy": "NEW_FIRST_KNOWN_OBSERVATION_ONLY",
+            "historical_replay_admitted": False,
+        }
         for member in P1 if pid == "P1" else P14:
             _, address, _ = _private_locator(
                 member, primary_dir=args.primary_dir, secondary_dir=args.secondary_dir
@@ -695,6 +715,9 @@ def continuous_entrypoint(args) -> dict:
             parents[_ALIAS[member]] = address.lower()
     if len(parents) != len(watched):
         raise ValueError("STREAM_CANONICAL_PARENT_SCOPE_MISMATCH")
+    manifest["portfolio_historical_pit"] = historical_pit
+    manifest["prospective_first_known_not_before"] = now
+    manifest["manifest_sha"] = digest(manifest)
     if args.preflight_only:
         return manifest
     journal = PaperJournal(args.state_root)

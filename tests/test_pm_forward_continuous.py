@@ -52,6 +52,10 @@ def test_explicit_shared_ip_budget_and_all_native_hedges():
         SubscriptionBudget(reserved_connections=8).plan((BTC,), account_count=5)
     with pytest.raises(ValueError, match="USER_BUDGET"):
         SubscriptionBudget(reserved_users=6).plan((BTC,), account_count=5)
+    # Actual A-window census already consumes the documented ten unique users.
+    # A selected three-manager canary cannot share that IP concurrently.
+    with pytest.raises(ValueError, match="USER_BUDGET"):
+        SubscriptionBudget(reserved_users=10).plan((BTC,), account_count=3)
     with pytest.raises(ValueError, match="DUPLICATE"):
         budget.plan((BTC, BTC), account_count=1)
     hedge = Instrument("hyperliquid", "mainnet:perp:xyz", "CL")
@@ -81,6 +85,34 @@ def test_selected_scope_ignores_unconfigured_market_but_requires_exact_hedge():
     assert stale["required_markets"] == selected["required_markets"]
     assert stale["status"] == "DEGRADED_SCOPE"
     assert stale["coverage_complete"] is False
+
+
+def test_newly_discovered_child_never_silently_exceeds_shared_ip_budget():
+    scope = MarketScope((BTC,), SubscriptionBudget(reserved_users=8))
+    first = scope.update(
+        {
+            "p1": {"baseline_valid": True, "positions": {}},
+            "p2": {"baseline_valid": True, "positions": {}},
+        },
+        expected_accounts=("p1", "p2"),
+    )
+    assert first["status"] == "SCOPE_ENUMERATED"
+    assert first["subscription_plan"]["account_count"] == 2
+
+    # An additional real subaccount must become a hard budget degradation.
+    child = scope.update(
+        {
+            "p1": {"baseline_valid": True, "positions": {}},
+            "p2": {"baseline_valid": True, "positions": {}},
+            "child": {"baseline_valid": True, "positions": {}},
+        },
+        expected_accounts=("p1", "p2", "child"),
+    )
+    assert child["status"] == "DEGRADED_SCOPE"
+    assert child["budget_failure"] == "STREAM_USER_BUDGET_EXCEEDED"
+    assert child["subscription_plan"] is None
+    assert child["coverage_complete"] is False
+    assert child["order_route"] == "NONE"
 
 
 def test_preflight_manifest_binds_registry_and_old_evidence(tmp_path, monkeypatch):
