@@ -1,0 +1,44 @@
+# Non-installed example only. Requires independent security and operator review.
+# DO NOT copy into /etc/systemd/system during dashboard Phase 3.
+# Placeholder paths must be replaced with separately approved, immutable paths.
+[Unit]
+Description=Private read-only Marimo dashboard (example; no trading controls)
+After=network.target
+# Intentionally NO Requires/BindsTo/PartOf for Guardian/broker/planner/watchdog.
+
+[Service]
+Type=simple
+User=copytrade-dashboard
+Group=copytrade-dashboard
+WorkingDirectory=/srv/copytrade-dashboard/releases/REVIEWED_SHA
+EnvironmentFile=/etc/copytrade-dashboard/private.env
+ExecStart=/srv/copytrade-dashboard/releases/REVIEWED_SHA/venv/bin/uvicorn copytrade_pm.dashboard.server:app --host 127.0.0.1 --port 18777 --workers 1 --no-access-log
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=10s
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+UMask=0077
+LimitNOFILE=256
+TasksMax=64
+CPUQuota=25%
+MemoryMax=512M
+MemorySwapMax=0
+# No WritePaths to any Guardian, broker, SQLite registry or research data.
+# Data access is to owner-prepublished, read-only captures only.
+# If captures are inside /home, review ProtectHome policy before attempting access.
+# Bind must stay loopback until an independently authenticated TLS/Tailscale ingress
+# with HTTP+WebSocket origin/host policy has been verified.
+
+[Install]
+WantedBy=multi-user.target

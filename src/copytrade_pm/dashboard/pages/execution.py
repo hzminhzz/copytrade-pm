@@ -14,9 +14,6 @@ def _():
 
 @app.cell
 def _(mo):
-    mo.md("# Operations · Execution\n[Overview](/) · [Execution](/execution) · "
-          "[Risk](/risk) · [Health](/health) · [Portfolios](/portfolios) · "
-          "[Performance](/performance) · [Research lab](/lab)")
     refresh = mo.ui.refresh(options=["10s", "30s", "60s"], default_interval="10s",
                             label="Execution refresh (read-only)")
     refresh

@@ -14,8 +14,6 @@ def _():
 
 @app.cell
 def _(mo):
-    mo.md("# Research · Performance\n[Overview](/) · [Wallets](/research) · "
-          "[Portfolios](/portfolios) · [Performance](/performance) · [Research lab](/lab)")
     refresh = mo.ui.refresh(options=["30s", "60s"], default_interval="30s",
                             label="Current risk display refresh (not historical tape)")
     refresh

@@ -14,8 +14,6 @@ def _():
 
 @app.cell
 def _(mo):
-    mo.md("# Research · Portfolio Explorer\n[Overview](/) · [Wallets](/research) · "
-          "[Portfolios](/portfolios) · [Performance](/performance) · [Research lab](/lab)")
     asof = mo.ui.text(label="Optional exact UTC as-of", value="", max_length=45)
     name_filter = mo.ui.text(label="Portfolio ID contains", value="", max_length=96)
     page = mo.ui.number(start=1, stop=101, value=1, step=1, label="Page (25 rows)")
@@ -38,9 +36,10 @@ def _(DashboardReader, asof, name_filter, page, query):
 @app.cell
 def _(mo, outcome):
     from copytrade_pm.dashboard.phase2_views import portfolio_view
-    portfolio_view(mo, outcome) if outcome else mo.md(
+    body = portfolio_view(mo, outcome) if outcome else mo.md(
         "Use **Read canonical portfolios**. No selection or registry records are changed."
     )
+    body
 
 
 if __name__ == "__main__":

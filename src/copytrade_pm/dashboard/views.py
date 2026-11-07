@@ -56,8 +56,14 @@ def overview_cards(mo, report: dict[str, Any]):
     cards.append(mo.stat(clean((broker.get("data") or {}).get("certainty")),
                          label="Broker certainty", bordered=True))
     return mo.vstack([
-        mo.hstack(cards[:3], justify="start", wrap=True),
-        mo.hstack(cards[3:], justify="start", wrap=True),
+        mo.hstack(cards[:2], justify="start", wrap=True),
+        mo.hstack(cards[2:4], justify="start", wrap=True),
+        mo.hstack(cards[4:], justify="start", wrap=True),
+        mo.md("**Current exposure:** " + clean(
+            ((report['sources']['risk'].get('data') or {}).get('exposure')
+             if report['sources']['risk']['status'] == 'VERIFIED' else None)
+        ) + " (UNKNOWN unless independently present in owner capture)."),
+        mo.md("**Pod health:** UNKNOWN unless independently reported by Guardian."),
         mo.md(f"Retrieved UTC: {clean(report['retrieved_at'])}. "
               "No synthetic financial snapshots."),
     ])

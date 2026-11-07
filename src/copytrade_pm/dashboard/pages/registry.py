@@ -14,13 +14,6 @@ def _():
 
 @app.cell
 def _(mo):
-    mo.md(
-        "# Research · Canonical wallet registry\n"
-        "[Overview](/) · [Execution](/execution) · [Risk](/risk) · "
-        "[Health](/health) · [Wallet registry](/research) · "
-        "[Portfolios](/portfolios) · [Performance](/performance) · [Research lab](/lab)\n\n"
-        "SQLite identities are research metadata, not deployed portfolios."
-    )
     query = mo.ui.text(label="Alias contains (max 96 characters)", value="", max_length=96)
     cohort = mo.ui.text(label="Cohort (exact)", value="", max_length=96)
     excluded = mo.ui.dropdown({"All": None, "Excluded": True, "Not excluded": False},
