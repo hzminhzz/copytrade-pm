@@ -16,7 +16,7 @@
 
 **Primary question:** after five-minute signal batching and fully realistic taker costs, is copying the *complete selected-scope source position vector* feasible and preferable to no trade / a matched market control? Use existing PM-03/PM-04 and native cost/market authorities rather than a second financial simulator.
 
-1. Establish authentic selected perps account and all-DEX/HIP-3 census with first-observed position snapshots and causal source-event/receipt clocks. Resolve token IDs like `@107`, `@142`, `@151`, `@156` before replay. Separate pre-window inventory from missing fills; don't assume flatness or reconstruct missing transactions.
+1. Establish authentic selected perps account and all-DEX/HIP-3 census with first-observed position snapshots and causal source-event/receipt clocks. Classify opaque `@` asset IDs as spot/non-perp where independently verified; keep spot activity outside an explicitly selected perp-only mirror. Map any unresolved namespace before it can enter the selected perp set. Separate pre-window inventory from missing fills; don't assume flatness or reconstruct missing transactions.
 2. Reconcile each selected-scope official position vector against fill deltas, closures, rollbacks, session restarts and any vendor source gaps. Freeze the exact trusted, timestamped opening state *before* reporting whole-position episodes or holding durations. Report unresolved episodes as blocked.
 3. For the matching native instruments/dates, require exact native source-day SHA and minute completeness; ensure viable orderable follower market coverage and lot precision. Reject unsupported legs instead of silently dropping hedges.
 4. Under the native `FIXED_K_NATIVE_QUANTITY` contract, use 5-minute batching, signed pod k, **real follower equity and headroom**, a $200 nominal pod-loss stop for the illustrative $10k challenge, gross/concentration caps, fees, spread, slippage, funding and margin. Never infer k from the vendor source equity snapshot. Benchmark 0/5/15-minute diagnostics as sensitivity *without selecting a winning lag retrospectively*. Matched follower PnL needs actual prospective first-known decision timing; historical Vike fills are an **oracle upper-bound/timing screen only**.
@@ -70,3 +70,39 @@ python /home/quant/.local/share/copytrade/reports/dextra-candidates-0711-2026110
 ```
 
 Run commands within the repository's `uv run --frozen --group dev` environment if using the native executable aliases. The private report and script are permissioned to the `quant` account. The script performs read-only source and native-market file inspections and writes only a private derived report. It does **not** simulate trades or alter the registry.
+
+## Independent post-screen validation — 2026-11-07 11:23 UTC
+
+**Official public Hyperliquid `/info` checks**, with original responses saved privately alongside the diagnostic, correct vendor accounting ambiguity:
+
+| Observation | DEX-71 | DEX-02 |
+| --- | ---: | ---: |
+| Main-perps `clearinghouseState.marginSummary.accountValue` (USD) | 34,958.65 | 0.00 |
+| Official main-perps position | −100 ZEC | Flat |
+| Official `spotClearinghouseState` USDC balance (units) | 219,104.91575688 (25,846 on hold) | 25,261.428326 (none on hold) |
+| `userAbstraction` | `unifiedAccount` | `unifiedAccount` |
+| Dextrabot earlier account-value snapshot (USD) | 215,133 | 25,261 |
+
+**Interpretation:** DEX-02 is **not** a zero-funded unified-account wallet: its independently observed spot USDC matches the previous Dextrabot balance. It is presently flat in main perps. DEX-71 has an independently confirmed funded active main-perp position. Do **not** add USDC spot balance and main-perp accountValue into fabricated aggregate NAV; these scopes may share collateral. Main-perp accountValue zero does not imply unified-account assets zero. Neither account's whole financial book has been atomically reconstructed.
+
+The DEX-02 opaque events `@142`, `@151`, `@156` pay fees respectively in **UBTC, UETH, USOL** and closely correspond to independently observed spot assets. They should not be mistaken for unsupported *perpetual* instruments. Scope segregation is needed before episode replay. DEX-71's `@107` is still an opaque/nonselected instrument until independently mapped. The earlier residuals are therefore diagnostic consequences of unknown window-opening inventory and mixed source scopes, **not established missing-fill incidents**. DEX-02's XRP before-snapshot residual still requires genuine timestamped position reconciliation.
+
+Vike `hl_wallet_trades` closed-round-trip diagnostics for the explicit close-time window `[2026-10-08, 2026-11-07)` give:
+
+| Episode measure | DEX-71 | DEX-02 |
+| --- | ---: | ---: |
+| Vendor reconstructed closed episodes | 65 | 109 |
+| Median closed episode holding time | 135 min | 32.7 min |
+| Closed episodes shorter than 5 min | 1 | 11 |
+| Closed episodes shorter than 15 min | 6 | 30 |
+| Closed episodes shorter than 60 min | 22 | 75 |
+| Closed episodes holding at least 10 hours | 15 | 3 |
+| Worst vendor closed-trade realized PnL (USD; **source scale**) | −10,082.50 | −1,003.76 |
+
+**Research consequence:** DEX-71 has materially more favorable observed episode durations under a five-minute copying policy. Nonetheless **50/65 DEX-71** and **106/109 DEX-02** closed episodes are under the previously preferred 10-hour minimum; neither deserves a slow-swing-manager label. DEX-02's 75/109 sub-hour episodes make it especially timing-sensitive. Vike reconstructed trades are not independent official position-chain proof, nor evidence of follower PnL. The actual follower's nominal $200 pod stop is not bounded by the leader's raw trade loss, and cannot be validated without the follower execution path.
+
+**Official source raw-response SHA-256** (per account; both timestamped UTC and permissioned 0600):
+- DEX-02 `clearinghouseState`: `dc4c8dfa910942928bcaa052648a1676691c2c0150c76c4a3cfa00755883d12a`; `spotClearinghouseState`: `6b5bc325e26abff4b77588c340eb3a4009f04ce143dc978c23edd9c4f356ab35`.
+- DEX-71 `clearinghouseState`: `51908b354a21f9175ec21781e9a5bd32abd72763802b2b56f7fe2c04be2f4c7b`; `spotClearinghouseState`: `38f031271131f56f231aea0b47ebbd67a0723ebb7059e33bffec5a57dc948634`.
+
+**Verdict remains:** DEX-71 and DEX-02 are **ADVANCED_RESEARCH_ONLY**, still without matched five-minute follower economics or authenticated prospective signal receipts. Current official public observations satisfy the practical $1,000 funded-account screen but are not a declaration of executable follower margin or order permission.
