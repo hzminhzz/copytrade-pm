@@ -236,3 +236,52 @@ def test_downsampling_retains_local_extrema_or_explicitly_refuses(break_count):
         output = prepare_series(points, max_points=32)
         assert extrema <= {point["value_exact"] for point in output}
         assert len(output) <= 32
+
+
+def test_actual_owner_capture_round_trip_without_journal_mutation(tmp_path):
+    """Use the actual pinned owner producer; OS ACL acceptance remains separate."""
+    pytest.importorskip("prop_production", reason="requires the pinned owner source")
+    pytest.importorskip("altair", reason="requires the dashboard extra")
+    from hashlib import sha256
+
+    from prop_production.dashboard_capture import COMMANDS, export_capture
+    from prop_production.journal import Journal
+    from test_dashboard_adapter import fake_native
+
+    journal_path = tmp_path / "fixture-journal.sqlite"
+    output = tmp_path / "fixture-captures"
+    output.mkdir(mode=0o700)
+    with Journal(journal_path, "fixture-final-audit-account", initialize=True) as journal:
+        journal.update(
+            "RECONCILE",
+            1000,
+            lambda state: state.update(
+                active_release_sha="a" * 64,
+                finance={
+                    "equity": "0.00",
+                    "observed_at_ms": 1000,
+                    "risk_floor": "0",
+                    "day": 0,
+                    "headroom": "0",
+                },
+            ),
+        )
+    before = sha256(journal_path.read_bytes()).hexdigest()
+    export_capture(journal_path, output, now_ms=1001)
+    captures = {name: json.loads((output / f"{name}.json").read_text()) for name in COMMANDS}
+    reader = DashboardReader(
+        guardian_provider=captures.__getitem__,
+        native_read=fake_native,
+        clock=lambda: datetime.fromtimestamp(1.001, UTC),
+        cache=SmallTTLCache(),
+    )
+    report = reader.risk_status()
+    assert report["metrics"]["equity"]["value"] == "0.00"
+    assert report["metrics"]["headroom"]["value"] == "0"
+    assert len(captures) == 6
+    assert len({item["native"]["journal_sequence"] for item in captures.values()}) == 1
+    history = reader.performance_history(risk_report=report)
+    assert history["status"] == "VERIFIED_OWNER_SHADOW_TAIL"
+    assert {item["evidence_class"] for item in history["points"]} == {"PAPER_SHADOW"}
+    assert "fixture-final-audit-account" not in json.dumps(captures)
+    assert sha256(journal_path.read_bytes()).hexdigest() == before

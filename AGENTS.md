@@ -175,6 +175,11 @@ source finance or a pinned installed runtime. TD-13 requires independent
 noninterference/performance evidence; TD-14 needs separately authorized pinned
 reversible installation. Never grant Marimo journal access or activate protected
 capture/Guardian services as a shortcut.
+For final dashboard review, read [the independent acceptance record](docs/DASHBOARD-FINAL-AUDIT-20261107.md)
+and the operating bounds in [the release runbook](docs/DASHBOARD-PHASE3.md).
+Verify actual browser CSS viewport dimensions; outer Firefox window sizes can
+silently clamp phone tests. Keep optional evidence limitations separate from
+mandatory permission, private ingress, Guardian cadence and rollback gates.
 
 ## Review, verification and continuation
 
