@@ -22,8 +22,10 @@ All tables are no-selection, no-download; server inputs are capped scalars.
 
 **Risk (#159).** Owner-supplied `operator_risk_v1` reports exact Decimal
 equity, contractual daily/internal/trailing floors, headroom, HALT and
-pod-loss usage. Cross-command account-binding/release/sequence and freshness
-parity must pass. Missing values remain UNKNOWN and zero stays zero.
+pod-loss usage. Cross-command account-binding/release/sequence, common
+capture-publication clock and freshness parity must pass. Missing values remain
+UNKNOWN and zero
+stays zero.
 Optional companion `prop-production` owner projection reports gross/net
 mark exposure only if its broker snapshots are coherent with complete
 positions/marks; no chart-defined risk. Signed pod-loss budget is **not**
@@ -36,8 +38,8 @@ companion owner projection adds hashed original source receipt IDs, distinct
 source event/source-known/first-local timestamps, true 300-second due clocks,
 Guardian decision and intent clocks, sent clock, and broker fill-known events.
 The dashboard only joins on stable decision/intent IDs, matching active
-release and coherent account sequence. Contradictory causal clocks,
-duplicate fills or mismatched captures stay UNKNOWN. Broker acceptance and
+release, coherent account sequence and common capture-publication clock.
+Contradictory causal clocks, duplicate fills or mismatched captures stay UNKNOWN. Broker acceptance and
 verified target-vs-actual books remain unavailable; a timeout is not failed
 order proof. No orders can be routed from these views.
 
@@ -56,9 +58,11 @@ unrealized, floor, headroom and contractual UTC day are preserved. These
 are owner **SHADOW** observations, *not* authenticated broker-executed
 follower history, complete source-wallet performance or fabricated pod
 equity curves. Only owner capture with coherent binding produces a chart;
-otherwise UNAVAILABLE/BLOCKED is shown. Polars exact Decimal sample
-selection keeps extrema, explicit gaps and reset boundaries; Altair interval
-brushing is browser-only. Risk authority never uses plotted floats.
+otherwise UNAVAILABLE/BLOCKED is shown. Invalid history rows reject the
+entire series, never a partial promoted tail. Polars exact Decimal sample
+selection keeps extrema, explicit gaps (including >5-minute gaps between
+owner observations) and reset boundaries; Altair interval brushing is
+browser-only. Risk authority never uses plotted floats.
 Older releases are plotted under independent source IDs.
 
 **Research Lab (#163).** `copytrade-pm research list/show` reads only the
@@ -115,5 +119,31 @@ rendering and load/fault tests; signed service installation/rollback.
 Missing verified real financial data stays UNKNOWN/UNAVAILABLE and does
 not block independent source-only code tests.
 
-Do not merge or deploy this phase without separate authorization.
-Parent #153 and any incomplete issue acceptance remain open.
+## Phase 2 engineering exit / Phase 3 handoff
+
+Independent review reproduced the source tests and corrected four fail-closed
+projection/consumer defects: Guardian HALT exposure, partially invalid finance
+history, implied continuity across unknown observation gaps, and mixed capture
+publications at the same account/release/sequence. Strict mypy was also fixed
+for the owner journal and projection. The clean pinned three-repository
+verifier passed on owner commit `29805417be8e4b773cdcd2073bed5148dd17d9f6`
+using the existing compatibility manifest. The proposed dashboard consumer
+requires its **own** reviewed revision pin in a future release manifest.
+
+Engineering readiness for Phase 3 does not require protected live financial
+observations. TD-11 independent notifications and TD-12 mobile/navigation may
+proceed source-only. TD-13 must independently test all read contracts,
+permissions, failures, load, and noninterference; TD-14 owns the separate pinned
+install/rollback candidate and operator authorization. The source review does
+not satisfy these operational release gates.
+
+Current protected owner capture producer, OS permissions/ACL, live data,
+Tailscale/HTTP/WS ingress, mobile browser screenshots, realistic journal-size
+CPU/p95 and Guardian noninterference are still unverified/not installed.
+Keep research-selected versus installed/running evidence distinct. Historical
+SHADOW samples are not broker-executed net follower PnL, and missing pod signed
+budgets or broker acceptance remain UNKNOWN. Parent #153 and Phase 2 child
+issues with incomplete real-evidence acceptance stay open until verified.
+
+A source merge does not authorize capture installation, Marimo deployment,
+trading orders, risk-policy modification or financial trust-floor changes.
