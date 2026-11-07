@@ -96,6 +96,23 @@ systemctl --user show copytrade-tracker.service copytrade-source-abc.service \
 
 A missing paper unit or zero indexed runs does **not** prove that no independent external program exists. It does mean there is no authoritative verified `PAPER_RUNNING` state from those sources. Never infer `PAPER_RUNNING_OBSERVED` from a proposal, directory, PID string, stale heartbeat, or synthetic test.
 
+## Mandatory paid-API pre-fetch exclusion gate
+
+Before **any** metered or paid API call for a wallet — HyperX fill/metric fetches, vendor history downloads, per-wallet probes — check the registry exclusion state and drop excluded wallets from the batch:
+
+```bash
+# Batch: dump every excluded wallet (redacted; both exclusion tables).
+uv run --frozen --group dev copytrade-wallet-registry excluded
+
+# Per-wallet: exclusion state with sources.
+uv run --frozen --group dev copytrade-wallet-registry wallet --alias W083 --asof <UTC>
+```
+
+- A wallet with `"excluded": true` (from `exclusions` or `propfirm_exclusions`) receives **zero** API work: no fill fetches, no fill-date lookups, no metric probes, no retries.
+- If the registry is unavailable or the lookup fails, the gate **fails closed**: skip the API work rather than assume the wallet is not excluded.
+- Screening a listed candidate is not a substitute for this gate; exclusions are decided by the owner and indexed in the registry, and only the registry answers "is this wallet excluded".
+- Wallet candidate lists for any fetch batch **MUST come from the registry** (`cohort`, `wallet`, `excluded`), never from ad-hoc agent-curated lists; a list built from filenames, chat messages, or narrative reports bypasses this gate by construction.
+
 ## Fail-closed conditions
 
 1. **Registry unavailable or not imported:** report the requested live status as `UNKNOWN` or `NOT_REGISTERED_AT_ASOF` as appropriate; cite the last versioned Git decision with its known-at timestamp and explicitly label it *historical*, not current. Do not guess from OptMem, Telegram messages, wallet filenames or narrative reports.
