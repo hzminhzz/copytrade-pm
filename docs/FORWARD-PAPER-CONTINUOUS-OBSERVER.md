@@ -23,6 +23,12 @@ financial worker, change a frozen portfolio, or submit orders.
 | Uninstalled shadow-unit templates | `pm_forward_public_unit.continuous_unit_templates` |
 | Unsigned wheel staging | Existing `stage_unprotected_release_candidate` / candidate verifier |
 
+`--shadow-report` requires a continuous stream journal. When pointed at an older
+bounded public-observer journal sharing the same SQLite filename, it returns
+`BLOCKED_INCOMPATIBLE_JOURNAL` / `CONTINUOUS_STREAM_SCHEMA_NOT_PRESENT`
+without claiming a verified witness window or financial admission. To inspect
+an existing bounded observer, omit both `--shadow-report` and `--continuous`.
+
 The default bounded CLIs remain supported. Continuous capture creates no PM-03
 run and commits no financial event. Independent status always retains
 `financial_admission=BLOCKED_NO_TRADE`, `paper_observed=false` and

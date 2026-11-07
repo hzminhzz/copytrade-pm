@@ -719,7 +719,34 @@ def audit_continuous_shadow(root: Path, *, as_of: str) -> dict:
     """Measure real evidence; elapsed time never automatically qualifies a run."""
     from .pm_forward_stream_journal import verify_streams
 
-    audit = verify_streams(Path(root) / "paper-events.sqlite3")
+    # Bounded legacy observers share the SQLite filename but do not contain
+    # continuous stream tables. Distinguish that unsupported scope from a
+    # verified stream (or a fabricated zero-event financial result).
+    try:
+        audit = verify_streams(Path(root) / "paper-events.sqlite3")
+    except sqlite3.OperationalError as exc:
+        if not str(exc).startswith("no such table: observer_stream_"):
+            raise
+        return {
+            "schema": "paper_continuous_shadow_audit_v1",
+            "status": "BLOCKED_INCOMPATIBLE_JOURNAL",
+            "as_of": as_of,
+            "gate_reasons": ["CONTINUOUS_STREAM_SCHEMA_NOT_PRESENT"],
+            "actual_witness_window_seconds": None,
+            "watchdog": None,
+            "latency": {},
+            "matched_wallet_receipts": None,
+            "reconciliation": {},
+            "journal_integrity": "UNVERIFIED",
+            "stream_head_sha": None,
+            "streams": {},
+            "financial_rows": None,
+            "source_nav_attested": False,
+            "scientifically_qualified": False,
+            "operator_cutover_authorized": False,
+            "paper_observed": False,
+            "order_route": "NONE",
+        }
     samples = verify_watchdog_samples(root)
     elapsed = (
         0

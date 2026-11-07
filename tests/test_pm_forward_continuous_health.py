@@ -46,6 +46,30 @@ def test_shadow_witness_log_detects_tampering_and_never_compresses_time(tmp_path
         verify_watchdog_samples(journal.root)
 
 
+def test_shadow_report_rejects_legacy_bounded_journal_without_crashing(tmp_path):
+    from copytrade_pm.pm_forward_observer_health import audit_continuous_shadow
+
+    root = tmp_path / "bounded"
+    root.mkdir()
+    journal = root / "paper-events.sqlite3"
+    with closing(sqlite3.connect(journal)) as db:
+        db.execute("CREATE TABLE runs (run_id TEXT PRIMARY KEY)")
+        db.commit()
+    before = journal.read_bytes()
+
+    report = audit_continuous_shadow(root, as_of=T.isoformat())
+
+    assert report["schema"] == "paper_continuous_shadow_audit_v1"
+    assert report["status"] == "BLOCKED_INCOMPATIBLE_JOURNAL"
+    assert report["gate_reasons"] == ["CONTINUOUS_STREAM_SCHEMA_NOT_PRESENT"]
+    assert report["journal_integrity"] == "UNVERIFIED"
+    assert report["order_route"] == "NONE"
+    assert report["paper_observed"] is False
+    assert report["operator_cutover_authorized"] is False
+    assert journal.read_bytes() == before
+    assert not (root / "continuous-watchdog.samples.jsonl").exists()
+
+
 def test_missing_ack_and_resource_exhaustion_are_explicit(tmp_path):
     journal = build(tmp_path)
     source = StreamProgress(journal, "account:quiet")
