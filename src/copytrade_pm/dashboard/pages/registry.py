@@ -14,13 +14,6 @@ def _():
 
 @app.cell
 def _(mo):
-    mo.md(
-        "# Research · Canonical wallet registry\n"
-        "[Overview](/) · [Execution](/execution) · [Risk](/risk) · "
-        "[Health](/health) · [Wallet registry](/research) · "
-        "[Portfolios](/portfolios) · [Performance](/performance) · [Research lab](/lab)\n\n"
-        "SQLite identities are research metadata, not deployed portfolios."
-    )
     query = mo.ui.text(label="Alias contains (max 96 characters)", value="", max_length=96)
     cohort = mo.ui.text(label="Cohort (exact)", value="", max_length=96)
     excluded = mo.ui.dropdown({"All": None, "Excluded": True, "Not excluded": False},
@@ -49,9 +42,7 @@ def _(DashboardReader, query, cohort, excluded, page, run):
 def _(mo, outcome):
     from copytrade_pm.dashboard.views import registry_view
 
-    from copytrade_pm.dashboard.navigation import nav
-    mo.vstack([mo.md("# Research · Canonical wallet registry"),
-               nav(mo, mo.query_params()), registry_view(mo, outcome)])
+    registry_view(mo, outcome)
 
 
 if __name__ == "__main__":

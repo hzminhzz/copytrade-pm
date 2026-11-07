@@ -14,9 +14,6 @@ def _():
 
 @app.cell
 def _(mo):
-    mo.md("# Operations · Execution\n[Overview](/) · [Execution](/execution) · "
-          "[Risk](/risk) · [Health](/health) · [Portfolios](/portfolios) · "
-          "[Performance](/performance) · [Research lab](/lab)")
     refresh = mo.ui.refresh(options=["10s", "30s", "60s"], default_interval="10s",
                             label="Execution refresh (read-only)")
     refresh
@@ -33,8 +30,7 @@ def _(DashboardReader, refresh):
 @app.cell
 def _(mo, report):
     from copytrade_pm.dashboard.phase2_views import execution_view
-    from copytrade_pm.dashboard.navigation import nav
-    mo.vstack([nav(mo, mo.query_params()), execution_view(mo, report)])
+    execution_view(mo, report)
 
 
 if __name__ == "__main__":

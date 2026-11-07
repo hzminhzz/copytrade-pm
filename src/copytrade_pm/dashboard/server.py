@@ -15,7 +15,7 @@ from pathlib import Path
 import secrets
 from urllib.parse import parse_qs, urlencode, urlsplit
 
-from .navigation import ROUTES, valid_scope
+from .navigation import LEGACY_PATHS, valid_scope
 
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -144,18 +144,40 @@ class ViewerAuth:
         headers = _headers(scope)
         path = scope.get("path", "")
         names = [name.decode("latin1").lower() for name, _ in scope.get("headers", [])]
-        if (any(names.count(name) > 1 for name in ("host", "origin", "cookie"))
+        if (any(names.count(name) > 1 for name in (
+                    "host", "origin", "cookie", "content-length", "content-type"
+                ))
                 or any(name in names for name in (
-                    "x-forwarded-host", "x-original-url", "x-rewrite-url"))):
+                    "x-forwarded-host", "x-original-url", "x-rewrite-url",
+                    "transfer-encoding"))):
             return await self._deny(scope, send, 403)
         if not _allowed_host(headers, self.allowed_hosts):
             return await self._deny(scope, send, 403)
         if kind == "websocket" and not _origin_ok(headers, self.allowed_origins):
             return await self._deny(scope, send, 403)
         if kind == "http" and scope.get("method") not in {"GET", "HEAD"}:
-            if (path != "/login" or scope.get("method") != "POST"
-                    or not _origin_ok(headers, self.allowed_origins)):
+            # mo.routes laziness uses function_call; ordinary read-only
+            # filters and refresh controls use set_ui_element_value.
+            # Never admit execute/run/save/file-edit/command endpoints.
+            ui_post = path in {
+                "/api/kernel/function_call", "/api/kernel/set_ui_element_value",
+            }
+            allowed_post = (
+                scope.get("method") == "POST"
+                and (path == "/login" or ui_post)
+                and _origin_ok(headers, self.allowed_origins)
+            )
+            if not allowed_post:
                 return await self._deny(scope, send, 403)
+            if ui_post:
+                if headers.get("content-type", "").split(";")[0] != "application/json":
+                    return await self._deny(scope, send, 415)
+                try:
+                    length = int(headers.get("content-length", "0"))
+                except ValueError:
+                    return await self._deny(scope, send, 400)
+                if not 0 < length <= 16_384:
+                    return await self._deny(scope, send, 413)
         cookies = {}
         for item in headers.get("cookie", "").split(";"):
             if "=" in item:
@@ -171,7 +193,7 @@ class ViewerAuth:
             # Keep only safe, bookmarkable page scope. Never forward arbitrary
             # token, wallet or account parameters to the Marimo frontend.
             clean_path = path if path == "/" else path.rstrip("/") + "/"
-            if clean_path in {route for route, _ in ROUTES}:
+            if clean_path == "/" or clean_path in LEGACY_PATHS:
                 raw = scope.get("query_string", b"")
                 if len(raw) > 512:
                     return await self._deny(scope, send, 414)
@@ -181,8 +203,11 @@ class ViewerAuth:
                           if len(values) == 1}
                 safe = valid_scope(single)
                 query = urlencode(safe).encode()
-                if path != clean_path or raw != query:
-                    target = clean_path + ("?" + query.decode() if query else "")
+                # All legacy pages are aliases of a single authenticated
+                # Marimo app. Fragments never reach ASGI; they route in-client.
+                if clean_path != "/" or raw != query:
+                    target = "/" + ("?" + query.decode() if query else "")
+                    target += LEGACY_PATHS.get(clean_path, "")
                     response = RedirectResponse(target, status_code=307,
                                                 headers={"Cache-Control": "no-store"})
                     return await response(scope, receive, send)
@@ -273,14 +298,7 @@ def make_app(*, secret: str, clock=None,
             include_code=False, redirect_console_to_browser=False, show_tracebacks=False,
             quiet=True,
         )
-        .with_app(path="/", root=PAGES / "overview.py")
-        .with_app(path="/research", root=PAGES / "registry.py")
-        .with_app(path="/health", root=PAGES / "health.py")
-        .with_app(path="/risk", root=PAGES / "risk.py")
-        .with_app(path="/execution", root=PAGES / "execution.py")
-        .with_app(path="/portfolios", root=PAGES / "portfolios.py")
-        .with_app(path="/performance", root=PAGES / "performance.py")
-        .with_app(path="/lab", root=PAGES / "lab.py")
+        .with_app(path="/", root=PAGES / "dashboard.py")
     )
     app = Starlette(
         routes=[Route("/login", login, methods=["GET", "POST"]), Mount("/", server.build())]

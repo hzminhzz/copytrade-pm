@@ -17,11 +17,13 @@ PORTFOLIO = re.compile(
 )
 WINDOWS = ("24h", "7d", "30d", "90d")
 ROUTES = (
-    ("/", "Overview"), ("/execution/", "Execution"), ("/risk/", "Risk"),
-    ("/health/", "Health"), ("/research/", "Wallets"),
-    ("/portfolios/", "Portfolios"), ("/performance/", "Performance"),
-    ("/lab/", "Research Lab"),
+    ("#/", "Overview"), ("#/execution", "Execution"), ("#/risk", "Risk"),
+    ("#/health", "Health"), ("#/research", "Wallets"),
+    ("#/portfolios", "Portfolios"), ("#/performance", "Performance"),
+    ("#/lab", "Research Lab"),
 )
+# Old page URLs redirect to the single app; links use only hash routes.
+LEGACY_PATHS = {"/" + route[2:] + "/": route for route, _ in ROUTES if route != "#/"}
 
 
 def valid_scope(values: Mapping[str, object]) -> dict[str, str]:
@@ -41,7 +43,7 @@ def navigation_html(scope: Mapping[str, object] | None = None) -> str:
     params = valid_scope(scope or {})
     suffix = "?" + urlencode(params) if params else ""
     links = "".join(
-        f'<a href="{escape(route + suffix, quote=True)}" '
+        f'<a href="{escape("/" + suffix + route, quote=True)}" '
         f'style="display:inline-block;padding:0.5rem 0.6rem;margin:0.2rem;'
         f'border:1px solid currentColor;border-radius:0.5rem;'
         f'text-decoration:none"'

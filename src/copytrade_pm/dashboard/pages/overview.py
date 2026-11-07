@@ -14,14 +14,6 @@ def _():
 
 @app.cell
 def _(mo):
-    mo.md(
-        "# Operations · Account risk\n"
-        "**Read-only. No trading controls.** "
-        "[Overview](/) · [Execution](/execution) · [Risk](/risk) · "
-        "[System health](/health) · [Wallets](/research) · "
-        "[Portfolios](/portfolios) · [Performance](/performance) · [Research lab](/lab)\n\n"
-        "Metrics are authoritative only to the degree indicated by their source status."
-    )
     refresh = mo.ui.refresh(options=["5s", "10s", "30s"], default_interval="5s",
                             label="Overview refresh (UI polling only)")
     refresh
@@ -39,15 +31,12 @@ def _(DashboardReader, refresh):
 def _(mo, report):
     from copytrade_pm.dashboard.views import overview_cards, evidence_table
 
-    from copytrade_pm.dashboard.navigation import nav
     from copytrade_pm.dashboard.notifications import dashboard_status
     from pathlib import Path
     import os
     notification_path = os.getenv("DASHBOARD_NOTIFICATION_STATE_FILE")
     delivery = dashboard_status(Path(notification_path) if notification_path else None)
     mo.vstack([
-        mo.md("# Operations · Account risk"),
-        nav(mo, mo.query_params()),
         mo.md("## Account and risk headroom"),
         overview_cards(mo, report),
         mo.md("## Incident delivery (independent dry-run only)"),

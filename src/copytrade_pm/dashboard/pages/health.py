@@ -14,13 +14,6 @@ def _():
 
 @app.cell
 def _(mo):
-    mo.md(
-        "# Operations · System health\n"
-        "[Overview](/) · [Execution](/execution) · [Risk](/risk) · "
-        "[System health](/health) · [Wallets](/research) · "
-        "[Portfolios](/portfolios) · [Performance](/performance) · [Research lab](/lab)\n\n"
-        "A healthy browser or active PID does **not** establish healthy Guardian finance."
-    )
     refresh = mo.ui.refresh(options=["10s", "30s", "60s"], default_interval="10s",
                             label="Health refresh")
     refresh
@@ -38,15 +31,12 @@ def _(DashboardReader, refresh):
 def _(mo, report):
     from copytrade_pm.dashboard.views import health_view
 
-    from copytrade_pm.dashboard.navigation import nav
     from copytrade_pm.dashboard.notifications import dashboard_status
     from pathlib import Path
     import os
     notification_path = os.getenv("DASHBOARD_NOTIFICATION_STATE_FILE")
     delivery = dashboard_status(Path(notification_path) if notification_path else None)
     mo.vstack([
-        mo.md("# Operations · System health"),
-        nav(mo, mo.query_params()),
         mo.md(f"**Independent delivery:** {delivery['status']} / "
               f"{delivery['external_delivery']}; source {delivery['source_status']}. "
               f"Records: {len(delivery['incidents'])}; "

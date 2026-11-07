@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
+from starlette.routing import Mount
 from starlette.testclient import TestClient
 
 from copytrade_pm.dashboard.server import (
@@ -25,14 +26,14 @@ def test_authenticated_query_redaction_cookie_and_headers():
         )
         assert response.status_code == 307
         target = response.headers["location"]
-        assert target.startswith("/health/?")
+        assert target.startswith("/?") and target.endswith("#/health")
         assert "token" not in target and "very_secret" not in target
         assert parse_qs(urlsplit(target).query) == {
             "portfolio": ["gemini.phase5/P1@3"], "utc": ["7d"],
         }
         assert client.get("/risk?utc=7d").status_code in {200, 307}
         assert client.get("/risk/?token=very_secret",
-                          follow_redirects=False).headers["location"] == "/risk/"
+                          follow_redirects=False).headers["location"] == "/#/risk"
         assert client.get("/risk/?utc=x" * 1000, follow_redirects=False).status_code == 414
         fresh = client.get("/risk/", follow_redirects=True)
         assert fresh.status_code == 200
@@ -80,6 +81,41 @@ def test_host_rewrite_and_proxy_spoof_denied(header):
         assert response.status_code == 403
 
 
+def test_single_run_only_marimo_app_without_mounted_view_servers():
+    app = make_app(secret=KEY)
+    mounts = [route for route in app.downstream.routes if isinstance(route, Mount)]
+    assert len(mounts) == 1 and mounts[0].path == ""
+    backend_mounts = [
+        route for route in mounts[0].app.routes if isinstance(route, Mount)
+    ]
+    assert len(backend_mounts) == 1 and backend_mounts[0].path == ""
+
+
+def test_only_authenticated_origin_checked_bounded_ui_posts_are_admitted():
+    routes = ("/api/kernel/function_call", "/api/kernel/set_ui_element_value")
+    forbidden = (
+        "/api/kernel/execute", "/api/kernel/run", "/api/kernel/save",
+        "/api/kernel/restart_session", "/api/kernel/shutdown",
+        "/api/kernel/set_model_value", "/api/files/create", "/api/files/delete",
+        "/api/kernel/install_missing_packages",
+    )
+    with TestClient(make_app(secret=KEY), base_url="https://localhost") as client:
+        for path in routes:
+            assert client.post(path, json={}, headers={"origin": "https://localhost"}).status_code == 401
+        token = _cookie(KEY, int(datetime.now(UTC).timestamp()))
+        client.cookies.set(COOKIE_NAME, token)
+        for path in routes:
+            assert client.post(path, json={}, headers={"origin": "https://evil.example"}).status_code == 403
+            assert client.post(path, content=b"x", headers={
+                "origin": "https://localhost", "content-type": "text/plain",
+            }).status_code == 415
+            assert client.post(path, json={"payload": "a" * 17_000},
+                               headers={"origin": "https://localhost"}).status_code == 413
+        for path in forbidden:
+            assert client.post(path, json={"code": "print(1)"},
+                               headers={"origin": "https://localhost"}).status_code == 403
+
+
 def test_query_does_not_create_mutation_route():
     with TestClient(make_app(secret=KEY), base_url="https://localhost") as client:
         token = _cookie(KEY, int(datetime.now(UTC).timestamp()))
@@ -87,4 +123,4 @@ def test_query_does_not_create_mutation_route():
         for route in ("/halt", "/recover", "/broker/orders", "/registry/write"):
             assert client.post(route, headers={"origin": "https://localhost"}).status_code == 403
         assert client.get("/risk/?portfolio=0x" + "a" * 40,
-                          follow_redirects=False).headers["location"] == "/risk/"
+                          follow_redirects=False).headers["location"] == "/#/risk"

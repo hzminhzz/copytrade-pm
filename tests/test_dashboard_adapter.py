@@ -304,7 +304,10 @@ def test_actual_sqlite_readonly_pagination_asof_and_zero_write(tmp_path, monkeyp
     db, snapshot = _v2_snapshot(tmp_path)
     native_registry.apply(db, snapshot, AFTER)
     before_bytes = db.read_bytes()
-    app = DashboardReader(db=db, clock=lambda: T0, cache=SmallTTLCache())
+    # This test invokes the native SQLite owner, which timestamps its answer
+    # using the real clock. A fixed T0 makes valid reads look future-dated
+    # once the test date has passed; synthetic capture tests still use T0.
+    app = DashboardReader(db=db, clock=lambda: datetime.now(UTC), cache=SmallTTLCache())
     found = app.wallets(query="W083", asof=AFTER, limit=1)
     assert found["status"] in {"VERIFIED", "STALE"}
     assert found["data"]["total"] == 1

@@ -160,8 +160,15 @@ installed release, signed pod budget, broker PnL or trading authorization.
 See `docs/DASHBOARD-PHASE2.md` and prop-production's owner projection contract.
 Phase 3 implements independent dry-run incident delivery, mobile navigation,
 security regression tests and *disposable staging-only* packaging; see
-`docs/DASHBOARD-PHASE3.md`. The notification backend is NOT_CONFIGURED for
-external distribution; local ACK never clears Guardian HALT. URL portfolio/UTC
+`docs/DASHBOARD-PHASE3.md`. The approved single-app topology uses
+`pages/dashboard.py` as the **only** run-only Marimo ASGI mount; the eight
+existing view notebooks are lazy embedded presentation modules under native
+`mo.routes()` hash navigation. Never reintroduce independent notebook mounts,
+server-side routing state or a global eager reactive query graph. The exact
+same-origin, authenticated, bounded Marimo UI POST allowlist is
+`function_call` and `set_ui_element_value` only; do not enable arbitrary
+kernel execution or filesystem mutation routes.
+The notification backend is NOT_CONFIGURED for external distribution; local ACK never clears Guardian HALT. URL portfolio/UTC
 scope is display-navigation context, never production selection. Browser and
 source tests cannot qualify live Guardian cadence, protected ACL, private ingress,
 source finance or a pinned installed runtime. TD-13 requires independent

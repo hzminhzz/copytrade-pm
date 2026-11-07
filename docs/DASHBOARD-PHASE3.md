@@ -16,9 +16,11 @@ Dashboard reads optional `DASHBOARD_NOTIFICATION_STATE_FILE` without a write han
 
 ## TD-12: mobile and URL scope
 
-All eight run-only Marimo views share visible compact responsive navigation. Query strings preserve strictly validated `portfolio=<namespace>/<id>@<version>` and `utc=24h|7d|30d|90d`. They are **navigation context only**; no new financial query or roster selection is performed from the URL. Other query parameters (including account IDs, wallet addresses, tokens, arbitrary UTC timestamps and duplicate scope keys) are dropped at the authenticated HTTP boundary. Routes canonicalize with trailing slashes; redirect does not pass unsafe query strings to Marimo. Critical cards wrap and explicitly label missing account exposure and pod health UNKNOWN.
+The approved architectural correction uses **one run-only Marimo ASGI app** at `src/copytrade_pm/dashboard/pages/dashboard.py`, not eight independently mounted notebook servers. One authenticated kernel owns `mo.routes()` with hash-based `#/...` routing. Eight existing view modules are embedded as lazy read-only presentation graphs, preserving their reactive refresh/query controls without executing unselected expensive reads. Navigation and route headings are owned by the single app shell; Guardian/SQLite and the bounded Evidence Gateway remain separate authorities.
 
-Private Firefox smoke suite checks 390x844, 430x932 and 1280x800 viewport, actual sign-in/session, source-state labels, critical top-level overflow, navigation redaction and scope propagation. Desktop/mobile economic correctness is established only for available fixture/UNAVAILABLE states, not live protected finance.
+Canonical links have form `/?utc=7d&portfolio=namespace%2Fid%40version#/health`: only validated `portfolio=<namespace>/<id>@<version>` and `utc=24h|7d|30d|90d` reach the app. They are **navigation context only**, not selection of a running account. Old URLs such as `/health?utc=7d` redirect to `/?utc=7d#/health` after allowlisted sanitization. All other parameters (including account IDs, wallet addresses, secrets, duplicate keys and arbitrary timestamps) are removed before Marimo receives the request. Fragments are browser-only and never used to select owner files, SQL or commands. Critical cards wrap and explicitly label missing account exposure and pod health UNKNOWN.
+
+The regression suite exercises 390x844, 430x932 and 1280x800 Firefox viewports, every one of the eight routes, twenty repeated document sessions against a shared disposable server, URL-secret redaction, and real embedded registry-button reactivity. Missing protected financial evidence is represented as UNAVAILABLE/UNKNOWN; fixture and localhost results do not establish operational acceptance.
 
 ## TD-13: integrated acceptance
 
@@ -35,7 +37,7 @@ DASHBOARD_BROWSER_ARTIFACT_DIR=/tmp/dashboard-phase3-browser \
     -W ignore::pytest.PytestUnraisableExceptionWarning \
     tests/test_dashboard_browser.py
 ```
-The browser-only warning filters address Selenium/Firefox temporary-response teardown noise and **do not** suppress warnings in the full core suite. Captured screenshots must be genuine browser captures, not illustrations.
+The browser-only warning filters address Selenium/Firefox temporary-response teardown noise and **do not** suppress warnings in the full core suite. Captured screenshots must be genuine browser captures, not illustrations. The authenticated ASGI middleware allows only two bounded run-only Marimo JSON POST endpoints, `/api/kernel/function_call` (selected lazy view rendering) and `/api/kernel/set_ui_element_value` (read-only filter/refresh events). Both require a valid signed viewer cookie and exact allowed Origin, plus bounded Content-Length and Content-Type. Shell/Python execution, arbitrary kernel runs, file writes, broker routes and release changes remain denied; negative transport tests enforce this.
 
 Source/fixture tests are distinct from an authenticated private-network acceptance, real financial capture, real broker PnL and owner-worker cadence tests. Missing permissions, release agreement or fresh financial evidence must stay UNKNOWN/BLOCKED. Protected services must never be stopped or restarted to generate a dashboard test.
 
