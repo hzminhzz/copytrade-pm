@@ -354,12 +354,28 @@ def _guardian_public_data(command: str, native: Mapping[str, Any]) -> dict[str, 
                    "daily_floor", "internal_floor", "trailing_floor",
                    "headroom", "realized_made")
         visible = []
+        previous_sequence = 0
+        maximum_sequence = native.get("journal_sequence")
         for item in rows:
             if not isinstance(item, dict):
-                continue
+                return {"rows": [], "status": "BLOCKED",
+                        "error_code": "HISTORY_ROW_SCHEMA_INVALID"}
             observed = item.get("observed_at_ms")
-            if type(observed) is not int or observed < 0:
-                continue
+            sequence = item.get("journal_sequence")
+            release = item.get("release_sha")
+            day = item.get("day")
+            reconciled = item.get("reconciled_at_ms")
+            if (type(observed) is not int or observed < 0
+                    or type(sequence) is not int or sequence <= previous_sequence
+                    or type(maximum_sequence) is not int or sequence > maximum_sequence
+                    or not isinstance(release, str) or SHA256.fullmatch(release) is None
+                    or day is not None and type(day) is not int
+                    or reconciled is not None and (type(reconciled) is not int or reconciled < 0)
+                    or any(item.get(key) is not None
+                           and safe_decimal(item.get(key)) is None for key in allowed)):
+                return {"rows": [], "status": "BLOCKED",
+                        "error_code": "HISTORY_ROW_SCHEMA_INVALID"}
+            previous_sequence = sequence
             visible.append({
                 "journal_sequence": item.get("journal_sequence")
                 if type(item.get("journal_sequence")) is int else None,
@@ -664,7 +680,8 @@ class DashboardReader:
         valid = [src for src in sources.values() if src["status"] == "VERIFIED"]
         if len(valid) == len(sources):
             pairs = {
-                (src["revision"], src["journal_sequence"], src["account_binding_sha"])
+                (src["revision"], src["journal_sequence"], src["account_binding_sha"],
+                 src["captured_at"])
                 for src in valid
             }
             if len(pairs) != 1 or any(src["revision"] is None for src in valid):
@@ -762,7 +779,8 @@ class DashboardReader:
                    for name in ("status", "portfolio", "intent", "broker")}
         complete = all(s["status"] == "VERIFIED" and s["revision"]
                        and s["account_binding_sha"] for s in sources.values())
-        bindings = {(s["account_binding_sha"], s["revision"], s["journal_sequence"])
+        bindings = {(s["account_binding_sha"], s["revision"], s["journal_sequence"],
+                     s["captured_at"])
                     for s in sources.values()}
         coherent = bool(complete and len(bindings) == 1)
         portfolio = sources["portfolio"].get("data")
@@ -916,13 +934,14 @@ class DashboardReader:
                     for s in financial_sources)
             and source.get("revision") is not None
             and len({(s.get("account_binding_sha"), s.get("revision"),
-                      s.get("journal_sequence"))
+                      s.get("journal_sequence"), s.get("captured_at"))
                      for s in [source, *financial_sources]}) == 1
         )
         payload = source.get("data")
         payload = payload if isinstance(payload, dict) else {}
         rows = payload.get("rows") or []
-        if not matching or payload.get("evidence_class") != "PAPER_SHADOW":
+        if (not matching or payload.get("evidence_class") != "PAPER_SHADOW"
+                or payload.get("status") == "BLOCKED"):
             return {
                 "schema": "dashboard_history_v1", "status": "UNAVAILABLE"
                 if source["status"] == "UNAVAILABLE" else "BLOCKED",
@@ -940,8 +959,14 @@ class DashboardReader:
             stamp = row.get("observed_at_ms")
             if (not isinstance(release, str) or SHA256.fullmatch(release) is None
                     or type(stamp) is not int or stamp < 0
-                    or stamp > int(self.clock().timestamp() * 1000)):
-                continue
+                    or stamp > int(self.clock().timestamp() * 1000)
+                    or (source.get("captured_at") is not None and
+                        stamp > int(parse_utc(source["captured_at"]).timestamp() * 1000))):
+                return {
+                    "schema": "dashboard_history_v1", "status": "BLOCKED",
+                    "error_code": "INVALID_OWNER_FINANCE_ROW_CLOCK_OR_RELEASE",
+                    "points": [], "source": source, "trading_authorized": False,
+                }
             timestamp = utc_text(datetime.fromtimestamp(stamp / 1000, UTC))
             for metric in ("equity", "risk_floor", "headroom", "unrealized"):
                 value = row.get(metric)
@@ -973,7 +998,9 @@ class DashboardReader:
                     "source_id": release,
                     "evidence_class": "PAPER_SHADOW",
                     "reset_boundary": False,
-                    "gap_before": False,
+                    # A snapshot tail is not a continuous trade tape. Never draw
+                    # a line across unexplained observation gaps over five minutes.
+                    "gap_before": previous is not None and stamp - previous[0] > 300_000,
                 })
         # Preserve contractual UTC reset boundaries where the owner supplied
         # day identity. No interpolation or invented zero for missing fields.

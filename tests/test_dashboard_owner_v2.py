@@ -73,6 +73,22 @@ def test_finance_history_is_not_promoted_when_boundaries_fail(failure):
     assert history["status"] in {"BLOCKED", "UNAVAILABLE"}
 
 
+def test_mixed_publication_epoch_is_never_promoted_as_one_capture():
+    def provider(command):
+        result = capture_with_history(command)
+        if command == "broker":
+            result["captured_at"] = (T0 - timedelta(seconds=1)).isoformat()
+            result["source_observed_at"] = (T0 - timedelta(seconds=1)).isoformat()
+        return result
+
+    subject = reader(provider)
+    overview = subject.overview()
+    assert overview["metrics"]["equity"]["value"] is None
+    assert overview["sources"]["risk"]["status"] == "BLOCKED"
+    assert subject.execution_monitor()["link_status"] == "UNKNOWN"
+    assert subject.performance_history()["status"] == "BLOCKED"
+
+
 def test_owner_confirmed_decision_receipts_and_broker_fills_link_by_id_only():
     def provider(command):
         if command == "portfolio":
@@ -225,17 +241,59 @@ def test_portfolio_filter_and_pagination_remain_bounded_and_read_only():
     assert subject.portfolio_explorer(query="\n")["status"] == "BLOCKED"
     assert subject.portfolio_explorer(offset=10001)["status"] == "BLOCKED"
 
-def test_owner_history_separates_releases_and_skips_future_clock():
+def test_owner_history_separates_releases_without_promotion():
     def provider(command):
         rec = capture_with_history(command)
         if command == "history":
             rec["native"]["rows"][0]["release_sha"] = "b" * 64
-            rec["native"]["rows"][1]["observed_at_ms"] = int(
-                (T0 + timedelta(days=1)).timestamp() * 1000
+        return rec
+    history = reader(provider).performance_history()
+    assert history["status"] == "VERIFIED_OWNER_SHADOW_TAIL"
+    assert {p["source_id"] for p in history["points"]} == {"a" * 64, "b" * 64}
+    assert all(datetime.fromisoformat(p["timestamp"]).tzinfo == UTC
+               for p in history["points"])
+
+
+@pytest.mark.parametrize("corruption", [
+    "future_clock", "malformed_clock", "malformed_decimal", "missing_release",
+    "out_of_range_sequence", "regressed_sequence", "malformed_day",
+])
+def test_owner_history_rejects_corrupt_rows_without_partial_promotion(corruption):
+    def provider(command):
+        rec = capture_with_history(command)
+        if command == "history":
+            rows = rec["native"]["rows"]
+            if corruption == "future_clock":
+                rows[1]["observed_at_ms"] = int((T0 + timedelta(days=1)).timestamp() * 1000)
+            elif corruption == "malformed_clock":
+                rows[1]["observed_at_ms"] = "invalid"
+            elif corruption == "malformed_decimal":
+                rows[1]["equity"] = "NaN"
+            elif corruption == "missing_release":
+                rows[1]["release_sha"] = None
+            elif corruption == "out_of_range_sequence":
+                rows[1]["journal_sequence"] = 13
+            elif corruption == "regressed_sequence":
+                rows[0]["journal_sequence"] = 13
+            elif corruption == "malformed_day":
+                rows[1]["day"] = "20301"
+        return rec
+    history = reader(provider).performance_history()
+    assert history["status"] == "BLOCKED"
+    assert history["points"] == []
+
+
+def test_owner_history_marks_unknown_long_intervals_as_chart_gaps():
+    def provider(command):
+        rec = capture_with_history(command)
+        if command == "history":
+            rec["native"]["rows"][0]["observed_at_ms"] = int(
+                (T0 - timedelta(hours=12)).timestamp() * 1000
             )
         return rec
     history = reader(provider).performance_history()
     assert history["status"] == "VERIFIED_OWNER_SHADOW_TAIL"
-    assert {p["source_id"] for p in history["points"]} == {"b" * 64}
-    assert all(datetime.fromisoformat(p["timestamp"]).tzinfo == UTC
-               for p in history["points"])
+    equity = [p for p in history["points"] if p["metric"] == "equity"]
+    assert len(equity) == 2
+    assert len({p["segment"] for p in equity}) == 2
+    assert equity[1]["gap_before"] is True
