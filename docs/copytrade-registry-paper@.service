@@ -1,0 +1,25 @@
+# Research-synthetic virtual portfolios only. NEVER add broker credentials or routes.
+# Source executable is pinned to reviewed 814db12; each instance owns a distinct
+# private PM-03 run and does not modify shared public observer SQLite.
+[Unit]
+Description=Copytrade registry-sealed %i virtual paper (read-only source, no broker)
+Documentation=file:///home/quant/dev/copytrade-paper-release-814db12/docs/REGISTRY-PAPER-PORTFOLIOS-20261107.md
+After=network.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=exec
+WorkingDirectory=/home/quant/dev/copytrade-paper-release-814db12
+ExecStart=/home/quant/dev/copytrade-paper-release-814db12/.venv/bin/copytrade-pm-paper-observed --source-db /home/quant/.local/share/copytrade/prospective/p1p14-observer-20261105/paper-events.sqlite3 --registry-db /home/quant/.local/share/copytrade/registry/wallet_registry.sqlite --portfolio %i --state-root /home/quant/.local/share/copytrade/prospective/registry-paper-%i-persistent-20261107 --run-id paper_%i_persistent_0711 --watch --poll-seconds 2
+Restart=on-failure
+RestartSec=10s
+UMask=0077
+NoNewPrivileges=true
+MemoryMax=512M
+TasksMax=128
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

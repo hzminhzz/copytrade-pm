@@ -182,9 +182,11 @@ class L2Quote:
     mid: Decimal
     spread_bps: Decimal
     book_sha: str
+    bid_levels: tuple[tuple[Decimal, Decimal], ...] = ()
+    ask_levels: tuple[tuple[Decimal, Decimal], ...] = ()
 
     def payload(self) -> dict[str, Any]:
-        return {
+        row = {
             "schema": SCHEMA,
             "instrument": self.market.instrument.key,
             "ccxt_symbol": self.market.ccxt_symbol,
@@ -207,6 +209,10 @@ class L2Quote:
             "broker_order_route": "NONE",
             "provider_signed": False,
         }
+        if self.bid_levels and self.ask_levels:
+            row["bid_levels"] = [[str(px), str(size)] for px, size in self.bid_levels]
+            row["ask_levels"] = [[str(px), str(size)] for px, size in self.ask_levels]
+        return row
 
     @property
     def quote_sha(self) -> str:
@@ -300,6 +306,27 @@ def parse_ccxt_book(
     spread_bps = (ask - bid) / mid * Decimal("10000")
     if spread_bps > max_spread_bps:
         raise ValueError("CCXT_BOOK_SPREAD_TOO_WIDE")
+    def valid_levels(raw: list, *, direction: str) -> tuple[tuple[Decimal, Decimal], ...]:
+        if len(raw) > 64:
+            raise ValueError("CCXT_BOOK_DEPTH_LIMIT_EXCEEDED")
+        levels = []
+        previous = None
+        for level in raw:
+            if not isinstance(level, (list, tuple)) or len(level) != 2:
+                raise ValueError("CCXT_BOOK_LEVELS_MALFORMED")
+            px = _positive(level[0], reason="CCXT_BOOK_LEVEL_INVALID")
+            size = _positive(level[1], reason="CCXT_BOOK_LEVEL_INVALID")
+            if previous is not None and (
+                (direction == "bid" and px >= previous)
+                or (direction == "ask" and px <= previous)
+            ):
+                raise ValueError("CCXT_BOOK_LEVELS_NOT_STRICTLY_SORTED")
+            previous = px
+            levels.append((px, size))
+        return tuple(levels)
+
+    bid_levels = valid_levels(bids, direction="bid")
+    ask_levels = valid_levels(asks, direction="ask")
     raw_head = {
         "ccxt_symbol": market.ccxt_symbol,
         "timestamp": stamp,
@@ -308,6 +335,9 @@ def parse_ccxt_book(
         "ask": str(ask),
         "ask_size": str(ask_size),
     }
+    if len(bid_levels) > 1 or len(ask_levels) > 1:
+        raw_head["bid_levels"] = [[str(px), str(size)] for px, size in bid_levels]
+        raw_head["ask_levels"] = [[str(px), str(size)] for px, size in ask_levels]
     return L2Quote(
         market=market,
         source_event_at=source_at,
@@ -320,6 +350,8 @@ def parse_ccxt_book(
         mid=mid,
         spread_bps=spread_bps,
         book_sha=digest(raw_head),
+        bid_levels=bid_levels if len(bid_levels) > 1 or len(ask_levels) > 1 else (),
+        ask_levels=ask_levels if len(bid_levels) > 1 or len(ask_levels) > 1 else (),
     )
 
 
@@ -404,6 +436,35 @@ def verify_l2_evidence(
             "ask": str(ask),
             "ask_size": str(ask_size),
         }
+        has_bid = "bid_levels" in evidence
+        has_ask = "ask_levels" in evidence
+        if has_bid != has_ask:
+            raise ValueError("INCOMPLETE_L2_DEPTH")
+        if has_bid:
+            for key, top, top_size, descending in (
+                ("bid_levels", bid, bid_size, True),
+                ("ask_levels", ask, ask_size, False),
+            ):
+                items = evidence[key]
+                if not isinstance(items, list) or not 1 <= len(items) <= 64:
+                    raise ValueError("INVALID_L2_DEPTH_LENGTH")
+                levels = []
+                prev = None
+                for level in items:
+                    if not isinstance(level, list) or len(level) != 2:
+                        raise ValueError("INVALID_L2_DEPTH_ROW")
+                    px = _positive(level[0], reason="INVALID_L2_DEPTH_PRICE")
+                    size = _positive(level[1], reason="INVALID_L2_DEPTH_SIZE")
+                    if prev is not None and (
+                        (descending and px >= prev)
+                        or (not descending and px <= prev)
+                    ):
+                        raise ValueError("NONMONOTONIC_L2_DEPTH")
+                    levels.append([str(px), str(size)])
+                    prev = px
+                if number(items[0][0]) != top or number(items[0][1]) != top_size:
+                    raise ValueError("L2_DEPTH_TOP_LEVEL_MISMATCH")
+                raw_head[key] = levels
         if digest(raw_head) != evidence["book_sha"]:
             reasons.append("MARKET_CCXT_L2_BOOK_HASH_MISMATCH")
     except ValueError, KeyError, TypeError:

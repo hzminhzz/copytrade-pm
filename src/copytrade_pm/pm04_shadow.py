@@ -871,6 +871,12 @@ def apply_pm04(account: Account, event: Event, policy: RiskPolicy, mode: str) ->
     """Process one PM-04 event inside the existing replay-first ShadowRun."""
     kind = event.kind
     raw = event.payload["input"]
+    if kind.startswith("PM04_PAPER_"):
+        if not account.pm04_state or account.pm04_state.get("schema") != STATE_SCHEMA:
+            raise ValueError("PM04_CONFIG_EVENT_REQUIRED")
+        from .pm_forward_single_shot import apply_paper_event
+
+        return apply_paper_event(account, event, policy, mode)
     if kind == "PM04_CONFIG":
         if mode != "RESEARCH_SYNTHETIC":
             raise ValueError("PM04_RESEARCH_CONFIGURATION_ONLY")

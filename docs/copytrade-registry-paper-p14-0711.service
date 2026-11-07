@@ -1,0 +1,23 @@
+# Research-only persistent service. No broker credentials, financial permit, or live order route.
+# Exact v3 run resumes prior transient journal, preserving the T+5 source clock.
+[Unit]
+Description=Copytrade P14 registry-sealed virtual paper (no broker)
+After=network.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=exec
+WorkingDirectory=/home/quant/dev/copytrade-paper-release-814db12
+ExecStart=/home/quant/dev/copytrade-paper-release-814db12/.venv/bin/copytrade-pm-paper-observed --source-db /home/quant/.local/share/copytrade/prospective/p1p14-observer-20261105/paper-events.sqlite3 --registry-db /home/quant/.local/share/copytrade/registry/wallet_registry.sqlite --portfolio P14 --state-root /home/quant/.local/share/copytrade/prospective/registry-paper-p14-20261107 --run-id p14_registry_paper_0711 --watch --poll-seconds 2
+Restart=on-failure
+RestartSec=10s
+UMask=0077
+NoNewPrivileges=true
+MemoryMax=512M
+TasksMax=128
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

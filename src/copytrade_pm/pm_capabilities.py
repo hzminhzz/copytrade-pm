@@ -57,6 +57,7 @@ GROUPS = {
     "copytrade-pm-paper-readiness": ("paper.readiness", "paper", "READ_ONLY"),
     "copytrade-pm-paper-source-campaign": ("paper.source_campaign", "paper", "PROTECTED_MUTATION"),
     "copytrade-pm-paper-observe": ("paper.observer", "paper", "PROTECTED_MUTATION"),
+    "copytrade-pm-paper-observed": ("paper.observed_execution", "paper", "LOCAL_MUTATION"),
     "copytrade-pm-paper-observer-health": ("paper.observer_health", "paper", "READ_ONLY"),
     "copytrade-pm-public-observer-unit": ("paper.public_unit", "paper", "PROTECTED_MUTATION"),
     "copytrade-pm": ("operations.cli", "operations", "READ_ONLY"),
