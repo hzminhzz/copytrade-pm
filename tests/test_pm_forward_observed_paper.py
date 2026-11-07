@@ -104,23 +104,23 @@ def test_observed_forward_paper_entry_wait_300_close_and_restart(tmp_path):
 
     add_source(observed, 1, 12, {BTC.key: "20"})
     first = consumer.step(at(14))
-    assert first["source_results"]["S035"] == "RECORDED_PM04_SIGNAL"
+    assert first["source_results"]["S035"] == "RECORDED_PAPER_SOURCE"
     assert first["quantity_count"] == 0
     assert first["order_route"] == "NONE"
-    assert consumer.run.account.pm04_state["batch_open"][BTC.key] == at(14)
+    assert first["execution_intents"]["S035"]["due_at"] == at(313)
 
     add_quote(observed, 295)
     before = consumer.step(at(296))
     assert before["quantity_count"] == 0
     add_quote(observed, 313)
     filled = consumer.step(at(314))
-    assert filled["tick"] == "PAPER_TICK_COMMITTED"
+    assert filled["tick"] == "PAPER_MARK_COMMITTED"
     assert filled["quantity_count"] == 1
     assert filled["costs"] != "0"
     assert D(filled["positions"][BTC.key]) > 0
     assert D(filled["equity"]) < D("10000")
     journal_rows = consumer.run.ledger.read()
-    assert any(row["event"]["kind"] == "PM04_TICK" for row in journal_rows)
+    assert any(row["event"]["kind"] == "PM04_PAPER_EXECUTE" for row in journal_rows)
 
     restarted = ObservedP1Paper(
         source_db=observed.path,
@@ -135,7 +135,7 @@ def test_observed_forward_paper_entry_wait_300_close_and_restart(tmp_path):
     add_quote(observed, 319)
     add_source(observed, 2, 319, {})
     closed = restarted.step(at(322))
-    assert closed["source_results"]["S035"] == "RECORDED_PM04_SIGNAL"
+    assert closed["source_results"]["S035"] == "RECORDED_PAPER_SOURCE"
     assert closed["quantity_count"] == 0
     assert D(closed["realized_pnl"]) < 0
     assert D(closed["costs"]) > 0
@@ -160,34 +160,34 @@ def test_future_started_run_never_backfills_old_source(tmp_path):
     assert paper.run.account.quantities == {}
 
 
-def test_partial_l2_paper_order_retries_remaining_on_next_fresh_tick(tmp_path):
+def test_unpriceable_book_rejects_once_without_residual_chasing(tmp_path):
     observed = PaperJournal(tmp_path / "public")
     catalog = {RAW_MARKET["symbol"]: RAW_MARKET}
     add_quote(observed, 10, size=3)
     paper = ObservedP1Paper(
         source_db=observed.path, state_root=tmp_path / "private",
-        run_id="retry_partial", catalog=catalog,
+        run_id="unpriceable", catalog=catalog,
         registry_db=registry(tmp_path / "registry.sqlite"), started_at=at(0),
     )
     add_source(observed, 1, 12, {BTC.key: "20"})
     assert paper.step(at(14))["quantity_count"] == 0
 
-    add_quote(observed, 313, size=3)
+    # The single displayed level cannot price the full market quantity.
+    add_quote(observed, 313, size=0.3)
     first = paper.step(at(314))
-    first_qty = D(first["positions"][BTC.key])
-    assert D("0") < first_qty <= D("0.3")
-    assert paper.run.account.pm04_state["routed_targets"]["S035"][BTC.key] != str(first_qty)
+    assert first["positions"] == {}
+    intent = first["execution_intents"]["S035"]
+    assert intent["status"] == "REJECTED"
+    attempt = first["execution_outcomes"][intent["intent_id"]][BTC.key]
+    assert attempt["status"] == "UNPRICEABLE_MARKET_ORDER"
+    assert D(attempt["required_quantity"]) == D("0.564")
 
-    # Two polls must not spend the exact same displayed best-level depth twice.
-    duplicate_book = paper.step(at(316))
-    assert D(duplicate_book["positions"][BTC.key]) == first_qty
-    assert paper.run.account.pm04_state["modeled_l2_consumed"][BTC.key]
-
-    add_quote(observed, 319, size=3)
-    next_fill = paper.step(at(321))
-    final_qty = D(next_fill["positions"][BTC.key])
-    assert final_qty > first_qty
-    assert final_qty == D(paper.run.account.pm04_state["routed_targets"]["S035"][BTC.key])
+    add_quote(observed, 319, size=200)
+    after = paper.step(at(321))
+    assert after["positions"] == {}
+    assert after["execution_intents"]["S035"]["status"] == "REJECTED"
+    assert len([r for r in paper.run.ledger.read()
+                if r["event"]["kind"] == "PM04_PAPER_EXECUTE"]) == 1
     assert paper.run.restore()["account"] == paper.run.account.snapshot()
 
 
