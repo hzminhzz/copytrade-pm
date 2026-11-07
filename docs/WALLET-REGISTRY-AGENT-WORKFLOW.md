@@ -111,6 +111,7 @@ uv run --frozen --group dev copytrade-wallet-registry wallet --alias W083 --asof
 - A wallet with `"excluded": true` (from `exclusions` or `propfirm_exclusions`) receives **zero** API work: no fill fetches, no fill-date lookups, no metric probes, no retries.
 - If the registry is unavailable or the lookup fails, the gate **fails closed**: skip the API work rather than assume the wallet is not excluded.
 - Screening a listed candidate is not a substitute for this gate; exclusions are decided by the owner and indexed in the registry, and only the registry answers "is this wallet excluded".
+- Wallet candidate lists for any fetch batch **MUST come from the registry** (`cohort`, `wallet`, `excluded`), never from ad-hoc agent-curated lists; a list built from filenames, chat messages, or narrative reports bypasses this gate by construction.
 
 ## Fail-closed conditions
 
