@@ -67,20 +67,25 @@ Verify the live registry's exact v2 definitions and the selected accounts
 before any restart or release. Keep each run in its own private state root:
 
 - `copytrade-paper-research-p1-0711.service`: existing P1, unchanged.
-- `copytrade-registry-paper@P14.service`: persistent P14 research instance.
-- `copytrade-registry-paper@P16.service`: persistent P16 research instance.
+- `copytrade-registry-paper-p14-0711.service`: persistent P14 service.
+- `copytrade-registry-paper-p16-0711.service`: persistent P16 service.
 
-The persistent **instance template**
-[`copytrade-registry-paper@.service`](copytrade-registry-paper@.service)
-is versioned in this repository and may be installed using
-`systemctl --user link /ABSOLUTE_PINNED_UNIT_FILE`,
-`systemctl --user daemon-reload`, and
-`systemctl --user enable --now copytrade-registry-paper@P14.service
-copytrade-registry-paper@P16.service`. The
-`quant` systemd user manager must have `Linger=yes` for boot survival.
-The two prior `systemd-run` transient services must be stopped **before**
-starting the persistent instances. They have separate original journals,
-which must be preserved rather than merged or deleted.
+The current persistent services use
+[`P14 unit`](copytrade-registry-paper-p14-0711.service) and
+[`P16 unit`](copytrade-registry-paper-p16-0711.service). Unlike a new
+campaign instance, these exact pinned units **resume the pre-existing PM03
+journals and pending T+5 intents** at the identical run names and private
+state roots. To install use `systemctl --user link /ABSOLUTE_PINNED_UNIT_FILE`
+for both, then `systemctl --user daemon-reload` and
+`systemctl --user enable --now copytrade-registry-paper-p14-0711.service
+copytrade-registry-paper-p16-0711.service`. Stop the matching old transient
+service before starting each persistent unit, and verify journal replay.
+The `quant` user manager has `Linger=yes` for boot survival.
+
+An optional generic [systemd instance template](copytrade-registry-paper@.service)
+is retained for **fresh** research-only campaigns (separate new run IDs), but
+must not be substituted for the active units if doing so loses pending
+forward evidence or changes the run's policy hash.
 
 Both new services use the reviewed frozen code checkout at `814db12`,
 the exact public-observer SQLite tape and private native registry (read-only).
