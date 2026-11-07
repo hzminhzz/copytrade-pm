@@ -978,14 +978,14 @@ class DashboardReader:
         # Preserve contractual UTC reset boundaries where the owner supplied
         # day identity. No interpolation or invented zero for missing fields.
         day_by_stamp = {
-            r["observed_at_ms"]: r.get("day")
+            (r.get("release_sha"), r["observed_at_ms"]): r.get("day")
             for r in rows if isinstance(r, dict)
             and type(r.get("observed_at_ms")) is int
         }
         prior_day: dict[str, int] = {}
         for point in series:
             stamp = int(datetime.fromisoformat(point["timestamp"]).timestamp() * 1000)
-            current = day_by_stamp.get(stamp)
+            current = day_by_stamp.get((point["source_id"], stamp))
             if current is not None:
                 key = point["series"]
                 point["reset_boundary"] = key in prior_day and prior_day[key] != current

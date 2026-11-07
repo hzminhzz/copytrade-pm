@@ -44,6 +44,7 @@ def _directory(tmp_path, monkeypatch, *, include_history=True):
 
 def test_owner_restricted_files_open_in_real_reader_and_preserve_provenance(tmp_path, monkeypatch):
     target = _directory(tmp_path, monkeypatch)
+    before = {p.name: p.read_bytes() for p in target.iterdir()}
     reader = adapter.DashboardReader(
         capture_root=target, clock=lambda: T0,
         native_read=fake_native, cache=adapter.SmallTTLCache(),
@@ -56,6 +57,7 @@ def test_owner_restricted_files_open_in_real_reader_and_preserve_provenance(tmp_
     history = reader.performance_history(risk_report=report)
     assert history["status"] == "VERIFIED_OWNER_SHADOW_TAIL"
     assert history["points"][0]["evidence_class"] == "PAPER_SHADOW"
+    assert {p.name: p.read_bytes() for p in target.iterdir()} == before
 
 
 def test_missing_or_symlinked_capture_is_not_financially_admitted(tmp_path, monkeypatch):
