@@ -25,6 +25,16 @@ Options = importlib.import_module("selenium.webdriver.firefox.options").Options
 Service = importlib.import_module("selenium.webdriver.firefox.service").Service
 
 KEY = "x" * 64
+VIEW_ROUTES = [
+        ("#/", "Operations · Account risk", "Account and risk headroom"),
+        ("#/execution", "Operations · Execution", "Execution"),
+        ("#/risk", "Operations · Risk", "Guardian"),
+        ("#/health", "Operations · System health", "Independent delivery"),
+        ("#/research", "Research · Canonical wallets", "Query registry"),
+        ("#/portfolios", "Research · Portfolios", "Read canonical portfolios"),
+        ("#/performance", "Research · Performance", "Performance"),
+        ("#/lab", "Research · Immutable reports", "Query verified research reports"),
+    ]
 
 
 def _port() -> int:
@@ -77,6 +87,7 @@ def local_server():
 def firefox():
     options = Options()
     options.add_argument("-headless")
+    options.enable_bidi = True
     driver = webdriver.Firefox(
         options=options, service=Service(shutil.which("geckodriver") or "/snap/bin/geckodriver")
     )
@@ -89,7 +100,13 @@ def firefox():
 
 @pytest.mark.parametrize("width,height", [(390, 844), (430, 932), (1280, 800)])
 def test_private_mobile_routes_and_navigation(local_server, firefox, width, height):
-    firefox.set_window_size(width, height)
+    # Outer-window resizing is clamped by Firefox and includes browser chrome.
+    # BiDi sets the actual CSS viewport, including phone widths below 500 px.
+    firefox.browsing_context.set_viewport(
+        context=firefox.current_window_handle,
+        viewport={"width": width, "height": height}, device_pixel_ratio=1,
+    )
+    assert firefox.execute_script("return [window.innerWidth, window.innerHeight]") == [width, height]
     firefox.get(local_server + "/login")
     assert "Private risk viewer" in firefox.page_source
     firefox.find_element(By.NAME, "secret").send_keys(KEY)
@@ -135,18 +152,30 @@ def test_private_mobile_routes_and_navigation(local_server, firefox, width, heig
             str(Path(artifact_dir) / f"phase3-{width}x{height}.png")
         )
 
+    # Exercise every view at the exact phone/desktop viewport, with safe scope.
+    for fragment, title, marker in VIEW_ROUTES:
+        firefox.get(local_server + "/?utc=7d&portfolio=gemini.phase5%2FP1%403" + fragment)
+        for _ in range(80):
+            body = firefox.find_element(By.TAG_NAME, "body").text
+            if title in body and marker in body:
+                break
+            time.sleep(0.25)
+        assert title in body and marker in body, (width, fragment, body[:1800])
+        assert firefox.execute_script(
+            "return [window.innerWidth, window.innerHeight]"
+        ) == [width, height]
+        assert firefox.execute_script(
+            "return document.documentElement.scrollWidth"
+        ) <= width + 5, (width, fragment)
+        if artifact_dir:
+            route_name = fragment.removeprefix("#/") or "overview"
+            assert firefox.save_screenshot(str(
+                Path(artifact_dir) / f"final-{width}x{height}-{route_name}.png"
+            ))
+
 @pytest.mark.parametrize(
     "fragment,title,marker",
-    [
-        ("#/", "Operations · Account risk", "Account and risk headroom"),
-        ("#/execution", "Operations · Execution", "Execution"),
-        ("#/risk", "Operations · Risk", "Guardian"),
-        ("#/health", "Operations · System health", "Independent delivery"),
-        ("#/research", "Research · Canonical wallets", "Query registry"),
-        ("#/portfolios", "Research · Portfolios", "Read canonical portfolios"),
-        ("#/performance", "Research · Performance", "Performance"),
-        ("#/lab", "Research · Immutable reports", "Query verified research reports"),
-    ],
+    VIEW_ROUTES,
 )
 def test_single_app_eight_lazy_views(local_server, firefox, fragment, title, marker):
     firefox.get(local_server + "/login")
