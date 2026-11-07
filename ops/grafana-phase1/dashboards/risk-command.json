@@ -23,7 +23,7 @@
     {
       "id": 1,
       "type": "text",
-      "title": "RISK COMMAND · READ-ONLY",
+      "title": "RISK COMMAND \u00b7 READ-ONLY",
       "gridPos": {
         "x": 0,
         "y": 0,
@@ -32,23 +32,94 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "**LIVE SOURCE STATUS — NOT TRADING AUTHORIZATION.** Missing Guardian captures remain unavailable. No modeled finance is displayed."
+        "content": "**LIVE SOURCE STATUS \u2014 NOT TRADING AUTHORIZATION.** Missing Guardian captures remain unavailable. No modeled finance is displayed."
+      }
+    },
+    {
+      "id": 6,
+      "type": "text",
+      "title": "Evidence first \u2014 source freshness is not browser refresh",
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 24,
+        "h": 2
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**EVIDENCE NOTICE:** Missing or stale Guardian capture is *not* proof of safety. No UI refresh can certify finance. Account authority remains with Guardian."
+      }
+    },
+    {
+      "id": 9,
+      "type": "table",
+      "title": "ACCOUNT EVIDENCE COVERAGE",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "risk-projection-v1"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 3,
+        "w": 8,
+        "h": 3
+      },
+      "description": "This is a publication status, not a claim that trading is safe.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "risk-projection-v1"
+          },
+          "type": "json",
+          "source": "url",
+          "url": "http://projection:17800/v1/account-risk",
+          "parser": "backend",
+          "format": "table",
+          "root_selector": "$",
+          "columns": [
+            {
+              "selector": "coverage",
+              "text": "Coverage",
+              "type": "string"
+            },
+            {
+              "selector": "publication_age_seconds",
+              "text": "Age seconds",
+              "type": "number"
+            }
+          ],
+          "url_options": {
+            "method": "GET"
+          },
+          "filters": [],
+          "computed_columns": []
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
       }
     },
     {
       "id": 7,
-      "title": "GUARDIAN · EVIDENCE",
-      "description": "Current native evidence grade only. Browser connectivity does not imply healthy trading.",
+      "title": "GUARDIAN \u00b7 REPORTED STATE",
+      "description": "Reported operational state, not a trade permit. See provenance table for source grade.",
       "type": "stat",
       "datasource": {
         "uid": "risk-projection-v1",
         "type": "yesoreyeram-infinity-datasource"
       },
       "gridPos": {
-        "x": 0,
-        "y": 1,
-        "w": 12,
-        "h": 4
+        "x": 8,
+        "y": 3,
+        "w": 8,
+        "h": 3
       },
       "targets": [
         {
@@ -65,11 +136,16 @@
           "root_selector": "metrics[metric=\"Guardian state\"]",
           "columns": [
             {
-              "selector": "grade",
-              "text": "Evidence grade",
-              "type": "string"
+              "selector": "evidence_code",
+              "text": "Evidence code",
+              "type": "number"
             }
-          ]
+          ],
+          "url_options": {
+            "method": "GET"
+          },
+          "filters": [],
+          "computed_columns": []
         }
       ],
       "options": {
@@ -82,7 +158,7 @@
         },
         "orientation": "horizontal",
         "textMode": "value",
-        "colorMode": "none",
+        "colorMode": "value",
         "graphMode": "none",
         "justifyMode": "center"
       },
@@ -92,25 +168,92 @@
             "mode": "fixed",
             "fixedColor": "text"
           },
-          "noValue": "UNAVAILABLE"
+          "noValue": "MISSING EVIDENCE",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "VERIFIED",
+                  "color": "green"
+                },
+                "2": {
+                  "text": "DEGRADED",
+                  "color": "orange"
+                },
+                "3": {
+                  "text": "STALE",
+                  "color": "orange"
+                },
+                "4": {
+                  "text": "BLOCKED",
+                  "color": "red"
+                },
+                "5": {
+                  "text": "UNKNOWN",
+                  "color": "gray"
+                },
+                "6": {
+                  "text": "UNAVAILABLE",
+                  "color": "purple"
+                },
+                "11": {
+                  "text": "HALTED",
+                  "color": "red"
+                },
+                "12": {
+                  "text": "RUNNING \u2022 REPORTED",
+                  "color": "blue"
+                },
+                "13": {
+                  "text": "STANDBY",
+                  "color": "gray"
+                },
+                "14": {
+                  "text": "NO TRADE",
+                  "color": "orange"
+                },
+                "15": {
+                  "text": "BLOCKED",
+                  "color": "red"
+                },
+                "16": {
+                  "text": "INSPECT STATE",
+                  "color": "orange"
+                },
+                "21": {
+                  "text": "RECONCILED \u2022 REPORTED",
+                  "color": "green"
+                },
+                "22": {
+                  "text": "DIVERGENT",
+                  "color": "red"
+                },
+                "23": {
+                  "text": "UNCLASSIFIED",
+                  "color": "orange"
+                }
+              }
+            }
+          ]
         },
         "overrides": []
       }
     },
     {
       "id": 8,
-      "title": "BROKER · CERTAINTY",
-      "description": "Current native evidence grade only. Browser connectivity does not imply healthy trading.",
+      "title": "BROKER \u00b7 RECONCILIATION",
+      "description": "Reported operational state, not a trade permit. See provenance table for source grade.",
       "type": "stat",
       "datasource": {
         "uid": "risk-projection-v1",
         "type": "yesoreyeram-infinity-datasource"
       },
       "gridPos": {
-        "x": 12,
-        "y": 1,
-        "w": 12,
-        "h": 4
+        "x": 16,
+        "y": 3,
+        "w": 8,
+        "h": 3
       },
       "targets": [
         {
@@ -127,11 +270,16 @@
           "root_selector": "metrics[metric=\"Broker certainty\"]",
           "columns": [
             {
-              "selector": "grade",
-              "text": "Evidence grade",
-              "type": "string"
+              "selector": "evidence_code",
+              "text": "Evidence code",
+              "type": "number"
             }
-          ]
+          ],
+          "url_options": {
+            "method": "GET"
+          },
+          "filters": [],
+          "computed_columns": []
         }
       ],
       "options": {
@@ -144,7 +292,7 @@
         },
         "orientation": "horizontal",
         "textMode": "value",
-        "colorMode": "none",
+        "colorMode": "value",
         "graphMode": "none",
         "justifyMode": "center"
       },
@@ -154,7 +302,74 @@
             "mode": "fixed",
             "fixedColor": "text"
           },
-          "noValue": "UNAVAILABLE"
+          "noValue": "MISSING EVIDENCE",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "VERIFIED",
+                  "color": "green"
+                },
+                "2": {
+                  "text": "DEGRADED",
+                  "color": "orange"
+                },
+                "3": {
+                  "text": "STALE",
+                  "color": "orange"
+                },
+                "4": {
+                  "text": "BLOCKED",
+                  "color": "red"
+                },
+                "5": {
+                  "text": "UNKNOWN",
+                  "color": "gray"
+                },
+                "6": {
+                  "text": "UNAVAILABLE",
+                  "color": "purple"
+                },
+                "11": {
+                  "text": "HALTED",
+                  "color": "red"
+                },
+                "12": {
+                  "text": "RUNNING \u2022 REPORTED",
+                  "color": "blue"
+                },
+                "13": {
+                  "text": "STANDBY",
+                  "color": "gray"
+                },
+                "14": {
+                  "text": "NO TRADE",
+                  "color": "orange"
+                },
+                "15": {
+                  "text": "BLOCKED",
+                  "color": "red"
+                },
+                "16": {
+                  "text": "INSPECT STATE",
+                  "color": "orange"
+                },
+                "21": {
+                  "text": "RECONCILED \u2022 REPORTED",
+                  "color": "green"
+                },
+                "22": {
+                  "text": "DIVERGENT",
+                  "color": "red"
+                },
+                "23": {
+                  "text": "UNCLASSIFIED",
+                  "color": "orange"
+                }
+              }
+            }
+          ]
         },
         "overrides": []
       }
@@ -170,9 +385,9 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 5,
+        "y": 6,
         "w": 24,
-        "h": 7
+        "h": 5
       },
       "targets": [
         {
@@ -184,9 +399,6 @@
           "type": "json",
           "source": "url",
           "url": "http://projection:17800/v1/account-risk",
-          "url_options": {
-            "method": "GET"
-          },
           "parser": "backend",
           "format": "table",
           "root_selector": "metrics[metric=\"Guardian state\" or metric=\"Broker certainty\"]",
@@ -198,30 +410,28 @@
             },
             {
               "selector": "value",
-              "text": "Value (exact text)",
+              "text": "Value",
               "type": "string"
             },
             {
               "selector": "grade",
-              "text": "Evidence",
-              "type": "string"
-            },
-            {
-              "selector": "authority",
-              "text": "Authority",
+              "text": "Grade",
               "type": "string"
             },
             {
               "selector": "source_observed_at",
-              "text": "Observed UTC",
+              "text": "Source Observed At",
               "type": "string"
             },
             {
               "selector": "evidence_error",
-              "text": "Limitation",
+              "text": "Evidence Error",
               "type": "string"
             }
           ],
+          "url_options": {
+            "method": "GET"
+          },
           "filters": [],
           "computed_columns": []
         }
@@ -240,12 +450,61 @@
             "filterable": false
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Grade"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "VERIFIED": {
+                        "text": "VERIFIED",
+                        "color": "green"
+                      },
+                      "DEGRADED": {
+                        "text": "DEGRADED",
+                        "color": "orange"
+                      },
+                      "STALE": {
+                        "text": "STALE",
+                        "color": "orange"
+                      },
+                      "BLOCKED": {
+                        "text": "BLOCKED",
+                        "color": "red"
+                      },
+                      "UNKNOWN": {
+                        "text": "UNKNOWN",
+                        "color": "gray"
+                      },
+                      "UNAVAILABLE": {
+                        "text": "UNAVAILABLE",
+                        "color": "purple"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              }
+            ]
+          }
+        ]
       }
     },
     {
       "id": 3,
-      "title": "Account risk — exact numbers or unavailable",
+      "title": "Account risk \u2014 exact numbers or unavailable",
       "type": "table",
       "description": "Every metric is sourced from the bounded read-only projection. Null means no verified financial value.",
       "datasource": {
@@ -254,9 +513,9 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 12,
+        "y": 11,
         "w": 24,
-        "h": 9
+        "h": 8
       },
       "targets": [
         {
@@ -268,9 +527,6 @@
           "type": "json",
           "source": "url",
           "url": "http://projection:17800/v1/account-risk",
-          "url_options": {
-            "method": "GET"
-          },
           "parser": "backend",
           "format": "table",
           "root_selector": "metrics[metric=\"Account equity\" or metric=\"Account headroom\" or metric=\"Daily headroom\" or metric=\"Trailing headroom\"]",
@@ -282,30 +538,28 @@
             },
             {
               "selector": "value",
-              "text": "Value (exact text)",
+              "text": "Value",
               "type": "string"
             },
             {
               "selector": "grade",
-              "text": "Evidence",
-              "type": "string"
-            },
-            {
-              "selector": "authority",
-              "text": "Authority",
+              "text": "Grade",
               "type": "string"
             },
             {
               "selector": "source_observed_at",
-              "text": "Observed UTC",
+              "text": "Source Observed At",
               "type": "string"
             },
             {
               "selector": "evidence_error",
-              "text": "Limitation",
+              "text": "Evidence Error",
               "type": "string"
             }
           ],
+          "url_options": {
+            "method": "GET"
+          },
           "filters": [],
           "computed_columns": []
         }
@@ -324,7 +578,56 @@
             "filterable": false
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Grade"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "VERIFIED": {
+                        "text": "VERIFIED",
+                        "color": "green"
+                      },
+                      "DEGRADED": {
+                        "text": "DEGRADED",
+                        "color": "orange"
+                      },
+                      "STALE": {
+                        "text": "STALE",
+                        "color": "orange"
+                      },
+                      "BLOCKED": {
+                        "text": "BLOCKED",
+                        "color": "red"
+                      },
+                      "UNKNOWN": {
+                        "text": "UNKNOWN",
+                        "color": "gray"
+                      },
+                      "UNAVAILABLE": {
+                        "text": "UNAVAILABLE",
+                        "color": "purple"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              }
+            ]
+          }
+        ]
       }
     },
     {
@@ -338,9 +641,9 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 21,
+        "y": 19,
         "w": 24,
-        "h": 6
+        "h": 4
       },
       "targets": [
         {
@@ -352,9 +655,6 @@
           "type": "json",
           "source": "url",
           "url": "http://projection:17800/v1/account-risk",
-          "url_options": {
-            "method": "GET"
-          },
           "parser": "backend",
           "format": "table",
           "root_selector": "metrics[metric=\"Portfolio membership\"]",
@@ -365,31 +665,19 @@
               "type": "string"
             },
             {
-              "selector": "value",
-              "text": "Value (exact text)",
-              "type": "string"
-            },
-            {
               "selector": "grade",
-              "text": "Evidence",
-              "type": "string"
-            },
-            {
-              "selector": "authority",
-              "text": "Authority",
-              "type": "string"
-            },
-            {
-              "selector": "source_observed_at",
-              "text": "Observed UTC",
+              "text": "Grade",
               "type": "string"
             },
             {
               "selector": "evidence_error",
-              "text": "Limitation",
+              "text": "Evidence Error",
               "type": "string"
             }
           ],
+          "url_options": {
+            "method": "GET"
+          },
           "filters": [],
           "computed_columns": []
         }
@@ -408,22 +696,193 @@
             "filterable": false
           }
         },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Grade"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "VERIFIED": {
+                        "text": "VERIFIED",
+                        "color": "green"
+                      },
+                      "DEGRADED": {
+                        "text": "DEGRADED",
+                        "color": "orange"
+                      },
+                      "STALE": {
+                        "text": "STALE",
+                        "color": "orange"
+                      },
+                      "BLOCKED": {
+                        "text": "BLOCKED",
+                        "color": "red"
+                      },
+                      "UNKNOWN": {
+                        "text": "UNKNOWN",
+                        "color": "gray"
+                      },
+                      "UNAVAILABLE": {
+                        "text": "UNAVAILABLE",
+                        "color": "purple"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 10,
+      "type": "table",
+      "title": "REPORTED INCIDENTS (source-labelled)",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "risk-projection-v1"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 23,
+        "w": 24,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "risk-projection-v1"
+          },
+          "type": "json",
+          "source": "url",
+          "url": "http://projection:17800/v1/account-risk",
+          "parser": "backend",
+          "format": "table",
+          "root_selector": "incidents",
+          "columns": [
+            {
+              "selector": "code",
+              "text": "Code",
+              "type": "string"
+            },
+            {
+              "selector": "priority",
+              "text": "Priority",
+              "type": "string"
+            }
+          ],
+          "url_options": {
+            "method": "GET"
+          },
+          "filters": [],
+          "computed_columns": []
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "description": "No incidents shown is not proof of no risk; inspect source coverage.",
+      "fieldConfig": {
+        "defaults": {},
         "overrides": []
       }
     },
     {
-      "id": 6,
-      "type": "text",
-      "title": "Evidence coverage",
+      "id": 11,
+      "type": "table",
+      "title": "AUDIT TRAIL \u2022 read-only source provenance",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "risk-projection-v1"
+      },
       "gridPos": {
         "x": 0,
         "y": 27,
         "w": 24,
-        "h": 4
+        "h": 6
       },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "risk-projection-v1"
+          },
+          "type": "json",
+          "source": "url",
+          "url": "http://projection:17800/v1/account-risk",
+          "parser": "backend",
+          "format": "table",
+          "root_selector": "metrics",
+          "columns": [
+            {
+              "selector": "metric",
+              "text": "Metric",
+              "type": "string"
+            },
+            {
+              "selector": "authority",
+              "text": "Authority",
+              "type": "string"
+            },
+            {
+              "selector": "revision",
+              "text": "Revision",
+              "type": "string"
+            },
+            {
+              "selector": "journal_sequence",
+              "text": "Journal Sequence",
+              "type": "string"
+            },
+            {
+              "selector": "account_binding_sha",
+              "text": "Account Binding Sha",
+              "type": "string"
+            },
+            {
+              "selector": "captured_at",
+              "text": "Captured At",
+              "type": "string"
+            },
+            {
+              "selector": "retrieved_at",
+              "text": "Retrieved At",
+              "type": "string"
+            }
+          ],
+          "url_options": {
+            "method": "GET"
+          },
+          "filters": [],
+          "computed_columns": []
+        }
+      ],
       "options": {
-        "mode": "markdown",
-        "content": "**FINANCIAL EVIDENCE MAY BE UNAVAILABLE.** A running observer or an installed process does not prove reconciled broker equity. Confirm source observation age, release, sequence and account binding in the provenance columns. Green UI connectivity does not imply safe trading."
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "description": "Hash and clocks do not themselves establish broker finance authority.",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
       }
     }
   ]
