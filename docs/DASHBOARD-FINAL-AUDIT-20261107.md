@@ -16,6 +16,7 @@ A dedicated dashboard/producer identity, protected read permissions, live privat
 | Functional corrections | `65924fcd24e7bc74039ec0f96c442510633e96b2` |
 | Actual viewport correction | `1837cf3902a26df3df48aa2daa610649c215fb92` |
 | Format-only checkpoint | `12deb5bd25962f1940f76a81eddffe5f0599b733` |
+| Final tested source / built-wheel checkpoint | `13f594dfd2d3a0b4582514f86810e482e0894539` |
 | Owner source | `00073496e0a3e4dc59b8d1cac4d3533c37c275ce` |
 | Current connector source | `5f7664b51988e9f48b3ff3a07876a136c2d97de8` |
 | Observed installed protected release | `07551a9978ee9ff3c7412dd1eadd5413e17b8421` |
@@ -48,7 +49,45 @@ The final regression file includes 20 tests, including the actual owner producer
 
 ## Source verification
 
-FINAL_SOURCE_RECEIPT_PENDING
+The final clean source gate passed at `13f594dfd2d3a0b4582514f86810e482e0894539`, with an unchanged, clean worktree before/after. The subsequent receipt update changes documentation only.
+
+```bash
+uv sync --frozen --all-extras --group dev
+uv build
+PYTHONPATH=/home/quant/dev/prop-production/src uv run --no-sync pytest -q --tb=short
+uv run --no-sync ruff check src tests scripts
+uv run --no-sync ruff format --check src tests scripts/dashboard_runtime_probe.py
+uv run --no-sync marimo check src/copytrade_pm/dashboard/pages/*.py
+uv run --no-sync copytrade-pm capabilities validate
+UV_PROJECT_ENVIRONMENT=.workspace/dashboard-final-0711/core-venv uv run --frozen --group dev pytest -q --tb=short
+git diff --check
+```
+
+| Gate | Final observed result |
+| --- | --- |
+| All extras, including direct owner fixture | **1,496 passed, 1 skipped**, 30.46 s; the optional Selenium browser module is exercised separately below |
+| Separate minimal core environment | **1,347 passed, 32 skipped**, 22.31 s; optional dashboard/chart/owner dependencies are explicitly skipped |
+| Ruff / formatting | PASS / **359 files** already formatted |
+| Marimo notebooks | **9 valid** |
+| Native capability catalog | **110 capabilities, 0 errors** |
+| Wheel and sdist | Built successfully |
+| Clean source gate resource observation | **53.876 CPU s**, **57.760 wall s**, **401.8 MiB** peak; test-unit measurements, not dashboard production resource acceptance |
+
+CPython was **3.14.6**. The unchanged `uv.lock` SHA-256 is `bf7f8494358f11953fc71d5aece84c61354970a9e7560316a41c957f765520cd`. Dashboard dependencies include Marimo **0.24.0**, Altair **6.3.0**, Polars **2.1.0**, Starlette **1.10.0**, Uvicorn **0.52.4**, httpx **0.28.1** and httpx2 **2.16.0**. Owner typing checks are recorded below; no new typing gate was invented for the dashboard repository.
+
+### Built-wheel and disposable-stage receipt
+
+A separate Python 3.14 environment installed **44** dashboard dependencies from a frozen, hash-checked export (`uv pip sync --offline --require-hashes`), then the built wheel with `--offline --no-deps`. An isolated `python -I` smoke check imported from the wheel environment, verified all **169 packaged Python files** against the source bytes, and passed HTTP authentication/cookie/startup checks. This was not an editable-checkout test.
+
+- Wheel: `copytrade_pm-0.1.0-py3-none-any.whl`.
+- Wheel SHA-256: `e718faa6bf139dd2421ac847e3d20111ea7d6ad2338a93166833758c9e089d27`.
+- Sdist SHA-256: `c16a59142a0a48ab9f1da78b024b007863d2c3093d69675227aafc8502fdbdf2`.
+- Final artifact manifest inspection: **173 wheel entries**, **480 sdist entries**; no `.env`, private workspace, database, Parquet or credential-key payload paths.
+- Disposable candidate: `13f594dfd2d3-e718faa6bf13`, with the exact owner/current-connector pins in the identity table.
+- Prepare, verify and selection passed. Rejected candidate selection preserved the existing staged pointer. There was no earlier dashboard staging target in this disposable root.
+- Scope: **BUILT_WHEEL_AND_DISPOSABLE_STAGING_ONLY**; `production_installed=false`; `trading_authorized=false`.
+
+This receipt does not establish least-privilege installation, an operational service or actual service rollback.
 
 Already observed companion evidence:
 
@@ -63,7 +102,17 @@ No connected broker orders or Demo orders were exercised.
 
 ## Browser evidence
 
-FINAL_BROWSER_RECEIPT_PENDING
+The final Firefox suite passed **15 tests in 138.39 s** at source `13f594dfd2d3a0b4582514f86810e482e0894539`:
+
+```bash
+UV_PROJECT_ENVIRONMENT=.workspace/dashboard-final-0711/browser-venv \
+DASHBOARD_BROWSER_ARTIFACT_DIR=.workspace/dashboard-final-0711/browser-final2 \
+uv run --frozen --with selenium --extra dashboard --group dev pytest -q --tb=short \
+  -W ignore::ResourceWarning -W ignore::pytest.PytestUnraisableExceptionWarning \
+  tests/test_dashboard_browser.py
+```
+
+The browser process asserted actual CSS viewports **390 x 844**, **430 x 932** and **1280 x 800**, all eight views at each size, no page overflow, and no clipped query-button content. The suite also covered 20 fresh document sessions, two concurrent independent clients, keyboard/hash navigation, reload, safe URL scope, registry reactivity and the explicit OS-state column. **27 genuine PNG screenshots** were produced. Final 390-pixel Wallets/Research Lab screenshots were visually checked after the button correction. The transient test unit consumed **30.251 CPU s** and **213.9 MiB** peak; these are local test observations.
 
 The first 15-test Firefox pass was insufficient evidence for phone dimensions: its PNGs were 500x758 and 500x846 despite requested 390x844 and 430x932 outer windows. An explicit inner-viewport assertion reproduced the failure. The corrected BiDi tests passed all three actual viewport sizes before the final full run. Historical outer-window results are not used as proof of phone layout. Later screenshot review also reproduced a 23-pixel-high wallet button containing 37 pixels of text; the final browser assertions check button content bounds in Wallets, Portfolios and Research Lab.
 
@@ -86,13 +135,40 @@ The two-read semaphore is **per Python reader process**, not a service-wide limi
 
 ## Protected-runtime comparison
 
-FINAL_RUNTIME_RECEIPT_PENDING
+At **2026-11-07 11:13:19.887 UTC**, the committed read-only probe ran as UID 1001 and observed the same installed release and protected process identities/restart counts as the initial baseline:
+
+| Protected service | Baseline PID -> final PID | Baseline -> final restart count | Final OS state |
+| --- | --- | --- | --- |
+| Guardian | 2518410 -> 2518410 | 0 -> 0 | active/running |
+| Broker | 2518409 -> 2518409 | 1 -> 1 | active/running |
+| Planner | 2518411 -> 2518411 | 0 -> 0 | active/running |
+| Observer | 1924914 -> 1924914 | 0 -> 0 | active/running |
+| Bybit observer | 1924915 -> 1924915 | 0 -> 0 | active/running |
+| Watchdog | 1924920 -> 1924920 | 0 -> 0 | active/running |
+
+All six retain their original unit identities, group `prop`, 512 MiB memory limit and TasksMax 64. Final available host memory was **15,192,800 kB**. Protected heartbeat reads returned **PermissionError**, and journal opening returned **OperationalError**. Therefore real reconciliation cadence, financial journal continuity/integrity and financial health remain **NOT_VERIFIED**. The installed release remains `07551a9978ee9ff3c7412dd1eadd5413e17b8421`; owner source `0007349` was not installed.
 
 The observed baseline had all six protected units active/running, no dashboard dependency, and installed release `07551a9`. Guardian, broker and planner had the same start epoch. Broker's restart count of 1 was pre-existing; the other five restart counts were 0.
 
 The read-only probe in `scripts/dashboard_runtime_probe.py` reads fixed systemd properties, fixed release metadata, bounded heartbeat fields and at most 64 journal event identities/timestamps when permitted. It uses a read-only SQLite URI, query-only mode, a one-second busy timeout and 384 MiB address-space limit. It never obtains credentials or changes services. Journal metadata is explicitly not full hash-chain validation.
 
 No dashboard/capture/notifier production service, OS account, protected ACL, release symlink, private ingress route or trust-floor change was made. Disposable test processes are separate from the six financial services. Root permission, journal integrity/continuity and reconciliation cadence cannot be inferred from their process IDs.
+
+## Financial evidence classification
+
+| Evidence class | Verified boundary and remaining limitation |
+| --- | --- |
+| Historical research | Native report/portfolio readers, immutable hashes and evidence labels are tested. Dashboard correctness does not requalify a study or establish out-of-sample profitability. |
+| SHADOW accounting | The installed compatibility manifest remains SHADOW/NO_TRADE. The actual owner-producer fixture round trip retains PAPER_SHADOW classification. Live protected account captures were inaccessible. |
+| Demo observations | Connector and owner adapter fixtures passed. No Demo order or live Demo performance acceptance was performed. |
+| Broker-executed follower economics | UNAVAILABLE without an admitted independently authoritative tape; no executable follower PnL or alpha claim is made. |
+| Missing/unsupported history | Unverified pod budgets, pod equity and follower history remain explicitly unavailable. No synthetic accounting or interpolated financial proof was added. |
+
+Engineering correctness, scientific qualification and trading authorization remain separate. External notification delivery is **NOT_CONFIGURED**; the verified contract is durable dry-run behavior.
+
+## Deployment receipt
+
+**NOT_DEPLOYED.** No new dashboard, producer or notifier service was activated. There is no verified private dashboard URL, production service identity, installed dashboard SHA or operational rollback result to report. The candidate/wheel above is disposable staging evidence only. Existing Tailscale/Cloudflare routes and policies were not changed. Authenticated private ingress, effective production OS permissions, source freshness, real UI latency, producer scan cost, dashboard-only fault/recovery and protected Guardian cadence remain gated.
 
 ## Issue disposition
 
