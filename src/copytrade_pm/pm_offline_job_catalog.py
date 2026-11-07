@@ -76,16 +76,18 @@ def _inspect(root: Path, key: str) -> dict:
         "job_sha256": report["job_sha256"],
         "report_sha256": sha256(payload).hexdigest(),
         "input_binding_sha256": dependencies.get("input")
-        if isinstance(dependencies.get("input"), str)
-        and HEX.fullmatch(dependencies["input"]) else None,
+        if isinstance(dependencies.get("input"), str) and HEX.fullmatch(dependencies["input"])
+        else None,
         "market_binding_sha256": dependencies.get("market")
-        if isinstance(dependencies.get("market"), str)
-        and HEX.fullmatch(dependencies["market"]) else None,
+        if isinstance(dependencies.get("market"), str) and HEX.fullmatch(dependencies["market"])
+        else None,
         "source_fingerprints": {
-            key: value for key, value in sorted((report.get("evidence") or {}).items())
-            if key.endswith("_sha256") and isinstance(value, str)
-            and HEX.fullmatch(value)
-        } if isinstance(report.get("evidence"), dict) else {},
+            key: value
+            for key, value in sorted((report.get("evidence") or {}).items())
+            if key.endswith("_sha256") and isinstance(value, str) and HEX.fullmatch(value)
+        }
+        if isinstance(report.get("evidence"), dict)
+        else {},
         "utc_start": None,
         "utc_end": None,
         "sealed_portfolio_id": None,

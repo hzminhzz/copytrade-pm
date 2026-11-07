@@ -1,4 +1,5 @@
 """Independent regressions for final dashboard operational review."""
+
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
@@ -15,17 +16,19 @@ T0 = datetime(2026, 11, 7, 10, tzinfo=UTC)
 
 
 def owner(binding="a", reasons=("BROKER_STALE",), at=T0):
-    return {"status": "VERIFIED", "account_binding_sha": binding * 64,
-            "source_observed_at": at.isoformat(),
-            "data": {"halts": list(reasons), "health": {"reasons": []}}}
+    return {
+        "status": "VERIFIED",
+        "account_binding_sha": binding * 64,
+        "source_observed_at": at.isoformat(),
+        "data": {"halts": list(reasons), "health": {"reasons": []}},
+    }
 
 
 def test_account_b_observation_cannot_resolve_account_a_incident(tmp_path):
     path = tmp_path / "alerts.json"
     process_once(path, owner(), now=T0)
     original = read_state(path)["incidents"][0]["id"]
-    process_once(path, owner("b", (), T0 + timedelta(seconds=1)),
-                 now=T0 + timedelta(seconds=1))
+    process_once(path, owner("b", (), T0 + timedelta(seconds=1)), now=T0 + timedelta(seconds=1))
     retained = next(r for r in read_state(path)["incidents"] if r["id"] == original)
     assert retained["active"], "A different account cannot resolve the source incident"
 
@@ -75,17 +78,26 @@ def test_unrelated_slow_cache_fill_does_not_delay_ready_operational_read():
         assert slow.result(timeout=1) == "health"
 
 
-
-@pytest.mark.parametrize("filters", [
-    {"query": "--help"}, {"cohort": "--no-excluded"},
-])
+@pytest.mark.parametrize(
+    "filters",
+    [
+        {"query": "--help"},
+        {"cohort": "--no-excluded"},
+    ],
+)
 def test_browser_filters_cannot_become_cli_options(filters):
     assert DashboardReader().wallets(**filters)["status"] == "BLOCKED"
 
 
-@pytest.mark.parametrize("filters", [
-    {"run_id": "--help"}, {"run_id": ".."}, {"run_id": 12}, {"cache_key": 12},
-])
+@pytest.mark.parametrize(
+    "filters",
+    [
+        {"run_id": "--help"},
+        {"run_id": ".."},
+        {"run_id": 12},
+        {"cache_key": 12},
+    ],
+)
 def test_malformed_research_filters_fail_closed(filters):
     assert DashboardReader().research_reports(**filters)["status"] == "BLOCKED"
 
@@ -100,14 +112,17 @@ def test_busy_selection_cannot_hide_guardian_unavailable_state():
     assert report["research_selection"]["status"] == "UNKNOWN"
 
 
-
-@pytest.mark.parametrize("path,content_type", [
-    ("/login", "application/x-www-form-urlencoded"),
-    ("/api/kernel/function_call", "application/json"),
-])
+@pytest.mark.parametrize(
+    "path,content_type",
+    [
+        ("/login", "application/x-www-form-urlencoded"),
+        ("/api/kernel/function_call", "application/json"),
+    ],
+)
 def test_asgi_body_limit_checks_bytes_not_only_claimed_length(path, content_type):
     pytest.importorskip("starlette", reason="requires the dashboard extra")
     from copytrade_pm.dashboard.server import COOKIE_NAME, ViewerAuth, _cookie
+
     messages, downstream_calls = [], []
     key = "x" * 64
 
@@ -122,12 +137,19 @@ def test_asgi_body_limit_checks_bytes_not_only_claimed_length(path, content_type
     async def send(message):
         messages.append(message)
 
-    scope = {"type": "http", "method": "POST", "path": path, "query_string": b"",
-             "headers": [
-                 (b"host", b"localhost"), (b"origin", b"https://localhost"),
-                 (b"content-type", content_type.encode()), (b"content-length", b"2"),
-                 (b"cookie", f"{COOKIE_NAME}={_cookie(key, int(T0.timestamp()))}".encode()),
-             ]}
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": path,
+        "query_string": b"",
+        "headers": [
+            (b"host", b"localhost"),
+            (b"origin", b"https://localhost"),
+            (b"content-type", content_type.encode()),
+            (b"content-length", b"2"),
+            (b"cookie", f"{COOKIE_NAME}={_cookie(key, int(T0.timestamp()))}".encode()),
+        ],
+    }
     asyncio.run(ViewerAuth(downstream, secret=key, clock=lambda: T0)(scope, receive, send))
     assert messages[0]["status"] == 413
     assert not downstream_calls
@@ -150,8 +172,10 @@ class Cards:
 @pytest.mark.parametrize("status", ["STALE", "BLOCKED", "UNAVAILABLE"])
 def test_current_status_cards_label_capture_evidence(status):
     report = {
-        "metrics": {name: {"value": None, "status": status} for name in
-                    ("equity", "headroom", "daily_headroom", "trailing_headroom")},
+        "metrics": {
+            name: {"value": None, "status": status}
+            for name in ("equity", "headroom", "daily_headroom", "trailing_headroom")
+        },
         "sources": {
             "status": {"status": status, "data": {"state": "HALTED"}},
             "broker": {"status": status, "data": {"certainty": "COHERENT"}},
@@ -174,8 +198,9 @@ def test_invalid_unicode_login_is_rejected_without_server_error():
     from copytrade_pm.dashboard.server import make_app
 
     with TestClient(make_app(secret="x" * 64), base_url="https://localhost") as client:
-        response = client.post("/login", data={"secret": "sai-mật-khẩu"},
-                               headers={"origin": "https://localhost"})
+        response = client.post(
+            "/login", data={"secret": "sai-mật-khẩu"}, headers={"origin": "https://localhost"}
+        )
     assert response.status_code == 401
 
 
@@ -188,17 +213,22 @@ def test_downsampling_retains_local_extrema_or_explicitly_refuses(break_count):
     extrema = set()
     for i in range(256):
         bucket, position = divmod(i, 32)
-        value = str(100 + bucket) if position == 5 else (
-            str(-100 - bucket) if position == 21 else "0"
+        value = (
+            str(100 + bucket) if position == 5 else (str(-100 - bucket) if position == 21 else "0")
         )
         if position in {5, 21}:
             extrema.add(value)
-        points.append({
-            "timestamp": (T0 + timedelta(minutes=i)).isoformat(),
-            "value": value, "series": "equity", "metric": "equity",
-            "source_id": "fixture-owner", "evidence_class": "PAPER_SHADOW",
-            "gap_before": position == 15 and bucket < break_count,
-        })
+        points.append(
+            {
+                "timestamp": (T0 + timedelta(minutes=i)).isoformat(),
+                "value": value,
+                "series": "equity",
+                "metric": "equity",
+                "source_id": "fixture-owner",
+                "evidence_class": "PAPER_SHADOW",
+                "gap_before": position == 15 and bucket < break_count,
+            }
+        )
     if break_count == 8:
         with pytest.raises(ValueError, match="CRITICAL_FINANCIAL_POINTS"):
             prepare_series(points, max_points=32)

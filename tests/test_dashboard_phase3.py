@@ -1,4 +1,5 @@
 """TD-11/TD-12 regression, restart, privacy and failure semantics."""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -7,8 +8,12 @@ import pytest
 
 from copytrade_pm.dashboard.navigation import ROUTES, navigation_html, valid_scope
 from copytrade_pm.dashboard.notifications import (
-    MAX_ATTEMPTS, NotificationStateError, acknowledge, dashboard_status,
-    process_once, read_state,
+    MAX_ATTEMPTS,
+    NotificationStateError,
+    acknowledge,
+    dashboard_status,
+    process_once,
+    read_state,
 )
 
 T0 = datetime(2026, 11, 7, 9, tzinfo=UTC)
@@ -16,7 +21,8 @@ T0 = datetime(2026, 11, 7, 9, tzinfo=UTC)
 
 def source(reasons=("BROKER_STALE",), *, at=T0, state="VERIFIED"):
     return {
-        "status": state, "account_binding_sha": "a" * 64,
+        "status": state,
+        "account_binding_sha": "a" * 64,
         "source_observed_at": at.isoformat(),
         "data": {"halts": list(reasons), "health": {"reasons": []}},
     }
@@ -114,7 +120,8 @@ def test_notification_file_schema_has_no_external_destination(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "unsafe", [
+    "unsafe",
+    [
         {"portfolio": "0x12345678901234567890/A@1", "utc": "5m"},
         {"portfolio": "research/0x1234567890@2", "utc": "7d"},
         {"portfolio": "../etc/passwd", "utc": "7d"},
@@ -135,7 +142,7 @@ def test_navigation_drops_unsafe_scope(unsafe):
 def test_navigation_same_bounded_scope_across_eight_views():
     scope = {"portfolio": "gemini.phase5/P1@3", "utc": "30d", "token": "secret-value"}
     html = navigation_html(scope)
-    assert html.count('href=') == len(ROUTES) == 8
+    assert html.count("href=") == len(ROUTES) == 8
     assert html.count("portfolio=gemini.phase5") == 8
     assert html.count("utc=30d") == 8
     assert "secret-value" not in html

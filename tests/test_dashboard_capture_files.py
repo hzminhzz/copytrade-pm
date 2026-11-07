@@ -4,6 +4,7 @@ An alternate os.geteuid is simulated to exercise the producer/reader identity
 boundary in a normal unprivileged local test process; this is not an OS ACL
 attestation for a deployed dashboard service.
 """
+
 from __future__ import annotations
 
 import json
@@ -24,14 +25,22 @@ def _directory(tmp_path, monkeypatch, *, include_history=True):
         if command == "history" and not include_history:
             continue
         if command == "history":
-            data = {"scientifically_qualified": False, "evidence_class": "PAPER_SHADOW",
-                    "source_coverage": "RECENT_BOUNDED_TAIL_NOT_COMPLETE_HISTORY",
-                    "rows": [{
-                        "journal_sequence": 12, "release_sha": "a" * 64,
+            data = {
+                "scientifically_qualified": False,
+                "evidence_class": "PAPER_SHADOW",
+                "source_coverage": "RECENT_BOUNDED_TAIL_NOT_COMPLETE_HISTORY",
+                "rows": [
+                    {
+                        "journal_sequence": 12,
+                        "release_sha": "a" * 64,
                         "observed_at_ms": int((T0 - timedelta(seconds=1)).timestamp() * 1000),
-                        "day": 20103, "equity": "10000", "risk_floor": "9600",
+                        "day": 20103,
+                        "equity": "10000",
+                        "risk_floor": "9600",
                         "headroom": "400",
-                    }]}
+                    }
+                ],
+            }
             body = capture(command, data=data)
         else:
             body = capture(command)
@@ -49,8 +58,10 @@ def test_owner_restricted_files_open_in_real_reader_and_preserve_provenance(tmp_
     target = _directory(tmp_path, monkeypatch)
     before = {p.name: p.read_bytes() for p in target.iterdir()}
     reader = adapter.DashboardReader(
-        capture_root=target, clock=lambda: T0,
-        native_read=fake_native, cache=adapter.SmallTTLCache(),
+        capture_root=target,
+        clock=lambda: T0,
+        native_read=fake_native,
+        cache=adapter.SmallTTLCache(),
     )
     report = reader.risk_status()
     assert report["metrics"]["equity"]["value"] == "0"
@@ -66,8 +77,10 @@ def test_owner_restricted_files_open_in_real_reader_and_preserve_provenance(tmp_
 def test_missing_or_symlinked_capture_is_not_financially_admitted(tmp_path, monkeypatch):
     target = _directory(tmp_path, monkeypatch, include_history=False)
     reader = adapter.DashboardReader(
-        capture_root=target, clock=lambda: T0,
-        native_read=fake_native, cache=adapter.SmallTTLCache(),
+        capture_root=target,
+        clock=lambda: T0,
+        native_read=fake_native,
+        cache=adapter.SmallTTLCache(),
     )
     assert reader.performance_history()["status"] == "UNAVAILABLE"
     (target / "risk.json").unlink()

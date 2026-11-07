@@ -28,8 +28,11 @@ def evidence_table(mo, sources: dict[str, dict[str, Any]]):
             }
             for item in sources.values()
         ],
-        pagination=True, page_size=8, selection=None,
-        show_download=False, show_search=False,
+        pagination=True,
+        page_size=8,
+        selection=None,
+        show_download=False,
+        show_search=False,
     )
 
 
@@ -62,18 +65,28 @@ def overview_cards(mo, report: dict[str, Any]):
         elif grade != "VERIFIED":
             value = "UNKNOWN"
         cards.append(mo.stat(value, label=f"{label} [{clean(grade)}]", bordered=True))
-    return mo.vstack([
-        mo.hstack(cards[:2], justify="start", wrap=True),
-        mo.hstack(cards[2:4], justify="start", wrap=True),
-        mo.hstack(cards[4:], justify="start", wrap=True),
-        mo.md("**Current exposure:** " + clean(
-            ((report['sources']['risk'].get('data') or {}).get('exposure')
-             if report['sources']['risk']['status'] == 'VERIFIED' else None)
-        ) + " (UNKNOWN unless independently present in owner capture)."),
-        mo.md("**Pod health:** UNKNOWN unless independently reported by Guardian."),
-        mo.md(f"Retrieved UTC: {clean(report['retrieved_at'])}. "
-              "No synthetic financial snapshots."),
-    ])
+    return mo.vstack(
+        [
+            mo.hstack(cards[:2], justify="start", wrap=True),
+            mo.hstack(cards[2:4], justify="start", wrap=True),
+            mo.hstack(cards[4:], justify="start", wrap=True),
+            mo.md(
+                "**Current exposure:** "
+                + clean(
+                    (
+                        (report["sources"]["risk"].get("data") or {}).get("exposure")
+                        if report["sources"]["risk"]["status"] == "VERIFIED"
+                        else None
+                    )
+                )
+                + " (UNKNOWN unless independently present in owner capture)."
+            ),
+            mo.md("**Pod health:** UNKNOWN unless independently reported by Guardian."),
+            mo.md(
+                f"Retrieved UTC: {clean(report['retrieved_at'])}. No synthetic financial snapshots."
+            ),
+        ]
+    )
 
 
 def registry_view(mo, outcome: dict[str, Any] | None):
@@ -95,8 +108,9 @@ def registry_view(mo, outcome: dict[str, Any] | None):
     visible = [
         {
             "Alias": clean(item.get("alias")),
-            "Aliases": ", ".join(clean(alias.get("alias"))
-                                for alias in item.get("aliases", [])[:8]),
+            "Aliases": ", ".join(
+                clean(alias.get("alias")) for alias in item.get("aliases", [])[:8]
+            ),
             "Identity": clean(item.get("identity_state")),
             "Cohorts": ", ".join(clean(group) for group in item.get("cohorts", [])[:12]),
             "Excluded": item.get("excluded"),
@@ -107,42 +121,64 @@ def registry_view(mo, outcome: dict[str, Any] | None):
                 for p in item.get("portfolio_memberships", [])[:8]
             ),
         }
-        for item in rows[:100] if isinstance(item, dict)
+        for item in rows[:100]
+        if isinstance(item, dict)
     ]
-    return mo.vstack([
-        intro,
-        mo.md(f"**Matches:** {clean(data.get('total'))} · "
-              f"**Offset:** {clean(data.get('offset'))} · "
-              f"**Page rows:** {len(visible)} · **As-of:** {clean(data.get('asof'))}"),
-        mo.ui.table(
-            visible or [{"Result": "NO_MATCHING_WALLETS"}],
-            selection=None, pagination=True, page_size=20,
-            show_download=False, show_search=False,
-        ),
-    ])
+    return mo.vstack(
+        [
+            intro,
+            mo.md(
+                f"**Matches:** {clean(data.get('total'))} · "
+                f"**Offset:** {clean(data.get('offset'))} · "
+                f"**Page rows:** {len(visible)} · **As-of:** {clean(data.get('asof'))}"
+            ),
+            mo.ui.table(
+                visible or [{"Result": "NO_MATCHING_WALLETS"}],
+                selection=None,
+                pagination=True,
+                page_size=20,
+                show_download=False,
+                show_search=False,
+            ),
+        ]
+    )
 
 
 def health_view(mo, report: dict[str, Any]):
     records = [
         {
-            "Component": key, "Evidence": report[key]["status"],
+            "Component": key,
+            "Evidence": report[key]["status"],
             "Observed UTC": clean(report[key].get("source_observed_at")),
             "Authority": clean(report[key].get("authority")),
         }
         for key in ("guardian", "broker", "observer")
     ]
     records.extend(
-        {"Component": name, "Evidence": item["state"],
-         "Observed UTC": "OS query only", "Authority": "systemd (not finance)"}
+        {
+            "Component": name,
+            "Evidence": item["state"],
+            "Observed UTC": "OS query only",
+            "Authority": "systemd (not finance)",
+        }
         for name, item in report["services"].items()
     )
-    records.extend([
-        {"Component": "watchdog", "Evidence": report["watchdog"]["status"],
-         "Observed UTC": clean(report["watchdog"].get("source_observed_at")),
-         "Authority": "Guardian-reported (not independent)"},
-        {"Component": "executable market", "Evidence": report["market"]["status"],
-         "Observed UTC": "UNKNOWN", "Authority": "NOT_ATTESTED"},
-    ])
+    records.extend(
+        [
+            {
+                "Component": "watchdog",
+                "Evidence": report["watchdog"]["status"],
+                "Observed UTC": clean(report["watchdog"].get("source_observed_at")),
+                "Authority": "Guardian-reported (not independent)",
+            },
+            {
+                "Component": "executable market",
+                "Evidence": report["market"]["status"],
+                "Observed UTC": "UNKNOWN",
+                "Authority": "NOT_ATTESTED",
+            },
+        ]
+    )
     import altair as alt
     import polars as pl
 
@@ -151,20 +187,38 @@ def health_view(mo, report: dict[str, Any]):
         [{"evidence": status, "count": number} for status, number in sorted(counts.items())],
         schema={"evidence": pl.String, "count": pl.Int64},
     )
-    chart = alt.Chart(alt.InlineData(values=chart_data.to_dicts())).mark_bar().encode(
-        x=alt.X("evidence:N", title="Observed evidence classification"),
-        y=alt.Y("count:Q", title="Components"),
-        tooltip=["evidence:N", "count:Q"],
-    ).properties(height=180, title="Source-reported status (not financial authority)")
+    chart = (
+        alt.Chart(alt.InlineData(values=chart_data.to_dicts()))
+        .mark_bar()
+        .encode(
+            x=alt.X("evidence:N", title="Observed evidence classification"),
+            y=alt.Y("count:Q", title="Components"),
+            tooltip=["evidence:N", "count:Q"],
+        )
+        .properties(height=180, title="Source-reported status (not financial authority)")
+    )
     incidents = report.get("incidents") or []
-    return mo.vstack([
-        mo.md("## Source and OS observations"),
-        mo.ui.table(records, pagination=True, page_size=20,
-                    selection=None, show_download=False, show_search=False),
-        chart,
-        mo.md("## Existing Guardian incidents"),
-        mo.md("\n".join("- " + clean(item) for item in incidents)
-              if incidents else "UNKNOWN — no independent incident feed"),
-        mo.md("**Browser liveness, PIDs and public source receipts cannot establish "
-              "healthy Guardian finance or broker certainty.**"),
-    ])
+    return mo.vstack(
+        [
+            mo.md("## Source and OS observations"),
+            mo.ui.table(
+                records,
+                pagination=True,
+                page_size=20,
+                selection=None,
+                show_download=False,
+                show_search=False,
+            ),
+            chart,
+            mo.md("## Existing Guardian incidents"),
+            mo.md(
+                "\n".join("- " + clean(item) for item in incidents)
+                if incidents
+                else "UNKNOWN — no independent incident feed"
+            ),
+            mo.md(
+                "**Browser liveness, PIDs and public source receipts cannot establish "
+                "healthy Guardian finance or broker certainty.**"
+            ),
+        ]
+    )

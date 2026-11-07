@@ -1,4 +1,5 @@
 """Read-only SHA-verified immutable research report catalog browser."""
+
 import marimo
 
 __generated_with = "0.24.0"
@@ -9,6 +10,7 @@ app = marimo.App(width="full")
 def _():
     import marimo as mo
     from copytrade_pm.dashboard.adapter import DashboardReader
+
     return mo, DashboardReader
 
 
@@ -26,7 +28,8 @@ def _(DashboardReader, job_id, page, query):
     if query.value:
         reader = DashboardReader()
         outcome = reader.research_reports(
-            run_id=job_id.value.strip() or None, limit=50,
+            run_id=job_id.value.strip() or None,
+            limit=50,
             offset=(int(page.value) - 1) * 50,
         )
         rules = reader.contract_rules()
@@ -39,8 +42,11 @@ def _(DashboardReader, job_id, page, query):
 @app.cell
 def _(mo, outcome, rules):
     from copytrade_pm.dashboard.phase2_views import research_view
-    body = research_view(mo, outcome, rules) if outcome else mo.md(
-        "Use **Query verified research reports**. No research job is executed."
+
+    body = (
+        research_view(mo, outcome, rules)
+        if outcome
+        else mo.md("Use **Query verified research reports**. No research job is executed.")
     )
     body
 

@@ -3,6 +3,7 @@
 No broker, Guardian mutation, network-delivery implementation, or browser dependency.
 The source is the already validated owner status capture, not a second risk detector.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -25,9 +26,14 @@ MAX_ATTEMPTS = 3
 RETRY_SECONDS = (5, 30, 120)
 REASON = re.compile(r"[A-Z][A-Z0-9_:-]{0,63}\Z")
 EMPTY: dict[str, Any] = {
-    "schema": SCHEMA, "updated_at": None, "source_status": "UNKNOWN",
-    "external_delivery": "NOT_CONFIGURED", "incidents": [], "last_error": None,
-    "last_source_observed_at": None, "last_source_binding": None,
+    "schema": SCHEMA,
+    "updated_at": None,
+    "source_status": "UNKNOWN",
+    "external_delivery": "NOT_CONFIGURED",
+    "incidents": [],
+    "last_error": None,
+    "last_source_observed_at": None,
+    "last_source_binding": None,
     "incident_sequence": 0,
 }
 
@@ -89,8 +95,11 @@ def _validate(data: Any) -> dict[str, Any]:
     if not isinstance(data, dict) or data.get("schema") != SCHEMA:
         raise NotificationStateError("STATE_SCHEMA_INVALID")
     records = data.get("incidents")
-    if (not isinstance(records, list) or len(records) > MAX_INCIDENTS
-            or data.get("external_delivery") != "NOT_CONFIGURED"):
+    if (
+        not isinstance(records, list)
+        or len(records) > MAX_INCIDENTS
+        or data.get("external_delivery") != "NOT_CONFIGURED"
+    ):
         raise NotificationStateError("STATE_CONTRACT_INVALID")
     sequence = data.get("incident_sequence", 0)
     if type(sequence) is not int or not 0 <= sequence < 2**63:
@@ -102,13 +111,15 @@ def _validate(data: Any) -> dict[str, Any]:
         if item["id"] in ids or not re.fullmatch(r"[a-f0-9]{64}", item["id"]):
             raise NotificationStateError("STATE_RECORD_DUPLICATE_OR_INVALID")
         ids.add(item["id"])
-        if (item.get("status") not in
-                {"PENDING", "RETRY", "DRY_RUN_DELIVERED", "FAILED", "ACKNOWLEDGED"}
-                or type(item.get("attempts")) is not int
-                or not 0 <= item["attempts"] <= MAX_ATTEMPTS
-                or type(item.get("active")) is not bool
-                or not isinstance(item.get("reason"), str)
-                or not REASON.fullmatch(item["reason"])):
+        if (
+            item.get("status")
+            not in {"PENDING", "RETRY", "DRY_RUN_DELIVERED", "FAILED", "ACKNOWLEDGED"}
+            or type(item.get("attempts")) is not int
+            or not 0 <= item["attempts"] <= MAX_ATTEMPTS
+            or type(item.get("active")) is not bool
+            or not isinstance(item.get("reason"), str)
+            or not REASON.fullmatch(item["reason"])
+        ):
             raise NotificationStateError("STATE_RECORD_INVALID")
         _parse_utc(item.get("source_observed_at"))
     return data
@@ -127,8 +138,13 @@ def read_state(path: Path) -> dict[str, Any]:
 
 def dashboard_status(path: Path | None, *, now: datetime | None = None) -> dict[str, Any]:
     if path is None:
-        return {"status": "NOT_CONFIGURED", "external_delivery": "NOT_CONFIGURED",
-                "source_status": "UNKNOWN", "incidents": [], "error_code": None}
+        return {
+            "status": "NOT_CONFIGURED",
+            "external_delivery": "NOT_CONFIGURED",
+            "source_status": "UNKNOWN",
+            "incidents": [],
+            "error_code": None,
+        }
     try:
         data = read_state(path)
         records = data["incidents"][-20:]
@@ -137,25 +153,39 @@ def dashboard_status(path: Path | None, *, now: datetime | None = None) -> dict[
         age = (now - _parse_utc(updated)).total_seconds() if updated else None
         stale = age is None or not 0 <= age <= 120
         return {
-            "status": ("STALE" if stale else
-                       "DRY_RUN_ONLY" if records else "NO_DELIVERY_ATTEMPTS"),
+            "status": ("STALE" if stale else "DRY_RUN_ONLY" if records else "NO_DELIVERY_ATTEMPTS"),
             "external_delivery": "NOT_CONFIGURED",
             "source_status": "STALE" if stale else data.get("source_status", "UNKNOWN"),
             "last_source_status": data.get("source_status", "UNKNOWN"),
             "state_age_seconds": age,
             "updated_at": data.get("updated_at"),
             "incidents": [
-                {key: item.get(key) for key in (
-                    "id", "reason", "severity", "source_observed_at", "active",
-                    "status", "attempts", "next_attempt_at", "last_error"
-                )}
+                {
+                    key: item.get(key)
+                    for key in (
+                        "id",
+                        "reason",
+                        "severity",
+                        "source_observed_at",
+                        "active",
+                        "status",
+                        "attempts",
+                        "next_attempt_at",
+                        "last_error",
+                    )
+                }
                 for item in records
             ],
             "error_code": None,
         }
-    except (NotificationStateError, PermissionError, OSError):
-        return {"status": "BLOCKED", "external_delivery": "NOT_CONFIGURED",
-                "source_status": "UNKNOWN", "incidents": [], "error_code": "STATE_UNAVAILABLE"}
+    except NotificationStateError, PermissionError, OSError:
+        return {
+            "status": "BLOCKED",
+            "external_delivery": "NOT_CONFIGURED",
+            "source_status": "UNKNOWN",
+            "incidents": [],
+            "error_code": "STATE_UNAVAILABLE",
+        }
 
 
 def _secure_directory(path: Path) -> None:
@@ -225,8 +255,11 @@ def _incident_key(binding: str, reason: str) -> str:
 
 
 def process_once(
-    state_path: Path, owner_status: dict[str, Any], *,
-    delivery: Delivery | None = None, now: datetime | None = None,
+    state_path: Path,
+    owner_status: dict[str, Any],
+    *,
+    delivery: Delivery | None = None,
+    now: datetime | None = None,
 ) -> dict[str, Any]:
     """Read one owner observation, dedup/retry atomically; never touch Guardian."""
     now = now or datetime.now(UTC)
@@ -255,8 +288,7 @@ def process_once(
             active_keys = {_incident_key(binding, item) for item in causes}
             for record in state["incidents"]:
                 same_account = record.get("key") == _incident_key(binding, record["reason"])
-                if (same_account and record.get("active")
-                        and record.get("key") not in active_keys):
+                if same_account and record.get("active") and record.get("key") not in active_keys:
                     record["active"] = False
                     record["resolved_at"] = clock
             for reason in causes:
@@ -267,19 +299,30 @@ def process_once(
                 sequence = state.get("incident_sequence", 0) + 1
                 state["incident_sequence"] = sequence
                 record_id = sha256(f"incident-v2:{key}:{sequence}".encode()).hexdigest()
-                state["incidents"].append({
-                    "id": record_id, "key": key, "reason": reason,
-                    "severity": "UNSPECIFIED", "source_observed_at": _utc(source_time),
-                    "active": True, "status": "PENDING", "attempts": 0,
-                    "next_attempt_at": clock, "last_error": None,
-                })
+                state["incidents"].append(
+                    {
+                        "id": record_id,
+                        "key": key,
+                        "reason": reason,
+                        "severity": "UNSPECIFIED",
+                        "source_observed_at": _utc(source_time),
+                        "active": True,
+                        "status": "PENDING",
+                        "attempts": 0,
+                        "next_attempt_at": clock,
+                        "last_error": None,
+                    }
+                )
             if len(state["incidents"]) > MAX_INCIDENTS:
                 inactive = [i for i in state["incidents"] if not i["active"]]
                 active = [i for i in state["incidents"] if i["active"]]
                 if len(active) > MAX_INCIDENTS:
                     raise NotificationStateError("TOO_MANY_ACTIVE_INCIDENTS")
-                state["incidents"] = (inactive[-(MAX_INCIDENTS - len(active)):]
-                                      if len(active) < MAX_INCIDENTS else []) + active
+                state["incidents"] = (
+                    inactive[-(MAX_INCIDENTS - len(active)) :]
+                    if len(active) < MAX_INCIDENTS
+                    else []
+                ) + active
         # No invented event is generated while owner capture is stale or unavailable.
         for record in state["incidents"]:
             if not record["active"] or record["status"] not in {"PENDING", "RETRY"}:
@@ -323,8 +366,12 @@ def acknowledge(state_path: Path, incident_id: str) -> bool:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Independent dry-run owner-incident notifier")
-    parser.add_argument("--state-file", type=Path, required=True,
-                        help="Private standalone state file; precreate its secured parent directory")
+    parser.add_argument(
+        "--state-file",
+        type=Path,
+        required=True,
+        help="Private standalone state file; precreate its secured parent directory",
+    )
     parser.add_argument("--once", action="store_true", help="One observation, no daemon")
     parser.add_argument("--interval", type=int, default=30)
     args = parser.parse_args(argv)
@@ -335,9 +382,16 @@ def main(argv: list[str] | None = None) -> int:
     while True:
         source = DashboardReader().guardian("status")
         summary = process_once(args.state_file, source)
-        print(json.dumps({key: summary.get(key) for key in (
-            "status", "source_status", "external_delivery", "error_code"
-        )}, sort_keys=True), flush=True)
+        print(
+            json.dumps(
+                {
+                    key: summary.get(key)
+                    for key in ("status", "source_status", "external_delivery", "error_code")
+                },
+                sort_keys=True,
+            ),
+            flush=True,
+        )
         if args.once:
             return 0
         time.sleep(args.interval)
