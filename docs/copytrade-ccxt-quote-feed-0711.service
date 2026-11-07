@@ -1,0 +1,30 @@
+[Unit]
+Description=Copytrade shared CCXT Pro public market L2 (read-only paper journal, NO BROKER)
+After=network-online.target copytrade-public-observer-p1p14.service
+Wants=network-online.target
+StartLimitIntervalSec=120
+StartLimitBurst=3
+
+[Service]
+Type=exec
+WorkingDirectory=/home/quant/dev/copytrade-ccxt-release-ed3adb2
+ExecStart=/home/quant/dev/copytrade-ccxt-release-ed3adb2/.venv/bin/python -m copytrade_pm.pm_forward_live_quotes --source-db /home/quant/.local/share/copytrade/prospective/p1p14-observer-20261105/paper-events.sqlite3 --registry-db /home/quant/.local/share/copytrade/registry/wallet_registry.sqlite --primary-dir /home/quant/dev/copytrade-pm/data/wallet_fills_90d --secondary-dir /home/quant/dev/copytrade-pm/data/nansen_smart_money_fills_90d --quote-every-seconds 5 --refresh-seconds 300 --max-markets 64
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=45s
+UMask=0077
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+RestrictSUIDSGID=true
+LockPersonality=true
+TasksMax=192
+MemoryMax=768M
+CPUQuota=75%
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

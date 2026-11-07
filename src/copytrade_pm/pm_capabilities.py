@@ -48,6 +48,7 @@ GROUPS = {
     "copytrade-pm-paper-candidate-verify": ("paper.release_candidate", "paper", "READ_ONLY"),
     "copytrade-pm-market-ccxt": ("market.ccxt", "market", "PROTECTED_MUTATION"),
     "copytrade-pm-market-stream": ("market.stream", "market", "PROTECTED_MUTATION"),
+    "copytrade-pm-market-live-quotes": ("market.live_quotes", "market", "PROTECTED_MUTATION"),
     "copytrade-pm-public-trades": ("source.public_trades", "source", "PROTECTED_MUTATION"),
     "copytrade-pm-source-scope": ("source.scope", "source", "PROTECTED_MUTATION"),
     "copytrade-pm-paper-watchdog": ("paper.watchdog", "paper", "PROTECTED_MUTATION"),

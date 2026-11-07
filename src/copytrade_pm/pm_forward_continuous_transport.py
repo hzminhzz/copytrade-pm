@@ -15,17 +15,41 @@ from .pm_e4_prospective import MAX_BODY, WS_URL
 class SerialWriter:
     """One bounded serialization point; cancellation cannot undo a committed job."""
 
-    def __init__(self, *, max_pending: int = 256):
+    def __init__(self, *, max_pending: int = 256, busy_retries: int = 0):
         if type(max_pending) is not int or not 1 <= max_pending <= 4096:
             raise ValueError("STREAM_WRITER_QUEUE_BOUND_INVALID")
+        if type(busy_retries) is not int or not 0 <= busy_retries <= 25:
+            raise ValueError("STREAM_WRITER_BUSY_RETRY_BOUND_INVALID")
         self.queue = asyncio.Queue(max_pending)
         self.failed = None
         self.high_water = 0
+        self.busy_retries = busy_retries
+        self.transient_busy_conflicts = 0
         self.task = None
 
     async def __aenter__(self):
         self.task = asyncio.create_task(self._run(), name="observer-sqlite-writer")
         return self
+
+    async def _commit_with_bounded_contention_retry(self, function):
+        # PaperJournal._writer acquires the process-wide file lease before
+        # beginning a SQLite transaction. An exact BUSY lease rejection has
+        # made NO changes; retry that same original event and ingress clock.
+        # Never retry a cursor/hash divergence, an uncertain committed write,
+        # or an arbitrary ValueError. Default remains fail-fast elsewhere.
+        for attempt in range(self.busy_retries + 1):
+            try:
+                return await asyncio.to_thread(function)
+            except ValueError as exc:
+                if (
+                    str(exc) != "PAPER_JOURNAL_BUSY_OR_UNAVAILABLE"
+                    or not isinstance(exc.__cause__, BlockingIOError)
+                    or attempt == self.busy_retries
+                ):
+                    raise
+                self.transient_busy_conflicts += 1
+                await asyncio.sleep(min(0.2, 0.025 * (attempt + 1)))
+        raise AssertionError("unreachable")
 
     async def _run(self):
         while True:
@@ -38,7 +62,7 @@ class SerialWriter:
                     future.set_exception(self.failed)
                     continue
                 try:
-                    result = await asyncio.to_thread(function)
+                    result = await self._commit_with_bounded_contention_retry(function)
                 except Exception as exc:
                     if isinstance(exc, (OSError, sqlite3.Error)) or (
                         isinstance(exc, ValueError)

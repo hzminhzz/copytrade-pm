@@ -32,7 +32,9 @@ def _readonly_tape_snapshot(db_path: Path) -> dict:
     if db_path.is_symlink() or not db_path.is_file():
         raise ValueError("OBSERVER_JOURNAL_NOT_REGULAR")
     uri = "file:" + str(db_path.resolve()) + "?mode=ro"
-    with closing(sqlite3.connect(uri, uri=True, timeout=0)) as db:
+    # The simultaneous CCXT quote writer can briefly hold the WAL schema
+    # lock. A bounded read-only wait preserves exact chain integrity.
+    with closing(sqlite3.connect(uri, uri=True, timeout=3.0)) as db:
         db.execute("PRAGMA query_only=ON")
         # SQLite's implicit read transactions are statement-scoped. Pin a
         # single snapshot across source/quote/collateral chains while the
@@ -112,7 +114,9 @@ def _verified_append_only_advance(db_path: Path, older: object, current: dict) -
         return False
     uri = "file:" + str(Path(db_path).resolve()) + "?mode=ro"
     changed = False
-    with closing(sqlite3.connect(uri, uri=True, timeout=0)) as db:
+    # Comparing historical prefixes is also a read-only operation. Allow
+    # transient WAL writer checkpoint locks, never skip integrity checks.
+    with closing(sqlite3.connect(uri, uri=True, timeout=3.0)) as db:
         db.execute("PRAGMA query_only=ON")
         db.execute("BEGIN")
         for scope, (table, key_field) in tables.items():

@@ -936,8 +936,16 @@ async def run_ccxt_markets(
     limiter,
     factory=None,
     receipt_clock_factory=None,
+    channels=("quote", "trades"),
+    min_quote_interval_seconds=0.0,
 ):
     """Retain one CCXT client per shard; per-channel failures do not kill siblings."""
+    if not channels or len(set(channels)) != len(channels) or any(
+        channel not in {"quote", "trades"} for channel in channels
+    ):
+        raise ValueError("CCXT_CONTINUOUS_CHANNEL_SCOPE_INVALID")
+    if not 0 <= min_quote_interval_seconds <= 30:
+        raise ValueError("CCXT_CONTINUOUS_QUOTE_INTERVAL_INVALID")
     from .pm_forward_ccxt_market import (
         ReadOnlyCCXTProHyperliquid,
         PersistentMarket,
@@ -957,7 +965,8 @@ async def run_ccxt_markets(
     )
     while not stop.is_set():
         feed = ReadOnlyCCXTProHyperliquid(
-            instruments, hip3_dexes=dexes, factory=factory, rolling_trades=True, now=now
+            instruments, hip3_dexes=dexes, factory=factory,
+            rolling_trades="trades" in channels, now=now,
         )
         tasks = []
         try:
@@ -969,7 +978,10 @@ async def run_ccxt_markets(
             )
             for inst in instruments:
                 if inst not in feed.catalog:
-                    for prefix in ("ccxt_l2:", "ccxt_trades:"):
+                    for prefix in (
+                        "ccxt_l2:" if channel == "quote" else "ccxt_trades:"
+                        for channel in channels
+                    ):
                         progress = StreamProgress(journal, prefix + inst.key)
                         event = progress.propose(
                             epoch=uuid4().hex,
@@ -985,7 +997,7 @@ async def run_ccxt_markets(
                         await writer.submit(lambda p=progress, e=event: p.commit(e))
                     continue
                 market = PersistentMarket(journal, feed.catalog[inst], scope_sha=scope_sha)
-                for channel in ("quote", "trades"):
+                for channel in channels:
                     tasks.append(
                         asyncio.create_task(
                             _ccxt_channel(
@@ -996,6 +1008,7 @@ async def run_ccxt_markets(
                                 writer=writer,
                                 stop=stop,
                                 now=now,
+                                min_quote_interval_seconds=min_quote_interval_seconds,
                             ),
                             name="observer-" + channel + "-" + inst.key,
                         )
@@ -1027,7 +1040,10 @@ async def run_ccxt_markets(
         await wait_or_stop(stop, 15)
 
 
-async def _ccxt_channel(market, channel, *, feed, timer, writer, stop, now):
+async def _ccxt_channel(
+    market, channel, *, feed, timer, writer, stop, now,
+    min_quote_interval_seconds=0.0,
+):
     from copy import deepcopy
     from .pm_forward_continuous_transport import wait_or_stop
 
@@ -1037,6 +1053,7 @@ async def _ccxt_channel(market, channel, *, feed, timer, writer, stop, now):
     await writer.submit(lambda: market.begin(channel, now()))
     pending = None
     last_transport = None
+    last_persisted_at = None
 
     async def receive_snapshot():
         # No scheduling boundary between CCXT returning its cache and capturing
@@ -1090,11 +1107,21 @@ async def _ccxt_channel(market, channel, *, feed, timer, writer, stop, now):
                     break
                 raw, stamp, first_known = await pending
                 known = stamp["known_at"]
-                if (token is not None and token != stamp["epoch"]) or timed_out:
+                new_epoch = (token is not None and token != stamp["epoch"]) or timed_out
+                if new_epoch:
                     await writer.submit(lambda: market.begin(channel, known))
+                    last_persisted_at = None
                 token = stamp["epoch"]
                 if channel == "quote":
+                    # Sample genuine WS events, never re-stamp cached books.
+                    # Every committed receipt keeps its original ingress time.
+                    if (
+                        last_persisted_at is not None
+                        and monotonic() - last_persisted_at < min_quote_interval_seconds
+                    ):
+                        continue
                     await writer.submit(lambda: market.quote(raw, known))
+                    last_persisted_at = monotonic()
                 else:
                     await writer.submit(
                         lambda: market.trades(list(raw), known, first_known_by_id=first_known)
@@ -1109,6 +1136,7 @@ async def _ccxt_channel(market, channel, *, feed, timer, writer, stop, now):
                 if not stop.is_set():
                     await writer.submit(lambda: market.begin(channel, now()))
                 token = None
+                last_persisted_at = None
             finally:
                 if pending is not None and not pending.done():
                     pending.cancel()
