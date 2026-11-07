@@ -167,3 +167,61 @@ The old candidate `a51d0a675f2-cfaf2c4136f4` remains available for an
 isolated dashboard-only rollback. The previous historical HTTP 401 observations
 elsewhere in this document were accurate **before** this redirect correction.
 Guardian journal/cadence and owner-capture limitations remain unchanged.
+
+## Follow-up: Tailscale owner SSO without a second password
+
+At the operator's request, the private dashboard now uses Tailscale Serve
+owner identity rather than a second interactive dashboard password.
+
+Official Tailscale Serve documentation establishes that proxy requests contain
+`Tailscale-User-Login` for user-owned devices, that Serve strips client-supplied
+identity headers to prevent remote spoofing, and that shared-device visitors may
+also receive identity headers. Therefore **tailnet membership alone is not
+sufficient**: the app pins and compares the exact expected owner's login and
+requires loopback proxy peer, matching Host, HTTPS forwarded-protocol and
+the existing exact Origin/Host rules. Tagged devices have no user-login header
+and are denied. A direct HTTP request with no trusted identity returns 403,
+even with a previous viewer cookie.
+
+A temporary, read-only identity probe on independent tailnet-only HTTPS port
+8444 returned HTTP 200 with the expected owner identity and HTTP 403 over
+direct loopback. The temporary Serve route and service were removed after
+the probe. The VPS and requested remote node were observed under the
+**same Tailscale user ID**; the actual private login name and secret remain
+unpublished.
+
+| Check | Live evidence |
+| --- | --- |
+| Reviewed source commit | `b4989bbdc09847c09fe4c572fbae985fbeb8b543` |
+| Immutable wheel SHA256 | `59ba035cabeb55dc6c64e3c90ef28cdb704ce1afd44c6dc89a7cdc987099cc16` |
+| Active release | `releases/b4989bbdc098-59ba035cabeb` |
+| Private HTTPS `GET /` | 200 without viewer cookie or password |
+| Private HTTPS `GET /login` | 303 to `/`; no password form |
+| Direct loopback `GET /` | 403 |
+| Invalid identity, Host, Origin, forwarded protocol, duplicate header | Rejected in source tests |
+| Real private Firefox | 24 view×viewport checks (390×844, 430×932, 1280×800) passed without password |
+| Canonical wallet query | Live Inventory SHA rendered |
+| Firefox route timings | p50 620.3 ms, p95 884.2 ms over 24 cases |
+| Source all-extras tests | 1,510 passed, 3 skipped; Ruff, formatting, Marimo and capabilities verified |
+| Actual failed-start release rollback | Passed; restored passwordless release and HTTPS 200 |
+| Protected financial services | All six prior PIDs and restart counts unchanged |
+
+The `quant` user service retains its 50%-of-one-CPU and 512-MiB bounds.
+The exact owner login is stored only in the mode-0600 local environment file.
+The prior password-mode configuration is backed up mode 0600 for rollback.
+Normal Tailscale access no longer needs or consumes the password.
+
+**Trust boundary:** Serve's forwarded identity headers are not
+cryptographically bound to the application backend; other trusted
+`quant`-account processes on the same VPS could spoof them over loopback.
+Only the tailnet ingress and owner identity are externally verified. This is
+a conscious convenience/security tradeoff for the read-only Bubblewrap-isolated
+viewer on the operator's trusted quant VPS. Stronger same-host attacker
+isolation would require a protected Unix socket with separate UID or signed
+proxy assertions. Do not generalize this SSO exception to Guardian, broker,
+risk HALT, order endpoints, sensitive financial journals or execution apps.
+
+The old password-mode release `29d006131662-aa94784c356f` stays available
+as an isolated dashboard rollback target. No protected financial unit was
+restarted. The original Guardian journal/cadence and owner-capture evidence
+gates remain open and this change does not authorize trading.

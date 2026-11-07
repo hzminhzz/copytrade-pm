@@ -7,14 +7,13 @@ Bubblewrap mount namespace is the narrower security boundary.
 
 ## Release identity
 
-The current HTTPS-capable, login-friendly installation pins the reviewed
-source commit `29d006131662978653abc7e455591b20221f7607`, wheel SHA256
-`aa94784c356f6fed2d39ea1922c4725a9266d145deeb6fd6f24d375f6bc9b6a7` and frozen `uv.lock` dependency hashes.
-Installed release directory:
-`/home/quant/.local/share/copytrade-dashboard/releases/29d006131662-aa94784c356f`.
-Previous release `a51d0a675f2-cfaf2c4136f4` is retained for rollback.
-The current release redirects anonymous dashboard pages to `/login`;
-API and WebSocket authorization remains unchanged.
+The private owner-identity SSO release pins source commit
+`b4989bbdc09847c09fe4c572fbae985fbeb8b543`, wheel SHA256
+`59ba035cabeb55dc6c64e3c90ef28cdb704ce1afd44c6dc89a7cdc987099cc16`
+and frozen `uv.lock` dependency hashes. Installed release directory:
+`/home/quant/.local/share/copytrade-dashboard/releases/b4989bbdc098-59ba035cabeb`.
+Previous password-mode release `29d006131662-aa94784c356f` remains intact
+for dashboard-only rollback.
 
 `launch.sh` has no dependency on the protected six system services.
 It binds only the approved package release and canonical SQLite registry file
@@ -34,9 +33,17 @@ are absent inside the sandbox; protected finance must show UNKNOWN/UNAVAILABLE.
 - Use `systemctl --user daemon-reload`, `enable --now`, `status`, and
   inspect `journalctl --user -u copytrade-dashboard.service` (no password
   is printed).
-- Locally verify unauthenticated page 303 to `/login`, private API 401,
-  valid Origin login cookie and authenticated view without exposing the
-  service outside 127.0.0.1.
+- The initial installation keeps the private password mode to permit a
+  controlled cutover. To enable passwordless owner SSO in the deployed service
+  run `sh ops/dashboard-quant/activate_tailnet_sso.sh` from the reviewed
+  checkout. This pins the current Tailscale Serve owner's exact login in a
+  private 0600 environment file, retains a private backup, restarts only the
+  dashboard and verifies HTTPS root 200, login redirect 303 and direct
+  localhost denial 403. Failed activation restores password mode.
+- In owner-SSO mode, no viewer cookie or password is required on the
+  authenticated tailnet URL. Requests from other Tailscale users, tagged
+  devices (which lack user-login headers), malformed proxy headers or direct
+  localhost without the headers are denied.
 - Preserve existing Tailscale Serve routes. Add a separate tailnet-only HTTPS
   listener at port 8443 only after the local service is healthy. Check
   `tailscale serve status --json` before and after.
@@ -59,3 +66,15 @@ with source-owned files, distinct UID, compatible release and measured scan cost
 never fabricate quant-owned captures to satisfy the reader.
 No live trading, order routing, HALT or financial writes are authorized.
 External incident delivery remains NOT_CONFIGURED.
+
+Tailscale Serve strips client-supplied identity headers and populates
+`Tailscale-User-Login` for authenticated user-owned peers. Only the exact
+pinned owner value is accepted with the existing loopback TLS proxy contract.
+**Security boundary:** local processes sharing the `quant` OS account can
+forge proxy headers when connecting to loopback. This does not authorize
+order submission, broker credentials or Guardian journal access: the dashboard
+remains read-only in a restricted Bubblewrap filesystem. The design is
+appropriate only under the operator's trusted-quant-host assumption.
+For stronger isolation, use a separate service UID / protected Unix socket or
+a signed upstream identity proxy; never equate tailnet membership alone with
+authorization.

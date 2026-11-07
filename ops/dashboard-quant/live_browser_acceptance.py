@@ -1,7 +1,7 @@
 """Real Firefox acceptance against the installed private Tailscale HTTPS service.
 
-Reads the viewer credential from its private local env file; never prints it.
-No writes to the canonical registry or protected finance.
+Uses Tailscale Serve owner identity when enabled; password-mode is a rollback
+compatibility path. No secret is printed or financial state written.
 """
 
 from __future__ import annotations
@@ -50,6 +50,13 @@ def private_secret() -> str:
     raise RuntimeError("PRIVATE_DASHBOARD_SECRET_MISSING")
 
 
+def tailnet_sso_enabled() -> bool:
+    return any(
+        line.startswith("DASHBOARD_TAILSCALE_USER_LOGIN=")
+        for line in CONFIG.read_text().splitlines()
+    )
+
+
 def await_body(driver, title: str, marker: str, deadline: float = 30.0) -> str:
     until = time.monotonic() + deadline
     body = ""
@@ -84,14 +91,17 @@ def main() -> None:
                 width,
                 height,
             ]
-            # Start at the root, as a first-time Omarchy browser would.
-            # It must show the private login form, not ACCESS_DENIED.
+            # Start at the root, as a first-time tailnet browser would.
             driver.get(BASE + "/")
-            assert driver.current_url == BASE + "/login", driver.current_url
-            assert "Private risk viewer" in driver.page_source
+            if tailnet_sso_enabled():
+                assert driver.current_url.rstrip("/") == BASE, driver.current_url
+                assert "Private risk viewer" not in driver.page_source
+            else:
+                assert driver.current_url == BASE + "/login", driver.current_url
+                assert "Private risk viewer" in driver.page_source
+                driver.find_element(By.NAME, "secret").send_keys(private_secret())
+                driver.find_element(By.CSS_SELECTOR, "button[type='submit']").click()
             assert "ACCESS_DENIED" not in driver.page_source
-            driver.find_element(By.NAME, "secret").send_keys(private_secret())
-            driver.find_element(By.CSS_SELECTOR, "button[type='submit']").click()
             await_body(driver, "Operations · Account risk", "Account and risk headroom")
             for fragment, title, marker in VIEW_ROUTES:
                 start = time.perf_counter()
@@ -156,7 +166,7 @@ def main() -> None:
         "screenshot_count": count,
         "route_render_p50_ms": round(p50, 1),
         "route_render_p95_ms": round(p95, 1),
-        "production_release": "29d006131662-aa94784c356f",
+        "production_release": "b4989bbdc098-59ba035cabeb",
         "credential_printed": False,
     }
     (ARTIFACTS / "live-browser-receipt.json").write_text(json.dumps(result, indent=2))

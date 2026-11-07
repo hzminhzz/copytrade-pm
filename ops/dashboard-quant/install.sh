@@ -6,8 +6,8 @@ umask 077
 
 [ "$(id -un)" = quant ] || { echo "EXPECTED_QUANT_USER" >&2; exit 60; }
 ROOT=/home/quant/.local/share/copytrade-dashboard
-RID=29d006131662-aa94784c356f
-SHA=aa94784c356f6fed2d39ea1922c4725a9266d145deeb6fd6f24d375f6bc9b6a7
+RID=b4989bbdc098-59ba035cabeb
+SHA=59ba035cabeb55dc6c64e3c90ef28cdb704ce1afd44c6dc89a7cdc987099cc16
 RELEASE="$ROOT/releases/$RID"
 ENV_DIR=/home/quant/.config/copytrade-dashboard
 ENV_FILE="$ENV_DIR/private.env"
