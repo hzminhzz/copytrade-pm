@@ -251,6 +251,18 @@ def test_native_reader_rejects_fake_authority_and_malformed_observation():
         assert answer["error_code"] == "NATIVE_READ_UNAVAILABLE"
 
 
+def test_native_query_observed_during_read_is_not_falsely_future():
+    payload = fake_native(["portfolios", "current"])
+    payload["observed_at"] = (T0 + timedelta(milliseconds=100)).isoformat()
+    observations = iter([T0, T0 + timedelta(seconds=1)])
+    a = DashboardReader(native_read=lambda _: payload, clock=lambda: next(observations),
+                        cache=SmallTTLCache())
+    result = a.research_selection()
+    assert result["status"] == "BLOCKED"
+    assert result["error_code"] is None
+    assert result["retrieved_at"] == (T0 + timedelta(seconds=1)).isoformat()
+
+
 def test_monotonic_shared_refresh_cache():
     cache = SmallTTLCache()
     calls = []

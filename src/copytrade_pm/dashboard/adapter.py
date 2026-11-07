@@ -318,6 +318,9 @@ class DashboardReader:
         now = self.clock()
         try:
             source = self._native(args)
+            # The native owner records its query clock during the call. Compare
+            # against retrieval completion, not the earlier request-start clock.
+            now = self.clock()
             state = source.get("status")
             metadata = source.get("source")
             if (
