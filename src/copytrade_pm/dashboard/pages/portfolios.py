@@ -21,7 +21,11 @@ def _(mo):
     page = mo.ui.number(start=1, stop=101, value=1, step=1, label="Page (25 rows)")
     query = mo.ui.run_button(label="Read canonical portfolios")
     mo.vstack(
-        [mo.hstack([asof, name_filter], justify="start"), mo.hstack([page, query], justify="start")]
+        [
+            mo.hstack([asof, name_filter], justify="start", wrap=True),
+            page,
+            query,
+        ]
     )
     return asof, name_filter, page, query
 

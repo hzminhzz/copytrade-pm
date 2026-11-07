@@ -1575,7 +1575,7 @@ class DashboardReader:
                 if active not in {"active", "inactive", "failed", "activating", "deactivating"}:
                     raise ValueError("UNRECOGNIZED_SERVICE_STATE")
                 records[name] = {
-                    "state": "DEGRADED" if active == "active" else "UNKNOWN",
+                    "state": "UNKNOWN",
                     "os_active_state": active,
                     "os_load_state": safe_text(fields.get("LoadState")),
                     "pid_observed": fields.get("MainPID", "0").isdigit()

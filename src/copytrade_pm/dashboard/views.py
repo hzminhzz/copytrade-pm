@@ -149,6 +149,7 @@ def health_view(mo, report: dict[str, Any]):
         {
             "Component": key,
             "Evidence": report[key]["status"],
+            "OS state": "NOT_APPLICABLE",
             "Observed UTC": clean(report[key].get("source_observed_at")),
             "Authority": clean(report[key].get("authority")),
         }
@@ -158,6 +159,7 @@ def health_view(mo, report: dict[str, Any]):
         {
             "Component": name,
             "Evidence": item["state"],
+            "OS state": clean(item.get("os_active_state")),
             "Observed UTC": "OS query only",
             "Authority": "systemd (not finance)",
         }
@@ -168,12 +170,14 @@ def health_view(mo, report: dict[str, Any]):
             {
                 "Component": "watchdog",
                 "Evidence": report["watchdog"]["status"],
+                "OS state": "NOT_APPLICABLE",
                 "Observed UTC": clean(report["watchdog"].get("source_observed_at")),
                 "Authority": "Guardian-reported (not independent)",
             },
             {
                 "Component": "executable market",
                 "Evidence": report["market"]["status"],
+                "OS state": "NOT_APPLICABLE",
                 "Observed UTC": "UNKNOWN",
                 "Authority": "NOT_ATTESTED",
             },

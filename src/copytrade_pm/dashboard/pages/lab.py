@@ -19,7 +19,12 @@ def _(mo):
     job_id = mo.ui.text(label="Exact job ID (optional)", value="", max_length=96)
     page = mo.ui.number(start=1, stop=201, value=1, step=1, label="Page (50 rows)")
     query = mo.ui.run_button(label="Query verified research reports")
-    mo.hstack([job_id, page, query], justify="start")
+    mo.vstack(
+        [
+            mo.hstack([job_id, page], justify="start", wrap=True),
+            query,
+        ]
+    )
     return job_id, page, query
 
 

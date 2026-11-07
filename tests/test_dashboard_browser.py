@@ -44,6 +44,26 @@ def _port() -> int:
         return int(sock.getsockname()[1])
 
 
+def _query_button(driver, label):
+    return driver.execute_script(
+        r"""
+        function findButton(root, label) {
+            for (const el of root.querySelectorAll('*')) {
+                const text = (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
+                if (el.tagName === 'BUTTON' && text === label) return el;
+                if (el.shadowRoot) {
+                    const found = findButton(el.shadowRoot, label);
+                    if (found) return found;
+                }
+            }
+            return null;
+        }
+        return findButton(document, arguments[0]);
+        """,
+        label,
+    )
+
+
 @pytest.fixture(scope="module")
 def local_server():
     port = _port()
@@ -185,6 +205,23 @@ def test_private_mobile_routes_and_navigation(local_server, firefox, width, heig
             width,
             fragment,
         )
+        if fragment == "#/health":
+            assert "OS state" in body
+        query_label = {
+            "#/research": "Query registry",
+            "#/portfolios": "Read canonical portfolios",
+            "#/lab": "Query verified research reports",
+        }.get(fragment)
+        if query_label:
+            button = _query_button(firefox, query_label)
+            assert button is not None, (width, fragment)
+            dimensions = firefox.execute_script(
+                "return [arguments[0].clientWidth, arguments[0].scrollWidth, "
+                "arguments[0].clientHeight, arguments[0].scrollHeight]",
+                button,
+            )
+            assert dimensions[1] <= dimensions[0] + 1, (width, fragment, dimensions)
+            assert dimensions[3] <= dimensions[2] + 1, (width, fragment, dimensions)
         if artifact_dir:
             route_name = fragment.removeprefix("#/") or "overview"
             assert firefox.save_screenshot(

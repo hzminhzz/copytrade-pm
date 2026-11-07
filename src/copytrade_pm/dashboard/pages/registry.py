@@ -25,8 +25,9 @@ def _(mo):
     run = mo.ui.run_button(label="Query registry")
     mo.vstack(
         [
-            mo.hstack([query, cohort], justify="start"),
-            mo.hstack([excluded, page, run], justify="start"),
+            mo.hstack([query, cohort], justify="start", wrap=True),
+            mo.hstack([excluded, page], justify="start", wrap=True),
+            run,
         ]
     )
     return query, cohort, excluded, page, run

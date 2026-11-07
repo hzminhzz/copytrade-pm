@@ -336,7 +336,8 @@ def test_no_synthetic_health_and_services_from_pids(monkeypatch):
     assert report["guardian"]["status"] == "UNAVAILABLE"
     assert report["watchdog"]["status"] == "UNKNOWN"
     assert report["market"]["status"] == "UNKNOWN"
-    assert all(s["state"] == "DEGRADED" for s in report["services"].values())
+    assert all(s["state"] == "UNKNOWN" for s in report["services"].values())
+    assert all(s["os_active_state"] == "active" for s in report["services"].values())
     assert all(s["attests_financial_health"] is False for s in report["services"].values())
 
 

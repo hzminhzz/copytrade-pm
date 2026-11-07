@@ -39,6 +39,8 @@ The owner manifest pins were preserved. Its full compatibility gate passed at th
 | Gap/reset retention evicted bucket-local chart extrema | Every bucket min/max remains critical; impossible budgets fail closed |
 | Minimal core install failed dashboard test collection/execution | Optional UI/chart tests explicitly require their extra; core adapter coverage remains active |
 | Firefox phone tests measured outer windows and silently used 500-pixel viewports | BiDi sets the CSS viewport; dimensions and all eight views are asserted |
+| Narrow research forms clipped query-button text despite no page overflow | Query buttons have a dedicated row; all three buttons are checked for content overflow at each viewport |
+| An active process alone was labeled financially DEGRADED | OS activity is displayed separately; process liveness leaves financial evidence UNKNOWN |
 
 The 30-file formatting commit was checked for identical Python ASTs against its parent. It changes formatting only. No risk policy, sizing, broker transport, production journal writer or registry mutation implementation changed.
 
@@ -63,7 +65,7 @@ No connected broker orders or Demo orders were exercised.
 
 FINAL_BROWSER_RECEIPT_PENDING
 
-The first 15-test Firefox pass was insufficient evidence for phone dimensions: its PNGs were 500x758 and 500x846 despite requested 390x844 and 430x932 outer windows. An explicit inner-viewport assertion reproduced the failure. The corrected BiDi tests passed all three actual viewport sizes before the final full run. Historical outer-window results are not used as proof of phone layout.
+The first 15-test Firefox pass was insufficient evidence for phone dimensions: its PNGs were 500x758 and 500x846 despite requested 390x844 and 430x932 outer windows. An explicit inner-viewport assertion reproduced the failure. The corrected BiDi tests passed all three actual viewport sizes before the final full run. Historical outer-window results are not used as proof of phone layout. Later screenshot review also reproduced a 23-pixel-high wallet button containing 37 pixels of text; the final browser assertions check button content bounds in Wallets, Portfolios and Research Lab.
 
 Screenshots and XML receipts are retained privately with the local test evidence. The browser points at a disposable loopback server with unavailable protected captures. It is not an operational private-deployment test.
 
