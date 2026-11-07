@@ -8,7 +8,7 @@ Parent: [#153](https://github.com/hzminhzz/copytrade-pm/issues/153). TD-11/12/13
 
 `copytrade_pm.dashboard.notifications` consumes existing owner **status** captures using `DashboardReader().guardian("status")`. Only VERIFIED sources with valid binding, timestamps and allowlisted incident codes can create/rearm incidents. Stale/unavailable sources do not clear active incidents. It uses account-bound stable identity, bounded persistence, atomic publication, single-writer lock, controlled retry and restart recovery. State is separate from Guardian. Acknowledgment writes *only* notification delivery status, never Guardian HALT.
 
-To exercise **isolated dry-run** in a disposable, private state directory with a synthetic/non-protected status provider, call `process_once(state_path, source, delivery=DryRunDelivery(), now=...)`. The CLI supports `python -m copytrade_pm.dashboard.notifications --state-file /PRIVATE/STAGING/notifications.json --once`; the directory must already exist, be private and owned by the process. Running the CLI against real owner capture is **not** authorized by this phase. Never start a production daemon with it by inference.
+To exercise **isolated dry-run** in a disposable, private state directory with a synthetic/non-protected status provider, call `process_once(state_path, source, delivery=DryRunDelivery(), now=...)`. The CLI supports `python -m copytrade_pm.dashboard.notifications --state-file /PRIVATE/STAGING/notifications.json --once`; the directory must already exist, be private and owned by the process. Activation against real owner capture requires current operator authorization and verified producer/reader permissions. Existing authorization still applies; source tests alone do not authorize activation.
 
 No authorized external notification destination or credential has been established. `external_delivery=NOT_CONFIGURED` at all times. `DRY_RUN_DELIVERED` means fake backend only, not email/Telegram/webhook delivery.
 
@@ -26,7 +26,9 @@ The regression suite exercises 390x844, 430x932 and 1280x800 Firefox viewports, 
 
 Tests:
 ```sh
-uv run --frozen --extra dashboard --group dev pytest -q
+uv run --frozen --group dev pytest -q
+uv run --frozen --all-extras --group dev pytest -q
+uv run --frozen --all-extras --group dev ruff format --check src tests
 uv run --frozen --extra dashboard --group dev ruff check .
 uv run --frozen --extra dashboard --group dev marimo check src/copytrade_pm/dashboard/pages/*.py
 uv run --frozen --extra dashboard --group dev copytrade-pm capabilities validate
@@ -37,7 +39,7 @@ DASHBOARD_BROWSER_ARTIFACT_DIR=/tmp/dashboard-phase3-browser \
     -W ignore::pytest.PytestUnraisableExceptionWarning \
     tests/test_dashboard_browser.py
 ```
-The browser-only warning filters address Selenium/Firefox temporary-response teardown noise and **do not** suppress warnings in the full core suite. Captured screenshots must be genuine browser captures, not illustrations. The authenticated ASGI middleware allows only two bounded run-only Marimo JSON POST endpoints, `/api/kernel/function_call` (selected lazy view rendering) and `/api/kernel/set_ui_element_value` (read-only filter/refresh events). Both require a valid signed viewer cookie and exact allowed Origin, plus bounded Content-Length and Content-Type. Shell/Python execution, arbitrary kernel runs, file writes, broker routes and release changes remain denied; negative transport tests enforce this.
+The browser-only warning filters address Selenium/Firefox temporary-response teardown noise and **do not** suppress warnings in the full core suite. Captured screenshots must be genuine browser captures, not illustrations. The authenticated ASGI middleware allows only two bounded run-only Marimo JSON POST endpoints, `/api/kernel/function_call` (selected lazy view rendering) and `/api/kernel/set_ui_element_value` (read-only filter/refresh events). Both require a valid signed viewer cookie and exact allowed Origin, plus bounded Content-Length and Content-Type. The middleware also enforces the actual streamed byte count, exact declared length and a five-second total body deadline; a declared short length cannot bypass the limit. Shell/Python execution, arbitrary kernel runs, file writes, broker routes and release changes remain denied; negative transport tests enforce this.
 
 Source/fixture tests are distinct from an authenticated private-network acceptance, real financial capture, real broker PnL and owner-worker cadence tests. Missing permissions, release agreement or fresh financial evidence must stay UNKNOWN/BLOCKED. Protected services must never be stopped or restarted to generate a dashboard test.
 
@@ -66,10 +68,22 @@ Private access:
 - Reverse proxy trust is not automatic; no blanket trust for forwarded headers or an unauthenticated Cloudflare ingress. Inspect actual Tailscale Serve/ACL/HTTPS configuration before deciding the host/origin allowlist.
 - Do not activate `systemd`, point live symlinks, touch protected file ACLs or change installed Guardian revisions until an independent production deployment authorization and full rollback preflight.
 
-## Operational preflight for a *future* separately authorized release
+## Operational preflight for an authorized release
 
-Record exact installed source/wheel/companion pins and deployed service UID; verify OS permissions, live protected capture owner/publication timestamp/binding/release/sequence, independent Guardian reconciliation cadence, source freshness, private ingress and both HTTP/WS auth. Record baseline Guardian/planner/broker/watchdog PID, uptime, journal sequence and protected release pointers **before** any permitted dashboard installation, then repeat after start/restart/failure/rollback. Use existing production operations runbooks to back up and recover separately; this dashboard release must never restart Guardian or broker. Revert only the isolated dashboard symlink and service (if later authorized); never mutate Guardian financial state. In this phase all protected operations are forbidden.
+Record exact installed source/wheel/companion pins and deployed service UID; verify OS permissions, live protected capture owner/publication timestamp/binding/release/sequence, independent Guardian reconciliation cadence, source freshness, private ingress and both HTTP/WS auth. Record baseline Guardian/planner/broker/watchdog PID, uptime, journal sequence and protected release pointers **before** any permitted dashboard installation, then repeat after start/restart/failure/rollback. Use existing production operations runbooks to back up and recover separately; this dashboard release must never restart Guardian or broker. Revert only the isolated dashboard symlink and service (if later authorized); never mutate Guardian financial state. Current operator authorization determines permitted actions. Preserve the six financial services and complete every mandatory permission, isolation and rollback gate before installing the independent dashboard.
 
 ## Known blockers and release classification
 
-External notifications are NOT_CONFIGURED; genuine Guardian capture exporter has not been installed; signed pod risk budgets and matched broker-position/fill economics are not supplied by dashboard source; independent Guardian p95/cadence under real load is NOT_VERIFIED; live ingress/ACL/private service UID are NOT_VERIFIED; production dashboard is NOT_DEPLOYED. None is a reason to grant the dashboard financial write permission or promote evidence grades.
+Mandatory deployment gates are the dedicated service identity and OS permissions, private HTTP/WebSocket ingress, independently observed Guardian cadence/journal continuity, resource limits and actual dashboard-only rollback. Missing mandatory evidence blocks deployment. The final independent audit and exact issue disposition are in [the 2026-11-07 acceptance record](DASHBOARD-FINAL-AUDIT-20261107.md).
+
+Optional limitations include external delivery `NOT_CONFIGURED`, absent signed pod budgets, unavailable broker-executed follower PnL and unsupported source history. Label each affected widget explicitly. These limitations do not block unrelated registry views or require reconstruction of financial evidence.
+
+## Audit-enforced operating bounds
+
+- Cache fills hold a per-key lock, with a 200 ms wait, rather than blocking unrelated cached evidence. Native reads permit two concurrent calls **per Python reader process**, with a 100 ms admission wait. Saturation returns UNKNOWN/STALE. Marimo sessions can use separate Python processes; the systemd service still needs a measured aggregate process/CPU/memory budget.
+- Guardian and broker status cards carry their evidence state. Stale values are explicitly last observed; unavailable or blocked values are UNKNOWN. Systemd activity is a separate OS column; an active PID alone leaves financial health UNKNOWN.
+- Notification resolution requires the same source account binding. A persistent monotonic incident sequence survives retention and restarts. State older than 120 seconds, missing its update clock or dated in the future is STALE; the normal notifier interval is 30 seconds. The retained incident cannot become a fresh observation merely because the UI refreshes.
+- Financial chart reduction retains each bucket minimum/maximum and both sides of gaps/resets. If critical observations exceed the display budget, the chart becomes unavailable rather than discarding an extremum.
+- Browser acceptance sets the actual CSS viewport through WebDriver BiDi and asserts `window.innerWidth` and `window.innerHeight`. Firefox outer-window dimensions alone are insufficient. All eight views are checked at each requested viewport. Research query buttons must fit their text in both dimensions; absence of page-level horizontal scrolling alone is insufficient.
+- `python3 scripts/dashboard_runtime_probe.py` performs fixed, read-only process/release/heartbeat checks and reads at most 64 journal event identities when permitted. It never obtains credentials. Permission errors remain explicit. Journal metadata is not full hash-chain verification, and unchanged PIDs do not establish reconciliation progress.
+- The owner producer verifies the full journal chain before publishing bounded captures. Measure the full read cost before choosing its independent publication cadence. Dashboard polling does not justify repeated full-chain scans.

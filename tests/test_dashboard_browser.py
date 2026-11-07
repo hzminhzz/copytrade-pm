@@ -3,6 +3,7 @@
 Spawns a disposable localhost run-only ASGI process. Never connects to a
 protected Guardian, registry writer, broker, or production service.
 """
+
 from __future__ import annotations
 
 import importlib
@@ -25,12 +26,42 @@ Options = importlib.import_module("selenium.webdriver.firefox.options").Options
 Service = importlib.import_module("selenium.webdriver.firefox.service").Service
 
 KEY = "x" * 64
+VIEW_ROUTES = [
+    ("#/", "Operations · Account risk", "Account and risk headroom"),
+    ("#/execution", "Operations · Execution", "Execution"),
+    ("#/risk", "Operations · Risk", "Guardian"),
+    ("#/health", "Operations · System health", "Independent delivery"),
+    ("#/research", "Research · Canonical wallets", "Query registry"),
+    ("#/portfolios", "Research · Portfolios", "Read canonical portfolios"),
+    ("#/performance", "Research · Performance", "Performance"),
+    ("#/lab", "Research · Immutable reports", "Query verified research reports"),
+]
 
 
 def _port() -> int:
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         return int(sock.getsockname()[1])
+
+
+def _query_button(driver, label):
+    return driver.execute_script(
+        r"""
+        function findButton(root, label) {
+            for (const el of root.querySelectorAll('*')) {
+                const text = (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
+                if (el.tagName === 'BUTTON' && text === label) return el;
+                if (el.shadowRoot) {
+                    const found = findButton(el.shadowRoot, label);
+                    if (found) return found;
+                }
+            }
+            return null;
+        }
+        return findButton(document, arguments[0]);
+        """,
+        label,
+    )
 
 
 @pytest.fixture(scope="module")
@@ -46,10 +77,22 @@ def local_server():
         "DASHBOARD_NOTIFICATION_STATE_FILE": "",
     }
     proc = subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "copytrade_pm.dashboard.server:app",
-         "--host", "127.0.0.1", "--port", str(port), "--workers", "1",
-         "--no-access-log"],
-        env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+        [
+            sys.executable,
+            "-m",
+            "uvicorn",
+            "copytrade_pm.dashboard.server:app",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+            "--workers",
+            "1",
+            "--no-access-log",
+        ],
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
     )
     try:
         for _ in range(70):
@@ -77,6 +120,7 @@ def local_server():
 def firefox():
     options = Options()
     options.add_argument("-headless")
+    options.enable_bidi = True
     driver = webdriver.Firefox(
         options=options, service=Service(shutil.which("geckodriver") or "/snap/bin/geckodriver")
     )
@@ -89,7 +133,17 @@ def firefox():
 
 @pytest.mark.parametrize("width,height", [(390, 844), (430, 932), (1280, 800)])
 def test_private_mobile_routes_and_navigation(local_server, firefox, width, height):
-    firefox.set_window_size(width, height)
+    # Outer-window resizing is clamped by Firefox and includes browser chrome.
+    # BiDi sets the actual CSS viewport, including phone widths below 500 px.
+    firefox.browsing_context.set_viewport(
+        context=firefox.current_window_handle,
+        viewport={"width": width, "height": height},
+        device_pixel_ratio=1,
+    )
+    assert firefox.execute_script("return [window.innerWidth, window.innerHeight]") == [
+        width,
+        height,
+    ]
     firefox.get(local_server + "/login")
     assert "Private risk viewer" in firefox.page_source
     firefox.find_element(By.NAME, "secret").send_keys(KEY)
@@ -107,10 +161,10 @@ def test_private_mobile_routes_and_navigation(local_server, firefox, width, heig
     assert "Account risk" in body_text, (firefox.current_url, body_text[:2000])
     assert "Read-only" in body_text
     assert "UNKNOWN" in body_text or "UNAVAILABLE" in body_text
-    assert firefox.find_elements(By.CSS_SELECTOR, "nav[aria-label='Read-only dashboard navigation']")
-    doc_width = firefox.execute_script(
-        "return document.documentElement.scrollWidth;"
+    assert firefox.find_elements(
+        By.CSS_SELECTOR, "nav[aria-label='Read-only dashboard navigation']"
     )
+    doc_width = firefox.execute_script("return document.documentElement.scrollWidth;")
     inner_width = firefox.execute_script("return window.innerWidth;")
     # Critical content must not create top-level horizontal scrolling.
     assert doc_width <= inner_width + 5, (doc_width, inner_width, width)
@@ -122,8 +176,9 @@ def test_private_mobile_routes_and_navigation(local_server, firefox, width, heig
             break
         time.sleep(0.25)
     assert "Independent delivery" in firefox.find_element(By.TAG_NAME, "body").text
-    navs = firefox.find_elements(By.CSS_SELECTOR,
-                                 "nav[aria-label='Read-only dashboard navigation']")
+    navs = firefox.find_elements(
+        By.CSS_SELECTOR, "nav[aria-label='Read-only dashboard navigation']"
+    )
     assert navs
     assert "SECRET-LEAK" not in navs[0].get_attribute("outerHTML")
     assert "SECRET-LEAK" not in firefox.current_url
@@ -131,22 +186,52 @@ def test_private_mobile_routes_and_navigation(local_server, firefox, width, heig
     artifact_dir = os.getenv("DASHBOARD_BROWSER_ARTIFACT_DIR")
     if artifact_dir:
         Path(artifact_dir).mkdir(mode=0o700, parents=True, exist_ok=True)
-        assert firefox.save_screenshot(
-            str(Path(artifact_dir) / f"phase3-{width}x{height}.png")
+        assert firefox.save_screenshot(str(Path(artifact_dir) / f"phase3-{width}x{height}.png"))
+
+    # Exercise every view at the exact phone/desktop viewport, with safe scope.
+    for fragment, title, marker in VIEW_ROUTES:
+        firefox.get(local_server + "/?utc=7d&portfolio=gemini.phase5%2FP1%403" + fragment)
+        for _ in range(80):
+            body = firefox.find_element(By.TAG_NAME, "body").text
+            if title in body and marker in body:
+                break
+            time.sleep(0.25)
+        assert title in body and marker in body, (width, fragment, body[:1800])
+        assert firefox.execute_script("return [window.innerWidth, window.innerHeight]") == [
+            width,
+            height,
+        ]
+        assert firefox.execute_script("return document.documentElement.scrollWidth") <= width + 5, (
+            width,
+            fragment,
         )
+        if fragment == "#/health":
+            assert "OS state" in body
+        query_label = {
+            "#/research": "Query registry",
+            "#/portfolios": "Read canonical portfolios",
+            "#/lab": "Query verified research reports",
+        }.get(fragment)
+        if query_label:
+            button = _query_button(firefox, query_label)
+            assert button is not None, (width, fragment)
+            dimensions = firefox.execute_script(
+                "return [arguments[0].clientWidth, arguments[0].scrollWidth, "
+                "arguments[0].clientHeight, arguments[0].scrollHeight]",
+                button,
+            )
+            assert dimensions[1] <= dimensions[0] + 1, (width, fragment, dimensions)
+            assert dimensions[3] <= dimensions[2] + 1, (width, fragment, dimensions)
+        if artifact_dir:
+            route_name = fragment.removeprefix("#/") or "overview"
+            assert firefox.save_screenshot(
+                str(Path(artifact_dir) / f"final-{width}x{height}-{route_name}.png")
+            )
+
 
 @pytest.mark.parametrize(
     "fragment,title,marker",
-    [
-        ("#/", "Operations · Account risk", "Account and risk headroom"),
-        ("#/execution", "Operations · Execution", "Execution"),
-        ("#/risk", "Operations · Risk", "Guardian"),
-        ("#/health", "Operations · System health", "Independent delivery"),
-        ("#/research", "Research · Canonical wallets", "Query registry"),
-        ("#/portfolios", "Research · Portfolios", "Read canonical portfolios"),
-        ("#/performance", "Research · Performance", "Performance"),
-        ("#/lab", "Research · Immutable reports", "Query verified research reports"),
-    ],
+    VIEW_ROUTES,
 )
 def test_single_app_eight_lazy_views(local_server, firefox, fragment, title, marker):
     firefox.get(local_server + "/login")
@@ -161,9 +246,14 @@ def test_single_app_eight_lazy_views(local_server, firefox, fragment, title, mar
     body = firefox.find_element(By.TAG_NAME, "body").text
     assert title in body, (fragment, body[:1800])
     assert marker in body, (fragment, body[:1800])
-    assert len(firefox.find_elements(
-        By.CSS_SELECTOR, "nav[aria-label='Read-only dashboard navigation']"
-    )) == 1
+    assert (
+        len(
+            firefox.find_elements(
+                By.CSS_SELECTOR, "nav[aria-label='Read-only dashboard navigation']"
+            )
+        )
+        == 1
+    )
 
 
 def test_twenty_fresh_document_sessions_do_not_mix_views(local_server, firefox):
@@ -173,8 +263,8 @@ def test_twenty_fresh_document_sessions_do_not_mix_views(local_server, firefox):
     for iteration in range(20):
         fragment, expected, unexpected = (
             ("#/health", "Independent delivery", "Account and risk headroom")
-            if iteration % 2 else
-            ("#/", "Account and risk headroom", "Independent delivery:")
+            if iteration % 2
+            else ("#/", "Account and risk headroom", "Independent delivery:")
         )
         # Each get creates a new app document and Marimo frontend session,
         # while the same server process remains alive for all 20 iterations.
@@ -199,10 +289,7 @@ def test_same_document_hash_navigation_keyboard_and_reload(local_server, firefox
         ("#/", "Operations · Account risk", "Account and risk headroom"),
     ):
         # Click the actual authenticated nav link without a page reload.
-        selector = (
-            "nav[aria-label='Read-only dashboard navigation'] "
-            "a[href$='" + fragment + "']"
-        )
+        selector = "nav[aria-label='Read-only dashboard navigation'] a[href$='" + fragment + "']"
         for _ in range(60):
             links = firefox.find_elements(By.CSS_SELECTOR, selector)
             if links:
@@ -247,8 +334,10 @@ def test_two_simultaneous_clients_keep_independent_active_views(local_server, fi
         for _ in range(80):
             health_body = firefox.find_element(By.TAG_NAME, "body").text
             overview_body = second.find_element(By.TAG_NAME, "body").text
-            if ("Independent delivery" in health_body
-                    and "Account and risk headroom" in overview_body):
+            if (
+                "Independent delivery" in health_body
+                and "Account and risk headroom" in overview_body
+            ):
                 break
             time.sleep(0.25)
         assert "Independent delivery" in health_body

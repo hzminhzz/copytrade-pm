@@ -1,5 +1,9 @@
 # Agent-native capability discovery and read-only operations
 
+## Dashboard consumers
+
+The dashboard delegates wallet, portfolio, immutable report and scenario-rule reads to the existing native facade. Browser filters remain bounded scalar values; option-like wallet/report filters fail closed before native argument parsing. Source evidence grades and clocks survive the projection. Read saturation is an explicit unavailable state, never a healthy result. See [operating bounds](DASHBOARD-PHASE3.md) and [independent acceptance](DASHBOARD-FINAL-AUDIT-20261107.md). The read-only runtime probe adds no broker, registry-write, financial-journal-write or release capability.
+
 ## Continuous observer capabilities
 
 Discover `paper.observer.preflight` (READ_ONLY), `paper.observer.continuous` (PROTECTED_MUTATION), `paper.observer.continuous_health` (READ_ONLY), `paper.observer.continuous_watchdog` (LOCAL_MUTATION), `paper.observer.shadow_report` (READ_ONLY) and `market.continuous_canary` (PROTECTED_MUTATION). [The continuous contract](FORWARD-PAPER-CONTINUOUS-OBSERVER.md) supplies required paths and gates. Aggregate `health --observer-state-root` detects continuous heartbeat evidence without granting protected-worker or provider authority.

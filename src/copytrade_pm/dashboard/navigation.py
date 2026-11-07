@@ -3,6 +3,7 @@
 Only versioned research portfolio IDs and fixed UTC windows may travel in URLs.
 No account IDs, wallet addresses, session tokens, or arbitrary time strings.
 """
+
 from __future__ import annotations
 
 from html import escape
@@ -17,9 +18,13 @@ PORTFOLIO = re.compile(
 )
 WINDOWS = ("24h", "7d", "30d", "90d")
 ROUTES = (
-    ("#/", "Overview"), ("#/execution", "Execution"), ("#/risk", "Risk"),
-    ("#/health", "Health"), ("#/research", "Wallets"),
-    ("#/portfolios", "Portfolios"), ("#/performance", "Performance"),
+    ("#/", "Overview"),
+    ("#/execution", "Execution"),
+    ("#/risk", "Risk"),
+    ("#/health", "Health"),
+    ("#/research", "Wallets"),
+    ("#/portfolios", "Portfolios"),
+    ("#/performance", "Performance"),
     ("#/lab", "Research Lab"),
 )
 # Old page URLs redirect to the single app; links use only hash routes.
@@ -45,9 +50,9 @@ def navigation_html(scope: Mapping[str, object] | None = None) -> str:
     links = "".join(
         f'<a href="{escape("/" + suffix + route, quote=True)}" '
         f'style="display:inline-block;padding:0.5rem 0.6rem;margin:0.2rem;'
-        f'border:1px solid currentColor;border-radius:0.5rem;'
+        f"border:1px solid currentColor;border-radius:0.5rem;"
         f'text-decoration:none"'
-        f'>{escape(name)}</a>'
+        f">{escape(name)}</a>"
         for route, name in ROUTES
     )
     label = (
@@ -58,7 +63,10 @@ def navigation_html(scope: Mapping[str, object] | None = None) -> str:
     return (
         '<nav aria-label="Read-only dashboard navigation" '
         'style="max-width:100%;white-space:normal;overflow-wrap:anywhere">'
-        + links + '</nav><p style="font-size:0.85rem">' + label + '</p>'
+        + links
+        + '</nav><p style="font-size:0.85rem">'
+        + label
+        + "</p>"
     )
 
 

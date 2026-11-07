@@ -3,6 +3,7 @@
 Never touches systemd, production symlinks, broker or Guardian directories.
 Release installation on the protected VPS is deliberately not implemented here.
 """
+
 from __future__ import annotations
 
 from hashlib import sha256
@@ -48,8 +49,12 @@ def _digest(path: Path) -> str:
 
 
 def prepare(
-    root: Path, wheel: Path, *,
-    source_sha: str, guardian_sha: str, connector_sha: str,
+    root: Path,
+    wheel: Path,
+    *,
+    source_sha: str,
+    guardian_sha: str,
+    connector_sha: str,
 ) -> dict[str, Any]:
     """Create an immutable SHA-bound candidate; never activate it."""
     path = _secure_root(root)
@@ -63,10 +68,12 @@ def prepare(
     destination = releases / candidate_id
     if destination.exists():
         report = verify(destination)
-        if (report["source_sha"] != source_sha
-                or report["guardian_sha"] != guardian_sha
-                or report["connector_sha"] != connector_sha
-                or report["wheel_sha256"] != wheel_sha):
+        if (
+            report["source_sha"] != source_sha
+            or report["guardian_sha"] != guardian_sha
+            or report["connector_sha"] != connector_sha
+            or report["wheel_sha256"] != wheel_sha
+        ):
             raise ReleaseError("EXISTING_CANDIDATE_CONFLICT")
         return report
     destination.mkdir(mode=0o700)
@@ -75,10 +82,14 @@ def prepare(
         shutil.copyfile(wheel, target)
         os.chmod(target, 0o400)
         data: dict[str, Any] = {
-            "schema": SCHEMA, "source_sha": source_sha,
-            "guardian_sha": guardian_sha, "connector_sha": connector_sha,
-            "wheel_sha256": wheel_sha, "candidate": candidate_id,
-            "scope": "ISOLATED_STAGING_ONLY", "trading_authorized": False,
+            "schema": SCHEMA,
+            "source_sha": source_sha,
+            "guardian_sha": guardian_sha,
+            "connector_sha": connector_sha,
+            "wheel_sha256": wheel_sha,
+            "candidate": candidate_id,
+            "scope": "ISOLATED_STAGING_ONLY",
+            "trading_authorized": False,
             "installed": False,
         }
         manifest = destination / "manifest.json"
@@ -97,17 +108,19 @@ def verify(directory: Path) -> dict[str, Any]:
     if manifest.is_symlink():
         raise ReleaseError("RELEASE_MANIFEST_SYMLINK")
     data = json.loads(manifest.read_text(encoding="utf-8"))
-    if (data.get("schema") != SCHEMA
-            or data.get("scope") != "ISOLATED_STAGING_ONLY"
-            or data.get("installed") is not False
-            or data.get("trading_authorized") is not False
-            or data.get("candidate") != directory.name
-            or not all(isinstance(data.get(name), str)
-                       and SHA.fullmatch(data[name]) for name in (
-                "source_sha", "guardian_sha", "connector_sha"
-            ))
-            or not isinstance(data.get("wheel_sha256"), str)
-            or not re.fullmatch(r"[a-f0-9]{64}", data["wheel_sha256"])):
+    if (
+        data.get("schema") != SCHEMA
+        or data.get("scope") != "ISOLATED_STAGING_ONLY"
+        or data.get("installed") is not False
+        or data.get("trading_authorized") is not False
+        or data.get("candidate") != directory.name
+        or not all(
+            isinstance(data.get(name), str) and SHA.fullmatch(data[name])
+            for name in ("source_sha", "guardian_sha", "connector_sha")
+        )
+        or not isinstance(data.get("wheel_sha256"), str)
+        or not re.fullmatch(r"[a-f0-9]{64}", data["wheel_sha256"])
+    ):
         raise ReleaseError("RELEASE_MANIFEST_INVALID")
     if data["candidate"] != f"{data['source_sha'][:12]}-{data['wheel_sha256'][:12]}":
         raise ReleaseError("RELEASE_MANIFEST_INVALID")
