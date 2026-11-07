@@ -97,6 +97,47 @@ def test_diagnostic_reports_independent_provenance_exclusion_and_budget_without_
         candidate_preflight(**options)
 
 
+def test_diagnostic_never_reports_selected_provenance_pass_when_seal_missing(tmp_path, monkeypatch):
+    import copytrade_pm.pm_forward_continuous as module
+
+    registry = _registry(tmp_path)
+    monkeypatch.setattr(
+        module,
+        "db_authority_health",
+        lambda _path: {"database_integrity": "VERIFIED", "inventory_sha256": "b" * 64},
+    )
+
+    def unsealed(*_args, **_kwargs):
+        raise ValueError("STREAM_PORTFOLIO_NOT_SEALED_ASOF")
+
+    monkeypatch.setattr(module, "_portfolio_seals", unsealed)
+    monkeypatch.setattr(
+        module,
+        "registry_watched_addresses",
+        lambda *_args, **_kwargs: {"0x" + "1" * 40: "wallet:1"},
+    )
+    root = tmp_path / "uncreated"
+    options = dict(
+        registry_db=registry,
+        state_root=root,
+        instruments=(BTC,),
+        revision="a" * 40,
+        as_of=AT,
+        budget=SubscriptionBudget(),
+        portfolio_ids=("regime.macro/TriadA",),
+        expected_inventory_sha="b" * 64,
+    )
+    report = diagnose_candidate_preflight(**options)
+    assert report["status"] == "BLOCKED"
+    assert report["gates"]["portfolio_seals"]["reason_code"] == ("STREAM_PORTFOLIO_NOT_SEALED_ASOF")
+    assert report["gates"]["signed_selection"]["status"] == "BLOCKED"
+    assert report["gates"]["signed_selection"]["scope"] == "REQUESTED_PORTFOLIO_SEALS_ONLY"
+    assert report["safe_to_start"] is False
+    assert not root.exists()
+    with pytest.raises(ValueError, match="STREAM_PORTFOLIO_NOT_SEALED_ASOF"):
+        candidate_preflight(**options)
+
+
 def test_diagnostic_can_pass_all_checks_but_never_admit_start(tmp_path, monkeypatch):
     import copytrade_pm.pm_forward_continuous as module
 
