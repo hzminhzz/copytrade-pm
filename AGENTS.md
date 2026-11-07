@@ -177,6 +177,13 @@ reversible installation. Never grant Marimo journal access or activate protected
 capture/Guardian services as a shortcut.
 For final dashboard review, read [the independent acceptance record](docs/DASHBOARD-FINAL-AUDIT-20261107.md)
 and the operating bounds in [the release runbook](docs/DASHBOARD-PHASE3.md).
+For an authorized dashboard install, upgrade, private ingress, service fault test
+or rollback under the shared `quant` Linux user, read
+[the quant-owned runtime receipt](docs/DASHBOARD-QUANT-DEPLOYMENT-20261107.md)
+and `ops/dashboard-quant/`. The operator explicitly chose `quant` instead of a
+dedicated UID; use the proven Bubblewrap read-only mounts and user service.
+Keep private host/secret in the host env file. Running private UI does not attest
+protected Guardian reconciliation or financial journal continuity.
 Verify actual browser CSS viewport dimensions; outer Firefox window sizes can
 silently clamp phone tests. Keep optional evidence limitations separate from
 mandatory permission, private ingress, Guardian cadence and rollback gates.

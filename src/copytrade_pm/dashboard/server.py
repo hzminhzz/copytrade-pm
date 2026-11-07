@@ -177,10 +177,23 @@ class ViewerAuth:
             names.count(name) > 1
             for name in ("host", "origin", "cookie", "content-length", "content-type")
         ) or any(
-            name in names
-            for name in ("x-forwarded-host", "x-original-url", "x-rewrite-url", "transfer-encoding")
+            name in names for name in ("x-original-url", "x-rewrite-url", "transfer-encoding")
         ):
             return await self._deny(scope, send, 403)
+        if "x-forwarded-host" in names:
+            # Tailscale Serve supplies a redundant forwarded host after TLS
+            # termination. Accept only its exact HTTPS, same-Host echo from
+            # a real loopback socket; never use it to resolve routing/auth.
+            client = scope.get("client")
+            peer = client[0] if isinstance(client, (tuple, list)) and client else None
+            if (
+                peer not in {"127.0.0.1", "::1"}
+                or names.count("x-forwarded-host") != 1
+                or names.count("x-forwarded-proto") != 1
+                or headers["x-forwarded-host"] != headers.get("host")
+                or headers["x-forwarded-proto"] != "https"
+            ):
+                return await self._deny(scope, send, 403)
         if not _allowed_host(headers, self.allowed_hosts):
             return await self._deny(scope, send, 403)
         if kind == "websocket" and not _origin_ok(headers, self.allowed_origins):

@@ -83,6 +83,43 @@ def test_external_host_requires_explicit_tls_origin_and_cookie():
         assert "samesite=strict" in reply.headers["set-cookie"].lower()
 
 
+def test_tailscale_https_proxy_host_echo_requires_loopback_and_exact_host():
+    domain = "dashboard.tailnet.example"
+    origin = "https://" + domain + ":8443"
+    host = domain + ":8443"
+    headers = {
+        "host": host,
+        "x-forwarded-host": host,
+        "x-forwarded-proto": "https",
+    }
+    app = make_app(
+        secret=KEY,
+        allowed_hosts=frozenset({domain}),
+        allowed_origins=frozenset({origin}),
+    )
+    # An actual loopback TLS-terminating reverse proxy may echo Host.
+    with TestClient(app, base_url=origin, client=("127.0.0.1", 42100)) as client:
+        assert client.get("/login", headers=headers).status_code == 200
+        assert client.get("/", headers=headers).status_code == 401
+        signed = client.post(
+            "/login",
+            headers={**headers, "origin": origin},
+            data={"secret": KEY},
+            follow_redirects=False,
+        )
+        assert signed.status_code == 303
+        assert client.get("/", headers=headers).status_code == 200
+        for invalid in (
+            {"x-forwarded-host": "attacker.example"},
+            {"x-forwarded-proto": "http"},
+            {"host": "attacker.example"},
+        ):
+            assert client.get("/login", headers={**headers, **invalid}).status_code == 403
+    # Identical headers from a non-loopback peer cannot impersonate Tailscale.
+    with TestClient(app, base_url=origin, client=("198.51.100.10", 42100)) as client:
+        assert client.get("/login", headers=headers).status_code == 403
+
+
 @pytest.mark.parametrize(
     "header",
     [
