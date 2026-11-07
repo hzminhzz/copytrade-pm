@@ -222,14 +222,33 @@ def _guardian_public_data(command: str, native: Mapping[str, Any]) -> dict[str, 
     if command == "risk":
         finance = native.get("finance")
         finance = finance if isinstance(finance, dict) else {}
+        raw_used = native.get("pod_loss_used")
+        used = raw_used if isinstance(raw_used, dict) else {}
+        pods = [
+            {"pod_id": safe_text(name, 96), "loss_used": safe_decimal(amount),
+             "loss_budget": None}
+            for name, amount in sorted(used.items(), key=lambda pair: str(pair[0]))[:64]
+            if safe_text(name, 96) is not None
+        ]
         return {
             "finance": {
                 key: safe_decimal(finance.get(key))
-                for key in ("equity", "headroom", "daily_headroom", "trailing_headroom",
-                            "realized_made")
+                for key in (
+                    "equity", "cash", "unrealized", "initial_margin", "maintenance_margin",
+                    "headroom", "daily_headroom", "trailing_headroom", "daily_baseline",
+                    "daily_floor", "internal_floor", "trailing_floor", "risk_floor",
+                    "high_water", "day_high_water", "realized_made",
+                )
             },
+            "finance_observed_at_ms": finance.get("observed_at_ms")
+            if type(finance.get("observed_at_ms")) is int else None,
             "reservation_count": len(native["reservations"])
             if isinstance(native.get("reservations"), dict) else None,
+            "pod_loss_used": pods,
+            "pod_entries_truncated": len(used) > 64,
+            "pod_budget_authority": "UNAVAILABLE_IN_NATIVE_OPERATOR_RISK_V1",
+            "gross_exposure": None,
+            "net_exposure": None,
         }
     if command == "broker":
         return {
@@ -247,23 +266,63 @@ def _guardian_public_data(command: str, native: Mapping[str, Any]) -> dict[str, 
     if command == "portfolio":
         decisions = native.get("decisions")
         if not isinstance(decisions, list):
-            return {"decision_count": None, "decision_statuses": None}
+            return {"decision_count": None, "decision_statuses": None, "decisions": []}
+        visible = []
+        for item in decisions[:64]:
+            if not isinstance(item, dict):
+                continue
+            pods = item.get("pods")
+            visible.append({
+                "decision_id": safe_text(item.get("decision_id"), 96),
+                "release_sha": safe_text(item.get("release_sha"), 96),
+                "status": safe_text(item.get("status")),
+                "reasons": [safe_text(r) for r in item.get("reasons", [])[:8]
+                            if safe_text(r)] if isinstance(item.get("reasons"), list) else [],
+                "pod_count": len(pods) if isinstance(pods, list) else None,
+            })
         return {
             "decision_count": len(decisions),
             "decision_statuses": dict(Counter(
                 safe_text(d.get("status")) or "UNKNOWN"
                 for d in decisions[:1000] if isinstance(d, dict)
             )),
+            "decisions": visible,
+            "truncated": len(decisions) > 64,
         }
     intents = native.get("intents")
     if not isinstance(intents, list):
-        return {"intent_count": None, "intent_statuses": None}
+        return {"intent_count": None, "intent_statuses": None, "intents": []}
+    visible = []
+    for item in intents[:100]:
+        if not isinstance(item, dict):
+            continue
+        visible.append({
+            "intent_id": safe_text(item.get("intent_id"), 96),
+            "decision_id": safe_text(item.get("decision_id"), 96),
+            "release_sha": safe_text(item.get("release_sha"), 96),
+            "market": safe_text(item.get("market"), 96),
+            "quantity": safe_decimal(item.get("quantity")),
+            "filled": safe_decimal(item.get("filled")),
+            "status": safe_text(item.get("status")),
+            "broker_epoch": item.get("broker_epoch")
+            if type(item.get("broker_epoch")) is int else None,
+            "boot_epoch": item.get("boot_epoch")
+            if type(item.get("boot_epoch")) is int else None,
+            "created_at_ms": item.get("created_at_ms")
+            if type(item.get("created_at_ms")) is int else None,
+            "expires_at_ms": item.get("expires_at_ms")
+            if type(item.get("expires_at_ms")) is int else None,
+            "reduce_only": item.get("reduce_only")
+            if type(item.get("reduce_only")) is bool else None,
+        })
     return {
         "intent_count": len(intents),
         "intent_statuses": dict(Counter(
             safe_text(item.get("status")) or "UNKNOWN"
             for item in intents[:1000] if isinstance(item, dict)
         )),
+        "intents": visible,
+        "truncated": len(intents) > 100,
     }
 
 
@@ -297,6 +356,7 @@ class DashboardReader:
         observer_root: Path | None = None,
         guardian_provider: Callable[[str], Mapping[str, Any]] | None = None,
         capture_root: Path | None = None,
+        research_root: Path | None = None,
         clock: Callable[[], datetime] = utc_now,
         native_read: Callable[[list[str]], Mapping[str, Any]] | None = None,
         cache: SmallTTLCache | None = None,
@@ -304,6 +364,11 @@ class DashboardReader:
         self.db = db if db is not None else registry.DB
         self.observer_root = observer_root
         self.guardian_provider = guardian_provider or GuardianCaptureDirectory(capture_root)
+        configured_research = os.environ.get("DASHBOARD_RESEARCH_CACHE_ROOT", "")
+        self.research_root = (
+            research_root if research_root is not None
+            else Path(configured_research) if configured_research else None
+        )
         self.clock = clock
         self._native_override = native_read
         self.cache = cache or _SHARED_CACHE
@@ -542,6 +607,227 @@ class DashboardReader:
             "membership_authority": "UNKNOWN_UNTIL_VERIFIED_INSTALLED_AND_RUNTIME_RELEASE",
             "trading_authorized": False,
         }
+
+    def risk_status(self) -> dict[str, Any]:
+        """Current Guardian-only risk; never estimate a contractual floor in the UI."""
+        report = self.overview()
+        sources = report["sources"]
+        risk = sources["risk"]
+        raw = risk.get("data")
+        raw = raw if isinstance(raw, dict) else {}
+        finance = raw.get("finance") if risk["status"] == "VERIFIED" else {}
+        finance = finance if isinstance(finance, dict) else {}
+        names = (
+            "equity", "headroom", "daily_headroom", "trailing_headroom",
+            "daily_floor", "internal_floor", "trailing_floor", "risk_floor",
+            "daily_baseline", "high_water", "realized_made", "unrealized",
+            "initial_margin", "maintenance_margin",
+        )
+        metrics = {
+            name: {
+                "value": finance.get(name),
+                "status": (risk["status"] if risk["status"] != "VERIFIED"
+                           else "VERIFIED" if finance.get(name) is not None else "UNKNOWN"),
+                "unit": "account currency (operator native)",
+            }
+            for name in names
+        }
+        return {
+            "schema": "dashboard_risk_v1",
+            "retrieved_at": utc_text(self.clock()),
+            "metrics": metrics,
+            "pod_losses": raw.get("pod_loss_used", []) if risk["status"] == "VERIFIED" else [],
+            "pod_budget_status": "UNAVAILABLE",
+            "pod_budget_reason": "operator_risk_v1 exports use, not signed budget limits",
+            "pod_entries_truncated": raw.get("pod_entries_truncated", False),
+            "reservation_count": raw.get("reservation_count")
+            if risk["status"] == "VERIFIED" else None,
+            "exposure": {"gross": None, "net": None, "status": "UNAVAILABLE"},
+            "guardian_halts": (sources["status"].get("data") or {}).get("halts")
+            if sources["status"]["status"] in {"VERIFIED", "STALE"} else None,
+            "reconciliation": (sources["broker"].get("data") or {}).get("certainty")
+            if sources["broker"]["status"] == "VERIFIED" else "UNKNOWN",
+            "sources": sources,
+            "trading_authorized": False,
+        }
+
+    def execution_monitor(self) -> dict[str, Any]:
+        """Read only durable owner IDs. Never correlate events by nearby clocks."""
+        sources = {name: self.guardian(name)
+                   for name in ("status", "portfolio", "intent", "broker")}
+        complete = all(s["status"] == "VERIFIED" and s["revision"]
+                       for s in sources.values())
+        bindings = {(s["account_binding_sha"], s["revision"], s["journal_sequence"])
+                    for s in sources.values()}
+        coherent = bool(complete and len(bindings) == 1)
+        portfolio = sources["portfolio"].get("data")
+        intent = sources["intent"].get("data")
+        broker = sources["broker"].get("data")
+        portfolio = portfolio if isinstance(portfolio, dict) else {}
+        intent = intent if isinstance(intent, dict) else {}
+        broker = broker if isinstance(broker, dict) else {}
+        decisions = portfolio.get("decisions") or []
+        decisions_by_id: dict[str, list[dict]] = {}
+        for item in decisions:
+            if isinstance(item, dict) and item.get("decision_id"):
+                decisions_by_id.setdefault(item["decision_id"], []).append(item)
+        rows = []
+        for item in intent.get("intents") or []:
+            if not isinstance(item, dict):
+                continue
+            matches = decisions_by_id.get(item.get("decision_id"), [])
+            linked = (
+                coherent and len(matches) == 1
+                and matches[0].get("release_sha") == item.get("release_sha")
+                and item.get("release_sha") == sources["intent"]["revision"]
+            )
+            rows.append({
+                **item,
+                "decision_link": "VERIFIED_ID_MATCH" if linked else "UNKNOWN",
+                "decision_status": matches[0].get("status") if linked else None,
+                "source_event_at": None,
+                "first_known_at": None,
+                "batch_decision_at": None,
+                "guardian_intent_at_ms": item.get("created_at_ms"),
+                "broker_acceptance_at": None,
+                "broker_fill_at": None,
+                "reconciliation_at_ms": broker.get("last_snapshot_ms")
+                if coherent else None,
+            })
+        return {
+            "schema": "dashboard_execution_v1",
+            "retrieved_at": utc_text(self.clock()),
+            "coherent_capture": coherent,
+            "link_status": "VERIFIED_CAPTURE_BINDING" if coherent else "UNKNOWN",
+            "decisions": decisions if sources["portfolio"]["status"] == "VERIFIED" else [],
+            "intents": rows if sources["intent"]["status"] == "VERIFIED" else [],
+            "decision_count": portfolio.get("decision_count"),
+            "intent_count": intent.get("intent_count"),
+            "truncated": bool(portfolio.get("truncated") or intent.get("truncated")),
+            "source_events": None,
+            "first_known_events": None,
+            "batch_decisions": None,
+            "target_vs_actual": None,
+            "reconciliation": broker.get("certainty")
+            if sources["broker"]["status"] == "VERIFIED" else "UNKNOWN",
+            "sources": sources,
+            "trading_authorized": False,
+        }
+
+    def portfolio_explorer(self, *, asof: str | None = None,
+                           limit: int = 80) -> dict[str, Any]:
+        """Canonical frozen SQLite definitions, separate from financial runtime."""
+        now = self.clock()
+        if (asof is not None and (parse_utc(asof) is None or
+                                 parse_utc(asof) > now)) or type(limit) is not int or not 1 <= limit <= 100:
+            return envelope("registry.portfolio_explorer", "BLOCKED",
+                            authority="wallet_registry", now=now,
+                            error_code="INVALID_PORTFOLIO_FILTER")
+        suffix = ["--asof", asof] if asof else []
+        catalog = self._native_envelope(["portfolios", "list", *suffix], "portfolio.list")
+        selection = (self._native_envelope(["portfolios", "current", *suffix],
+                                         "portfolio.current") if asof
+                     else self.research_selection())
+        records = catalog.get("data")
+        if catalog["status"] not in {"VERIFIED", "STALE"} or not isinstance(records, dict):
+            return {
+                "schema": "dashboard_portfolios_v1", "status": catalog["status"],
+                "records": [], "catalog": catalog, "selection": selection,
+                "error_code": catalog["error_code"] or "PORTFOLIO_CATALOG_UNAVAILABLE",
+                "trading_authorized": False,
+            }
+        if len(records) > 250:
+            return {
+                "schema": "dashboard_portfolios_v1", "status": "BLOCKED",
+                "records": [], "catalog": catalog, "selection": selection,
+                "error_code": "PORTFOLIO_CATALOG_EXCEEDS_READ_BUDGET",
+                "trading_authorized": False,
+            }
+        selected_data = selection.get("data")
+        selected_data = selected_data if isinstance(selected_data, dict) else {}
+        selection_valid = (
+            selection["status"] in {"VERIFIED", "STALE"}
+            and str(selected_data.get("selection_state", "")).startswith("SIGNATURE_CHECKED")
+        )
+        selected = {
+            (p.get("portfolio_id"), p.get("version"), p.get("definition_sha256"))
+            for p in selected_data.get("portfolios", [])
+            if selection_valid and isinstance(p, dict)
+        }
+        visible = []
+        for key, record in sorted(records.items())[:limit]:
+            if not isinstance(record, dict) or not isinstance(key, str):
+                continue
+            identity = safe_text(record.get("portfolio_id"), 96)
+            if identity is None or identity != safe_text(key, 96):
+                continue
+            members = record.get("members")
+            members = members if isinstance(members, list) else []
+            chosen = (identity, record.get("version"),
+                      record.get("definition_sha256")) in selected
+            visible.append({
+                "portfolio_id": identity,
+                "version": record.get("version"),
+                "definition_sha256": safe_text(record.get("definition_sha256"), 96),
+                "selection_known_at": safe_text(record.get("selection_known_at")),
+                "members": [safe_text(m, 96) for m in members[:50] if safe_text(m, 96)],
+                "members_truncated": len(members) > 50,
+                "source_state": safe_text(record.get("state")),
+                "sizing_contract": safe_text(record.get("sizing_contract")),
+                "source_sealed": record.get("source_sealed") is True,
+                "account_scope": safe_text(record.get("account_scope")),
+                "market_scope": safe_text(record.get("market_scope")),
+                "exclusions": sanitized(record.get("exclusions"))
+                if isinstance(record.get("exclusions"), list) else None,
+                "signed_fixed_k": sanitized(record.get("signed_fixed_k"))
+                if isinstance(record.get("signed_fixed_k"), dict) else None,
+                "storage_state": "SAVED",
+                "research_state": "RESEARCH_SELECTED" if chosen else "SAVED",
+                "deployment_state": "UNKNOWN",
+                "runtime_state": "UNKNOWN",
+                "release_binding": "UNAVAILABLE_NO_VERIFIED_PORTFOLIO_RELEASE_MAPPING",
+            })
+        return {
+            "schema": "dashboard_portfolios_v1", "status": catalog["status"],
+            "records": visible, "total": len(records), "truncated": len(records) > limit,
+            "catalog": catalog, "selection": selection, "asof": asof,
+            "trading_authorized": False,
+        }
+
+    def research_reports(self, *, run_id: str | None = None, cache_key: str | None = None,
+                         limit: int = 50, offset: int = 0) -> dict[str, Any]:
+        """Fixed owner-configured cache scope; UI cannot supply paths or run jobs."""
+        now = self.clock()
+        if (type(limit) is not int or not 1 <= limit <= 100
+                or type(offset) is not int or not 0 <= offset <= 10000
+                or (run_id is not None and not re.fullmatch(r"[A-Za-z0-9_.-]{1,96}", run_id))
+                or (cache_key is not None and SHA256.fullmatch(cache_key) is None)):
+            return envelope("research.reports", "BLOCKED",
+                            authority="immutable_offline_job_cache", now=now,
+                            error_code="INVALID_RESEARCH_FILTER")
+        if self.research_root is None:
+            return envelope("research.reports", "UNAVAILABLE",
+                            authority="immutable_offline_job_cache", now=now,
+                            error_code="RESEARCH_CACHE_ROOT_NOT_CONFIGURED",
+                            limitations=["Only explicitly configured immutable report caches are readable"])
+        cmd = ["research", "show" if run_id else "list"]
+        if run_id:
+            cmd.append(run_id)
+        cmd.extend(["--cache-root", str(self.research_root), "--limit", str(limit),
+                    "--offset", str(offset)])
+        if cache_key:
+            cmd.extend(["--cache-key", cache_key])
+        result = self._native_envelope(cmd, "research.reports")
+        payload = result.get("data")
+        if result["status"] in {"VERIFIED", "STALE"} and (
+            not isinstance(payload, dict)
+            or payload.get("schema") != "pm_offline_verified_job_catalog_v1"
+            or not isinstance(payload.get("reports"), list)
+            or len(payload["reports"]) > limit
+        ):
+            result.update(status="BLOCKED", data=None,
+                          error_code="RESEARCH_CATALOG_SCHEMA_INVALID")
+        return result
 
     def _os_services(self) -> dict[str, Any]:
         records = {}
