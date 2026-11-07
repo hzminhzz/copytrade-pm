@@ -42,10 +42,19 @@ def test_auth_required_for_http_and_actual_marimo_routes():
             "/portfolios",
             "/performance",
             "/lab",
-            "/health/assets/no.css",
         ):
-            result = client.get(path)
-            assert result.status_code == 401
+            result = client.get(path, follow_redirects=False)
+            assert result.status_code == 303
+            assert result.headers["location"] == "/login"
+            assert "no-store" in result.headers["cache-control"]
+        # Page redirection must never forward secret URL parameters.
+        result = client.get("/?token=SECRET&wallet=0xabc", follow_redirects=False)
+        assert result.status_code == 303
+        assert result.headers["location"] == "/login"
+        assert client.head("/risk", follow_redirects=False).status_code == 303
+        # Only navigational pages get a login redirect; API/static remain denied.
+        for path in ("/api/kernel/ws", "/api/kernel/function_call", "/health/assets/no.css"):
+            assert client.get(path, follow_redirects=False).status_code == 401
         assert client.get("/login").status_code == 200
         assert (
             client.post(

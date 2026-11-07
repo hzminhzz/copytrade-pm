@@ -7,13 +7,14 @@ Bubblewrap mount namespace is the narrower security boundary.
 
 ## Release identity
 
-The reviewed HTTPS-capable installation pins package source commit
-`a51d0a675f250350a565ce8d813882e134e86d40`, wheel SHA256
-`cfaf2c4136f4705402bac7018ac469669136c9517a47890dee2918bbc964871f`,
-and frozen `uv.lock` dependency hashes. Installed release directory:
-`/home/quant/.local/share/copytrade-dashboard/releases/a51d0a675f2-cfaf2c4136f4`.
-The preceding root-only candidate `307629eec3b9-e718faa6bf13` remains intact
-for evidence, but does not admit Tailscale's legitimate HTTPS proxy headers.
+The current HTTPS-capable, login-friendly installation pins the reviewed
+source commit `29d006131662978653abc7e455591b20221f7607`, wheel SHA256
+`aa94784c356f6fed2d39ea1922c4725a9266d145deeb6fd6f24d375f6bc9b6a7` and frozen `uv.lock` dependency hashes.
+Installed release directory:
+`/home/quant/.local/share/copytrade-dashboard/releases/29d006131662-aa94784c356f`.
+Previous release `a51d0a675f2-cfaf2c4136f4` is retained for rollback.
+The current release redirects anonymous dashboard pages to `/login`;
+API and WebSocket authorization remains unchanged.
 
 `launch.sh` has no dependency on the protected six system services.
 It binds only the approved package release and canonical SQLite registry file
@@ -33,8 +34,9 @@ are absent inside the sandbox; protected finance must show UNKNOWN/UNAVAILABLE.
 - Use `systemctl --user daemon-reload`, `enable --now`, `status`, and
   inspect `journalctl --user -u copytrade-dashboard.service` (no password
   is printed).
-- Locally verify unauthenticated 401, valid Origin login cookie and authenticated
-  view without exposing the service outside 127.0.0.1.
+- Locally verify unauthenticated page 303 to `/login`, private API 401,
+  valid Origin login cookie and authenticated view without exposing the
+  service outside 127.0.0.1.
 - Preserve existing Tailscale Serve routes. Add a separate tailnet-only HTTPS
   listener at port 8443 only after the local service is healthy. Check
   `tailscale serve status --json` before and after.

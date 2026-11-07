@@ -27,8 +27,9 @@ def secret() -> str:
 def main() -> None:
     with Client(base_url=BASE, follow_redirects=False, timeout=15) as c:
         assert c.get("/login").status_code == 200
-        assert c.get("/").status_code == 401
-        assert c.get("/research").status_code == 401
+        assert c.get("/").status_code == 303
+        assert c.get("/research").status_code == 303
+        assert c.get("/api/kernel/ws").status_code == 401
         assert c.get("/login", headers={"host": "attacker.example"}).status_code == 403
         assert (
             c.post("/login", data={"secret": "invalid"}, headers={"origin": ORIGIN}).status_code

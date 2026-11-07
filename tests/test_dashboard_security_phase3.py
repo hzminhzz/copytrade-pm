@@ -63,7 +63,7 @@ def test_external_host_requires_explicit_tls_origin_and_cookie():
         # A same-origin Referer permits ordinary browser login form submission
         # while refusing Referer disclosure to other origins.
         assert client.get("/login").headers["referrer-policy"] == "same-origin"
-        assert client.get("/risk/").status_code == 401
+        assert client.get("/risk/", follow_redirects=False).status_code == 303
         assert client.get("/risk/", headers={"host": "malicious.example"}).status_code == 403
         assert (
             client.post(
@@ -100,7 +100,7 @@ def test_tailscale_https_proxy_host_echo_requires_loopback_and_exact_host():
     # An actual loopback TLS-terminating reverse proxy may echo Host.
     with TestClient(app, base_url=origin, client=("127.0.0.1", 42100)) as client:
         assert client.get("/login", headers=headers).status_code == 200
-        assert client.get("/", headers=headers).status_code == 401
+        assert client.get("/", headers=headers, follow_redirects=False).status_code == 303
         signed = client.post(
             "/login",
             headers={**headers, "origin": origin},

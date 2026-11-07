@@ -34,8 +34,10 @@ def key() -> str:
 def main():
     with Client(base_url=URL, timeout=15, follow_redirects=False, headers={"User-Agent": UA}) as c:
         assert c.get("/login").status_code == 200
-        assert c.get("/").status_code == 401
-        assert c.get("/research").status_code == 401
+        assert c.get("/").status_code == 303
+        assert c.get("/research").status_code == 303
+        assert c.get("/", params={"token": "should-not-echo"}).headers["location"] == "/login"
+        assert c.get("/api/kernel/ws").status_code == 401
         assert c.post("/login", data={"secret": key()}).status_code == 403
         login = c.post("/login", data={"secret": key()}, headers={"origin": URL})
         assert login.status_code == 303, login.status_code

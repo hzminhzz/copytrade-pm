@@ -11,7 +11,7 @@ TAILNET_HOST=$(tailscale status --json | jq -r '.Self.DNSName | rtrimstr(".")')
 case "$TAILNET_HOST" in *.ts.net) ;; *) exit 75;; esac
 PRIVATE_LOGIN="https://$TAILNET_HOST:8443/login"
 PREVIOUS=$(readlink "$CURRENT")
-case "$PREVIOUS" in releases/a51d0a675f2-cfaf2c4136f4) ;; *) exit 72;; esac
+case "$PREVIOUS" in releases/29d006131662-aa94784c356f) ;; *) exit 72;; esac
 
 restore() {
   active=$(readlink "$CURRENT" 2>/dev/null || true)

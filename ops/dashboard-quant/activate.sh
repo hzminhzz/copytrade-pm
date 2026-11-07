@@ -4,8 +4,8 @@ set -eu
 umask 077
 [ "$(id -un)" = quant ] || exit 60
 ROOT=/home/quant/.local/share/copytrade-dashboard
-RID=a51d0a675f2-cfaf2c4136f4
-SHA=cfaf2c4136f4705402bac7018ac469669136c9517a47890dee2918bbc964871f
+RID=29d006131662-aa94784c356f
+SHA=aa94784c356f6fed2d39ea1922c4725a9266d145deeb6fd6f24d375f6bc9b6a7
 RELEASE="$ROOT/releases/$RID"
 CURRENT="$ROOT/current"
 test -L "$CURRENT" || exit 61
@@ -29,7 +29,10 @@ if systemctl --user restart copytrade-dashboard.service; then
     if systemctl --user is-active --quiet copytrade-dashboard.service \
       && curl -sS --max-time 6 --output /dev/null --write-out '%{http_code}' \
          --user-agent 'OpenAI File Downloader, XaiImageApiFetch/1.0' \
-         "$PRIVATE_LOGIN" | grep -qx '200'
+         "$PRIVATE_LOGIN" | grep -qx '200' \
+      && curl -sS --max-time 6 --output /dev/null --write-out '%{http_code}' \
+         --user-agent 'OpenAI File Downloader, XaiImageApiFetch/1.0' \
+         "https://$TAILNET_HOST:8443/" | grep -qx '303'
     then
       echo "HTTPS_DASHBOARD_ACTIVATED"
       exit 0
