@@ -59,6 +59,29 @@ The IDs are **SQLite-generation-local**, not stable cross-registry identifiers. 
 
 **F02 exploratory challenger:** {Registry-ID 238, Registry-ID 267, M56}. Maker dependence is worse and July–August Vike trade history for M56 is unavailable. Do not promote over F01.
 
+### Three additional research-only combinations (8 November follow-up)
+
+The following are **alternative configurations**, not independent risk sleeves that should automatically run simultaneously. The candidate-selection and economic-replay status remains historical SOURCE_SCREEN_ONLY.
+
+| Candidate | Members (SQLite-generation-local IDs) | Distinguishing exposure | Main risk |
+| --- | --- | --- | --- |
+| **F03** | **238 + 179 + M56** | 238 active multi-coin and 179 shorter, taker-driven HYPE/ADA; M56 diversifies closed-trade cadence across more instruments | M56 had **94.4% recent maker fills**, median 18.56h source closed-trade hold, 6.77x recent gross native account exposure; earlier months absent |
+| **F04** | **267 + 179 + M56** | Substitutes 267 for 238; 267 has smaller recent reported gross exposure and faster median source closed trades | 267 **83.0% maker**, M56 **94.4% maker**, tiny source median per-trade economics; high sensitivity to taker conversion and T+5m |
+| **F05** | **238 + 179 + Registry-ID 292** | 292 is a new 7/7 daily **fill-derived** positive candidate with **6.9% maker** in Nov 1–7; its recent closed-trade median is ~5.0h | **RECONCILIATION BLOCKER:** wallet 292 reported +$10,226.97 for Nov 1–7 in reconstructed closed-trade PnL but only **+$558.09** when summing its native fill closedPnl minus USDC fees over a null-cursor-complete 480-fill window. The reconstructed PnL must not count as follower or trustworthy source income until reconciled. Its historical July–November closed-trade net +$5,604.85 also derives heavily from recent wins. |
+
+**F05 was initially explored with registry ID 124 but revised before final selection.** ID 124 had median ~4.08h trades and +$1,914.44 Nov 1–7 observed closed-trade net, but recent fill-derived PnL was negative on three calendar days, 83.0% maker, 36.4% provider max DD and ~8.69x snapshot gross exposure (two open positions, oldest August 22). The intended short-hold, volatile-week resilience goal favors trying ID 292 first *as a lower-confidence candidate*, pending reconciliation.
+
+**Daily source fill checks** (Nov 1–7, complete requested pages):
+- 238: +$1,731.52 from 1,499 fills, maker 68.4%; its fill-derived daily net was negative on November 3 and 7 even though its closed-trade *exit-day* series was positive all seven days.
+- 267: +$1,142.92 from 364 fills, maker 83.0%; all seven fill-based calendar days positive.
+- 179: +$1,569.35 from 445 fills, 0% maker; one negative fill-based calendar day on November 5.
+- M56: +$22,952.33 from 2,451 fills, 94.4% maker; negative on November 1 and 7, large positive close-PnL concentration on November 4 and 6.
+- 292: +$558.09 from 480 fills, 6.9% maker; **all seven** fill-based days positive. Source fee-adjusted realized edge was about **13 basis points of fill turnover**, too thin for a five-minute-late taker follower without a matched executable replay.
+
+**Independent evidence update:** The additional Vike MCP wallet-specific pages were preserved in a **new immutable private** 100-file generation at `/home/quant/.local/share/copytrade/reports/fastpass-july-nov-recovery-20261108/g-8125c45c9d85b96d12a9` (SHA-256 collection `8125c45c9d85b96d12a986dcad9667c811203c3953fcee7d5ca6ddbc61a0e338`). It includes the earlier generation's 89 original files plus 11 later source chunks. The prior generation remains untouched; SHA re-verification of identical re-publication passed. Additional Vike closed-trade histories for 124, 244, 292 and 337 were fully paginated to the requested July 1 lower bound. Wallet 244 had **six** negative source closed-trade days during the recent week and was rejected; wallet 337 had two such negative days and an approximately 53.8% provider max DD and was rejected.
+
+**Decision:** Investigate F03 first, F04 second, F05 third *only as a copyability/reconciliation challenger*. No claim of three extra scientifically qualified portfolios or three independent deployed sleeves. Keep old F01/F02 and production registry unchanged. Do not reuse the same manager across proposed portfolios as simultaneous allocations without aggregate pod-exposure netting, conservative portfolio stop accounting and concentration control.
+
 The 30-portfolio target is **not scientifically achieved**. Forming 17 near-identical triples from only 3–4 source-screened managers would not demonstrate diversification or contract-pass performance. Nothing was registered in SQLite or added to the production roster.
 
 ## Native PM acceptance boundary
