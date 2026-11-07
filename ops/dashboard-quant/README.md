@@ -33,8 +33,9 @@ are absent inside the sandbox; protected finance must show UNKNOWN/UNAVAILABLE.
 - Use `systemctl --user daemon-reload`, `enable --now`, `status`, and
   inspect `journalctl --user -u copytrade-dashboard.service` (no password
   is printed).
-- Locally verify unauthenticated 401, valid Origin login cookie and authenticated
-  view without exposing the service outside 127.0.0.1.
+- Locally verify unauthenticated page 303 to `/login`, private API 401,
+  valid Origin login cookie and authenticated view without exposing the
+  service outside 127.0.0.1.
 - Preserve existing Tailscale Serve routes. Add a separate tailnet-only HTTPS
   listener at port 8443 only after the local service is healthy. Check
   `tailscale serve status --json` before and after.

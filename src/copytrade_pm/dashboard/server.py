@@ -268,6 +268,23 @@ class ViewerAuth:
         if path == "/login" and kind == "http":
             return await self.downstream(scope, receive, send)
         if not authenticated:
+            # Show human visitors the login screen, but keep APIs, assets,
+            # and WebSockets fail-closed. Never propagate untrusted query data.
+            clean_path = path if path == "/" else path.rstrip("/") + "/"
+            if (
+                kind == "http"
+                and scope.get("method") in {"GET", "HEAD"}
+                and (clean_path == "/" or clean_path in LEGACY_PATHS)
+            ):
+                response = RedirectResponse(
+                    "/login",
+                    status_code=303,
+                    headers={
+                        "Cache-Control": "no-store, private",
+                        "Referrer-Policy": "no-referrer",
+                    },
+                )
+                return await response(scope, receive, send)
             return await self._deny(scope, send, 401)
         scope["user"] = {"is_authenticated": True, "username": "risk-viewer"}
         if kind == "http" and scope.get("method") in {"GET", "HEAD"}:
