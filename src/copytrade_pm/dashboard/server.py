@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from hashlib import sha256
 import hmac
 import os
+import re
 from pathlib import Path
 import secrets
 from urllib.parse import parse_qs, urlencode, urlsplit
@@ -32,6 +33,11 @@ PAGES = Path(__file__).parent / "pages"
 def _assert_secret(secret: str) -> None:
     if len(secret) < 32 or len(secret) > 512 or any(ord(ch) < 33 for ch in secret):
         raise ValueError("DASHBOARD_ACCESS_SECRET_REQUIRES_32_TO_512_NONSPACE_CHARS")
+
+
+def _assert_tailnet_login(login: str) -> None:
+    if not isinstance(login, str) or not re.fullmatch(r"[A-Za-z0-9._+@-]{2,254}", login):
+        raise ValueError("DASHBOARD_TAILSCALE_USER_LOGIN_INVALID")
 
 
 def _cookie(secret: str, epoch: int) -> str:
@@ -154,13 +160,17 @@ class ViewerAuth:
         downstream,
         *,
         secret: str,
+        tailnet_login: str | None = None,
         clock=None,
         allowed_hosts: frozenset[str] | None = None,
         allowed_origins: frozenset[str] | None = None,
     ):
         _assert_secret(secret)
+        if tailnet_login is not None:
+            _assert_tailnet_login(tailnet_login)
         self.downstream = downstream
         self.secret = secret
+        self.tailnet_login = tailnet_login
         self.clock = clock or (lambda: datetime.now(UTC))
         self.allowed_hosts = _validated_hosts(allowed_hosts or LOOPBACK_HOSTS)
         self.allowed_origins = _validated_origins(allowed_origins or LOOPBACK_ORIGINS)
@@ -196,6 +206,21 @@ class ViewerAuth:
                 return await self._deny(scope, send, 403)
         if not _allowed_host(headers, self.allowed_hosts):
             return await self._deny(scope, send, 403)
+        if self.tailnet_login is not None and (
+            names.count("tailscale-user-login") != 1
+            or names.count("x-forwarded-host") != 1
+            or names.count("x-forwarded-proto") != 1
+            or not isinstance(scope.get("client"), (tuple, list))
+            or not scope["client"]
+            or scope["client"][0] not in {"127.0.0.1", "::1"}
+            or not secrets.compare_digest(
+                headers.get("tailscale-user-login", ""), self.tailnet_login
+            )
+        ):
+            # Identity-bearing headers are set and spoof-filtered by Serve.
+            # A direct localhost request, even with an old viewer cookie,
+            # cannot access the app without the exact Serve proxy contract.
+            return await self._deny(scope, send, 403)
         if kind == "websocket" and not _origin_ok(headers, self.allowed_origins):
             return await self._deny(scope, send, 403)
         if kind == "http" and scope.get("method") not in {"GET", "HEAD"}:
@@ -227,7 +252,9 @@ class ViewerAuth:
             if "=" in item:
                 key, value = item.strip().split("=", 1)
                 cookies[key] = value
-        authenticated = _valid_cookie(cookies.get(COOKIE_NAME, ""), self.secret, self.clock())
+        authenticated = self.tailnet_login is not None or _valid_cookie(
+            cookies.get(COOKIE_NAME, ""), self.secret, self.clock()
+        )
         if kind == "http" and scope.get("method") == "POST" and (path == "/login" or authenticated):
             limit = MAX_BODY if path == "/login" else 16_384
             try:
@@ -266,6 +293,15 @@ class ViewerAuth:
 
             receive = bounded_receive
         if path == "/login" and kind == "http":
+            if self.tailnet_login is not None:
+                if scope.get("method") in {"GET", "HEAD"}:
+                    response = RedirectResponse(
+                        "/",
+                        status_code=303,
+                        headers={"Cache-Control": "no-store, private"},
+                    )
+                    return await response(scope, receive, send)
+                return await self._deny(scope, send, 403)
             return await self.downstream(scope, receive, send)
         if not authenticated:
             # Show human visitors the login screen, but keep APIs, assets,
@@ -399,12 +435,15 @@ async def login(request: Request) -> Response:
 def make_app(
     *,
     secret: str,
+    tailnet_login: str | None = None,
     clock=None,
     allowed_hosts: frozenset[str] | None = None,
     allowed_origins: frozenset[str] | None = None,
 ):
     """Fail closed unless configured; build only run-mode notebook routes."""
     _assert_secret(secret)
+    if tailnet_login is not None:
+        _assert_tailnet_login(tailnet_login)
     import marimo
 
     server = marimo.create_asgi_app(
@@ -420,6 +459,7 @@ def make_app(
     return ViewerAuth(
         app,
         secret=secret,
+        tailnet_login=tailnet_login,
         clock=clock,
         allowed_hosts=allowed_hosts,
         allowed_origins=allowed_origins,
@@ -433,7 +473,12 @@ def configured_app():
     origins = frozenset(filter(None, os.environ.get("DASHBOARD_ALLOWED_ORIGINS", "").split(",")))
     if bool(hosts) != bool(origins):
         raise ValueError("DASHBOARD_HOST_AND_ORIGIN_MUST_BE_CONFIGURED_TOGETHER")
-    return make_app(secret=secret, allowed_hosts=hosts or None, allowed_origins=origins or None)
+    return make_app(
+        secret=secret,
+        tailnet_login=os.environ.get("DASHBOARD_TAILSCALE_USER_LOGIN"),
+        allowed_hosts=hosts or None,
+        allowed_origins=origins or None,
+    )
 
 
 # Fail closed at import if no explicit access secret is configured.

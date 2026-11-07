@@ -10,8 +10,13 @@ test -L "$CURRENT" || exit 71
 TAILNET_HOST=$(tailscale status --json | jq -r '.Self.DNSName | rtrimstr(".")')
 case "$TAILNET_HOST" in *.ts.net) ;; *) exit 75;; esac
 PRIVATE_LOGIN="https://$TAILNET_HOST:8443/login"
+if grep -q '^DASHBOARD_TAILSCALE_USER_LOGIN=' /home/quant/.config/copytrade-dashboard/private.env; then
+  HEALTH_URL="https://$TAILNET_HOST:8443/"
+else
+  HEALTH_URL="$PRIVATE_LOGIN"
+fi
 PREVIOUS=$(readlink "$CURRENT")
-case "$PREVIOUS" in releases/29d006131662-aa94784c356f) ;; *) exit 72;; esac
+case "$PREVIOUS" in releases/b4989bbdc098-59ba035cabeb) ;; *) exit 72;; esac
 
 restore() {
   active=$(readlink "$CURRENT" 2>/dev/null || true)
@@ -33,7 +38,7 @@ sleep 2
 FAILED_STATUS=$(curl --silent --show-error --max-time 4 --output /dev/null \
   --write-out '%{http_code}' \
   --user-agent 'OpenAI File Downloader, XaiImageApiFetch/1.0' \
-  "$PRIVATE_LOGIN" 2>/dev/null || true)
+  "$HEALTH_URL" 2>/dev/null || true)
 [ "$FAILED_STATUS" != 200 ] || { echo "FAILED_START_STILL_REACHABLE" >&2; exit 73; }
 
 # Exact pre-fault release restored atomically. No root/system financial unit touched.
@@ -46,7 +51,7 @@ for i in 1 2 3 4 5 6 7 8 9 10; do
   if systemctl --user is-active --quiet "$UNIT" && \
      curl --silent --max-time 6 --output /dev/null --write-out '%{http_code}' \
        --user-agent 'OpenAI File Downloader, XaiImageApiFetch/1.0' \
-       "$PRIVATE_LOGIN" | grep -qx 200
+       "$HEALTH_URL" | grep -qx 200
   then
     trap - EXIT HUP INT TERM
     echo "DASHBOARD_FAILED_START_ROLLBACK_VERIFIED"
