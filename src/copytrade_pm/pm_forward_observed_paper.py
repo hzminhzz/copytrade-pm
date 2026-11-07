@@ -558,7 +558,10 @@ class ObservedP1Paper:
             },
             "pod_risk": acct.pm04_state.get("pod_stats", {}),
             "risk": acct.risk.value,
-            "ledger_head": self.run.last_event_id,
+            "last_event_id": self.run.last_event_id,
+            "ledger_head_sha": (
+                self.run.ledger.read()[-1]["sha"] if self.run.last_event_id else None
+            ),
             "modeled_execution_only": True,
             "source_quote_latency_unmeasured": True,
             "real_broker_fills": 0,
