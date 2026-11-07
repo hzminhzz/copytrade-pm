@@ -25,16 +25,23 @@ def _(mo):
 
 @app.cell
 def _(DashboardReader, job_id, page, query):
-    outcome = (DashboardReader().research_reports(
-        run_id=job_id.value.strip() or None, limit=50, offset=(int(page.value) - 1) * 50
-    ) if query.value else None)
-    return (outcome,)
+    if query.value:
+        reader = DashboardReader()
+        outcome = reader.research_reports(
+            run_id=job_id.value.strip() or None, limit=50,
+            offset=(int(page.value) - 1) * 50,
+        )
+        rules = reader.contract_rules()
+    else:
+        outcome = None
+        rules = None
+    return outcome, rules
 
 
 @app.cell
-def _(mo, outcome):
+def _(mo, outcome, rules):
     from copytrade_pm.dashboard.phase2_views import research_view
-    research_view(mo, outcome) if outcome else mo.md(
+    research_view(mo, outcome, rules) if outcome else mo.md(
         "Use **Query verified research reports**. No research job is executed."
     )
 

@@ -36,7 +36,9 @@ def risk_view(mo, report: dict[str, Any]):
         mo.md(f"**Pod budget:** {clean(report['pod_budget_status'])}. "
               f"{clean(report['pod_budget_reason'])}. "
               "A $200 trigger does not guarantee a $200 realized maximum."),
-        mo.md(f"**Gross/net exposure:** {clean(report['exposure']['status'])}. "
+        mo.md(f"**Owner-mark gross exposure:** {clean(report['exposure'].get('gross'))} · "
+              f"**Net:** {clean(report['exposure'].get('net'))} · "
+              f"**Evidence:** {clean(report['exposure']['status'])} · "
               f"**Reservations:** {clean(report['reservation_count'])}."),
         mo.md(f"**Guardian HALTs:** {clean(report['guardian_halts'])}. "
               f"**Broker reconciliation:** {clean(report['reconciliation'])}."),
@@ -55,9 +57,16 @@ def execution_view(mo, report: dict[str, Any]):
             "Quantity": clean(i.get("quantity")),
             "Filled (owner)": clean(i.get("filled")),
             "Status": clean(i.get("status")),
+            "Source event ms": clean(i.get("source_event_at")),
+            "First-known ms": clean(i.get("first_known_at")),
+            "Batch due ms": clean(i.get("batch_due_ms")),
+            "Batch decision ms": clean(i.get("batch_decision_at")),
+            "Guardian decision ms": clean(i.get("guardian_decision_at_ms")),
             "Guardian intent ms": clean(i.get("guardian_intent_at_ms")),
             "Broker epoch": clean(i.get("broker_epoch")),
-            "Broker fill": "UNKNOWN",
+            "Broker accepted ms": clean(i.get("broker_acceptance_at")),
+            "Broker known-fill ms": clean(i.get("broker_fill_at")),
+            "Fill evidence": clean(i.get("fill_trace_status")),
             "Reconciliation ms": clean(i.get("reconciliation_at_ms")),
         })
     decisions = [
@@ -66,16 +75,28 @@ def execution_view(mo, report: dict[str, Any]):
          "Reasons": clean(i.get("reasons"))}
         for i in report["decisions"]
     ]
+    receipts = [
+        {"Decision": clean(r.get("decision_id")),
+         "Receipt hash": clean(r.get("receipt_sha")),
+         "Source event ms": clean(r.get("source_event_ms")),
+         "Source known ms": clean(r.get("source_known_ms")),
+         "Local first-known ms": clean(r.get("first_known_ms")),
+         "5m due ms": clean(r.get("batch_due_ms")),
+         "Batch decision ms": clean(r.get("batch_decision_ms"))}
+        for r in report.get("source_events", [])
+    ]
     return mo.vstack([
         mo.md("# Operations · Execution monitor"),
-        mo.md("**Read-only. No broker actions.** Source event, first-known receipt, "
-              "five-minute batch, acceptance and broker fill clocks are UNKNOWN "
-              "unless their owner exposes verified durable records."),
+        mo.md("**Read-only. No broker actions.** All causal timestamps originate in "
+              "verified owner receipts. Missing clocks and broker acceptance remain UNKNOWN; "
+              "similar timestamps are never sufficient to join records."),
         mo.md(f"**Capture coherence:** {clean(report['link_status'])} · "
               f"**Broker certainty:** {clean(report['reconciliation'])} · "
+              f"**Duplicate fill identities:** {clean(report.get('duplicate_fill_identity'))} · "
               f"**Truncated:** {clean(report['truncated'])}."),
+        mo.md("## Source receipt to batch"), _table(mo, receipts),
         mo.md("## Guardian decisions"), _table(mo, decisions),
-        mo.md("## Durable intents"), _table(mo, intents),
+        mo.md("## Durable intents and fills"), _table(mo, intents),
         mo.md("**Target vs actual positions:** UNAVAILABLE — the operator projection "
               "does not expose authenticated matched position books."),
         mo.md("**Timeout and unknown broker outcomes are not confirmed failed orders.**"),
@@ -108,6 +129,8 @@ def portfolio_view(mo, report: dict[str, Any]):
               "never establish DEPLOYED or RUNNING_OBSERVED.**"),
         mo.md(f"**Catalog status:** {clean(report['status'])} · "
               f"**Known portfolios:** {clean(report.get('total'))} · "
+              f"**Matches:** {clean(report.get('total_matches'))} · "
+              f"**Offset:** {clean(report.get('offset'))} · "
               f"**As-of:** {clean(report.get('asof'))} · "
               f"**Truncated:** {clean(report.get('truncated'))}."),
         _table(mo, rows, page_size=15),
@@ -119,7 +142,8 @@ def portfolio_view(mo, report: dict[str, Any]):
     ])
 
 
-def research_view(mo, report: dict[str, Any]):
+def research_view(mo, report: dict[str, Any],
+                  contract_rules: dict[str, Any] | None = None):
     rows = []
     payload = report.get("data") or {}
     for item in payload.get("reports", []) if isinstance(payload, dict) else []:
@@ -128,6 +152,12 @@ def research_view(mo, report: dict[str, Any]):
             "Cache key": clean(item.get("cache_key")),
             "Job SHA": clean(item.get("job_sha256")),
             "Report SHA": clean(item.get("report_sha256")),
+            "Input binding": clean(item.get("input_binding_sha256")),
+            "Market binding": clean(item.get("market_binding_sha256")),
+            "Source fingerprints": clean(item.get("source_fingerprints")),
+            "UTC start": clean(item.get("utc_start")),
+            "UTC end": clean(item.get("utc_end")),
+            "Sealed portfolio": clean(item.get("sealed_portfolio_id")),
             "Kind": clean(item.get("kind")),
             "Research": clean(item.get("research_status")),
             "Finance": clean(item.get("financial_status")),
@@ -136,6 +166,16 @@ def research_view(mo, report: dict[str, Any]):
             "Scientific": "NOT QUALIFIED",
             "Trading": "NOT AUTHORIZED",
         })
+    rules = contract_rules.get("data") if isinstance(contract_rules, dict) else {}
+    rules = rules if isinstance(rules, dict) else {}
+    scenarios = [
+        {"Contract": clean(item.get("id")), "Rule SHA": clean(item.get("rule_sha256")),
+         "Authority": clean(item.get("rule_authority")),
+         "Missing provider terms": clean(item.get("missing_terms")),
+         "Qualification": "SCENARIO_ONLY",
+         "Configuration": clean(item.get("configuration"))}
+        for item in rules.get("contracts", []) if isinstance(item, dict)
+    ]
     return mo.vstack([
         mo.md("# Research · Immutable research lab"),
         mo.md("Catalog is scoped to an **owner-configured** cache root and contains "
@@ -145,30 +185,53 @@ def research_view(mo, report: dict[str, Any]):
               f"**Error:** {clean(report.get('error_code'))} · "
               f"**Total:** {clean(payload.get('total') if isinstance(payload, dict) else None)}."),
         _table(mo, rows),
-        mo.md("**Contract EV:** SCENARIO_ONLY / UNAVAILABLE in this immutable job catalog. "
-              "No complete owner-verified follower tape is provided to this viewer; "
-              "the native contract selector remains an offline read-only tool."),
+        mo.md("## Native contract-rule scenarios (not executed EV results)"),
+        mo.md(f"**Rule status:** {clean(rules.get('status'))} · "
+              f"**Rules SHA:** {clean(rules.get('rules_sha256'))}. "
+              "No owner-verified follower EV comparison is available here."),
+        _table(mo, scenarios),
+        mo.md("These user-supplied archetypes have unverified provider terms, "
+              "and no scenario is a scientifically qualified follower result. "
+              "The native offline contract comparator is never invoked by this UI."),
         mo.md("## Source provenance"),
         evidence_table(mo, {"Immutable report catalog": report}),
     ])
 
 
-def performance_view(mo, report: dict[str, Any]):
-    return mo.vstack([
-        mo.md("# Research · Financial performance"),
-        mo.md("**Historical financial series: UNAVAILABLE.** The approved Guardian "
-              "operator captures expose current finance, not a coherent historical "
-              "equity/drawdown/pod PnL tape. A synthetic curve would misrepresent "
-              "follower economics."),
-        mo.md("## Current metrics (not chart history)"),
+def performance_view(mo, report: dict[str, Any],
+                     history: dict[str, Any] | None = None):
+    history = history or {}
+    contents = [
+        mo.md("# Research · Evidence-qualified financial performance"),
+        mo.md("## Current Guardian metrics (not historical economic qualification)"),
         _table(mo, [
             {"Metric": clean(name), "Owner value": clean(item.get("value")),
              "Evidence": clean(item.get("status"))}
             for name, item in report.get("metrics", {}).items()
         ]),
-        mo.md("## Source limitations"),
-        mo.md("Historical source-wallet, modeled follower, paper/shadow, Demo, and "
-              "broker-executed series must remain separate. Verified, UTC-bounded "
-              "native tapes are required for brushing, linked filters and comparisons. "
-              "No financial point is interpolated or synthesized to populate a chart."),
+        mo.md(f"## Owner-verified SHADOW history · {clean(history.get('status', 'UNAVAILABLE'))}"),
+    ]
+    points = history.get("points", [])
+    if history.get("status") == "VERIFIED_OWNER_SHADOW_TAIL" and points:
+        from .chart_data import linked_chart
+
+        contents.extend([
+            mo.md("Owner-observed **SHADOW** equity, risk floors, headroom and "
+                  "unrealized values. These are not broker-executed follower PnL. "
+                  "UTC brushing stays inside the browser."),
+            linked_chart(points),
+        ])
+    else:
+        contents.append(mo.md(
+            f"**Historical finance UNAVAILABLE/BLOCKED:** "
+            f"{clean(history.get('error_code', 'NO_VERIFIED_OWNER_CAPTURE'))}. "
+            "No chart is synthesized from static risk values."
+        ))
+    contents.extend([
+        mo.md("## Evidence limitations"),
+        mo.md("This owner projection is a bounded tail and may not include all prior "
+              "financial extrema. Separate historical source wallets, modeled follower, "
+              "Demo, and broker-executed series cannot be conflated with SHADOW data. "
+              "Chart floats cannot define contractual risk or trading authorization."),
     ])
+    return mo.vstack(contents)

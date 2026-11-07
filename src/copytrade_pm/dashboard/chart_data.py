@@ -56,6 +56,10 @@ def prepare_series(
                 or type(point.get("gap_before", False)) is not bool
                 or type(point.get("reset_boundary", False)) is not bool):
             raise ValueError("INVALID_OR_UNGRADED_FINANCIAL_ROW")
+        if abs(Decimal(exact)) >= Decimal("1e20"):
+            # Visualization's Decimal(38,18) cannot represent this faithfully.
+            # Preserve native financial truth; mark only the chart unavailable.
+            raise ValueError("CHART_DECIMAL_PRECISION_BUDGET_EXCEEDED")
         identity = (source, grade, metric)
         if series in seen_series and seen_series[series] != identity:
             raise ValueError("CONTRADICTORY_SERIES_PROVENANCE")

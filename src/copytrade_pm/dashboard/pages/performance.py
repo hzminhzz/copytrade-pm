@@ -25,14 +25,16 @@ def _(mo):
 @app.cell
 def _(DashboardReader, refresh):
     _ = refresh.value
-    status = DashboardReader().risk_status()
-    return (status,)
+    reader = DashboardReader()
+    status = reader.risk_status()
+    history = reader.performance_history(risk_report=status)
+    return status, history
 
 
 @app.cell
-def _(mo, status):
+def _(mo, status, history):
     from copytrade_pm.dashboard.phase2_views import performance_view
-    performance_view(mo, status)
+    performance_view(mo, status, history)
 
 
 if __name__ == "__main__":

@@ -36,7 +36,7 @@ def test_risk_finance_floor_zero_and_pod_budget_unknown():
     assert report["metrics"]["daily_floor"]["status"] == "VERIFIED"
     assert report["pod_losses"][1]["loss_used"] == "0"
     assert report["pod_losses"][0]["loss_budget"] is None
-    assert report["exposure"]["status"] == "UNAVAILABLE"
+    assert report["exposure"]["status"] == "UNKNOWN"
     assert report["reservation_count"] == 0
     assert report["trading_authorized"] is False
 
@@ -73,7 +73,7 @@ def test_execution_stable_ids_and_uncertain_outcomes():
     assert data["intents"][0]["broker_fill_at"] is None
     assert data["intents"][1]["decision_link"] == "UNKNOWN"
     assert data["intents"][1]["filled"] == "0"
-    assert data["source_events"] is None
+    assert data["source_events"] == []
     assert data["target_vs_actual"] is None
 
 
