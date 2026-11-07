@@ -140,6 +140,7 @@ async def capture_shared_observer_cycle(
     max_market_updates: int = 15,
     market_shard_size: int = 8,
     max_native_markets: int = 100,
+    market_capture_enabled: bool = True,
     now: Callable[[], str] = lambda: datetime.now(UTC).isoformat(),
     source_capture: Callable[..., Awaitable[dict]] = observe_shared_frozen_sources_readonly,
     market_factory: Callable[..., Any] = BoundedMarketCapture,
@@ -182,7 +183,7 @@ async def capture_shared_observer_cycle(
     selected: tuple[Instrument, ...] = native.pop("instruments")
     shard_reports: list[dict] = []
     failures: list[dict] = []
-    if len(selected) > max_native_markets:
+    if market_capture_enabled and len(selected) > max_native_markets:
         failures.append(
             {
                 "reason": "PAPER_OBSERVER_NATIVE_UNIVERSE_EXCEEDS_BOUNDED_BUDGET",
@@ -190,7 +191,7 @@ async def capture_shared_observer_cycle(
                 "max_allowed": max_native_markets,
             }
         )
-    else:
+    elif market_capture_enabled:
         for shard_number, start in enumerate(range(0, len(selected), market_shard_size), 1):
             shard = selected[start : start + market_shard_size]
             dexes = tuple(
@@ -557,6 +558,10 @@ def main() -> None:
     parser.add_argument("--seconds-per-account", type=float, default=5)
     parser.add_argument("--max-source-frames", type=int, default=10)
     parser.add_argument("--market-duration-seconds", type=float, default=10)
+    parser.add_argument(
+        "--source-only", action="store_true",
+        help="Retain source capture, but use separate persistent public market WebSocket writer",
+    )
     parser.add_argument("--max-market-updates", type=int, default=15)
     parser.add_argument("--market-shard-size", type=int, default=8)
     parser.add_argument("--pause-seconds", type=float, default=3)
@@ -601,6 +606,7 @@ def main() -> None:
                 market_duration_seconds=args.market_duration_seconds,
                 max_market_updates=args.max_market_updates,
                 market_shard_size=args.market_shard_size,
+                market_capture_enabled=not args.source_only,
             )
 
         if args.epochs == 0:
