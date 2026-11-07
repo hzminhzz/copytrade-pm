@@ -1,0 +1,43 @@
+# Unix-socket ingress. Docker exposes no TCP port; only tailscaled may connect
+# through a root-only host directory. All upstream identity headers are replaced.
+map $http_tailscale_user_login $owner_ok {
+    default 0;
+    "${GRAFANA_OWNER_LOGIN}" 1;
+}
+map $http_x_forwarded_proto $proto_ok {
+    default 0;
+    https 1;
+}
+map $http_origin $origin_ok {
+    default 0;
+    "" 1;
+    "https://${GRAFANA_TAILNET_HOST}:8444" 1;
+}
+server {
+    listen unix:/run/staging-ingress/serve.sock;
+    server_name ${GRAFANA_TAILNET_HOST};
+    server_tokens off;
+    client_max_body_size 32768;
+    location / {
+        if ($owner_ok = 0) { return 403; }
+        if ($proto_ok = 0) { return 403; }
+        # Tailscale Serve uses localhost as the Unix backend Host, but supplies
+        # the authenticated external Host in X-Forwarded-Host.
+        if ($host != "localhost") { return 403; }
+        if ($http_x_forwarded_host != "${GRAFANA_TAILNET_HOST}:8444") { return 403; }
+        if ($origin_ok = 0) { return 403; }
+        proxy_http_version 1.1;
+        proxy_set_header Host "${GRAFANA_TAILNET_HOST}:8444";
+        proxy_set_header X-WEBAUTH-USER "risk-observer";
+        proxy_set_header Authorization "";
+        proxy_set_header Tailscale-User-Login "";
+        proxy_set_header Tailscale-User-Name "";
+        proxy_set_header X-Forwarded-Proto "https";
+        proxy_set_header X-Forwarded-Host "${GRAFANA_TAILNET_HOST}:8444";
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_pass http://grafana:3000;
+        proxy_read_timeout 25s;
+        proxy_connect_timeout 2s;
+    }
+}

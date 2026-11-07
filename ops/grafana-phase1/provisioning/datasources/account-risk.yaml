@@ -1,0 +1,16 @@
+apiVersion: 1
+datasources:
+  - name: Account Risk Projection
+    uid: risk-projection-v1
+    type: yesoreyeram-infinity-datasource
+    access: proxy
+    isDefault: true
+    editable: false
+    jsonData:
+      auth_method: bearerToken
+      allowedHosts:
+        - http://projection:17800
+      allowDangerousHTTPMethods: false
+      timeoutInSeconds: 5
+    secureJsonData:
+      bearerToken: ${GRAFANA_PROJECTION_TOKEN}

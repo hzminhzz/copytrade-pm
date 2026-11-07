@@ -1,0 +1,104 @@
+# Disposable independent staging only; no production financial mounts or services.
+name: copytrade-grafana-phase1
+services:
+  publisher:
+    build:
+      context: ../..
+      dockerfile: ops/grafana-phase1/Dockerfile.publisher
+    network_mode: none
+    volumes:
+      - evidence:/evidence:rw
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    pids_limit: 64
+    mem_limit: 256m
+    tmpfs: [/tmp:size=16m]
+    restart: "no"
+  projection:
+    build:
+      context: ../..
+      dockerfile: ops/grafana-phase1/Dockerfile.projection
+    environment:
+      GRAFANA_PROJECTION_TOKEN: ${GRAFANA_PROJECTION_TOKEN:?generate-private-token}
+      GRAFANA_EVIDENCE_ROOT: /evidence
+      GRAFANA_STAGING_FIXTURES: "1"
+    volumes:
+      - evidence:/evidence:ro
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    pids_limit: 64
+    mem_limit: 128m
+    tmpfs: [/tmp:size=16m]
+    networks: [data]
+    restart: "no"
+  grafana:
+    build:
+      context: ../..
+      dockerfile: ops/grafana-phase1/Dockerfile.grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?generate-private-password}
+      GF_SECURITY_ADMIN_USER: private-maintenance
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_USERS_AUTO_ASSIGN_ORG_ROLE: Viewer
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_AUTH_BASIC_ENABLED: "false"
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_AUTH_PROXY_ENABLED: "true"
+      GF_AUTH_PROXY_HEADER_NAME: X-WEBAUTH-USER
+      GF_AUTH_PROXY_HEADER_PROPERTY: username
+      GF_AUTH_PROXY_AUTO_SIGN_UP: "true"
+      GF_AUTH_PROXY_WHITELIST: 172.29.245.9
+      GF_AUTH_PROXY_ENABLE_LOGIN_TOKEN: "false"
+      GF_SECURITY_COOKIE_SECURE: "true"
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_PLUGINS_PLUGIN_ADMIN_ENABLED: "false"
+      GF_SERVER_ROOT_URL: https://${GRAFANA_TAILNET_HOST:?set-private-host}:8444/
+      GF_SERVER_HTTP_ADDR: 0.0.0.0
+      GOMAXPROCS: "2"
+      GRAFANA_PROJECTION_TOKEN: ${GRAFANA_PROJECTION_TOKEN:?generate-private-token}
+    volumes:
+      - ./provisioning:/etc/grafana/provisioning:ro
+      - ./dashboards:/etc/grafana/staging-dashboards:ro
+    networks:
+      data: {}
+      viewer: {}
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    pids_limit: 512
+    mem_limit: 1024m
+    depends_on: [projection]
+    restart: "no"
+  ingress:
+    image: nginx:1.29-alpine@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de
+    environment:
+      GRAFANA_OWNER_LOGIN: ${GRAFANA_OWNER_LOGIN:?exact-private-owner-identity-required}
+      GRAFANA_TAILNET_HOST: ${GRAFANA_TAILNET_HOST:?private-host-required}
+    volumes:
+      - ./nginx/serve.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - /run/copytrade-grafana-phase1:/run/staging-ingress:rw
+    networks:
+      viewer:
+        ipv4_address: 172.29.245.9
+    depends_on: [grafana]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETUID, SETGID]
+    pids_limit: 64
+    mem_limit: 128m
+    restart: "no"
+networks:
+  data:
+    internal: true
+  viewer:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.29.245.0/28
+volumes:
+  evidence:
+    external: true
+    name: copytrade-grafana-phase1_evidence

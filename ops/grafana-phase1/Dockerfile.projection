@@ -1,0 +1,12 @@
+FROM python:3.14-slim@sha256:af8a5aa14780025dbfbcfbc81bd8a91ebd87711dd5b0f48ed71090949dd7cb1d
+WORKDIR /opt/readonly
+RUN pip install --no-cache-dir 'starlette==1.10.0' 'uvicorn==0.52.4'
+RUN mkdir -p /opt/readonly/copytrade_pm/dashboard && \
+    touch /opt/readonly/copytrade_pm/__init__.py
+COPY src/copytrade_pm/dashboard/__init__.py /opt/readonly/copytrade_pm/dashboard/__init__.py
+COPY src/copytrade_pm/dashboard/evidence_plane.py /opt/readonly/copytrade_pm/dashboard/evidence_plane.py
+COPY src/copytrade_pm/dashboard/grafana_projection.py /opt/readonly/copytrade_pm/dashboard/grafana_projection.py
+RUN useradd --uid 10001 --create-home reader
+USER reader
+EXPOSE 17800
+CMD ["uvicorn","copytrade_pm.dashboard.grafana_projection:app","--host","0.0.0.0","--port","17800","--no-access-log"]
