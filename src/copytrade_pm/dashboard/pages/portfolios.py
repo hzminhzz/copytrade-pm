@@ -38,9 +38,11 @@ def _(DashboardReader, asof, name_filter, page, query):
 @app.cell
 def _(mo, outcome):
     from copytrade_pm.dashboard.phase2_views import portfolio_view
-    portfolio_view(mo, outcome) if outcome else mo.md(
+    from copytrade_pm.dashboard.navigation import nav
+    body = portfolio_view(mo, outcome) if outcome else mo.md(
         "Use **Read canonical portfolios**. No selection or registry records are changed."
     )
+    mo.vstack([nav(mo, mo.query_params()), body])
 
 
 if __name__ == "__main__":

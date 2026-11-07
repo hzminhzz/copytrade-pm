@@ -158,10 +158,16 @@ Phase 2 source implementations and fail-closed owner-capture consumer are
 independently tested; do not confuse source merge with live capture permission,
 installed release, signed pod budget, broker PnL or trading authorization.
 See `docs/DASHBOARD-PHASE2.md` and prop-production's owner projection contract.
-Phase 3 TD-11/TD-12 may proceed as independent source work; TD-13 requires
-integrated noninterference/permission/load evidence and TD-14 owns a separately
-authorized pinned reversible release. Never grant Marimo journal access or
-activate protected capture/Guardian services as a shortcut.
+Phase 3 implements independent dry-run incident delivery, mobile navigation,
+security regression tests and *disposable staging-only* packaging; see
+`docs/DASHBOARD-PHASE3.md`. The notification backend is NOT_CONFIGURED for
+external distribution; local ACK never clears Guardian HALT. URL portfolio/UTC
+scope is display-navigation context, never production selection. Browser and
+source tests cannot qualify live Guardian cadence, protected ACL, private ingress,
+source finance or a pinned installed runtime. TD-13 requires independent
+noninterference/performance evidence; TD-14 needs separately authorized pinned
+reversible installation. Never grant Marimo journal access or activate protected
+capture/Guardian services as a shortcut.
 
 ## Review, verification and continuation
 

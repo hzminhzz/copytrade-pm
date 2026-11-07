@@ -33,7 +33,8 @@ def _(DashboardReader, refresh):
 @app.cell
 def _(mo, report):
     from copytrade_pm.dashboard.phase2_views import execution_view
-    execution_view(mo, report)
+    from copytrade_pm.dashboard.navigation import nav
+    mo.vstack([nav(mo, mo.query_params()), execution_view(mo, report)])
 
 
 if __name__ == "__main__":

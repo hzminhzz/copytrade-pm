@@ -38,7 +38,21 @@ def _(DashboardReader, refresh):
 def _(mo, report):
     from copytrade_pm.dashboard.views import health_view
 
-    health_view(mo, report)
+    from copytrade_pm.dashboard.navigation import nav
+    from copytrade_pm.dashboard.notifications import dashboard_status
+    from pathlib import Path
+    import os
+    notification_path = os.getenv("DASHBOARD_NOTIFICATION_STATE_FILE")
+    delivery = dashboard_status(Path(notification_path) if notification_path else None)
+    mo.vstack([
+        mo.md("# Operations · System health"),
+        nav(mo, mo.query_params()),
+        mo.md(f"**Independent delivery:** {delivery['status']} / "
+              f"{delivery['external_delivery']}; source {delivery['source_status']}. "
+              f"Records: {len(delivery['incidents'])}; "
+              f"error: {delivery['error_code'] or 'NONE'}."),
+        health_view(mo, report),
+    ])
 
 
 if __name__ == "__main__":

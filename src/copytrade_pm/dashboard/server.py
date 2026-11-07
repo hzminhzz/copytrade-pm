@@ -13,7 +13,9 @@ import hmac
 import os
 from pathlib import Path
 import secrets
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlencode, urlsplit
+
+from .navigation import ROUTES, valid_scope
 
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -58,31 +60,81 @@ def _headers(scope: dict) -> dict[str, str]:
     }
 
 
-def _allowed_host(headers: dict[str, str]) -> bool:
-    host = headers.get("host", "").split(":")[0].lower()
-    return host in {"localhost", "127.0.0.1", "[::1]", "::1"}
+LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+LOOPBACK_ORIGINS = frozenset({
+    "http://localhost", "https://localhost", "http://127.0.0.1",
+    "https://127.0.0.1", "http://[::1]", "https://[::1]",
+})
 
 
-def _origin_ok(headers: dict[str, str]) -> bool:
+def _validated_hosts(hosts: frozenset[str]) -> frozenset[str]:
+    if not hosts or len(hosts) > 16:
+        raise ValueError("DASHBOARD_HOST_ALLOWLIST_REQUIRED")
+    for host in hosts:
+        if (not host or len(host) > 253 or host != host.lower()
+                or any(ch in host for ch in "@/?#*\\ ")
+                or (host.startswith("[") and host != "[::1]")):
+            raise ValueError("DASHBOARD_HOST_ALLOWLIST_INVALID")
+        if host.startswith(".") or host.endswith("."):
+            raise ValueError("DASHBOARD_HOST_ALLOWLIST_INVALID")
+    return hosts
+
+
+def _allowed_host(headers: dict[str, str], allowed: frozenset[str] | None = None) -> bool:
+    raw = headers.get("host", "")
+    try:
+        parsed = urlsplit("//" + raw)
+        host = parsed.hostname
+        _ = parsed.port
+    except ValueError:
+        return False
+    if (not host or parsed.username is not None or parsed.password is not None
+            or parsed.path or parsed.query or parsed.fragment):
+        return False
+    return host.lower() in (allowed or LOOPBACK_HOSTS)
+
+
+def _validated_origins(origins: frozenset[str]) -> frozenset[str]:
+    if not origins or len(origins) > 16:
+        raise ValueError("DASHBOARD_ORIGIN_ALLOWLIST_REQUIRED")
+    for origin in origins:
+        parsed = urlsplit(origin)
+        if (parsed.scheme not in {"https", "http"}
+                or not parsed.hostname or parsed.username or parsed.password
+                or parsed.path or parsed.query or parsed.fragment
+                or origin != parsed.geturl()
+                or (parsed.scheme == "http" and parsed.hostname not in LOOPBACK_HOSTS)):
+            raise ValueError("DASHBOARD_ORIGIN_ALLOWLIST_INVALID")
+    return origins
+
+
+def _origin_ok(headers: dict[str, str], allowed: frozenset[str] | None = None) -> bool:
     origin = headers.get("origin")
     if not origin:
         return False
-    from urllib.parse import urlsplit
-
-    parsed = urlsplit(origin)
-    return parsed.scheme in {"http", "https"} and parsed.hostname in {
-        "localhost", "127.0.0.1", "::1"
-    } and parsed.username is None and parsed.password is None
+    try:
+        parsed = urlsplit(origin)
+        if parsed.port is not None and parsed.port not in range(1, 65536):
+            return False
+    except ValueError:
+        return False
+    if parsed.username is not None or parsed.password is not None:
+        return False
+    return origin in (allowed or LOOPBACK_ORIGINS)
 
 
 class ViewerAuth:
     """Pure ASGI: same auth checks protect HTTP, static assets, and WebSockets."""
 
-    def __init__(self, downstream, *, secret: str, clock=None):
+    def __init__(self, downstream, *, secret: str, clock=None,
+                 allowed_hosts: frozenset[str] | None = None,
+                 allowed_origins: frozenset[str] | None = None):
         _assert_secret(secret)
         self.downstream = downstream
         self.secret = secret
         self.clock = clock or (lambda: datetime.now(UTC))
+        self.allowed_hosts = _validated_hosts(allowed_hosts or LOOPBACK_HOSTS)
+        self.allowed_origins = _validated_origins(allowed_origins or LOOPBACK_ORIGINS)
 
     async def __call__(self, scope, receive, send):
         kind = scope.get("type")
@@ -91,12 +143,18 @@ class ViewerAuth:
             return
         headers = _headers(scope)
         path = scope.get("path", "")
-        if not _allowed_host(headers):
+        names = [name.decode("latin1").lower() for name, _ in scope.get("headers", [])]
+        if (any(names.count(name) > 1 for name in ("host", "origin", "cookie"))
+                or any(name in names for name in (
+                    "x-forwarded-host", "x-original-url", "x-rewrite-url"))):
             return await self._deny(scope, send, 403)
-        if kind == "websocket" and not _origin_ok(headers):
+        if not _allowed_host(headers, self.allowed_hosts):
+            return await self._deny(scope, send, 403)
+        if kind == "websocket" and not _origin_ok(headers, self.allowed_origins):
             return await self._deny(scope, send, 403)
         if kind == "http" and scope.get("method") not in {"GET", "HEAD"}:
-            if path != "/login" or scope.get("method") != "POST" or not _origin_ok(headers):
+            if (path != "/login" or scope.get("method") != "POST"
+                    or not _origin_ok(headers, self.allowed_origins)):
                 return await self._deny(scope, send, 403)
         cookies = {}
         for item in headers.get("cookie", "").split(";"):
@@ -109,7 +167,43 @@ class ViewerAuth:
         if not authenticated:
             return await self._deny(scope, send, 401)
         scope["user"] = {"is_authenticated": True, "username": "risk-viewer"}
-        await self.downstream(scope, receive, send)
+        if kind == "http" and scope.get("method") in {"GET", "HEAD"}:
+            # Keep only safe, bookmarkable page scope. Never forward arbitrary
+            # token, wallet or account parameters to the Marimo frontend.
+            clean_path = path if path == "/" else path.rstrip("/") + "/"
+            if clean_path in {route for route, _ in ROUTES}:
+                raw = scope.get("query_string", b"")
+                if len(raw) > 512:
+                    return await self._deny(scope, send, 414)
+                parsed = parse_qs(raw.decode("utf-8", "replace"),
+                                  keep_blank_values=True)
+                single = {key: values[0] for key, values in parsed.items()
+                          if len(values) == 1}
+                safe = valid_scope(single)
+                query = urlencode(safe).encode()
+                if path != clean_path or raw != query:
+                    target = clean_path + ("?" + query.decode() if query else "")
+                    response = RedirectResponse(target, status_code=307,
+                                                headers={"Cache-Control": "no-store"})
+                    return await response(scope, receive, send)
+        if kind == "http":
+            async def secure_send(message):
+                if message.get("type") == "http.response.start":
+                    existing = list(message.get("headers", []))
+                    hardened = {
+                        b"cache-control": b"no-store, private",
+                        b"x-content-type-options": b"nosniff",
+                        b"x-frame-options": b"DENY",
+                        b"referrer-policy": b"no-referrer",
+                    }
+                    existing = [(key, value) for key, value in existing
+                                if key.lower() not in hardened]
+                    existing.extend(hardened.items())
+                    message["headers"] = existing
+                await send(message)
+            await self.downstream(scope, receive, secure_send)
+        else:
+            await self.downstream(scope, receive, send)
 
     @staticmethod
     async def _deny(scope, send, code: int) -> None:
@@ -130,7 +224,10 @@ async def login(request: Request) -> Response:
             "<form method='post' action='/login'>"
             "<label>Access secret <input type='password' name='secret' "
             "autocomplete='off' minlength='32' required></label>"
-            "<button type='submit'>Sign in</button></form></main></body></html>"
+            "<button type='submit'>Sign in</button></form></main></body></html>",
+            headers={"Cache-Control": "no-store, private",
+                     "X-Content-Type-Options": "nosniff",
+                     "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer"},
         )
     if request.headers.get("content-type", "").split(";")[0] != (
         "application/x-www-form-urlencoded"
@@ -154,7 +251,9 @@ async def login(request: Request) -> Response:
     )
     if not correct:
         return PlainTextResponse("INVALID_CREDENTIALS", status_code=401)
-    response = RedirectResponse("/", status_code=303)
+    response = RedirectResponse("/", status_code=303,
+                                headers={"Cache-Control": "no-store, private",
+                                         "Referrer-Policy": "no-referrer"})
     response.set_cookie(
         COOKIE_NAME, _cookie(request.app.state.viewer_secret, int(datetime.now(UTC).timestamp())),
         max_age=SESSION_SECONDS, secure=True, httponly=True, samesite="strict", path="/",
@@ -162,7 +261,9 @@ async def login(request: Request) -> Response:
     return response
 
 
-def make_app(*, secret: str, clock=None):
+def make_app(*, secret: str, clock=None,
+             allowed_hosts: frozenset[str] | None = None,
+             allowed_origins: frozenset[str] | None = None):
     """Fail closed unless configured; build only run-mode notebook routes."""
     _assert_secret(secret)
     import marimo
@@ -185,13 +286,19 @@ def make_app(*, secret: str, clock=None):
         routes=[Route("/login", login, methods=["GET", "POST"]), Mount("/", server.build())]
     )
     app.state.viewer_secret = secret
-    return ViewerAuth(app, secret=secret, clock=clock)
+    return ViewerAuth(app, secret=secret, clock=clock,
+                      allowed_hosts=allowed_hosts, allowed_origins=allowed_origins)
 
 
 def configured_app():
     secret = os.environ.get("DASHBOARD_ACCESS_SECRET", "")
     _assert_secret(secret)
-    return make_app(secret=secret)
+    hosts = frozenset(filter(None, os.environ.get("DASHBOARD_ALLOWED_HOSTS", "").split(",")))
+    origins = frozenset(filter(None, os.environ.get("DASHBOARD_ALLOWED_ORIGINS", "").split(",")))
+    if bool(hosts) != bool(origins):
+        raise ValueError("DASHBOARD_HOST_AND_ORIGIN_MUST_BE_CONFIGURED_TOGETHER")
+    return make_app(secret=secret, allowed_hosts=hosts or None,
+                    allowed_origins=origins or None)
 
 
 # Fail closed at import if no explicit access secret is configured.

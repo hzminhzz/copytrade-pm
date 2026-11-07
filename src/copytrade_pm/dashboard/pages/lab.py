@@ -41,9 +41,11 @@ def _(DashboardReader, job_id, page, query):
 @app.cell
 def _(mo, outcome, rules):
     from copytrade_pm.dashboard.phase2_views import research_view
-    research_view(mo, outcome, rules) if outcome else mo.md(
+    from copytrade_pm.dashboard.navigation import nav
+    body = research_view(mo, outcome, rules) if outcome else mo.md(
         "Use **Query verified research reports**. No research job is executed."
     )
+    mo.vstack([nav(mo, mo.query_params()), body])
 
 
 if __name__ == "__main__":

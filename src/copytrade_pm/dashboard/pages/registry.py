@@ -49,7 +49,9 @@ def _(DashboardReader, query, cohort, excluded, page, run):
 def _(mo, outcome):
     from copytrade_pm.dashboard.views import registry_view
 
-    registry_view(mo, outcome)
+    from copytrade_pm.dashboard.navigation import nav
+    mo.vstack([mo.md("# Research · Canonical wallet registry"),
+               nav(mo, mo.query_params()), registry_view(mo, outcome)])
 
 
 if __name__ == "__main__":
