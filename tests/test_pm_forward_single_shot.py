@@ -183,6 +183,46 @@ def test_pod_drawdown_halt_closes_actual_inventory_without_new_source(tmp_path):
                 if r["event"]["kind"] == "PM04_PAPER_EXIT"]) == 1
 
 
+def test_risk_latch_overrides_terminal_failed_source_exit_once(tmp_path):
+    tape = PaperJournal(tmp_path / "source")
+    add_quote(tape, 10, size=200)
+    paper = new_paper(tmp_path, tape, run_id="risk_after_unfilled_exit")
+    add_source(tape, 1, 12, {BTC.key: "200"})
+    paper.step(at(14))
+    add_quote(tape, 312, size=200)
+    opened = paper.step(at(313))
+    assert D(opened["positions"][BTC.key]) == D("5.64")
+
+    add_quote(tape, 319, size=0.01)
+    add_source(tape, 2, 319, {BTC.key: "100"})
+    rejected = paper.step(at(321))
+    failed_id = rejected["pending_exits"]["S035"]["exit_id"]
+    assert rejected["pending_exits"]["S035"]["status"] == "UNRESOLVED_EXPOSURE"
+    assert D(rejected["positions"][BTC.key]) == D("5.64")
+
+    market = parse_ccxt_market(RAW_MARKET, first_known_at=at(1), expected=BTC)
+    dropped = parse_ccxt_book(market, {
+        "symbol": RAW_MARKET["symbol"],
+        "timestamp": int((T + timedelta(seconds=329)).timestamp() * 1000),
+        "bids": [[40, 200]], "asks": [[40.2, 200]],
+    }, first_known_at=at(330))
+    tape.append_market_quote(dropped.payload())
+    stopped = paper.step(at(331))
+    assert stopped["pod_risk"]["S035"]["state"] == "SUSPENDED"
+    assert stopped["positions"] == {}
+    assert stopped["pending_exits"]["S035"]["reason"] == "POD_RISK_LATCHED"
+    assert stopped["pending_exits"]["S035"]["status"] == "EXIT_FILLED"
+    assert stopped["pending_exits"]["S035"]["exit_id"] != failed_id
+    assert stopped["unresolved_exposures"] == {}
+    history = paper.run.account.pm04_state["paper_execution"]["exit_history"]
+    assert history[failed_id]["status"] == "UNRESOLVED_EXPOSURE"
+    assert len([r for r in paper.run.ledger.read()
+                if r["event"]["kind"] == "PM04_PAPER_EXIT"]) == 2
+    paper.step(at(333))
+    assert len([r for r in paper.run.ledger.read()
+                if r["event"]["kind"] == "PM04_PAPER_EXIT"]) == 2
+
+
 def test_failed_exit_remains_unresolved_real_paper_liability(tmp_path):
     tape = PaperJournal(tmp_path / "source")
     add_quote(tape, 10)
@@ -198,6 +238,239 @@ def test_failed_exit_remains_unresolved_real_paper_liability(tmp_path):
     assert expired["pending_exits"]["S035"]["status"] == "UNRESOLVED_EXPOSURE"
     assert D(expired["unresolved_exposures"]["S035"][BTC.key]) > 0
     assert D(expired["positions"][BTC.key]) > 0
+
+
+def test_exit_one_full_market_order_not_separate_fill_groups(tmp_path):
+    tape = PaperJournal(tmp_path / "source")
+    add_quote(tape, 10, size=200)
+    paper = new_paper(tmp_path, tape, run_id="exit_order")
+    add_source(tape, 1, 12, {BTC.key: "20"})
+    paper.step(at(14))
+    add_quote(tape, 312, size=200)
+    opening = paper.step(at(313))
+    assert D(opening["positions"][BTC.key]) == D("0.564")
+
+    native = parse_ccxt_market(RAW_MARKET, first_known_at=at(1), expected=BTC)
+    book = parse_ccxt_book(native, {
+        "symbol": RAW_MARKET["symbol"],
+        "timestamp": int((T + timedelta(seconds=319)).timestamp() * 1000),
+        "bids": [[100, 0.1], [99.5, 10]],
+        "asks": [[101, 10], [102, 10]],
+    }, first_known_at=at(320))
+    tape.append_market_quote(book.payload())
+    add_source(tape, 2, 319, {})
+    close = paper.step(at(321))
+    assert close["positions"] == {}
+    exits = [r["event"] for r in paper.run.ledger.read()
+             if r["event"]["kind"] == "PM04_PAPER_EXIT"]
+    assert len(exits) == 1
+    outcome = close["execution_outcomes"][close["pending_exits"]["S035"]["exit_id"]]
+    order = outcome[BTC.key]
+    assert D(order["requested"]) == D("-0.564")
+    assert order["status"] == "FILLED"
+    assert len(order["fills"]) == 2
+    assert sum((D(x["quantity"]) for x in order["fills"]), D("0")) == D("-0.564")
+    assert D(order["fee"]) > 0
+    assert close["pending_exits"]["S035"]["attempted_at"] == at(321)
+    assert close["pending_exits"]["S035"]["terminal_at"] == at(321)
+    assert close["real_broker_fills"] == 0
+
+    add_quote(tape, 330, size=200)
+    assert paper.step(at(331))["positions"] == {}
+    assert len([r for r in paper.run.ledger.read()
+                if r["event"]["kind"] == "PM04_PAPER_EXIT"]) == 1
+    restarted = ObservedP1Paper(
+        source_db=tape.path, state_root=tmp_path / "private",
+        run_id="exit_order", registry_db=tmp_path / "registry.sqlite",
+        catalog={RAW_MARKET["symbol"]: RAW_MARKET},
+    )
+    assert restarted.run.account.snapshot() == paper.run.account.snapshot()
+
+
+def test_short_cover_is_one_immediate_ask_side_market_order(tmp_path):
+    tape = PaperJournal(tmp_path / "source")
+    add_quote(tape, 10, size=200)
+    paper = new_paper(tmp_path, tape, run_id="short_cover")
+    add_source(tape, 1, 12, {BTC.key: "-20"})
+    paper.step(at(14))
+    add_quote(tape, 312, size=200)
+    opened = paper.step(at(313))
+    assert D(opened["positions"][BTC.key]) == D("-0.564")
+    add_quote(tape, 319, size=200)
+    add_source(tape, 2, 319, {})
+    covered = paper.step(at(321))
+    assert covered["positions"] == {}
+    exit_row = covered["pending_exits"]["S035"]
+    order = covered["execution_outcomes"][exit_row["exit_id"]][BTC.key]
+    assert exit_row["status"] == "EXIT_FILLED"
+    assert D(order["requested"]) == D("0.564")
+    assert D(order["vwap"]) > D("101")
+    assert len(order["fills"]) == 1
+    assert len([r for r in paper.run.ledger.read()
+                if r["event"]["kind"] == "PM04_PAPER_EXIT"]) == 1
+    assert paper.run.restore()["account"] == paper.run.account.snapshot()
+
+
+def test_partial_leader_reduction_is_one_exit_without_delayed_rebalance(tmp_path):
+    tape = PaperJournal(tmp_path / "source")
+    add_quote(tape, 10, size=200)
+    paper = new_paper(tmp_path, tape, run_id="partial_reduce")
+    add_source(tape, 1, 12, {BTC.key: "20"})
+    paper.step(at(14))
+    add_quote(tape, 312, size=200)
+    paper.step(at(313))
+    add_quote(tape, 319, size=200)
+    add_source(tape, 2, 319, {BTC.key: "10"})
+    reduced = paper.step(at(321))
+    assert D(reduced["positions"][BTC.key]) == D("0.282")
+    assert reduced["pending_exits"]["S035"]["status"] == "EXIT_FILLED"
+    assert reduced["execution_intents"]["S035"]["status"] == "FILLED"
+    order = reduced["execution_outcomes"][
+        reduced["pending_exits"]["S035"]["exit_id"]
+    ][BTC.key]
+    assert D(order["requested"]) == D("-0.282")
+    assert D(order["quantity"]) == D("-0.282")
+    add_quote(tape, 700, size=200)
+    after = paper.step(at(701))
+    assert D(after["positions"][BTC.key]) == D("0.282")
+    assert len([r for r in paper.run.ledger.read()
+                if r["event"]["kind"] == "PM04_PAPER_EXIT"]) == 1
+    assert len(entry_attempts(paper)) == 1
+
+
+def test_two_distinct_exit_signals_cannot_reuse_same_displayed_bid_depth(tmp_path):
+    tape = PaperJournal(tmp_path / "source")
+    add_quote(tape, 10, size=200)
+    paper = new_paper(tmp_path, tape, run_id="same_book_no_double_sell")
+    add_source(tape, 1, 12, {BTC.key: "20"})
+    paper.step(at(14))
+    add_quote(tape, 312, size=200)
+    paper.step(at(313))
+
+    add_quote(tape, 319, size=200)
+    add_source(tape, 2, 319, {BTC.key: "15"})
+    first = paper.step(at(321))
+    assert D(first["positions"][BTC.key]) == D("0.423")
+    first_exit_id = first["pending_exits"]["S035"]["exit_id"]
+    assert first["pending_exits"]["S035"]["status"] == "EXIT_FILLED"
+
+    # A newer leader reduction is distinct, but the same observed bid
+    # liquidity cannot be sold a second time without a new quote receipt.
+    add_source(tape, 3, 322, {BTC.key: "10"})
+    second = paper.step(at(324))
+    second_exit_id = second["pending_exits"]["S035"]["exit_id"]
+    assert second_exit_id != first_exit_id
+    assert second["execution_outcomes"][second_exit_id][BTC.key]["status"] == (
+        "REJECTED_REUSED_L2_QUOTE"
+    )
+    assert second["pending_exits"]["S035"]["status"] == "UNRESOLVED_EXPOSURE"
+    assert D(second["positions"][BTC.key]) == D("0.423")
+    add_quote(tape, 329, size=200)
+    later = paper.step(at(331))
+    assert D(later["positions"][BTC.key]) == D("0.423")
+    assert len([r for r in paper.run.ledger.read()
+                if r["event"]["kind"] == "PM04_PAPER_EXIT"]) == 2
+
+
+def test_pending_exit_canceled_if_leader_restores_size_before_quote(tmp_path):
+    tape = PaperJournal(tmp_path / "source")
+    add_quote(tape, 10, size=200)
+    paper = new_paper(tmp_path, tape, run_id="cancel_exit")
+    add_source(tape, 1, 12, {BTC.key: "20"})
+    paper.step(at(14))
+    add_quote(tape, 312, size=200)
+    paper.step(at(313))
+    add_source(tape, 2, 345, {BTC.key: "10"})
+    first = paper.step(at(347))
+    assert first["pending_exits"]["S035"]["status"] == "PENDING_EXIT"
+    add_source(tape, 3, 350, {BTC.key: "20"})
+    restored = paper.step(at(353))
+    assert restored["pending_exits"]["S035"]["status"] == "CANCELED_SOURCE_RESTORED"
+    add_quote(tape, 355, size=200)
+    later = paper.step(at(357))
+    assert D(later["positions"][BTC.key]) == D("0.564")
+    assert len([r for r in paper.run.ledger.read()
+                if r["event"]["kind"] == "PM04_PAPER_EXIT"]) == 0
+
+
+def test_genuinely_new_source_reduction_can_create_new_terminal_exit(tmp_path):
+    tape = PaperJournal(tmp_path / "source")
+    add_quote(tape, 10, size=200)
+    paper = new_paper(tmp_path, tape, run_id="new_exit_signal")
+    add_source(tape, 1, 12, {BTC.key: "20"})
+    paper.step(at(14))
+    add_quote(tape, 312, size=200)
+    paper.step(at(313))
+    add_quote(tape, 319, size=0.01)
+    add_source(tape, 2, 319, {BTC.key: "10"})
+    failed = paper.step(at(321))
+    first_id = failed["pending_exits"]["S035"]["exit_id"]
+    assert failed["pending_exits"]["S035"]["status"] == "UNRESOLVED_EXPOSURE"
+    add_quote(tape, 326, size=200)
+    add_source(tape, 3, 326, {})
+    closed = paper.step(at(328))
+    assert closed["positions"] == {}
+    assert closed["pending_exits"]["S035"]["status"] == "EXIT_FILLED"
+    assert closed["pending_exits"]["S035"]["exit_id"] != first_id
+    history = paper.run.account.pm04_state["paper_execution"]["exit_history"]
+    assert history[first_id]["status"] == "UNRESOLVED_EXPOSURE"
+    assert len([r for r in paper.run.ledger.read()
+                if r["event"]["kind"] == "PM04_PAPER_EXIT"]) == 2
+
+
+def test_exit_does_not_retry_on_new_source_increase_below_stale_actual(tmp_path):
+    tape = PaperJournal(tmp_path / "source")
+    add_quote(tape, 10, size=200)
+    paper = new_paper(tmp_path, tape, run_id="no_exit_chasing")
+    add_source(tape, 1, 12, {BTC.key: "20"})
+    paper.step(at(14))
+    add_quote(tape, 312, size=200)
+    assert D(paper.step(at(313))["positions"][BTC.key]) == D("0.564")
+    add_quote(tape, 319, size=0.01)
+    add_source(tape, 2, 319, {BTC.key: "10"})
+    unsuccessful = paper.step(at(321))
+    assert unsuccessful["pending_exits"]["S035"]["status"] == "UNRESOLVED_EXPOSURE"
+    assert D(unsuccessful["positions"][BTC.key]) == D("0.564")
+    first_id = unsuccessful["pending_exits"]["S035"]["exit_id"]
+    assert unsuccessful["execution_intents"]["S035"]["status"] == "FILLED"
+
+    # This is a genuine newer receipt, but NOT a new reduction by the leader.
+    add_quote(tape, 326, size=200)
+    add_source(tape, 3, 326, {BTC.key: "15"})
+    after = paper.step(at(328))
+    assert after["pending_exits"]["S035"]["exit_id"] == first_id
+    assert after["pending_exits"]["S035"]["status"] == "UNRESOLVED_EXPOSURE"
+    assert D(after["positions"][BTC.key]) == D("0.564")
+    assert len([r for r in paper.run.ledger.read()
+                if r["event"]["kind"] == "PM04_PAPER_EXIT"]) == 1
+
+
+def test_two_exit_updates_before_a_quote_preserve_original_once_only_opportunity(tmp_path):
+    tape = PaperJournal(tmp_path / "source")
+    add_quote(tape, 10, size=200)
+    paper = new_paper(tmp_path, tape, run_id="coalesced_exit")
+    add_source(tape, 1, 12, {BTC.key: "20"})
+    paper.step(at(14))
+    add_quote(tape, 312, size=200)
+    paper.step(at(313))
+
+    add_source(tape, 2, 345, {BTC.key: "10"})
+    first = paper.step(at(347))
+    assert first["pending_exits"]["S035"]["status"] == "PENDING_EXIT"
+    first_id = first["pending_exits"]["S035"]["exit_id"]
+    first_deadline = first["pending_exits"]["S035"]["deadline_at"]
+    add_source(tape, 3, 350, {})
+    second = paper.step(at(353))
+    assert second["pending_exits"]["S035"]["status"] == "PENDING_EXIT"
+    assert second["pending_exits"]["S035"]["exit_id"] == first_id
+    assert second["pending_exits"]["S035"]["deadline_at"] == first_deadline
+    assert second["pending_exits"]["S035"]["source_seq"] == 3
+    add_quote(tape, 355, size=200)
+    closed = paper.step(at(357))
+    assert closed["positions"] == {}
+    assert closed["pending_exits"]["S035"]["status"] == "EXIT_FILLED"
+    assert len([r for r in paper.run.ledger.read()
+                if r["event"]["kind"] == "PM04_PAPER_EXIT"]) == 1
 
 
 def test_single_market_intent_can_use_multiple_book_levels_with_vwap():

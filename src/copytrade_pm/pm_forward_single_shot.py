@@ -17,7 +17,7 @@ from .pm03_risk import RiskPolicy
 
 ENTRY_DELAY_SECONDS = 300
 ENTRY_GRACE_SECONDS = 30
-POLICY_VERSION = "single_shot_market_paper_v2"
+POLICY_VERSION = "single_shot_market_paper_v3"
 
 
 def _time_plus(stamp: str, seconds: int) -> str:
@@ -27,10 +27,29 @@ def _time_plus(stamp: str, seconds: int) -> str:
 def _new_state(account: Account) -> dict:
     return account.pm04_state.setdefault(
         "paper_execution",
-        {"schema": "pm04_single_shot_intents_v1", "active": {}, "history": {},
+        {"schema": "pm04_single_shot_intents_v2", "active": {}, "history": {},
          "last_source_seq": {}, "last_source_positions": {}, "outcomes": {},
-         "exits": {}, "unresolved_exposures": {}},
+         "exits": {}, "exit_history": {}, "unresolved_exposures": {},
+         "consumed_quotes": {}},
     )
+
+
+def _claim_quote_once(
+    state: dict, instrument: Instrument, delta: D, quote_sha: str,
+    order_id: str, intent_id: str, at: str,
+) -> bool:
+    """One locally observed L2 side cannot support multiple modeled fills.
+
+    This claim is replayed atomically with the PM-03 financial event.
+    """
+    side = "BUY" if delta > ZERO else "SELL"
+    key = digest([instrument.key, side, quote_sha])
+    if key in state["consumed_quotes"]:
+        return False
+    state["consumed_quotes"][key] = {
+        "order_id": order_id, "intent_id": intent_id, "attempted_at": at,
+    }
+    return True
 
 
 class SingleShotMarketExecutionModel:
@@ -128,23 +147,56 @@ def apply_paper_event(account: Account, event: Event, policy: RiskPolicy, mode: 
         state["last_source_positions"][pod] = positions
         held = account.pm_quantities.get(pod, {})
         k = number(account.pm04_state["policy"]["fixed_k_by_pod"][pod])
-        reduction_required = any(
+        # An EXIT is authorized by a *new reduction in the leader's book*,
+        # never by a residual difference from a previously failed paper exit.
+        leader_reduced = any(
+            number(previous) and (
+                number(previous) * number(positions.get(inst, "0")) <= ZERO
+                or abs(number(positions.get(inst, "0"))) < abs(number(previous))
+            )
+            for inst, previous in prev.items()
+        )
+        reduction_needed = any(
             qty and (
                 number(positions.get(inst.key, "0")) * k * qty <= ZERO
                 or abs(number(positions.get(inst.key, "0")) * k) < abs(qty)
             )
             for inst, qty in held.items()
         )
-        if reduction_required:
+        pending_exit = state["exits"].get(pod)
+        if pending_exit and pending_exit["status"] == "PENDING_EXIT":
+            # One queued market attempt is retained through source revisions.
+            # Changes may revise its size, but NEVER its identity or deadline.
+            if pending_exit.get("reason") != "POD_RISK_LATCHED":
+                if reduction_needed:
+                    pending_exit["positions"] = positions
+                    pending_exit["source_seq"] = seq
+                    pending_exit["source_sha"] = raw["source_sha"]
+                    pending_exit.setdefault("updates", []).append({
+                        "source_seq": seq, "source_sha": raw["source_sha"],
+                        "known_at": raw["first_known_at"],
+                    })
+                else:
+                    pending_exit["status"] = "CANCELED_SOURCE_RESTORED"
+                    pending_exit["terminal_at"] = event.decision_at
+        elif (
+            leader_reduced and reduction_needed
+            and not (
+                pending_exit is not None
+                and pending_exit.get("reason") == "POD_RISK_LATCHED"
+            )
+        ):
             exit_id = digest([event.payload["run_id"], pod, seq, "EXIT", POLICY_VERSION])
-            state["exits"][pod] = {
+            row = {
                 "exit_id": exit_id, "pod": pod, "source_seq": seq,
                 "source_sha": raw["source_sha"], "first_known_at": raw["first_known_at"],
                 "source_event_at": event.source_event_at, "positions": positions,
                 "created_at": event.decision_at,
                 "deadline_at": _time_plus(raw["first_known_at"], ENTRY_GRACE_SECONDS),
-                "status": "PENDING_EXIT",
+                "status": "PENDING_EXIT", "updates": [],
             }
+            state["exits"][pod] = row
+            state["exit_history"][exit_id] = row
         active_id = state["active"].get(pod)
         active = state["history"].get(active_id) if active_id else None
         if positions == prev:
@@ -163,16 +215,23 @@ def apply_paper_event(account: Account, event: Event, policy: RiskPolicy, mode: 
                 return {"status": "CANCELED_BEFORE_DUE", "intent_id": active_id}
             return {"status": "PENDING_UPDATED", "intent_id": active_id}
         if not positions:
-            return {"status": "EXIT_REQUESTED" if reduction_required else "SOURCE_CLOSED",
-                    "source_seq": seq}
-        if reduction_required and all(
-            (number(positions.get(inst.key, "0")) * k * qty >= ZERO
-             and abs(number(positions.get(inst.key, "0")) * k) <= abs(qty))
-            for inst, qty in held.items() if qty
-        ) and all(
-            key in {inst.key for inst in held} for key in positions
-        ):
-            return {"status": "EXIT_REQUESTED", "source_seq": seq}
+            return {
+                "status": "EXIT_REQUESTED" if leader_reduced and reduction_needed
+                else "SOURCE_CLOSED",
+                "source_seq": seq,
+            }
+        needs_new_risk = any(
+            not held.get(Instrument.parse(key), ZERO)
+            or held[Instrument.parse(key)] * number(qty) < ZERO
+            or abs(k * number(qty)) > abs(held[Instrument.parse(key)])
+            for key, qty in positions.items()
+        )
+        if not needs_new_risk:
+            return {
+                "status": "EXIT_REQUESTED" if leader_reduced and reduction_needed
+                else "SOURCE_UPDATED_NO_NEW_RISK",
+                "source_seq": seq,
+            }
         known = raw["first_known_at"]
         if clock(known) > clock(event.decision_at) or clock(known) < clock(event.source_event_at):
             raise ValueError("SOURCE_FIRST_KNOWN_CLOCK_INVALID")
@@ -212,10 +271,18 @@ def apply_paper_event(account: Account, event: Event, policy: RiskPolicy, mode: 
         if not any(account.pm_quantities.get(pod, {}).values()):
             raise ValueError("PAPER_RISK_EXIT_NO_INVENTORY")
         pending = state["exits"].get(pod)
-        if pending is not None and pending["status"] == "PENDING_EXIT":
+        if pending is not None and pending.get("reason") == "POD_RISK_LATCHED":
             raise ValueError("PAPER_RISK_EXIT_DUPLICATE")
+        if pending is not None and pending["status"] == "PENDING_EXIT":
+            # Escalation is a risk authorization, not a second market order.
+            # Preserve the original opportunity's clock, deadline and ID.
+            pending["positions"] = {}
+            pending["reason"] = "POD_RISK_LATCHED"
+            pending["risk_trigger_at"] = event.decision_at
+            return {"status": "PENDING_RISK_EXIT_ESCALATED",
+                    "exit_id": pending["exit_id"]}
         exit_id = digest([event.payload["run_id"], pod, event.event_id, POLICY_VERSION])
-        state["exits"][pod] = {
+        row = {
             "exit_id": exit_id, "pod": pod,
             "source_seq": state["last_source_seq"].get(pod, 0),
             "source_sha": raw.get("quote_sha", ""),
@@ -227,6 +294,8 @@ def apply_paper_event(account: Account, event: Event, policy: RiskPolicy, mode: 
             "status": "PENDING_EXIT",
             "reason": "POD_RISK_LATCHED",
         }
+        state["exits"][pod] = row
+        state["exit_history"][exit_id] = row
         return {"status": "PENDING_RISK_EXIT", "exit_id": exit_id}
     if event.kind == "PM04_PAPER_EXIT":
         pod = raw["pod"]
@@ -267,6 +336,11 @@ def apply_paper_event(account: Account, event: Event, policy: RiskPolicy, mode: 
                 minimum_notional=number(row["minimum_notional"]),
             )
             order_id = digest([pending["exit_id"], inst.key, POLICY_VERSION])
+            if priced["status"] == "FILLED" and not _claim_quote_once(
+                state, inst, delta, raw["quote_shas"][inst.key],
+                order_id, pending["exit_id"], event.decision_at,
+            ):
+                priced = {"status": "REJECTED_REUSED_L2_QUOTE"}
             attempts[inst.key] = {"order_id": order_id, "requested": str(delta), **priced}
             if priced["status"] == "FILLED":
                 account.simulate_fill(
@@ -395,6 +469,11 @@ def apply_paper_event(account: Account, event: Event, policy: RiskPolicy, mode: 
             priced = model.price(delta, quotes[inst.key],
                                  step=number(market["amount_step"]),
                                  minimum_notional=number(market["minimum_notional"]))
+            if priced["status"] == "FILLED" and not _claim_quote_once(
+                state, inst, delta, raw["quote_shas"][inst.key],
+                order_id, intent["intent_id"], event.decision_at,
+            ):
+                priced = {"status": "REJECTED_REUSED_L2_QUOTE"}
             attempts[inst.key] = {"order_id": order_id, "requested": str(delta), **priced}
             if priced["status"] == "FILLED":
                 qty = number(priced["quantity"])

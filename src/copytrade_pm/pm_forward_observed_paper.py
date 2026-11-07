@@ -34,7 +34,7 @@ from .pm_forward_single_shot import POLICY_VERSION
 P1_K = {"S035": "0.0282", "S051": "0.0430", "S053": "0.0296"}
 P1_REGISTRY_ALIASES = {"S035": "S035-ENA", "S051": "S051-BTC", "S053": "S053-HYPE"}
 DEFAULT_REGISTRY = Path("/home/quant/.local/share/copytrade/registry/wallet_registry.sqlite")
-SCHEMA = "observed_fixed_k_p1_single_shot_v2"
+SCHEMA = "observed_fixed_k_p1_single_shot_v3"
 CAPACITY_BASIS = "DISPLAYED_L2_TOP_LEVEL"
 MAX_SOURCE_AGE = 180
 MAX_QUOTE_AGE = 30
@@ -661,7 +661,10 @@ class ObservedP1Paper:
                             if (
                                 stats["state"] not in ("SUSPENDED", "REDUCED")
                                 or not any(held.values())
-                                or pending is not None
+                                or (
+                                    pending is not None
+                                    and pending.get("reason") == "POD_RISK_LATCHED"
+                                )
                             ):
                                 continue
                             trigger_id = digest([self.run_id, pod, at, "POD_RISK_EXIT"])

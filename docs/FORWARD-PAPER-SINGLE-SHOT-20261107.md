@@ -1,6 +1,6 @@
-# P1 forward research paper: single-shot market execution v2
+# P1 forward research paper: single-shot market execution v3
 
-**Policy:** `single_shot_market_paper_v2`. **Owner:** isolated P1 observed-paper research
+**Policy:** `single_shot_market_paper_v3`. **Owner:** isolated P1 observed-paper research
 worker. No authenticated broker, Bybit, Propr, Guardian or dashboard mutation.
 
 ## Intent, not a permanent target-chasing loop
@@ -26,14 +26,33 @@ to price an order is `UNPRICEABLE_MARKET_ORDER`, with zero invented fills,
 and no target catch-up. Poll latency is bounded by a <=2s source poll and a
 deadline-aware wakeup; scheduling delay is not exchange order latency.
 
-Exits and risk reductions are separate immediate, bounded attempts. Market
-marks that trip a pod's loss latch create a distinct durable risk-exit intent
-without waiting for a new wallet observation. If the PM-03 account has
-contractually breached, the attempted flattening cannot fabricate a fill;
-the retained position is reported as unresolved exposure. Unpriceable or expired exits retain the actual inventory, preserve
-the loss liability and report `UNRESOLVED_EXPOSURE`. True reversals must
-reduce/flatten existing inventory first. A further opposite entry still
-requires the delayed entry window.
+Exits and risk reductions are **immediate** bounded single-market-order
+opportunities, never subject to the 300-second entry delay. One instrument
+gets one attempted order at the current verified bid (sell) or ask (buy),
+walking all *known* levels once. No partial top-level fill is rolled over
+to subsequent polling ticks; inadequate depth yields
+`UNPRICEABLE_MARKET_ORDER` and preserves actual inventory as
+`UNRESOLVED_EXPOSURE`.
+
+A **new source reduction** (quantity decrease, full close, or reversal)
+may create a fresh exit intent. A residual difference from a failed exit
+alone cannot authorize another order. An unrelated leader size increase
+cannot retry it. Updates during a pending exit coalesce into that same
+intent, with its initial ID and 30-second deadline unchanged; withdrawal
+of the reduction cancels an unattempted exit. Each outcome remains in
+durable exit history. The same observed quote cannot be consumed twice
+on the same instrument and order side, including across separate
+entry/exit intents or pods.
+
+A pod-loss mark creates an independent risk-exit authorization without
+waiting for a new wallet observation. It can override a failed source exit,
+or escalate a still-pending source exit **without** creating a second
+order or extending its original deadline. Once a risk exit is attempted,
+subsequent risk-mark ticks cannot implicitly retry the leftover inventory.
+If the PM-03 account has contractually breached, the engine does not
+fabricate a flattening fill; the liability remains unresolved. True
+reversals must close existing exposure first; new opposite exposure still
+requires a separate delayed entry window.
 
 **Sizing remains unchanged:** for each market, source native quantity times
 source mark times frozen pod k is the signed follower notional. Divide by
@@ -60,15 +79,17 @@ is unavailable, and forward-PnL is not scientifically qualified.
 
 ## Campaign migration and verification
 
-Never resume an `observed_fixed_k_p1_paper_v1` journal as v2. Keep its
-manifest, source hashes and PM03 event bytes intact under the original run id.
-For v2, allocate a fresh private state root and run ID; versioned code and
+Never resume a v1 or `single_shot_market_paper_v2` journal as v3. Keep
+their manifests, source hashes and PM03 event bytes intact under the
+original run IDs. The v2 campaign's earlier source/expiration records must
+not be retroactively replayed through changed transition rules. For v3,
+allocate a fresh private state root and run ID; versioned code and
 manifest must bind to a verified Git commit. Read-only observer SQLite and
 native registry are shared unchanged. The quant-owned transient research
 service may be stopped and replaced; no other systemd units or protected
 financial services may be touched. Inspect the old run ledger hash/OS PID,
 record the exact prior revision, stop exactly the selected service,
-install the frozen commit and start v2 with finite resources and
+install the frozen commit and start v3 with finite resources and
 `--poll-seconds 2`. Verify process, revision, incoming source, PM03 replay,
 journal changes and error rate. A process without a post-start qualifying
 source/market opportunity is only `RUNNING_AWAITING_LIVE_SIGNAL`, never
@@ -81,7 +102,8 @@ are separate gates. Do not promote this paper outcome to live finance.
 ## Rollback
 
 Keep the original private v1 research journal read-only and unmodified.
-Stop only `copytrade-paper-research-p1-0711.service`; if v2 fails,
-reinstall the frozen v1 release as a **new** research service after verifying
-its legacy policy/run configuration. Never blend old and new modeled fills,
-retimestamp historical signals or overwrite v2 accounting.
+Stop only `copytrade-paper-research-p1-0711.service`; if v3 fails,
+restart the last verified, still-pinned v2 research release and its
+original journal only after verifying immutable manifest compatibility.
+Never blend old and new modeled fills,
+retimestamp historical signals or overwrite v2 or v3 accounting.
