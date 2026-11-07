@@ -57,6 +57,18 @@ scientifically qualified follower P&L.
 ## Deployment
 
 Use the reviewed pinned release from Git (never an editable working tree).
+Install **both** optional dependency sets in its exact Python environment:
+`uv sync --frozen --extra market-stream --extra source --group dev`.
+The original source collector imports `websockets==15.0.1` while the CCXT
+collector imports `ccxt==4.5.91`; installing only `market-stream` makes the
+market service appear healthy but leaves all wallet-source captures broken.
+The source unit's versioned `ExecStartPre` checks both modules at process
+start and fails instead of silently reporting zero wallet observations.
+The initial 2026-11-07 source-only cutover encountered this missing extra,
+resulting in five source-capture errors. After installing `source` and
+restarting only the source observer, all five selected parent streams wrote
+fresh first-known receipts and the next source epoch had zero gaps.
+
 Do not stop any Guardian, Bybit, Propr, dashboard, ensemble or unrelated
 systemd unit. Capture original unit ExecStart, PIDs, SHA, tape state and
 health before modifying the observer. Verify that the monitored P1/P14/P16
