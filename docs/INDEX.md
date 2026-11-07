@@ -11,6 +11,8 @@ context. [AGENTS.md](../AGENTS.md) defines the execution workflow.
 
 ## Canonical guides
 
+The [8 November full-history fast-pass source audit](research/2026-11-08-fastpass-july-nov-vike.md) documents July–November Polars screening and a SHA-indexed private Vike wallet-fill/closed-trade recovery generation. Its short-hold source-wallet results are historical only: maker dependence, old open positions, unknown first-known follower execution, and missing actual PM-03/PM-04 net mark-to-market prevent a fast-pass or trading qualification. The [earlier seven-day-only screen](research/2026-11-07-fastpass-wallet-screen.md) is superseded.
+
 The local-only read-only Marimo dashboard's authenticated foundation is documented in [Dashboard Phase 1](DASHBOARD-PHASE1.md); the eight-view source-only extension, precise native read limitations and local tests are documented in [Dashboard Phase 2](DASHBOARD-PHASE2.md). Neither phase has broker or Guardian write authority or an installed dashboard financial service.
 
 | Responsibility | Guide |
