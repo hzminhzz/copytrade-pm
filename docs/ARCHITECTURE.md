@@ -255,6 +255,7 @@ src/copytrade_pm/
   pm_manager.py / pm02_*.py                conditional manager scoring and allocation
   pm_handoff.py / pm03_bridge.py           versioned SHA handoff and position authority gate
   pm03_*.py                                standalone consolidated shadow account
+  pm_combo2.py / _capture.py / _capture_cli.py  strict local paper plus witnessed-source ingest
 tests/                                     deterministic, synthetic, adversarial contracts
 docs/                                      current handbook + preserved source-era historical reports
 examples/pm03_synthetic.json              only synthetic no-network demonstration

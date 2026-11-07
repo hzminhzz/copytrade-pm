@@ -416,6 +416,10 @@ When any operation fails or returns BLOCKED, execute [RECOVER](BLOCKER-RECOVERY.
 | `HALT` in PM-03 | Simulated supervisor latches uncertainty/breach | Inspect immutable journal and cause; manual-only reset when permitted, no implicit flatten |
 | GitHub checks red | Lint/test/build regression | Fix on branch, rerun both core + market matrix; no bypass on protected main |
 
+## Combo 2 prospective paper source (Issue #22, not a running service)
+
+See [Combo 2 paper contract](COMBO2-PAPER.md#prospective-source-receipt-import-continuation-under-issue-22) for the exact private source-manifest schema, local E4 generation import command, two first-known clocks, fail-closed subaccount/equity rules, and current absence of an unattended source-to-paper execution service. Do not start another Hyperliquid observer while the shared rotating observer owns the IP cap. No remote order mutation is allowed under any flag. The standalone fixture command remains the only completed paper account replay.
+
 ## 8. Required engineering closeout
 
 Routine research/CLI operation has **no per-turn judge call**. For material frozen-roster, policy or qualification decisions, follow the [protected governance boundary](GOVERNANCE-GATES.md) and run `copytrade-pm-review-gate --help` to inspect the read-only signature-check interface. An unavailable independent reviewer blocks only that protected decision; no current CLI confers scientific qualification or trading permission.
