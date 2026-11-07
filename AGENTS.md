@@ -21,6 +21,12 @@ Read [the handbook](docs/INDEX.md), [architecture](docs/ARCHITECTURE.md), and th
 owning [runbook](docs/RUNBOOK.md), [data guide](docs/DATA-ACQUISITION.md), or
 [qualification contract](docs/QUALIFICATION.md) before changing their boundary.
 Dated reports preserve historical evidence; they do not override current policy.
+When auditing a Git stash that included untracked files, inspect the stable stash
+commit **and its third parent** (`<stash-sha>^3`) independently. The ordinary
+stash tree alone omits those untracked contents; compare full Git object IDs
+against current main before classifying changes or deleting preserved work.
+Read the [dated follow-up audit](docs/RECONCILIATION-FOLLOWUP-20261107.md)
+for the preservation disposition, not as a live runtime status.
 
 ## Authority and repository ownership
 
