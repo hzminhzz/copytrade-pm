@@ -175,6 +175,11 @@ def make_app(*, secret: str, clock=None):
         .with_app(path="/", root=PAGES / "overview.py")
         .with_app(path="/research", root=PAGES / "registry.py")
         .with_app(path="/health", root=PAGES / "health.py")
+        .with_app(path="/risk", root=PAGES / "risk.py")
+        .with_app(path="/execution", root=PAGES / "execution.py")
+        .with_app(path="/portfolios", root=PAGES / "portfolios.py")
+        .with_app(path="/performance", root=PAGES / "performance.py")
+        .with_app(path="/lab", root=PAGES / "lab.py")
     )
     app = Starlette(
         routes=[Route("/login", login, methods=["GET", "POST"]), Mount("/", server.build())]

@@ -16,7 +16,9 @@ def _():
 def _(mo):
     mo.md(
         "# Operations · System health\n"
-        "[Overview](/) · [System health](/health) · [Research / Wallets](/research)\n\n"
+        "[Overview](/) · [Execution](/execution) · [Risk](/risk) · "
+        "[System health](/health) · [Wallets](/research) · "
+        "[Portfolios](/portfolios) · [Performance](/performance) · [Research lab](/lab)\n\n"
         "A healthy browser or active PID does **not** establish healthy Guardian finance."
     )
     refresh = mo.ui.refresh(options=["10s", "30s", "60s"], default_interval="10s",

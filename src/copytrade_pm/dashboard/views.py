@@ -138,7 +138,7 @@ def health_view(mo, report: dict[str, Any]):
         [{"evidence": status, "count": number} for status, number in sorted(counts.items())],
         schema={"evidence": pl.String, "count": pl.Int64},
     )
-    chart = alt.Chart(chart_data.to_dicts()).mark_bar().encode(
+    chart = alt.Chart(alt.InlineData(values=chart_data.to_dicts())).mark_bar().encode(
         x=alt.X("evidence:N", title="Observed evidence classification"),
         y=alt.Y("count:Q", title="Components"),
         tooltip=["evidence:N", "count:Q"],

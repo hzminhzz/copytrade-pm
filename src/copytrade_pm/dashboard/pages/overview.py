@@ -17,7 +17,9 @@ def _(mo):
     mo.md(
         "# Operations · Account risk\n"
         "**Read-only. No trading controls.** "
-        "[Overview](/) · [System health](/health) · [Research / Wallets](/research)\n\n"
+        "[Overview](/) · [Execution](/execution) · [Risk](/risk) · "
+        "[System health](/health) · [Wallets](/research) · "
+        "[Portfolios](/portfolios) · [Performance](/performance) · [Research lab](/lab)\n\n"
         "Metrics are authoritative only to the degree indicated by their source status."
     )
     refresh = mo.ui.refresh(options=["5s", "10s", "30s"], default_interval="5s",

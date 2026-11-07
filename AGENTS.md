@@ -152,6 +152,17 @@ Missing actual follower evidence stays BLOCKED. Synthetic EV is SCENARIO_ONLY;
 finite-horizon payouts are not infinite-horizon LTV or a purchase recommendation.
 Never alter scientific thresholds to make an engineering gate pass.
 
+## Dashboard V1 phase boundary
+
+Phase 2 source implementations and fail-closed owner-capture consumer are
+independently tested; do not confuse source merge with live capture permission,
+installed release, signed pod budget, broker PnL or trading authorization.
+See `docs/DASHBOARD-PHASE2.md` and prop-production's owner projection contract.
+Phase 3 TD-11/TD-12 may proceed as independent source work; TD-13 requires
+integrated noninterference/permission/load evidence and TD-14 owns a separately
+authorized pinned reversible release. Never grant Marimo journal access or
+activate protected capture/Guardian services as a shortcut.
+
 ## Review, verification and continuation
 
 Routine authorized engineering proceeds without per-turn judge calls.

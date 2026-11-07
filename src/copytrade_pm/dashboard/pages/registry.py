@@ -16,7 +16,9 @@ def _():
 def _(mo):
     mo.md(
         "# Research · Canonical wallet registry\n"
-        "[Overview](/) · [System health](/health) · [Wallet registry](/research)\n\n"
+        "[Overview](/) · [Execution](/execution) · [Risk](/risk) · "
+        "[Health](/health) · [Wallet registry](/research) · "
+        "[Portfolios](/portfolios) · [Performance](/performance) · [Research lab](/lab)\n\n"
         "SQLite identities are research metadata, not deployed portfolios."
     )
     query = mo.ui.text(label="Alias contains (max 96 characters)", value="", max_length=96)

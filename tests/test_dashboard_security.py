@@ -27,7 +27,8 @@ def test_auth_required_for_http_and_actual_marimo_routes():
 
     app = make_app(secret=KEY)
     with TestClient(app, base_url="https://localhost") as client:
-        for path in ("/", "/health", "/research", "/health/assets/no.css"):
+        for path in ("/", "/health", "/research", "/risk", "/execution",
+                     "/portfolios", "/performance", "/lab", "/health/assets/no.css"):
             result = client.get(path)
             assert result.status_code == 401
         assert client.get("/login").status_code == 200
@@ -46,7 +47,8 @@ def test_auth_required_for_http_and_actual_marimo_routes():
         )
         assert result.status_code == 303
         assert result.cookies.get(COOKIE_NAME)
-        for path in ("/", "/health", "/research"):
+        for path in ("/", "/health", "/research", "/risk", "/execution",
+                     "/portfolios", "/performance", "/lab"):
             response = client.get(path, follow_redirects=True)
             assert response.status_code == 200
             assert "marimo" in response.text.lower()
