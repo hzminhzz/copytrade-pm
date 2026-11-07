@@ -1,7 +1,9 @@
 # P1 forward research paper: single-shot market execution v3
 
-**Policy:** `single_shot_market_paper_v3`. **Owner:** isolated P1 observed-paper research
-worker. No authenticated broker, Bybit, Propr, Guardian or dashboard mutation.
+**Policy:** `single_shot_market_paper_v3`. **Owner:** isolated P1 and
+reviewed additional registry-bound observed-paper research campaigns.
+See [the multi-portfolio activation contract](REGISTRY-PAPER-PORTFOLIOS-20261107.md).
+No authenticated broker, Bybit, Propr, Guardian or dashboard mutation.
 
 ## Intent, not a permanent target-chasing loop
 

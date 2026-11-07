@@ -9,6 +9,7 @@ It is NOT the protected Guardian, real demo execution, or paper qualification.
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 from contextlib import closing, contextmanager
 from datetime import UTC, datetime
 from decimal import Decimal, ROUND_DOWN
@@ -28,7 +29,7 @@ from .pm_fixed_k_source_scope import assess_selected_parent_perp_scope
 from .pm_exposure_sizing import target_from_fixed_k
 from .pm_forward_ccxt_market import NativeMarket, parse_ccxt_market
 from .pm_forward_journal import PaperJournal
-from .pm_forward_portfolios import P1
+from .pm_forward_portfolios import FrozenPaperPortfolio, P1
 from .pm_forward_single_shot import POLICY_VERSION
 
 P1_K = {"S035": "0.0282", "S051": "0.0430", "S053": "0.0296"}
@@ -38,6 +39,119 @@ SCHEMA = "observed_fixed_k_p1_single_shot_v3"
 CAPACITY_BASIS = "DISPLAYED_L2_TOP_LEVEL"
 MAX_SOURCE_AGE = 180
 MAX_QUOTE_AGE = 30
+
+
+@dataclass(frozen=True)
+class PaperPortfolioSpec:
+    """Only reviewed, selected-account fixed-k research scenarios may run."""
+
+    registry_id: str
+    source_ids: tuple[str, ...]
+    full_aliases: tuple[str, ...]
+    k_by_pod: tuple[str, ...]
+    losses: tuple[str, ...]
+    sizing_evidence: str
+    nominal_risk: str = "600"
+
+    def __post_init__(self) -> None:
+        n = len(self.source_ids)
+        if not n or any(len(seq) != n for seq in (
+            self.full_aliases, self.k_by_pod, self.losses,
+        )) or len(set(self.source_ids)) != n or len(set(self.full_aliases)) != n:
+            raise ValueError("INVALID_PAPER_PORTFOLIO_PROFILE")
+        if sum((Decimal(value) for value in self.losses), Decimal("0")) != Decimal(
+            self.nominal_risk
+        ):
+            raise ValueError("PAPER_PORTFOLIO_NOMINAL_RISK_MISMATCH")
+        if any(Decimal(k) <= 0 for k in self.k_by_pod):
+            raise ValueError("INVALID_PAPER_PORTFOLIO_K")
+
+    @property
+    def reference_sha(self) -> str:
+        return FrozenPaperPortfolio(self.registry_id, self.source_ids).sha
+
+    @property
+    def k(self) -> dict[str, str]:
+        return dict(zip(self.source_ids, self.k_by_pod, strict=True))
+
+    @property
+    def risk(self) -> dict[str, str]:
+        return dict(zip(self.source_ids, self.losses, strict=True))
+
+    @property
+    def registry_aliases(self) -> dict[str, str]:
+        return dict(zip(self.source_ids, self.full_aliases, strict=True))
+
+
+# Only separately frozen virtual-paper studies with an explicit bounded
+# execution scenario are included. Never infer authority from any registry
+# portfolio name or auto-admit NON_EXECUTABLE_SIGNED_RESEARCH references.
+PAPER_PROFILES = {
+    "P1": PaperPortfolioSpec(
+        "P1", P1.members, ("S035-ENA", "S051-BTC", "S053-HYPE"),
+        ("0.0282", "0.0430", "0.0296"), ("200", "200", "200"),
+        "EXISTING_P1_V3_PAPER_REFERENCE",
+    ),
+    "P14": PaperPortfolioSpec(
+        "P14", ("S035", "S051", "S053", "S064", "Whale_0x5f94"),
+        ("S035-ENA", "S051-BTC", "S053-HYPE",
+         "S064-xyz:BRENTOIL", "Whale_0x5f94"),
+        ("0.0169", "0.0258", "0.0178", "0.0191", "0.00011"),
+        ("120", "120", "120", "120", "120"),
+        "GEMINI_PHASE3_REFERENCE_PAPER_SCENARIO",
+    ),
+    "P16": PaperPortfolioSpec(
+        "P16", ("S035", "S051", "S053", "Whale_0x5f94"),
+        ("S035-ENA", "S051-BTC", "S053-HYPE", "Whale_0x5f94"),
+        # Explicit research-only derivation from P1/P14 fixed-k references:
+        # 30/30/25/15 percent of the equal $600 nominal risk.
+        ("0.02538", "0.0387", "0.0222", "0.0000825"),
+        ("180", "180", "150", "90"),
+        "DERIVED_PHASE3_P16_CONTROL_SCENARIO_NOT_APPROVED_EXECUTION_K",
+    ),
+}
+
+
+def _verify_portfolio_selection(
+    registry_db: Path, profile: PaperPortfolioSpec, *, as_of: str,
+) -> dict[str, str | int]:
+    """Verify immutable portfolio definition from SQLite, not only alias names."""
+    from .wallet_registry_portfolios import select_asof
+
+    with closing(_readonly(registry_db)) as db:
+        db.execute("BEGIN")
+        try:
+            if profile.registry_id == "P1" and not db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' "
+                "AND name='portfolio_seals'"
+            ).fetchone():
+                # Legacy unit fixtures contain verified P1 wallet aliases,
+                # but no registry portfolio tables. Do NOT mislabel this SHA
+                # as a verified registry definition in source evidence.
+                return {
+                    "portfolio_id": "P1", "version": 0,
+                    "definition_sha256": None,
+                    "validation": "LEGACY_P1_TEST_FIXTURE_ONLY",
+                }
+            selected = select_asof(db, profile.registry_id, as_of)
+            if (
+                selected.get("state") == "UNKNOWN_AT_ASOF"
+                or not selected.get("alias_resolution_complete")
+                or not selected.get("sizing_contract", "").startswith(
+                    profile.registry_id + "_VIRTUAL_10000_USD_"
+                )
+                or set(selected.get("members", ())) != set(profile.full_aliases)
+                or len(selected.get("members", ())) != len(profile.full_aliases)
+                or not selected.get("definition_sha256")
+            ):
+                raise ValueError("PAPER_PORTFOLIO_SEAL_OR_SIZING_MISMATCH")
+        finally:
+            db.execute("ROLLBACK")
+    return {
+        "portfolio_id": profile.registry_id,
+        "version": selected["version"],
+        "definition_sha256": selected["definition_sha256"],
+    }
 
 
 def now_utc() -> str:
@@ -52,13 +166,16 @@ def _readonly(path: Path) -> sqlite3.Connection:
     return conn
 
 
-def _sealed_p1_accounts(registry_db: Path, *, as_of: str) -> dict[str, str]:
-    """Pin canonical source-account identity once; never read a public name as ownership."""
+def _sealed_p1_accounts(
+    registry_db: Path, *, as_of: str,
+    aliases: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """Pin canonical source-account identity once; never use a display label as ownership."""
     selected: dict[str, str] = {}
     with closing(_readonly(registry_db)) as db:
         db.execute("BEGIN")
         try:
-            for alias, full in P1_REGISTRY_ALIASES.items():
+            for alias, full in (aliases or P1_REGISTRY_ALIASES).items():
                 rows = db.execute(
                     "SELECT DISTINCT w.address FROM wallets w JOIN wallet_aliases a "
                     "ON a.wallet_id=w.wallet_id "
@@ -209,21 +326,33 @@ def _candidate_market(inst: Instrument, catalog: Mapping[str, dict], quote: dict
     raise ValueError("VERIFIED_NATIVE_MARKET_CATALOG_MISSING")
 
 
-def _policy() -> dict:
+def _policy(profile: PaperPortfolioSpec | None = None) -> dict:
+    profile = profile or PAPER_PROFILES["P1"]
     return {
         "schema": "pm04_research_policy_v1",
         "version": POLICY_VERSION,
         "approval_reference": "docs/decisions/2026-11-03-gemini-phase3-adoption-180d.md",
         "pods": {
             alias: {
-                "budget_ref": "p1_observed_paper_" + alias,
-                "daily_loss": "150", "max_drawdown": "200", "stress_loss": "200",
+                "budget_ref": (
+                    "p1_observed_paper_" + alias
+                    if profile.registry_id == "P1"
+                    else profile.registry_id.lower() + "_paper_" + alias
+                ),
+                "daily_loss": format(
+                    Decimal(profile.risk[alias]) * Decimal("0.75"), "f"
+                ).rstrip("0").rstrip("."),
+                "max_drawdown": profile.risk[alias],
+                "stress_loss": profile.risk[alias],
             }
-            for alias in P1.members
+            for alias in profile.source_ids
         },
-        "fixed_k_by_pod": P1_K,
-        "follower_allocations": {alias: "3000" for alias in P1.members},
-        "nominal_portfolio_risk": "600",
+        "fixed_k_by_pod": profile.k,
+        "follower_allocations": {
+            alias: str(Decimal("9000") / len(profile.source_ids))
+            for alias in profile.source_ids
+        },
+        "nominal_portfolio_risk": profile.nominal_risk,
         "max_gross_notional": "20000",
         "max_instrument_fraction_equity": "0.5",
         "max_stress_loss": "700",
@@ -328,7 +457,13 @@ class ObservedP1Paper:
         catalog: Mapping[str, dict],
         registry_db: Path = DEFAULT_REGISTRY,
         started_at: str | None = None,
+        portfolio_id: str = "P1",
     ) -> None:
+        if portfolio_id not in PAPER_PROFILES:
+            raise ValueError("PAPER_PORTFOLIO_HAS_NO_APPROVED_RESEARCH_SCENARIO")
+        self.profile = PAPER_PROFILES[portfolio_id]
+        self.members = self.profile.source_ids
+        self.portfolio_id = portfolio_id
         self.source_db = Path(source_db)
         self.registry_db = Path(registry_db)
         self.catalog = dict(catalog)
@@ -341,8 +476,10 @@ class ObservedP1Paper:
         if saved.exists():
             manifest = json.loads(saved.read_text())
             if (
-                manifest.get("pm01_sha") != P1.sha
+                manifest.get("pm01_sha") != self.profile.reference_sha
                 or not isinstance(manifest.get("pm02_sha"), str)
+                or manifest["rulebook"].get("program")
+                != f"{self.portfolio_id}_10000_VIRTUAL_PAPER"
                 or manifest.get("mode") != "RESEARCH_SYNTHETIC"
             ):
                 raise ValueError("PAPER_RESTART_MANIFEST_POLICY_DRIFT")
@@ -364,9 +501,9 @@ class ObservedP1Paper:
                 raise ValueError("NO_VERIFIED_DEFAULT_PERP_MARKET_CATALOG")
             permitted = tuple(sorted((Instrument.parse(key) for key in markets)))
             rulebook = Rulebook(
-                program="P1_10000_VIRTUAL_PAPER",
+                program=f"{self.portfolio_id}_10000_VIRTUAL_PAPER",
                 stage="RESEARCH_PAPER",
-                source="P1_20261103_RISK_REFERENCE_NOT_PROP_CONTRACT",
+                source=f"{self.portfolio_id}_20261103_RISK_REFERENCE_NOT_PROP_CONTRACT",
                 observed_at=started_at, version=SCHEMA, timezone="UTC",
                 initial_balance=Decimal("10000"),
                 profit_target=None, daily_loss=Decimal("500"),
@@ -380,14 +517,28 @@ class ObservedP1Paper:
                 for key, row in sorted(markets.items())
             })
         self.started_at = started_at
-        self.selected_accounts = _sealed_p1_accounts(self.registry_db, as_of=started_at)
-        self.policy = {**_policy(), "selected_account_hashes": self.selected_accounts}
+        self.portfolio_seal = _verify_portfolio_selection(
+            self.registry_db, self.profile, as_of=started_at,
+        )
+        self.selected_accounts = _sealed_p1_accounts(
+            self.registry_db, as_of=started_at, aliases=self.profile.registry_aliases,
+        )
+        self.policy = {
+            **_policy(self.profile),
+            "selected_account_hashes": self.selected_accounts,
+        }
+        if self.portfolio_id != "P1":
+            self.policy.update({
+                "registry_portfolio": self.portfolio_seal,
+                "paper_sizing_evidence_class": self.profile.sizing_evidence,
+            })
         self.policy_sha = digest(self.policy)
         if saved.exists() and manifest.get("pm02_sha") != self.policy_sha:
             raise ValueError("PAPER_RESTART_CANONICAL_ACCOUNT_POLICY_DRIFT")
         self.run = ShadowRun(
             base, run_id=run_id, rulebook=rulebook, started_at=started_at,
-            mode="RESEARCH_SYNTHETIC", pm01_sha=P1.sha, pm02_sha=self.policy_sha,
+            mode="RESEARCH_SYNTHETIC", pm01_sha=self.profile.reference_sha,
+            pm02_sha=self.policy_sha,
             market_manifest_sha=market_sha,
         )
         if not self.run.account.pm04_state:
@@ -398,14 +549,14 @@ class ObservedP1Paper:
         state = self.run.account.pm04_state.get("paper_execution", {})
         self.last_seen = {
             alias: state.get("last_source_seq", {}).get(alias, 0)
-            for alias in P1.members
+            for alias in self.members
         }
-        self.prestart_seen = {alias: False for alias in P1.members}
+        self.prestart_seen = {alias: False for alias in self.members}
         # This read-only cursor is derived from the immutable run start and
         # the source's first-known sequence. Never replay old signals into
         # a fresh campaign or rescan its historical 1000+ receipts every 2s.
         with closing(_readonly(self.source_db)) as db:
-            for alias in P1.members:
+            for alias in self.members:
                 row = db.execute(
                     "SELECT MAX(seq) FROM source_receipts WHERE source_id=? "
                     "AND julianday(json_extract(payload, '$.first_known_at')) "
@@ -502,13 +653,13 @@ class ObservedP1Paper:
                 amounts = {key: row["mid_quote"] for key, row in quotes.items()}
                 sized = target_from_fixed_k(
                     source_quantities=pending["positions"],
-                    k=Decimal(P1_K[pod]),
+                    k=Decimal(self.profile.k[pod]),
                     source_marks=amounts,
                     follower_marks=amounts,
                     follower_equity_usd=self.run.account.equity,
                     max_gross_notional_usd=Decimal(self.policy["max_gross_notional"]),
                     max_market_notional_usd=Decimal("5000"),
-                    pod_loss_budget_usd=Decimal("200"),
+                    pod_loss_budget_usd=Decimal(self.profile.risk[pod]),
                 )
                 target = {}
                 for key, raw in sized["target_quantities"].items():
@@ -559,13 +710,13 @@ class ObservedP1Paper:
                 amounts = {key: quote["mid_quote"] for key, quote in quotes.items()}
                 sized = target_from_fixed_k(
                     source_quantities=intent["positions"],
-                    k=Decimal(P1_K[pod]),
+                    k=Decimal(self.profile.k[pod]),
                     source_marks=amounts,
                     follower_marks=amounts,
                     follower_equity_usd=self.run.account.equity,
                     max_gross_notional_usd=Decimal(self.policy["max_gross_notional"]),
                     max_market_notional_usd=Decimal("5000"),
-                    pod_loss_budget_usd=Decimal("200"),
+                    pod_loss_budget_usd=Decimal(self.profile.risk[pod]),
                 )
                 quantized = {}
                 for key, raw in sized["target_quantities"].items():
@@ -615,7 +766,7 @@ class ObservedP1Paper:
         with closing(_readonly(self.source_db)) as db:
             db.execute("BEGIN")
             try:
-                for alias in P1.members:
+                for alias in self.members:
                     rows = db.execute(
                         "SELECT seq FROM source_receipts WHERE source_id=? AND seq>? "
                         "ORDER BY seq ASC", (alias, self.last_seen[alias]),
@@ -689,6 +840,10 @@ class ObservedP1Paper:
         return {
             "schema": SCHEMA,
             "run_id": self.run_id,
+            "portfolio_id": self.portfolio_id,
+            "portfolio_seal": self.portfolio_seal,
+            "portfolio_members": list(self.profile.full_aliases),
+            "sizing_evidence_class": self.profile.sizing_evidence,
             "as_of": at,
             "source_results": results,
             "execution_results": execution_results,
@@ -748,6 +903,7 @@ def main() -> None:
     parser.add_argument("--registry-db", type=Path, default=DEFAULT_REGISTRY)
     parser.add_argument("--state-root", required=True, type=Path)
     parser.add_argument("--run-id", required=True)
+    parser.add_argument("--portfolio", choices=tuple(PAPER_PROFILES), default="P1")
     parser.add_argument("--markets-json", type=Path, help="Optional CCXT raw load_markets JSON; otherwise public REST metadata once")
     parser.add_argument("--watch", action="store_true")
     parser.add_argument("--poll-seconds", type=float, default=2.0)
@@ -762,6 +918,7 @@ def main() -> None:
             state_root=args.state_root,
             run_id=args.run_id,
             catalog=catalog,
+            portfolio_id=args.portfolio,
         )
         while True:
             print(json.dumps(consumer.step(), sort_keys=True), flush=True)
