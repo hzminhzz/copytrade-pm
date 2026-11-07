@@ -793,6 +793,28 @@ def _execute(
     # The account is the sole source of broker-equivalent holdings. A required
     # external position snapshot must reconcile before any new-risk attempt.
     proposed = account.external_targets(target_books)
+    quote_shas = raw.get("l2_quote_shas", {})
+    if quote_shas:
+        if not isinstance(quote_shas, dict):
+            raise ValueError("PAPER_L2_QUOTE_SHA_MAP_INVALID")
+        consumed = state.get("modeled_l2_consumed", {})
+        reuse = [
+            inst.key for inst, wanted in proposed.items()
+            if wanted != account.quantities.get(inst, ZERO)
+            and inst.key in consumed
+            and quote_shas.get(inst.key) == consumed[inst.key]
+        ]
+        if reuse:
+            return {
+                "status": "BLOCKED_REUSED_L2_TOP_LEVEL",
+                "rejections": sorted(reuse),
+                "fills": [],
+                "internal_crosses": [],
+                "remaining": {
+                    inst.key: str(qty - account.quantities.get(inst, ZERO))
+                    for inst, qty in proposed.items()
+                },
+            }
     violations, has_increase = _pretrade_guard(account, proposed, shocks, event.decision_at)
     if violations and has_increase:
         _outstanding(account)
@@ -830,6 +852,11 @@ def _execute(
         permitted=permitted,
     )
     for fill in report["fills"]:
+        if quote_shas:
+            marker = quote_shas.get(fill["instrument"])
+            if not isinstance(marker, str) or len(marker) != 64:
+                raise ValueError("PAPER_MODELED_FILL_MISSING_L2_QUOTE_SHA")
+            state.setdefault("modeled_l2_consumed", {})[fill["instrument"]] = marker
         q = number(fill["quantity"])
         drag = q * (number(fill["execution_price"]) - number(fill["mid_price"]))
         state["execution_drag"] = str(number(state["execution_drag"]) + drag)
@@ -937,7 +964,15 @@ def apply_pm04(account: Account, event: Event, policy: RiskPolicy, mode: str) ->
         changed = _vet_pod_new_risk(account, shocks, event.decision_at) or changed
         changed = _force_pod_reductions(account) or changed
         changed = _force_overcap_reductions(account) or changed
-        if not changed and not state["pending_reductions"]:
+        # A prior modeled order may have filled only part of the requested
+        # quantity. Revisit the remaining native target on fresh PM04 ticks,
+        # without inventing an extra signal or a new five-minute batch.
+        target_quantities = account.external_targets(_books(state["routed_targets"]))
+        pending_execution = any(
+            target_quantities.get(inst, ZERO) != account.quantities.get(inst, ZERO)
+            for inst in set(target_quantities) | set(account.quantities)
+        )
+        if not changed and not state["pending_reductions"] and not pending_execution:
             result = {
                 "status": "DEFERRED_BATCH_OR_NO_CHANGE",
                 "fills": [],

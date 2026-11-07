@@ -49,6 +49,7 @@ copytrade-pm-paper-registry-audit = "copytrade_pm.pm_forward_registry_identity:m
 copytrade-pm-paper-readiness = "copytrade_pm.pm_forward_readiness:main"
 copytrade-pm-paper-source-campaign = "copytrade_pm.pm_forward_source_campaign:main"
 copytrade-pm-paper-observe = "copytrade_pm.pm_forward_observer:main"
+copytrade-pm-paper-observed = "copytrade_pm.pm_forward_observed_paper:main"
 copytrade-pm-paper-observer-health = "copytrade_pm.pm_forward_observer_health:main"
 copytrade-pm-public-observer-unit = "copytrade_pm.pm_forward_public_unit:main"
 copytrade-pm-production-export = "copytrade_pm.production_export:main"

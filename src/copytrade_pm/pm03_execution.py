@@ -22,6 +22,15 @@ class MarketObservation:
     volume_base: D | None
     quality: str = "SYNTHETIC"
     supported: bool = False
+    # Displayed best-level liquidity is not traded volume. The two modes are
+    # deliberately disjoint so quote depth can never be silently relabeled ADV.
+    capacity_basis: str = "TRADED_VOLUME"
+    best_bid: D | None = None
+    best_ask: D | None = None
+    bid_size: D | None = None
+    ask_size: D | None = None
+    quantity_step: D | None = None
+    minimum_notional: D | None = None
 
     def validate(self, decision_at: str) -> None:
         if clock(self.event_at) > clock(self.first_known_at) or (
@@ -34,6 +43,28 @@ class MarketObservation:
             raise ValueError("INVALID_VOLUME")
         if self.quality not in ("SYNTHETIC", "OHLCV_1M_PROXY", "VERIFIED_QUOTE"):
             raise ValueError("UNSUPPORTED_MARKET_QUALITY")
+        if self.capacity_basis not in ("TRADED_VOLUME", "DISPLAYED_L2_TOP_LEVEL"):
+            raise ValueError("UNKNOWN_CAPACITY_BASIS")
+        if self.capacity_basis == "DISPLAYED_L2_TOP_LEVEL":
+            if self.quality != "VERIFIED_QUOTE" or self.volume_base is not None:
+                raise ValueError("L2_DEPTH_MUST_NOT_BE_TRADED_VOLUME")
+            if any(v is None for v in (self.best_bid, self.best_ask, self.bid_size, self.ask_size)):
+                raise ValueError("INCOMPLETE_L2_TOP_LEVEL")
+            if not (
+                ZERO < number(self.best_bid) <= number(self.mark) <= number(self.best_ask)
+                and number(self.bid_size) > ZERO
+                and number(self.ask_size) > ZERO
+            ):
+                raise ValueError("INVALID_L2_TOP_LEVEL")
+            if self.quantity_step is None or self.minimum_notional is None:
+                raise ValueError("L2_NATIVE_LOT_CONTRACT_MISSING")
+            if number(self.quantity_step) <= ZERO or number(self.minimum_notional) <= ZERO:
+                raise ValueError("L2_NATIVE_LOT_CONTRACT_INVALID")
+
+    def capacity_for(self, delta: D) -> D | None:
+        if self.capacity_basis == "DISPLAYED_L2_TOP_LEVEL":
+            return number(self.ask_size if delta > ZERO else self.bid_size)
+        return self.volume_base
 
 
 @dataclass(frozen=True)
@@ -61,9 +92,32 @@ class CostModel:
             raise ValueError("INVALID_EXECUTION_TIME")
 
     def price_and_fee(self, qty: D, quote: MarketObservation) -> tuple[D, D, dict]:
-        if quote.volume_base is None or quote.volume_base <= ZERO:
+        liquidity = quote.capacity_for(qty)
+        if liquidity is None or liquidity <= ZERO:
             raise ValueError("MISSING_LIQUIDITY")
-        share = abs(qty) / quote.volume_base
+        if quote.capacity_basis == "DISPLAYED_L2_TOP_LEVEL":
+            # Model only the displayed side. Never infer deeper book or actual
+            # execution; spread is already embedded in the best bid/ask.
+            side = number(quote.best_ask if qty > ZERO else quote.best_bid)
+            direction = D("1") if qty > ZERO else D("-1")
+            px = (side * (D("1") + direction * self.slippage_bps / D("10000"))).quantize(
+                D("0.00000001")
+            )
+            if px <= ZERO:
+                raise ValueError("NEGATIVE_EXECUTION_PRICE")
+            fee = (abs(qty * px) * self.fee_bps / D("10000")).quantize(D("0.00000001"))
+            return px, fee, {
+                "execution_price": str(px),
+                "fee": str(fee),
+                "spread_slippage_impact_bps": str((px / quote.mark - D("1")) * direction * D("10000")),
+                "mid_price": str(quote.mark),
+                "quality": quote.quality,
+                "capacity_basis": quote.capacity_basis,
+                "not_real_bid_ask": False,
+                "hypothetical_only": True,
+                "deeper_book_and_actual_fill_unknown": True,
+            }
+        share = abs(qty) / liquidity
         bps = (
             self.full_spread_bps / 2
             + self.slippage_bps
@@ -183,7 +237,7 @@ def execute_targets(
             clock(decision_at) - clock(quote.first_known_at)
         ).total_seconds() > costs.max_age_seconds:
             rejections.append(f"STALE_QUOTE:{key.key}")
-        if quote.volume_base is None:
+        if quote.capacity_for(D("1")) is None or quote.capacity_for(D("-1")) is None:
             rejections.append(f"UNKNOWN_CAPACITY:{key.key}")
     if rejections:
         account.risk = RiskState.RED
@@ -261,12 +315,20 @@ def execute_targets(
             report["rejections"].append(f"RISK_REDUCTION_ONLY:{key.key}")
             report["remaining"][key.key] = str(net)
             continue
-        capacity = quote.volume_base * costs.max_participation
+        capacity = (quote.capacity_for(net) or ZERO) * costs.max_participation
         if capacity <= ZERO and net:
             report["rejections"].append(f"NO_EXECUTION_CAPACITY:{key.key}")
             report["remaining"][key.key] = str(net)
             continue
-        filled = min(abs(net), capacity) * (D("1") if net >= ZERO else D("-1"))
+        bounded = min(abs(net), capacity)
+        if quote.capacity_basis == "DISPLAYED_L2_TOP_LEVEL":
+            # Never manufacture a fill that the native size increment rejects.
+            step = number(quote.quantity_step)
+            bounded = (bounded // step) * step
+            px_basis = number(quote.best_ask if net > ZERO else quote.best_bid)
+            if bounded and bounded * px_basis < number(quote.minimum_notional):
+                bounded = ZERO
+        filled = bounded * (D("1") if net >= ZERO else D("-1"))
         if filled:
             allocation = _allocate(filled, pending)
             px, fee, attribution = costs.price_and_fee(filled, quote)
