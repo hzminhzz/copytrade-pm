@@ -151,7 +151,9 @@ async def serve(
         raise ValueError("CCXT_QUOTE_DISK_BUDGET_INVALID")
     from time import monotonic
 
-    async with SerialWriter(max_pending=512) as writer:
+    # The source and market producers share a per-transaction SQLite lease.
+    # A short collision rejects before BEGIN; bounded retries are safe here.
+    async with SerialWriter(max_pending=512, busy_retries=20) as writer:
         prior_scope: tuple[Instrument, ...] | None = None
         while not stop.is_set():
             markets = scope()

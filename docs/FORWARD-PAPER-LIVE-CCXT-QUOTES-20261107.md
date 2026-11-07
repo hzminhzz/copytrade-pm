@@ -15,6 +15,16 @@ its obsolete short-lived CCXT market WebSocket shards. It retains the exact
 original SQLite source tape and heartbeat. Both writers use the existing
 per-transaction SQLite flock; the CCXT writer also holds a distinct
 `paper-ccxt-quote-writer.lock` for exclusive market-writer ownership.
+A source receipt and a quote receipt may briefly compete for the underlying
+short-lived `PaperJournal` SQLite writer lease. The quote-only
+`SerialWriter` retries **at most 20 times** with bounded backoff, but ONLY
+when the original `PAPER_JOURNAL_BUSY_OR_UNAVAILABLE` exception was caused
+by a pre-transaction OS `BlockingIOError` (flock rejection). It reuses the
+same original quote and first-known clock, and never retries uncertain
+SQLite errors, hash divergence, or an already-started transaction. Other
+observer writers retain their fail-fast semantics. This prevents a normal
+source/quote lock collision from killing the entire market-data service
+without making duplicate financial events possible.
 Paper readers keep reading that shared SQLite, without a restart or changing
 PM-03 campaign policy, positions, entries, exits, or T+300 execution clocks.
 
@@ -68,6 +78,10 @@ The initial 2026-11-07 source-only cutover encountered this missing extra,
 resulting in five source-capture errors. After installing `source` and
 restarting only the source observer, all five selected parent streams wrote
 fresh first-known receipts and the next source epoch had zero gaps.
+The initial quote worker had one automatic restart caused by a concurrent
+source/quote `PaperJournal` writer-lock collision. The quote-only bounded
+pre-transaction retry was added with adversarial regression tests before
+releasing the corrected collector.
 
 Do not stop any Guardian, Bybit, Propr, dashboard, ensemble or unrelated
 systemd unit. Capture original unit ExecStart, PIDs, SHA, tape state and

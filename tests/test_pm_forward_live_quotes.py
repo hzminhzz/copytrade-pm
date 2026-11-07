@@ -1,16 +1,100 @@
 """One shared CCXT WebSocket quote writer, no broker, no invented clock."""
 
 import asyncio
+import fcntl
+import os
+import sqlite3
 
 import pytest
 
 from copytrade_pm.pm03_account import Instrument
 from copytrade_pm.pm_forward_journal import PaperJournal
+from copytrade_pm.pm_forward_continuous_transport import SerialWriter
 from copytrade_pm.pm_forward_live_quotes import (
     MAX_MARKETS, _single_writer, live_quote_health, native_scope, serve,
 )
 from copytrade_pm.pm_forward_observer import capture_shared_observer_cycle
 from test_pm_forward_observed_paper import BTC, add_quote, at
+
+
+def test_bounded_sqlite_lease_collision_retries_one_original_quote(tmp_path):
+    journal = PaperJournal(tmp_path / "shared")
+    from copytrade_pm.pm_forward_ccxt_market import parse_ccxt_market, parse_ccxt_book
+    from test_pm_forward_observed_paper import RAW_MARKET, T
+    from datetime import timedelta
+
+    market = parse_ccxt_market(RAW_MARKET, first_known_at=at(1), expected=BTC)
+    quote = parse_ccxt_book(
+        market,
+        {
+            "symbol": RAW_MARKET["symbol"],
+            "timestamp": int((T + timedelta(seconds=10)).timestamp() * 1000),
+            "bids": [[100, 50]], "asks": [[101, 50]],
+        },
+        first_known_at=at(11),
+    ).payload()
+
+    async def run():
+        lock = os.open(journal.root / "paper-events.lock", os.O_RDWR)
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        try:
+            async with SerialWriter(max_pending=3, busy_retries=20) as writer:
+                pending = asyncio.create_task(
+                    writer.submit(lambda: journal.append_market_quote(quote))
+                )
+                await asyncio.sleep(0.17)
+                fcntl.flock(lock, fcntl.LOCK_UN)
+                result = await pending
+                assert result["status"] == "RECORDED_L2_ONLY_CAPACITY_UNKNOWN"
+                assert writer.transient_busy_conflicts > 0
+                assert writer.failed is None
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+            os.close(lock)
+
+    asyncio.run(run())
+    status = journal.market_quote_status(BTC.key)
+    assert status["cursor"] == 1
+    assert status["last_quote_known_at"] == quote["first_known_at"]
+
+
+def test_bounded_busy_retry_does_not_retry_hash_or_other_conflict():
+    async def run():
+        attempts = 0
+
+        def unsupported():
+            nonlocal attempts
+            attempts += 1
+            raise ValueError("PAPER_MARKET_QUOTE_HEAD_DIVERGENCE")
+
+        async with SerialWriter(busy_retries=20) as writer:
+            with pytest.raises(ValueError, match="HEAD_DIVERGENCE"):
+                await writer.submit(unsupported)
+            assert attempts == 1
+            assert writer.failed is not None
+
+    asyncio.run(run())
+
+
+def test_uncertain_sqlite_busy_never_retried_or_double_committed():
+    async def run():
+        attempts = 0
+
+        def uncertain():
+            nonlocal attempts
+            attempts += 1
+            try:
+                raise sqlite3.OperationalError("database is locked")
+            except sqlite3.OperationalError as exc:
+                raise ValueError("PAPER_JOURNAL_BUSY_OR_UNAVAILABLE") from exc
+
+        async with SerialWriter(busy_retries=20) as writer:
+            with pytest.raises(ValueError, match="BUSY_OR_UNAVAILABLE"):
+                await writer.submit(uncertain)
+            assert attempts == 1
+            assert writer.failed is not None
+
+    asyncio.run(run())
 
 
 def test_quote_writer_lease_is_single_writer_and_reusable(tmp_path):
