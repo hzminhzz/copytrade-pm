@@ -1,0 +1,430 @@
+{
+  "uid": "copytrade-risk-command-v1",
+  "title": "Risk Command | Copytrade",
+  "tags": [
+    "copytrade",
+    "read-only",
+    "staging"
+  ],
+  "schemaVersion": 41,
+  "version": 1,
+  "timezone": "utc",
+  "refresh": "15s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "templating": {
+    "list": []
+  },
+  "editable": false,
+  "graphTooltip": 0,
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "RISK COMMAND · READ-ONLY",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**LIVE SOURCE STATUS — NOT TRADING AUTHORIZATION.** Missing Guardian captures remain unavailable. No modeled finance is displayed."
+      }
+    },
+    {
+      "id": 7,
+      "title": "GUARDIAN · EVIDENCE",
+      "description": "Current native evidence grade only. Browser connectivity does not imply healthy trading.",
+      "type": "stat",
+      "datasource": {
+        "uid": "risk-projection-v1",
+        "type": "yesoreyeram-infinity-datasource"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 12,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "risk-projection-v1",
+            "type": "yesoreyeram-infinity-datasource"
+          },
+          "type": "json",
+          "source": "url",
+          "url": "http://projection:17800/v1/account-risk",
+          "parser": "backend",
+          "format": "table",
+          "root_selector": "metrics[metric=\"Guardian state\"]",
+          "columns": [
+            {
+              "selector": "grade",
+              "text": "Evidence grade",
+              "type": "string"
+            }
+          ]
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "horizontal",
+        "textMode": "value",
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "noValue": "UNAVAILABLE"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 8,
+      "title": "BROKER · CERTAINTY",
+      "description": "Current native evidence grade only. Browser connectivity does not imply healthy trading.",
+      "type": "stat",
+      "datasource": {
+        "uid": "risk-projection-v1",
+        "type": "yesoreyeram-infinity-datasource"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 12,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "risk-projection-v1",
+            "type": "yesoreyeram-infinity-datasource"
+          },
+          "type": "json",
+          "source": "url",
+          "url": "http://projection:17800/v1/account-risk",
+          "parser": "backend",
+          "format": "table",
+          "root_selector": "metrics[metric=\"Broker certainty\"]",
+          "columns": [
+            {
+              "selector": "grade",
+              "text": "Evidence grade",
+              "type": "string"
+            }
+          ]
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "horizontal",
+        "textMode": "value",
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "noValue": "UNAVAILABLE"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "title": "Guardian and broker certainty",
+      "type": "table",
+      "description": "Every metric is sourced from the bounded read-only projection. Null means no verified financial value.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "risk-projection-v1"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 24,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "risk-projection-v1"
+          },
+          "type": "json",
+          "source": "url",
+          "url": "http://projection:17800/v1/account-risk",
+          "url_options": {
+            "method": "GET"
+          },
+          "parser": "backend",
+          "format": "table",
+          "root_selector": "metrics[metric=\"Guardian state\" or metric=\"Broker certainty\"]",
+          "columns": [
+            {
+              "selector": "metric",
+              "text": "Metric",
+              "type": "string"
+            },
+            {
+              "selector": "value",
+              "text": "Value (exact text)",
+              "type": "string"
+            },
+            {
+              "selector": "grade",
+              "text": "Evidence",
+              "type": "string"
+            },
+            {
+              "selector": "authority",
+              "text": "Authority",
+              "type": "string"
+            },
+            {
+              "selector": "source_observed_at",
+              "text": "Observed UTC",
+              "type": "string"
+            },
+            {
+              "selector": "evidence_error",
+              "text": "Limitation",
+              "type": "string"
+            }
+          ],
+          "filters": [],
+          "computed_columns": []
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left",
+            "filterable": false
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "title": "Account risk — exact numbers or unavailable",
+      "type": "table",
+      "description": "Every metric is sourced from the bounded read-only projection. Null means no verified financial value.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "risk-projection-v1"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 24,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "risk-projection-v1"
+          },
+          "type": "json",
+          "source": "url",
+          "url": "http://projection:17800/v1/account-risk",
+          "url_options": {
+            "method": "GET"
+          },
+          "parser": "backend",
+          "format": "table",
+          "root_selector": "metrics[metric=\"Account equity\" or metric=\"Account headroom\" or metric=\"Daily headroom\" or metric=\"Trailing headroom\"]",
+          "columns": [
+            {
+              "selector": "metric",
+              "text": "Metric",
+              "type": "string"
+            },
+            {
+              "selector": "value",
+              "text": "Value (exact text)",
+              "type": "string"
+            },
+            {
+              "selector": "grade",
+              "text": "Evidence",
+              "type": "string"
+            },
+            {
+              "selector": "authority",
+              "text": "Authority",
+              "type": "string"
+            },
+            {
+              "selector": "source_observed_at",
+              "text": "Observed UTC",
+              "type": "string"
+            },
+            {
+              "selector": "evidence_error",
+              "text": "Limitation",
+              "type": "string"
+            }
+          ],
+          "filters": [],
+          "computed_columns": []
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left",
+            "filterable": false
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "title": "Portfolio identity and provenance",
+      "type": "table",
+      "description": "Every metric is sourced from the bounded read-only projection. Null means no verified financial value.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "risk-projection-v1"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 21,
+        "w": 24,
+        "h": 6
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "risk-projection-v1"
+          },
+          "type": "json",
+          "source": "url",
+          "url": "http://projection:17800/v1/account-risk",
+          "url_options": {
+            "method": "GET"
+          },
+          "parser": "backend",
+          "format": "table",
+          "root_selector": "metrics[metric=\"Portfolio membership\"]",
+          "columns": [
+            {
+              "selector": "metric",
+              "text": "Metric",
+              "type": "string"
+            },
+            {
+              "selector": "value",
+              "text": "Value (exact text)",
+              "type": "string"
+            },
+            {
+              "selector": "grade",
+              "text": "Evidence",
+              "type": "string"
+            },
+            {
+              "selector": "authority",
+              "text": "Authority",
+              "type": "string"
+            },
+            {
+              "selector": "source_observed_at",
+              "text": "Observed UTC",
+              "type": "string"
+            },
+            {
+              "selector": "evidence_error",
+              "text": "Limitation",
+              "type": "string"
+            }
+          ],
+          "filters": [],
+          "computed_columns": []
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left",
+            "filterable": false
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "type": "text",
+      "title": "Evidence coverage",
+      "gridPos": {
+        "x": 0,
+        "y": 27,
+        "w": 24,
+        "h": 4
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**FINANCIAL EVIDENCE MAY BE UNAVAILABLE.** A running observer or an installed process does not prove reconciled broker equity. Confirm source observation age, release, sequence and account binding in the provenance columns. Green UI connectivity does not imply safe trading."
+      }
+    }
+  ]
+}

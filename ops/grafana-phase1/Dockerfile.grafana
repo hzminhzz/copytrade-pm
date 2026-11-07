@@ -1,0 +1,4 @@
+FROM grafana/grafana:13.3.0
+USER root
+RUN grafana cli plugins install yesoreyeram-infinity-datasource 4.1.6
+USER grafana

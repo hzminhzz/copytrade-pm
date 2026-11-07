@@ -1,0 +1,57 @@
+# Disposable staging ONLY. Never mount private registry/Guardian credentials.
+name: copytrade-grafana-phase1
+services:
+  projection:
+    build:
+      context: ../..
+      dockerfile: ops/grafana-phase1/Dockerfile.projection
+    environment:
+      GRAFANA_PROJECTION_TOKEN: ${GRAFANA_PROJECTION_TOKEN:?set-a-private-staging-token}
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 64
+    mem_limit: 256m
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid
+    networks:
+      - isolated
+  grafana:
+    build:
+      context: ../..
+      dockerfile: ops/grafana-phase1/Dockerfile.grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set-private-staging-admin-password}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_AUTH_BASIC_ENABLED: "true"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_PLUGINS_PLUGIN_ADMIN_ENABLED: "false"
+      GF_SERVER_HTTP_ADDR: "0.0.0.0"
+      GOMAXPROCS: "2"
+      GRAFANA_PROJECTION_TOKEN: ${GRAFANA_PROJECTION_TOKEN:?set-a-private-staging-token}
+    volumes:
+      - ./provisioning:/etc/grafana/provisioning:ro
+      - ./dashboards:/etc/grafana/staging-dashboards:ro
+    ports:
+      - "127.0.0.1:13070:3000"
+    networks:
+      - isolated
+      - browser
+    depends_on:
+      - projection
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 512
+    mem_limit: 1024m
+networks:
+  isolated:
+    internal: true
+  browser:
+    driver: bridge
