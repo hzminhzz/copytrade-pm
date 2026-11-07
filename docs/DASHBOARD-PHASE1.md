@@ -4,7 +4,7 @@
 
 ## Authority
 
-- Overview: Guardian status/risk/broker/portfolio only from separately owned restricted captures of the existing operator projection. No capture means UNAVAILABLE, not zero. Independent native operator commands are not an atomic account snapshot. Require matching release SHA and journal sequence before displaying finance. There is no dashboard journal reader.
+- Overview: Guardian status/risk/broker/portfolio only from separately owned restricted captures of the existing operator projection. No capture means UNAVAILABLE, not zero. Independent native operator commands are not an atomic account snapshot. Require matching **account-binding SHA, non-null release SHA and journal sequence** across all four captures before displaying finance. Missing release may still permit non-financial status diagnostics, but never verified financial metrics. There is no dashboard journal reader.
 - Wallets: native private SQLite read-only facade, bounded limit 1–100, offset 0–10000, alias/cohort/exclusion/as-of, independent SQLite doctor/inventory SHA. The underlying native view redacts addresses and reasons. Stale index age does not imply corrupt SQLite.
 - Health: Guardian-reported observations, read-only public observer tapes and systemd process state. Active PID does not attest broker certainty or Guardian finance. There is no new alert service or detector.
 - Research-selected portfolios are not deployed; neither a page load nor an observer receipt authorizes trading.
@@ -26,7 +26,7 @@ The optional ASGI entrypoint is copytrade_pm.dashboard.server:app. DASHBOARD_ACC
 
 The dashboard accepts fixed names status.json, risk.json, broker.json, portfolio.json and intent.json only. Capture directory and files must be owned by an identity different from the dashboard, have no group/world write bits, and reject symlinks. Captures must be regular files no larger than 128 KiB. The wrapper must declare schema dashboard_guardian_capture_v1, command, UTC source_observed_at, UTC captured_at and native. Native response must carry operator_COMMAND_v1 schema, nonnegative journal_sequence, account_binding_sha, release_sha and trading_authorized=false.
 
-When an observation is older than 15s or capture older than 60s, status is STALE. Malformed, future, regressed, mismatched schema or inconsistent release/sequence is BLOCKED. Missing protected access is UNAVAILABLE. The dashboard does not create snapshots or weaken protected finance permissions to supply them. A separate authorized owner-provided capture producer is a future integration dependency; the current VPS protected Guardian journal must not be polled by each UI session.
+When an observation is older than 15s or capture older than 60s, status is STALE. Malformed, future, regressed, mismatched schema, mismatched account binding, missing finance-release identity or inconsistent release/sequence blocks verified finance. The native read wrapper must independently declare its read-only schema, UTC query clock and false trading/scientific authorization flags. Missing protected access is UNAVAILABLE. The dashboard does not create snapshots or weaken protected finance permissions to supply them. A separate authorized owner-provided capture producer is a future integration dependency; the current VPS protected Guardian journal must not be polled by each UI session.
 
 ## Future installation boundaries
 

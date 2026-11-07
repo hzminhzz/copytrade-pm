@@ -118,6 +118,7 @@ def envelope(
     revision: str | None = None,
     inventory_sha256: str | None = None,
     journal_sequence: int | None = None,
+    account_binding_sha: str | None = None,
     limitations: list[str] | None = None,
     error_code: str | None = None,
 ) -> dict[str, Any]:
@@ -135,6 +136,7 @@ def envelope(
         "revision": revision,
         "inventory_sha256": inventory_sha256,
         "journal_sequence": journal_sequence,
+        "account_binding_sha": account_binding_sha,
         "data": data,
         "limitations": limitations or [],
         "error_code": error_code,
@@ -318,7 +320,17 @@ class DashboardReader:
             source = self._native(args)
             state = source.get("status")
             metadata = source.get("source")
-            if not isinstance(metadata, dict) or state not in STATUS:
+            if (
+                source.get("schema") != "copytrade_read_result_v1"
+                or source.get("trading_authorized") is not False
+                or source.get("scientifically_qualified") is not False
+                or not isinstance(metadata, dict)
+                or state not in STATUS
+                or not isinstance(metadata.get("authority"), str)
+                or not metadata["authority"]
+                or parse_utc(source.get("observed_at")) is None
+                or parse_utc(source["observed_at"]) > now
+            ):
                 raise ValueError("NATIVE_READ_SCHEMA_INVALID")
             return envelope(
                 capability, state, authority=metadata.get("authority") or "UNKNOWN",
@@ -384,6 +396,7 @@ class DashboardReader:
                 captured_at=utc_text(captured),
                 revision=release,
                 journal_sequence=sequence,
+                account_binding_sha=account_hash,
                 limitations=[
                     "Producer-reported Guardian read only; no independent trading authorization",
                     "Native operator command reads are not an atomic multi-command broker snapshot",
@@ -453,7 +466,11 @@ class DashboardReader:
         if not isinstance(rows, dict) or rows.get("schema") != "wallet_registry_private_inventory_v1":
             answer.update(status="BLOCKED", data=None, error_code="WALLET_NATIVE_SCHEMA_INVALID")
             return answer
-        if rows.get("addresses_redacted") is not True or not isinstance(rows.get("wallets"), list):
+        if (
+            rows.get("addresses_redacted") is not True
+            or not isinstance(rows.get("wallets"), list)
+            or len(rows["wallets"]) > limit
+        ):
             answer.update(status="BLOCKED", data=None, error_code="WALLET_PRIVACY_CONTRACT_INVALID")
             return answer
         # Independent SQLite physical integrity & inventory SHA must match.
@@ -478,11 +495,15 @@ class DashboardReader:
         sources = {name: self.guardian(name) for name in ("status", "risk", "broker", "portfolio")}
         valid = [src for src in sources.values() if src["status"] == "VERIFIED"]
         if len(valid) == len(sources):
-            pairs = {(src["revision"], src["journal_sequence"]) for src in valid}
-            if len(pairs) != 1:
-                for src in sources.values():
-                    src["status"] = "BLOCKED"
-                    src["error_code"] = "GUARDIAN_SNAPSHOT_SEQUENCE_OR_RELEASE_MISMATCH"
+            pairs = {
+                (src["revision"], src["journal_sequence"], src["account_binding_sha"])
+                for src in valid
+            }
+            if len(pairs) != 1 or any(src["revision"] is None for src in valid):
+                # Keep separately observed status diagnostics available, but never
+                # label an unbound financial book as verified.
+                sources["risk"]["status"] = "BLOCKED"
+                sources["risk"]["error_code"] = "GUARDIAN_ACCOUNT_SEQUENCE_OR_RELEASE_MISMATCH"
         elif sources["risk"]["status"] == "VERIFIED":
             # A single risk capture is never a coherent broker/account book.
             sources["risk"]["status"] = "BLOCKED"

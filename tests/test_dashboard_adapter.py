@@ -53,6 +53,9 @@ def fake_native(args: list[str]) -> dict:
     if args[:2] == ["portfolios", "current"]:
         return {
             "schema": "copytrade_read_result_v1",
+            "observed_at": T0.isoformat(),
+            "trading_authorized": False,
+            "scientifically_qualified": False,
             "status": "BLOCKED",
             "source": {"authority": "wallet_registry", "observed_at": T0.isoformat(),
                        "sha256": "e" * 64, "version": "sqlite_v8"},
@@ -78,6 +81,7 @@ def test_equity_zero_is_not_unknown_and_provenance_survives():
     assert report["metrics"]["headroom"]["value"] == "100.22"
     assert report["sources"]["risk"]["authority"] == "prop-production.operator"
     assert report["sources"]["risk"]["journal_sequence"] == 12
+    assert report["sources"]["risk"]["account_binding_sha"] == "d" * 64
     assert report["sources"]["risk"]["revision"] == "a" * 64
     assert report["sources"]["risk"]["source_observed_at"] == T0.isoformat()
     assert report["sources"]["risk"]["source_schema"] == "operator_risk_v1"
@@ -122,6 +126,31 @@ def test_release_and_sequence_mismatch_never_display_finance():
     report = reader(provider=provider).overview()
     assert report["sources"]["risk"]["status"] == "BLOCKED"
     assert report["metrics"]["equity"] == {"value": None, "status": "BLOCKED"}
+
+
+def test_account_binding_mismatch_never_displays_finance():
+    def provider(command):
+        result = capture(command)
+        if command == "broker":
+            result["native"]["account_binding_sha"] = "f" * 64
+        return result
+
+    report = reader(provider=provider).overview()
+    assert report["sources"]["risk"]["status"] == "BLOCKED"
+    assert report["sources"]["risk"]["error_code"] == "GUARDIAN_ACCOUNT_SEQUENCE_OR_RELEASE_MISMATCH"
+    assert report["metrics"]["equity"] == {"value": None, "status": "BLOCKED"}
+
+
+def test_missing_release_rejected_even_when_all_captures_agree():
+    def provider(command):
+        result = capture(command)
+        result["native"].pop("release_sha")
+        return result
+
+    report = reader(provider=provider).overview()
+    assert report["sources"]["risk"]["status"] == "BLOCKED"
+    assert report["sources"]["status"]["status"] == "VERIFIED"
+    assert report["metrics"]["equity"]["value"] is None
 
 
 def test_partial_guardian_captures_never_authorize_financial_metric():
@@ -191,6 +220,8 @@ def test_wallet_invalid_input_has_no_backend_calls():
 def test_wallet_native_schema_and_privacy_must_be_explicit():
     payload = {
         "schema": "copytrade_read_result_v1", "status": "VERIFIED",
+        "observed_at": T0.isoformat(), "trading_authorized": False,
+        "scientifically_qualified": False,
         "source": {"authority": "wallet_registry", "observed_at": T0.isoformat(),
                    "sha256": "a" * 64, "version": "sqlite_v8"},
         "data": {"schema": "wallet_registry_private_inventory_v1",
@@ -200,6 +231,24 @@ def test_wallet_native_schema_and_privacy_must_be_explicit():
     result = a.wallets()
     assert result["status"] == "BLOCKED"
     assert result["data"] is None
+
+
+def test_native_reader_rejects_fake_authority_and_malformed_observation():
+    payload = fake_native(["portfolios", "current"])
+    for modified in [
+        {"schema": "unsupported"},
+        {"trading_authorized": True},
+        {"scientifically_qualified": True},
+        {"observed_at": "not-utc"},
+        {"observed_at": (T0 + timedelta(seconds=1)).isoformat()},
+    ]:
+        source = {**payload, **modified}
+        a = DashboardReader(native_read=lambda _: source, clock=lambda: T0,
+                            cache=SmallTTLCache())
+        answer = a.research_selection()
+        assert answer["status"] == "UNKNOWN"
+        assert answer["data"] is None
+        assert answer["error_code"] == "NATIVE_READ_UNAVAILABLE"
 
 
 def test_monotonic_shared_refresh_cache():

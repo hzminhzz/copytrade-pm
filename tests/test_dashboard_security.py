@@ -34,6 +34,12 @@ def test_auth_required_for_http_and_actual_marimo_routes():
         assert client.post("/login", data={"secret": "incorrect"},
                            headers={"origin": "https://localhost"}).status_code == 401
         assert client.post("/login", data={"secret": KEY}).status_code == 403
+        malformed = client.post(
+            "/login", content=b"secret=test",
+            headers={"origin": "https://localhost", "content-length": "invalid",
+                     "content-type": "application/x-www-form-urlencoded"},
+        )
+        assert malformed.status_code == 400
         result = client.post(
             "/login", data={"secret": KEY}, headers={"origin": "https://localhost"},
             follow_redirects=False,

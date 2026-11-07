@@ -136,7 +136,13 @@ async def login(request: Request) -> Response:
         "application/x-www-form-urlencoded"
     ):
         return PlainTextResponse("INVALID_CONTENT_TYPE", status_code=415)
-    if int(request.headers.get("content-length", "0") or "0") > MAX_BODY:
+    try:
+        content_length = int(request.headers.get("content-length", "0") or "0")
+    except ValueError:
+        return PlainTextResponse("INVALID_CONTENT_LENGTH", status_code=400)
+    if content_length < 0:
+        return PlainTextResponse("INVALID_CONTENT_LENGTH", status_code=400)
+    if content_length > MAX_BODY:
         return PlainTextResponse("PAYLOAD_TOO_LARGE", status_code=413)
     body = await request.body()
     if len(body) > MAX_BODY:
