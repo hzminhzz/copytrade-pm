@@ -11,6 +11,8 @@ context. [AGENTS.md](../AGENTS.md) defines the execution workflow.
 
 ## Canonical guides
 
+Phase 1's local-only read-only Marimo dashboard, its evidence limits and security preflight are documented in [Dashboard Phase 1](DASHBOARD-PHASE1.md). It has no broker or Guardian write authority and is not installed as a financial service.
+
 | Responsibility | Guide |
 | --- | --- |
 | Repository ownership and data flow | [Architecture](ARCHITECTURE.md) |
