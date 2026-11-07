@@ -97,3 +97,33 @@ def test_corrupt_artifact_and_protected_locations_rejected(staging: Path, tmp_pa
     with pytest.raises(ReleaseError):
         prepare(staging, wheel, source_sha="main",
                 guardian_sha=GUARDIAN, connector_sha=CONNECTOR)
+
+
+def test_candidate_reuse_must_match_every_companion_pin(staging: Path, tmp_path: Path):
+    wheel = tmp_path / "dashboard.whl"
+    wheel.write_bytes(b"exact wheel, exact source, immutable companion pins")
+    original = prepare(staging, wheel, source_sha=SOURCE,
+                       guardian_sha=GUARDIAN, connector_sha=CONNECTOR)
+    for guardian, connector in (("d" * 40, CONNECTOR),
+                                (GUARDIAN, "e" * 40)):
+        with pytest.raises(ReleaseError, match="EXISTING_CANDIDATE_CONFLICT"):
+            prepare(staging, wheel, source_sha=SOURCE,
+                    guardian_sha=guardian, connector_sha=connector)
+    assert verify(staging / "candidates" / original["candidate"]) == original
+
+
+def test_verifier_rejects_manifest_candidate_identity_spoof(
+        staging: Path, tmp_path: Path):
+    import json
+
+    wheel = tmp_path / "dashboard.whl"
+    wheel.write_bytes(b"pin test")
+    receipt = prepare(staging, wheel, source_sha=SOURCE,
+                      guardian_sha=GUARDIAN, connector_sha=CONNECTOR)
+    manifest = staging / "candidates" / receipt["candidate"] / "manifest.json"
+    manifest.chmod(0o600)
+    payload = json.loads(manifest.read_text())
+    payload["source_sha"] = "d" * 40
+    manifest.write_text(json.dumps(payload))
+    with pytest.raises(ReleaseError, match="RELEASE_MANIFEST_INVALID"):
+        verify(manifest.parent)

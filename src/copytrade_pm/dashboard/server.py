@@ -227,7 +227,7 @@ async def login(request: Request) -> Response:
             "<button type='submit'>Sign in</button></form></main></body></html>",
             headers={"Cache-Control": "no-store, private",
                      "X-Content-Type-Options": "nosniff",
-                     "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer"},
+                     "X-Frame-Options": "DENY", "Referrer-Policy": "same-origin"},
         )
     if request.headers.get("content-type", "").split(";")[0] != (
         "application/x-www-form-urlencoded"

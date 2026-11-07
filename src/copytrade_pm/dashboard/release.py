@@ -63,7 +63,10 @@ def prepare(
     destination = releases / candidate_id
     if destination.exists():
         report = verify(destination)
-        if report["source_sha"] != source_sha or report["wheel_sha256"] != wheel_sha:
+        if (report["source_sha"] != source_sha
+                or report["guardian_sha"] != guardian_sha
+                or report["connector_sha"] != connector_sha
+                or report["wheel_sha256"] != wheel_sha):
             raise ReleaseError("EXISTING_CANDIDATE_CONFLICT")
         return report
     destination.mkdir(mode=0o700)
@@ -99,9 +102,14 @@ def verify(directory: Path) -> dict[str, Any]:
             or data.get("installed") is not False
             or data.get("trading_authorized") is not False
             or data.get("candidate") != directory.name
-            or not all(SHA.fullmatch(data.get(name, "")) for name in (
+            or not all(isinstance(data.get(name), str)
+                       and SHA.fullmatch(data[name]) for name in (
                 "source_sha", "guardian_sha", "connector_sha"
-            ))):
+            ))
+            or not isinstance(data.get("wheel_sha256"), str)
+            or not re.fullmatch(r"[a-f0-9]{64}", data["wheel_sha256"])):
+        raise ReleaseError("RELEASE_MANIFEST_INVALID")
+    if data["candidate"] != f"{data['source_sha'][:12]}-{data['wheel_sha256'][:12]}":
         raise ReleaseError("RELEASE_MANIFEST_INVALID")
     if _digest(directory / "dashboard.whl") != data.get("wheel_sha256"):
         raise ReleaseError("RELEASE_WHEEL_SHA_MISMATCH")

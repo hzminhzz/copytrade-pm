@@ -102,8 +102,9 @@ def test_private_mobile_routes_and_navigation(local_server, firefox, width, heig
         if "Account risk" in firefox.page_source:
             break
         time.sleep(0.25)
-    assert "Account risk" in firefox.page_source, firefox.find_element(
-        By.TAG_NAME, "body").text[:2000]
+    assert "Account risk" in firefox.page_source, (
+        firefox.current_url, firefox.find_element(By.TAG_NAME, "body").text[:2000]
+    )
     assert "Read-only" in firefox.page_source
     assert "UNKNOWN" in firefox.page_source or "UNAVAILABLE" in firefox.page_source
     assert firefox.find_elements(By.CSS_SELECTOR, "nav[aria-label='Read-only dashboard navigation']")

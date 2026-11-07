@@ -51,6 +51,9 @@ def test_external_host_requires_explicit_tls_origin_and_cookie():
     origins = frozenset({"https://dashboard.internal.example"})
     app = make_app(secret=KEY, allowed_hosts=hosts, allowed_origins=origins)
     with TestClient(app, base_url="https://dashboard.internal.example") as client:
+        # A same-origin Referer permits ordinary browser login form submission
+        # while refusing Referer disclosure to other origins.
+        assert client.get("/login").headers["referrer-policy"] == "same-origin"
         assert client.get("/risk/").status_code == 401
         assert client.get("/risk/", headers={"host": "malicious.example"}).status_code == 403
         assert client.post("/login", data={"secret": KEY},
