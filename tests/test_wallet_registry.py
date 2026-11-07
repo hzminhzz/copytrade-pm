@@ -469,3 +469,53 @@ def test_portfolios_not_running_or_authorized(
     assert result["P1"]["status"] == "RESEARCH_ONLY"
     assert result["P1"]["actual_run"] == "UNKNOWN"
     assert result["P1"]["authorized"] is False
+
+
+def test_wallet_lookup_reports_propfirm_exclusions(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import json
+
+    _, snapshot = fixture(tmp_path)
+    db = tmp_path / "private" / "registry.sqlite"
+    registry.apply(db, snapshot, "2026-11-04T00:00:00+00:00")
+    with closing(sqlite3.connect(db)) as con:
+        con.execute(
+            "INSERT INTO propfirm_exclusions(wallet_id, address, alias, origin, reason, known_at) "
+            "SELECT wallet_id, address, ?, 'P4_UNVIABLE', 'FOUR_HOUR_UNRESOLVED', ? "
+            "FROM wallets WHERE address=?",
+            ("NS-002", "2026-11-05T00:00:00+00:00", address(2)),
+        )
+        con.commit()
+    assert registry.cli(["--db", str(db), "wallet", "--address", address(2)]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["excluded"] is True
+    assert result["excluded_sources"] == ["propfirm_exclusions"]
+    assert registry.cli(["--db", str(db), "wallet", "--address", address(1)]) == 0
+    assert json.loads(capsys.readouterr().out)["excluded"] is False
+
+
+def test_excluded_dump_merges_both_tables_redacted(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import json
+
+    _, snapshot = fixture(tmp_path)
+    db = tmp_path / "private" / "registry.sqlite"
+    registry.apply(db, snapshot, "2026-11-04T00:00:00+00:00")
+    with closing(sqlite3.connect(db)) as con:
+        con.execute(
+            "INSERT INTO propfirm_exclusions(wallet_id, address, alias, origin, reason, known_at) "
+            "SELECT wallet_id, address, ?, 'P5_EXCLUDED', 'PHASE5_NONPASSING', ? "
+            "FROM wallets WHERE address=?",
+            ("NS-009", "2026-11-05T00:00:00+00:00", address(9)),
+        )
+        con.commit()
+    assert registry.cli(["--db", str(db), "excluded"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["excluded_count"] == 1
+    row = out["excluded"][0]
+    assert row["sources"] == ["exclusions", "propfirm_exclusions"]
+    assert sorted(row["reasons"]) == ["PHASE5_NONPASSING", "excluded"]
+    assert "address" not in row
+    assert "0x" not in json.dumps(row)

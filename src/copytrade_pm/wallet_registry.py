@@ -101,6 +101,12 @@ CREATE TABLE IF NOT EXISTS exclusions(
     FOREIGN KEY(wallet_id) REFERENCES wallets(wallet_id),
     FOREIGN KEY(source_key) REFERENCES evidence_artifacts(source_key)
 );
+CREATE TABLE IF NOT EXISTS propfirm_exclusions(
+    wallet_id INTEGER NOT NULL, address TEXT NOT NULL, alias TEXT NOT NULL,
+    origin TEXT NOT NULL, reason TEXT NOT NULL, known_at TEXT NOT NULL,
+    PRIMARY KEY(address, reason),
+    FOREIGN KEY(wallet_id) REFERENCES wallets(wallet_id)
+);
 CREATE TABLE IF NOT EXISTS wallet_coverage(
     wallet_id INTEGER PRIMARY KEY, vendor_fills INTEGER,
     vendor_pagination TEXT NOT NULL, account_book TEXT NOT NULL,
@@ -1138,6 +1144,11 @@ def cli(argv: list[str] | None = None) -> int:
     paper.add_argument("--run-id", help="run ID when a paper journal has multiple runs")
     paper.add_argument("--apply", action="store_true", help="index in private registry only")
     science = sub.add_parser("qualification")
+    excluded_cmd = sub.add_parser(
+        "excluded",
+        help="redacted excluded-wallet dump; run before any paid API fetch",
+    )
+    excluded_cmd.add_argument("--asof", help="UTC as-known cutoff")
     science.add_argument("--attestation-file", type=Path)
     science.add_argument("--evidence-file", type=Path)
     science.add_argument("--auditor-public-key-file", type=Path)
@@ -1364,6 +1375,19 @@ def cli(argv: list[str] | None = None) -> int:
                     "SELECT EXISTS(SELECT 1 FROM exclusions WHERE wallet_id=? AND known_at<=?)",
                     (*row, cutoff),
                 ).fetchone()[0]
+                excluded_sources = ["exclusions"] if excluded else []
+                has_propfirm = con.execute(
+                    "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' "
+                    "AND name='propfirm_exclusions')"
+                ).fetchone()[0]
+                if (
+                    has_propfirm
+                    and con.execute(
+                        "SELECT EXISTS(SELECT 1 FROM propfirm_exclusions WHERE wallet_id=? AND known_at<=?)",
+                        (*row, cutoff),
+                    ).fetchone()[0]
+                ):
+                    excluded_sources.append("propfirm_exclusions")
                 memberships = con.execute(
                     "SELECT DISTINCT pm.portfolio_id,pm.version FROM portfolio_memberships pm "
                     "JOIN portfolio_seals ps USING(portfolio_id,version) "
@@ -1376,7 +1400,8 @@ def cli(argv: list[str] | None = None) -> int:
                         {
                             "found": True,
                             "cohorts": cohorts,
-                            "excluded": bool(excluded),
+                            "excluded": bool(excluded_sources),
+                            "excluded_sources": excluded_sources,
                             "portfolio_memberships": [
                                 {"portfolio_id": pid, "version": version}
                                 for pid, version in memberships
@@ -1386,6 +1411,60 @@ def cli(argv: list[str] | None = None) -> int:
                         }
                     )
                 )
+    elif args.command == "excluded":
+        # Pre-fetch gate: excluded wallets must receive zero paid API work.
+        cutoff = asof_cutoff(args.asof)
+        merged: dict[int, dict] = {}
+        with closing(connect(args.db, False)) as con:
+            sources = [
+                (
+                    "exclusions",
+                    "SELECT wallet_id, reason, known_at FROM exclusions WHERE known_at<=?",
+                )
+            ]
+            if con.execute(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' "
+                "AND name='propfirm_exclusions')"
+            ).fetchone()[0]:
+                sources.append(
+                    (
+                        "propfirm_exclusions",
+                        "SELECT wallet_id, reason, known_at FROM propfirm_exclusions "
+                        "WHERE known_at<=?",
+                    )
+                )
+            for source, sql in sources:
+                for wallet_id, reason, known_at in con.execute(sql, (cutoff,)):
+                    entry = merged.setdefault(
+                        wallet_id,
+                        {"wallet_id": wallet_id, "sources": [], "reasons": [], "known_at": None},
+                    )
+                    entry["sources"].append(source)
+                    if reason not in entry["reasons"]:
+                        entry["reasons"].append(reason)
+                    if entry["known_at"] is None or known_at < entry["known_at"]:
+                        entry["known_at"] = known_at
+            aliases: dict[int, str] = {}
+            for wallet_id, alias in con.execute(
+                "SELECT wallet_id, alias FROM wallet_aliases wa WHERE known_at<=? "
+                "AND known_at=(SELECT MAX(known_at) FROM wallet_aliases "
+                "WHERE wallet_id=wa.wallet_id AND known_at<=?)",
+                (cutoff, cutoff),
+            ):
+                aliases.setdefault(wallet_id, alias)
+        result = []
+        for wallet_id in sorted(merged):
+            entry = merged[wallet_id]
+            result.append(
+                {
+                    "wallet_id": wallet_id,
+                    "alias": aliases.get(wallet_id),
+                    "sources": sorted(set(entry["sources"])),
+                    "reasons": entry["reasons"],
+                    "known_at": entry["known_at"],
+                }
+            )
+        print(json.dumps({"excluded_count": len(result), "excluded": result}, sort_keys=True))
     elif args.command == "cohort":
         with closing(connect(args.db, False)) as con:
             row = con.execute(
