@@ -40,6 +40,7 @@ def capture_with_history(command):
 
 
 def test_verified_owner_shadow_finance_chart_keeps_account_release_and_reset():
+    pytest.importorskip("altair", reason="requires the dashboard extra")
     subject = reader(capture_with_history)
     history = subject.performance_history()
     assert history["status"] == "VERIFIED_OWNER_SHADOW_TAIL"
@@ -206,6 +207,7 @@ def test_scenario_rules_are_native_read_only_and_never_a_simulation():
 
 
 def test_chart_rejects_unrepresentable_decimal_without_truncating_owner_finance():
+    pytest.importorskip("altair", reason="requires the dashboard extra")
     from copytrade_pm.dashboard.chart_data import prepare_series
 
     with pytest.raises(ValueError, match="CHART_DECIMAL_PRECISION"):
@@ -242,6 +244,7 @@ def test_portfolio_filter_and_pagination_remain_bounded_and_read_only():
     assert subject.portfolio_explorer(offset=10001)["status"] == "BLOCKED"
 
 def test_owner_history_separates_releases_without_promotion():
+    pytest.importorskip("altair", reason="requires the dashboard extra")
     def provider(command):
         rec = capture_with_history(command)
         if command == "history":
@@ -284,6 +287,7 @@ def test_owner_history_rejects_corrupt_rows_without_partial_promotion(corruption
 
 
 def test_owner_history_marks_unknown_long_intervals_as_chart_gaps():
+    pytest.importorskip("altair", reason="requires the dashboard extra")
     def provider(command):
         rec = capture_with_history(command)
         if command == "history":

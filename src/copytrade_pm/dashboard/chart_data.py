@@ -111,9 +111,12 @@ def prepare_series(
                 pl.col("index").sort_by("exact").last().alias("maximum"),
             )
             wanted = {0, len(rows) - 1}
+            critical = {0, len(rows) - 1}
             for record in candidates.iter_rows(named=True):
                 wanted.update(record[k] for k in ("first", "last", "minimum", "maximum"))
-            critical = {0, len(rows) - 1}
+                # Local troughs and peaks are financial evidence too. Adding
+                # gap/reset points must never evict a bucket extremum.
+                critical.update(record[k] for k in ("minimum", "maximum"))
             # Preserve the input's original resets/gaps plus both sides of breaks.
             for i, item in enumerate(rows):
                 if item["gap_before"] or item["reset_boundary"]:

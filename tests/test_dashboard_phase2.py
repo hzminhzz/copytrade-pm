@@ -145,6 +145,7 @@ def test_research_missing_cache_and_bounded_filters():
 
 
 def test_chart_preserves_gaps_utc_reset_and_actual_extrema():
+    pytest.importorskip("altair", reason="requires the dashboard extra")
     from copytrade_pm.dashboard.chart_data import prepare_series, linked_chart
     base = datetime(2026, 11, 1, tzinfo=UTC)
     points = []
@@ -168,6 +169,7 @@ def test_chart_preserves_gaps_utc_reset_and_actual_extrema():
 
 
 def test_chart_rejects_contradictory_evidence_and_unbounded_data():
+    pytest.importorskip("altair", reason="requires the dashboard extra")
     from copytrade_pm.dashboard.chart_data import prepare_series
     base = dict(timestamp=T0.isoformat(), value="0", series="equity",
                 source_id="S1", metric="equity", evidence_class="PAPER_SHADOW")

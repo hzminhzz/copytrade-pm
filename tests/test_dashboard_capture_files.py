@@ -10,6 +10,8 @@ import json
 import os
 from datetime import timedelta
 
+import pytest
+
 from copytrade_pm.dashboard import adapter
 from test_dashboard_adapter import T0, capture, fake_native
 
@@ -43,6 +45,7 @@ def _directory(tmp_path, monkeypatch, *, include_history=True):
 
 
 def test_owner_restricted_files_open_in_real_reader_and_preserve_provenance(tmp_path, monkeypatch):
+    pytest.importorskip("altair", reason="requires the dashboard extra")
     target = _directory(tmp_path, monkeypatch)
     before = {p.name: p.read_bytes() for p in target.iterdir()}
     reader = adapter.DashboardReader(

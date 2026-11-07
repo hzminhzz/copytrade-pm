@@ -6,6 +6,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+pytest.importorskip("marimo", reason="requires the dashboard extra")
+
 from copytrade_pm.dashboard.server import (
     COOKIE_NAME, ViewerAuth, _cookie, _valid_cookie, make_app,
 )

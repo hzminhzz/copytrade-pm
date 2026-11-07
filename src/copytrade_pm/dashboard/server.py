@@ -7,6 +7,7 @@ required before any deployment. This code does not install or start services.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from hashlib import sha256
 import hmac
@@ -184,6 +185,44 @@ class ViewerAuth:
                 key, value = item.strip().split("=", 1)
                 cookies[key] = value
         authenticated = _valid_cookie(cookies.get(COOKIE_NAME, ""), self.secret, self.clock())
+        if (kind == "http" and scope.get("method") == "POST"
+                and (path == "/login" or authenticated)):
+            limit = MAX_BODY if path == "/login" else 16_384
+            try:
+                declared = int(headers.get("content-length", "0"))
+            except ValueError:
+                return await self._deny(scope, send, 400)
+            if declared < 0:
+                return await self._deny(scope, send, 400)
+            if declared > limit:
+                return await self._deny(scope, send, 413)
+            body = bytearray()
+            try:
+                async with asyncio.timeout(5):
+                    while True:
+                        message = await receive()
+                        if message.get("type") != "http.request":
+                            return await self._deny(scope, send, 400)
+                        chunk = message.get("body", b"")
+                        if len(body) + len(chunk) > limit:
+                            return await self._deny(scope, send, 413)
+                        body.extend(chunk)
+                        if not message.get("more_body", False):
+                            break
+            except TimeoutError:
+                return await self._deny(scope, send, 408)
+            if len(body) != declared:
+                return await self._deny(scope, send, 400)
+            delivered = False
+
+            async def bounded_receive():
+                nonlocal delivered
+                if delivered:
+                    return {"type": "http.disconnect"}
+                delivered = True
+                return {"type": "http.request", "body": bytes(body), "more_body": False}
+
+            receive = bounded_receive
         if path == "/login" and kind == "http":
             return await self.downstream(scope, receive, send)
         if not authenticated:
@@ -272,7 +311,7 @@ async def login(request: Request) -> Response:
     values = parse_qs(body.decode("utf-8", errors="replace"), keep_blank_values=True)
     supplied = values.get("secret", [])
     correct = len(supplied) == 1 and secrets.compare_digest(
-        supplied[0], request.app.state.viewer_secret
+        supplied[0].encode("utf-8"), request.app.state.viewer_secret.encode("utf-8")
     )
     if not correct:
         return PlainTextResponse("INVALID_CREDENTIALS", status_code=401)

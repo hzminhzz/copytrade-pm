@@ -5,6 +5,8 @@ from datetime import UTC, datetime
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
+
+pytest.importorskip("marimo", reason="requires the dashboard extra")
 from starlette.routing import Mount
 from starlette.testclient import TestClient
 

@@ -51,10 +51,17 @@ def overview_cards(mo, report: dict[str, Any]):
     ]
     status = report["sources"]["status"]
     broker = report["sources"]["broker"]
-    cards.append(mo.stat(clean((status.get("data") or {}).get("state")),
-                         label="Guardian state", bordered=True))
-    cards.append(mo.stat(clean((broker.get("data") or {}).get("certainty")),
-                         label="Broker certainty", bordered=True))
+    for source, key, label in (
+        (status, "state", "Guardian state"),
+        (broker, "certainty", "Broker certainty"),
+    ):
+        grade = source.get("status", "UNKNOWN")
+        value = clean((source.get("data") or {}).get(key))
+        if grade == "STALE":
+            value += " (last observed)"
+        elif grade != "VERIFIED":
+            value = "UNKNOWN"
+        cards.append(mo.stat(value, label=f"{label} [{clean(grade)}]", bordered=True))
     return mo.vstack([
         mo.hstack(cards[:2], justify="start", wrap=True),
         mo.hstack(cards[2:4], justify="start", wrap=True),

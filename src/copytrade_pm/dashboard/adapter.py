@@ -17,7 +17,7 @@ from pathlib import Path
 import re
 import stat
 import subprocess
-from threading import Lock
+from threading import BoundedSemaphore, Lock
 import time
 from typing import Any, Callable, Mapping
 
@@ -442,18 +442,46 @@ class SmallTTLCache:
     def __init__(self) -> None:
         self.lock = Lock()
         self.entries: dict[str, tuple[float, object]] = {}
+        self.fill_locks: dict[str, Any] = {}
 
     def get(self, key: str, ttl: float, fn: Callable[[], object]) -> object:
         with self.lock:
             cached = self.entries.get(key)
             if cached is not None and time.monotonic() - cached[0] < ttl:
                 return cached[1]
+            if key not in self.fill_locks:
+                if len(self.fill_locks) >= 64:
+                    raise RuntimeError("DASHBOARD_CACHE_KEY_BUDGET_EXCEEDED")
+                self.fill_locks[key] = Lock()
+            fill_lock = self.fill_locks[key]
+        # A slow OS/registry query cannot hold the lock for unrelated evidence.
+        if not fill_lock.acquire(timeout=0.2):
+            raise RuntimeError("DASHBOARD_CACHE_READ_BUSY")
+        try:
+            with self.lock:
+                cached = self.entries.get(key)
+                if cached is not None and time.monotonic() - cached[0] < ttl:
+                    return cached[1]
             result = fn()
-            self.entries[key] = (time.monotonic(), result)
+            with self.lock:
+                self.entries[key] = (time.monotonic(), result)
             return result
+        finally:
+            fill_lock.release()
 
 
 _SHARED_CACHE = SmallTTLCache()
+_NATIVE_READ_SLOTS = BoundedSemaphore(2)
+
+
+def _bounded_native_read(fn: Callable[[], Any]) -> Any:
+    """At most two native metadata queries per Python reader process."""
+    if not _NATIVE_READ_SLOTS.acquire(timeout=0.1):
+        raise RuntimeError("DASHBOARD_NATIVE_READ_BUSY")
+    try:
+        return fn()
+    finally:
+        _NATIVE_READ_SLOTS.release()
 
 
 class DashboardReader:
@@ -491,7 +519,7 @@ class DashboardReader:
         if self._native_override is not None:
             return dict(self._native_override(args))
         parsed = operations.parser().parse_args(["--db", str(self.db), *args])
-        return operations.dispatch(parsed)
+        return _bounded_native_read(lambda: operations.dispatch(parsed))
 
     def _native_envelope(self, args: list[str], capability: str) -> dict[str, Any]:
         now = self.clock()
@@ -615,7 +643,7 @@ class DashboardReader:
         for value in (query, cohort):
             if value is not None and (
                 not isinstance(value, str) or not 1 <= len(value) <= 96
-                or any(ord(char) < 32 for char in value)
+                or value.startswith("-") or any(ord(char) < 32 for char in value)
             ):
                 return envelope(
                     "registry.wallets", "BLOCKED", authority="wallet_registry",
@@ -658,9 +686,13 @@ class DashboardReader:
             answer.update(status="BLOCKED", data=None, error_code="WALLET_PRIVACY_CONTRACT_INVALID")
             return answer
         # Independent SQLite physical integrity & inventory SHA must match.
-        doctor = self.cache.get(
-            "doctor:" + str(self.db), 30.0, lambda: operations._doctor(self.db)
-        )
+        try:
+            doctor = self.cache.get(
+                "doctor:" + str(self.db), 30.0,
+                lambda: _bounded_native_read(lambda: operations._doctor(self.db)),
+            )
+        except RuntimeError:
+            doctor = None
         if not isinstance(doctor, dict) or doctor.get("status") != "VERIFIED":
             answer.update(status="STALE", error_code="REGISTRY_PARITY_UNVERIFIED")
         elif doctor.get("data", {}).get("inventory_sha256") != answer["inventory_sha256"]:
@@ -668,11 +700,18 @@ class DashboardReader:
         return answer
 
     def research_selection(self) -> dict[str, Any]:
-        return self.cache.get(
-            "selection:" + str(self.db),
-            60.0,
-            lambda: self._native_envelope(["portfolios", "current"], "registry.research_selection"),
-        )
+        try:
+            return self.cache.get(
+                "selection:" + str(self.db), 60.0,
+                lambda: self._native_envelope(
+                    ["portfolios", "current"], "registry.research_selection"
+                ),
+            )
+        except RuntimeError:
+            return envelope(
+                "registry.research_selection", "UNKNOWN", authority="wallet_registry",
+                now=self.clock(), error_code="DASHBOARD_NATIVE_READ_BUSY",
+            )
 
     def overview(self) -> dict[str, Any]:
         # Never call Guardian Journal.read in a polling path.
@@ -1143,8 +1182,11 @@ class DashboardReader:
         now = self.clock()
         if (type(limit) is not int or not 1 <= limit <= 100
                 or type(offset) is not int or not 0 <= offset <= 10000
-                or (run_id is not None and not re.fullmatch(r"[A-Za-z0-9_.-]{1,96}", run_id))
-                or (cache_key is not None and SHA256.fullmatch(cache_key) is None)):
+                or (run_id is not None and (
+                    not isinstance(run_id, str)
+                    or not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,95}", run_id)))
+                or (cache_key is not None and (
+                    not isinstance(cache_key, str) or SHA256.fullmatch(cache_key) is None))):
             return envelope("research.reports", "BLOCKED",
                             authority="immutable_offline_job_cache", now=now,
                             error_code="INVALID_RESEARCH_FILTER")
@@ -1258,13 +1300,20 @@ class DashboardReader:
         now = self.clock()
         guardian = self.guardian("status")
         broker = self.guardian("broker")
-        observer = self.cache.get(
-            "observer:" + str(self.observer_root), 30.0,
-            lambda: runtime.observer_market_health(self.observer_root),
-        )
+        try:
+            observer = self.cache.get(
+                "observer:" + str(self.observer_root), 30.0,
+                lambda: runtime.observer_market_health(self.observer_root),
+            )
+        except RuntimeError:
+            observer = {"state": "UNKNOWN", "error_code": "OBSERVER_READ_BUSY"}
         if not isinstance(observer, dict):
             observer = {"state": "UNKNOWN", "error_code": "OBSERVER_QUERY_INVALID"}
-        services = self.cache.get("os_services", 30.0, self._os_services)
+        try:
+            services = self.cache.get("os_services", 30.0, self._os_services)
+        except RuntimeError:
+            services = {name: {"state": "UNKNOWN", "os_active_state": None,
+                               "attests_financial_health": False} for name in SERVICES}
         source = envelope(
             "public.observer", observer.get("state", "UNKNOWN"),
             authority="copytrade_pm.public_observer", now=now,

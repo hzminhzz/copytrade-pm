@@ -28,6 +28,7 @@ EMPTY: dict[str, Any] = {
     "schema": SCHEMA, "updated_at": None, "source_status": "UNKNOWN",
     "external_delivery": "NOT_CONFIGURED", "incidents": [], "last_error": None,
     "last_source_observed_at": None, "last_source_binding": None,
+    "incident_sequence": 0,
 }
 
 
@@ -91,6 +92,9 @@ def _validate(data: Any) -> dict[str, Any]:
     if (not isinstance(records, list) or len(records) > MAX_INCIDENTS
             or data.get("external_delivery") != "NOT_CONFIGURED"):
         raise NotificationStateError("STATE_CONTRACT_INVALID")
+    sequence = data.get("incident_sequence", 0)
+    if type(sequence) is not int or not 0 <= sequence < 2**63:
+        raise NotificationStateError("STATE_INCIDENT_SEQUENCE_INVALID")
     ids: set[str] = set()
     for item in records:
         if not isinstance(item, dict) or not isinstance(item.get("id"), str):
@@ -121,17 +125,24 @@ def read_state(path: Path) -> dict[str, Any]:
         raise NotificationStateError("STATE_CORRUPT_OR_UNTRUSTED") from exc
 
 
-def dashboard_status(path: Path | None) -> dict[str, Any]:
+def dashboard_status(path: Path | None, *, now: datetime | None = None) -> dict[str, Any]:
     if path is None:
         return {"status": "NOT_CONFIGURED", "external_delivery": "NOT_CONFIGURED",
                 "source_status": "UNKNOWN", "incidents": [], "error_code": None}
     try:
         data = read_state(path)
         records = data["incidents"][-20:]
+        now = now or datetime.now(UTC)
+        updated = data.get("updated_at")
+        age = (now - _parse_utc(updated)).total_seconds() if updated else None
+        stale = age is None or not 0 <= age <= 120
         return {
-            "status": "DRY_RUN_ONLY" if records else "NO_DELIVERY_ATTEMPTS",
+            "status": ("STALE" if stale else
+                       "DRY_RUN_ONLY" if records else "NO_DELIVERY_ATTEMPTS"),
             "external_delivery": "NOT_CONFIGURED",
-            "source_status": data.get("source_status", "UNKNOWN"),
+            "source_status": "STALE" if stale else data.get("source_status", "UNKNOWN"),
+            "last_source_status": data.get("source_status", "UNKNOWN"),
+            "state_age_seconds": age,
             "updated_at": data.get("updated_at"),
             "incidents": [
                 {key: item.get(key) for key in (
@@ -236,23 +247,26 @@ def process_once(
             if source_time > now:
                 raise NotificationStateError("OWNER_FUTURE_INCIDENT_CLOCK")
             previous = state.get("last_source_observed_at")
-            if (previous is not None and state.get("last_source_binding") == binding
-                    and source_time < _parse_utc(previous)):
+            if previous is not None and source_time < _parse_utc(previous):
                 raise NotificationStateError("OWNER_INCIDENT_CLOCK_REGRESSION")
             causes = _reasons(owner_status.get("data"))
             state["last_source_observed_at"] = _utc(source_time)
             state["last_source_binding"] = binding
             active_keys = {_incident_key(binding, item) for item in causes}
             for record in state["incidents"]:
-                if record.get("active") and record.get("key") not in active_keys:
+                same_account = record.get("key") == _incident_key(binding, record["reason"])
+                if (same_account and record.get("active")
+                        and record.get("key") not in active_keys):
                     record["active"] = False
                     record["resolved_at"] = clock
             for reason in causes:
                 key = _incident_key(binding, reason)
                 if any(item.get("key") == key and item["active"] for item in state["incidents"]):
                     continue
-                occurrence = sum(item.get("key") == key for item in state["incidents"]) + 1
-                record_id = sha256(f"{key}:{occurrence}".encode()).hexdigest()
+                # Retention must never reset identity after the 128th occurrence.
+                sequence = state.get("incident_sequence", 0) + 1
+                state["incident_sequence"] = sequence
+                record_id = sha256(f"incident-v2:{key}:{sequence}".encode()).hexdigest()
                 state["incidents"].append({
                     "id": record_id, "key": key, "reason": reason,
                     "severity": "UNSPECIFIED", "source_observed_at": _utc(source_time),
@@ -290,7 +304,7 @@ def process_once(
                 record["status"] = "DRY_RUN_DELIVERED"
                 record["next_attempt_at"] = None
         _save(state_path, state)
-        return dashboard_status(state_path)
+        return dashboard_status(state_path, now=now)
 
 
 def acknowledge(state_path: Path, incident_id: str) -> bool:
