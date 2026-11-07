@@ -15,6 +15,7 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+import time
 from typing import Iterator
 
 from .pm03_account import Account, RiskState, Rulebook, clock, digest, number
@@ -30,8 +31,13 @@ def _json(value: object) -> str:
 @dataclass
 class PaperJournal:
     root: Path
+    # Existing financial callers stay fail-fast. Only a shared public
+    # source/market observer may opt into a short pre-transaction lease wait.
+    lease_wait_seconds: float = 0.0
 
     def __post_init__(self) -> None:
+        if not 0 <= self.lease_wait_seconds <= 2:
+            raise ValueError("PAPER_JOURNAL_LEASE_WAIT_INVALID")
         self.root = Path(self.root)
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         if self.root.is_symlink() or self.root.stat().st_mode & 0o077:
@@ -195,10 +201,22 @@ class PaperJournal:
     def _writer(self) -> Iterator[sqlite3.Connection]:
         fd = os.open(self._lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
         try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            # The exclusive writer lease remains nonblocking. A short SQLite
-            # wait tolerates WAL open/close transitions caused by independent
-            # read-only verifiers; it does not permit a second lease owner.
+            # Retry exclusively BEFORE acquiring the writer lease / BEGIN.
+            # No work can be duplicated because failed flock never enters
+            # any database transaction. All old PM-03 callers remain
+            # fail-fast with lease_wait_seconds=0.
+            deadline = time.monotonic() + self.lease_wait_seconds
+            while True:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise
+                    time.sleep(min(0.02, remaining))
+            # SQLite may briefly hold the WAL schema lock during concurrent
+            # transaction startup, but no reader or writer is silently joined.
             db = sqlite3.connect(self.path, timeout=1, isolation_level=None)
             try:
                 db.execute("PRAGMA journal_mode=WAL")

@@ -6,6 +6,7 @@ from decimal import Decimal
 import fcntl
 import os
 import sqlite3
+import threading
 
 import pytest
 
@@ -103,6 +104,39 @@ def test_second_writer_refused_without_partial_effect(tmp_path) -> None:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         with pytest.raises(ValueError, match="PAPER_JOURNAL_BUSY_OR_UNAVAILABLE"):
             journal.append("run_1", "blocked", {"kind": "HALT", "event_at": LATER})
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+    assert journal.restore("run_1")["cursor"] == 0
+
+
+def test_opt_in_public_source_writer_waits_before_any_transaction(tmp_path) -> None:
+    journal = PaperJournal(tmp_path / "paper", lease_wait_seconds=0.6)
+    journal.register(manifest("run_1", "acct_1"))
+    fd = os.open(journal.root / "paper-events.lock", os.O_RDWR)
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    release = threading.Timer(0.1, fcntl.flock, args=(fd, fcntl.LOCK_UN))
+    release.start()
+    try:
+        journal.append("run_1", "single", {"kind": "HALT", "event_at": LATER})
+    finally:
+        release.join(timeout=2)
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+    assert journal.restore("run_1")["cursor"] == 1
+    assert journal.restore("run_1")["account"]["risk"] == "HALT"
+    with pytest.raises(ValueError, match="PAPER_JOURNAL_LEASE_WAIT_INVALID"):
+        PaperJournal(tmp_path / "invalid", lease_wait_seconds=3)
+
+
+def test_opt_in_public_source_wait_expires_without_side_effect(tmp_path) -> None:
+    journal = PaperJournal(tmp_path / "paper", lease_wait_seconds=0.05)
+    journal.register(manifest("run_1", "acct_1"))
+    fd = os.open(journal.root / "paper-events.lock", os.O_RDWR)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with pytest.raises(ValueError, match="PAPER_JOURNAL_BUSY_OR_UNAVAILABLE"):
+            journal.append("run_1", "denied", {"kind": "HALT", "event_at": LATER})
     finally:
         fcntl.flock(fd, fcntl.LOCK_UN)
         os.close(fd)

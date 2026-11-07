@@ -592,7 +592,10 @@ def main() -> None:
         part in {".git", ".devspace"} for part in args.state_root.resolve().parts
     ):
         parser.error("observer journal must be outside the worktree at an absolute private path")
-    journal = PaperJournal(args.state_root)
+    journal = PaperJournal(
+        args.state_root,
+        lease_wait_seconds=1.0 if args.source_only else 0.0,
+    )
 
     async def run() -> dict:
         async def capture() -> dict:

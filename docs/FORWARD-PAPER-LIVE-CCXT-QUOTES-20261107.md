@@ -21,8 +21,13 @@ short-lived `PaperJournal` SQLite writer lease. The quote-only
 when the original `PAPER_JOURNAL_BUSY_OR_UNAVAILABLE` exception was caused
 by a pre-transaction OS `BlockingIOError` (flock rejection). It reuses the
 same original quote and first-known clock, and never retries uncertain
-SQLite errors, hash divergence, or an already-started transaction. Other
-observer writers retain their fail-fast semantics. This prevents a normal
+SQLite errors, hash divergence, or an already-started transaction. The
+source-only public observer opts into a **one-second maximum** wait for the
+OS writer lease, before SQLite transaction startup. Every other PM-03 /
+`PaperJournal` caller retains the original zero-wait fail-closed behavior.
+The source observer's read-only, SHA-chain heartbeat verifier also waits up
+to **three seconds** for transient WAL schema contention without bypassing
+any individual historical hash/chain checks. This prevents a normal
 source/quote lock collision from killing the entire market-data service
 without making duplicate financial events possible.
 Paper readers keep reading that shared SQLite, without a restart or changing
@@ -81,7 +86,11 @@ fresh first-known receipts and the next source epoch had zero gaps.
 The initial quote worker had one automatic restart caused by a concurrent
 source/quote `PaperJournal` writer-lock collision. The quote-only bounded
 pre-transaction retry was added with adversarial regression tests before
-releasing the corrected collector.
+releasing the corrected collector. A source heartbeat also restarted after
+the verifier used SQLite `timeout=0` on the actively written quote tape;
+the source-only writer lease and verified-reader waits above address that
+independent contention failure. These are engineering reliability fixes,
+not proof of a complete forward T+5 fill/exit.
 
 Do not stop any Guardian, Bybit, Propr, dashboard, ensemble or unrelated
 systemd unit. Capture original unit ExecStart, PIDs, SHA, tape state and
