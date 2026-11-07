@@ -49,7 +49,7 @@ The final regression file includes 20 tests, including the actual owner producer
 
 ## Source verification
 
-The final clean source gate passed at `13f594dfd2d3a0b4582514f86810e482e0894539`, with an unchanged, clean worktree before/after. The subsequent receipt update changes documentation only.
+The final clean source gate passed at `13f594dfd2d3a0b4582514f86810e482e0894539`, with an unchanged, clean worktree before/after. Subsequent receipt updates change documentation only.
 
 ```bash
 uv sync --frozen --all-extras --group dev
@@ -74,6 +74,8 @@ git diff --check
 | Clean source gate resource observation | **53.876 CPU s**, **57.760 wall s**, **401.8 MiB** peak; test-unit measurements, not dashboard production resource acceptance |
 
 CPython was **3.14.6**. The unchanged `uv.lock` SHA-256 is `bf7f8494358f11953fc71d5aece84c61354970a9e7560316a41c957f765520cd`. Dashboard dependencies include Marimo **0.24.0**, Altair **6.3.0**, Polars **2.1.0**, Starlette **1.10.0**, Uvicorn **0.52.4**, httpx **0.28.1** and httpx2 **2.16.0**. Owner typing checks are recorded below; no new typing gate was invented for the dashboard repository.
+
+GitHub Actions for corrective [PR #173](https://github.com/hzminhzz/copytrade-pm/pull/173) did **not execute** its core/market jobs: [run 42367565795](https://github.com/hzminhzz/copytrade-pm/actions/runs/42367565795) records an account billing lock, with empty step lists. The initial GitGuardian secret scan passed. Repository `AGENTS.md` explicitly makes Actions optional for this program; inspected branch protection requires neither Actions statuses nor PR approvals. No branch policy was altered. Source acceptance rests on the clean, commit-bound local gates above; remote CI is not claimed as passing.
 
 ### Built-wheel and disposable-stage receipt
 
