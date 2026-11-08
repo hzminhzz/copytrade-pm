@@ -62,7 +62,7 @@
         "x": 0,
         "y": 3,
         "w": 8,
-        "h": 3
+        "h": 4
       },
       "description": "This is a publication status, not a claim that trading is safe.",
       "targets": [
@@ -102,9 +102,27 @@
         "cellHeight": "sm"
       },
       "fieldConfig": {
-        "defaults": {},
+        "defaults": {
+          "custom": {
+            "filterable": true
+          },
+          "noValue": "MISSING EVIDENCE"
+        },
         "overrides": []
-      }
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "Coverage": 0,
+              "Age seconds": 1
+            },
+            "renameByName": {}
+          }
+        }
+      ]
     },
     {
       "id": 7,
@@ -385,7 +403,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 6,
+        "y": 7,
         "w": 24,
         "h": 5
       },
@@ -447,8 +465,9 @@
         "defaults": {
           "custom": {
             "align": "left",
-            "filterable": false
-          }
+            "filterable": true
+          },
+          "noValue": "MISSING EVIDENCE"
         },
         "overrides": [
           {
@@ -500,7 +519,26 @@
             ]
           }
         ]
-      }
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "Metric": 0,
+              "Value": 1,
+              "A": 1,
+              "Grade": 2,
+              "Source Observed At": 3,
+              "Evidence Error": 4
+            },
+            "renameByName": {
+              "A": "Value"
+            }
+          }
+        }
+      ]
     },
     {
       "id": 3,
@@ -513,7 +551,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 11,
+        "y": 12,
         "w": 24,
         "h": 8
       },
@@ -539,7 +577,7 @@
             {
               "selector": "value",
               "text": "Value",
-              "type": "string"
+              "type": "number"
             },
             {
               "selector": "grade",
@@ -575,8 +613,9 @@
         "defaults": {
           "custom": {
             "align": "left",
-            "filterable": false
-          }
+            "filterable": true
+          },
+          "noValue": "MISSING EVIDENCE"
         },
         "overrides": [
           {
@@ -626,9 +665,48 @@
                 }
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.align",
+                "value": "right"
+              }
+            ]
           }
         ]
-      }
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "Metric": 0,
+              "Value": 1,
+              "A": 1,
+              "Grade": 2,
+              "Source Observed At": 3,
+              "Evidence Error": 4
+            },
+            "renameByName": {
+              "A": "Value"
+            }
+          }
+        }
+      ]
     },
     {
       "id": 4,
@@ -641,7 +719,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 19,
+        "y": 20,
         "w": 24,
         "h": 4
       },
@@ -693,8 +771,9 @@
         "defaults": {
           "custom": {
             "align": "left",
-            "filterable": false
-          }
+            "filterable": true
+          },
+          "noValue": "MISSING EVIDENCE"
         },
         "overrides": [
           {
@@ -746,7 +825,21 @@
             ]
           }
         ]
-      }
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "Metric": 0,
+              "Grade": 1,
+              "Evidence Error": 2
+            },
+            "renameByName": {}
+          }
+        }
+      ]
     },
     {
       "id": 10,
@@ -758,7 +851,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 23,
+        "y": 24,
         "w": 24,
         "h": 4
       },
@@ -800,9 +893,27 @@
       },
       "description": "No incidents shown is not proof of no risk; inspect source coverage.",
       "fieldConfig": {
-        "defaults": {},
+        "defaults": {
+          "custom": {
+            "filterable": true
+          },
+          "noValue": "MISSING EVIDENCE"
+        },
         "overrides": []
-      }
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "Code": 0,
+              "Priority": 1
+            },
+            "renameByName": {}
+          }
+        }
+      ]
     },
     {
       "id": 11,
@@ -814,7 +925,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 27,
+        "y": 28,
         "w": 24,
         "h": 6
       },
@@ -881,9 +992,48 @@
       },
       "description": "Hash and clocks do not themselves establish broker finance authority.",
       "fieldConfig": {
-        "defaults": {},
+        "defaults": {
+          "custom": {
+            "filterable": true
+          },
+          "noValue": "MISSING EVIDENCE"
+        },
         "overrides": []
-      }
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "Metric": 0,
+              "Authority": 1,
+              "Revision": 2,
+              "Journal Sequence": 3,
+              "Account Binding Sha": 4,
+              "Captured At": 5,
+              "Retrieved At": 6
+            },
+            "renameByName": {}
+          }
+        }
+      ]
     }
-  ]
+  ],
+  "links": [
+    {
+      "type": "dashboards",
+      "title": "Copytrade",
+      "asDropdown": true,
+      "tags": [],
+      "url": "",
+      "icon": "external link",
+      "includeVars": false,
+      "keepTime": true,
+      "targetBlank": false
+    }
+  ],
+  "timepicker": {
+    "hidden": true
+  }
 }

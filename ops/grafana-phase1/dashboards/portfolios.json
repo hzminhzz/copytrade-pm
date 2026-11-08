@@ -22,44 +22,15 @@
   "graphTooltip": 0,
   "links": [
     {
-      "title": "Pods & Portfolio",
       "type": "dashboards",
-      "asDropdown": false,
-      "includeVars": false,
-      "keepTime": false,
-      "targetBlank": false,
+      "title": "Copytrade",
+      "asDropdown": true,
       "tags": [],
-      "url": "/d/copytrade-pods-portfolio-v1"
-    },
-    {
-      "title": "Execution | T+300s",
-      "type": "dashboards",
-      "asDropdown": false,
+      "url": "",
+      "icon": "external link",
       "includeVars": false,
-      "keepTime": false,
-      "targetBlank": false,
-      "tags": [],
-      "url": "/d/copytrade-execution-v1"
-    },
-    {
-      "title": "Health & Incidents",
-      "type": "dashboards",
-      "asDropdown": false,
-      "includeVars": false,
-      "keepTime": false,
-      "targetBlank": false,
-      "tags": [],
-      "url": "/d/copytrade-health-incidents-v1"
-    },
-    {
-      "title": "Wallet Explorer",
-      "type": "dashboards",
-      "asDropdown": false,
-      "includeVars": false,
-      "keepTime": false,
-      "targetBlank": false,
-      "tags": [],
-      "url": "/d/copytrade-wallet-explorer-v1"
+      "keepTime": true,
+      "targetBlank": false
     }
   ],
   "panels": [
@@ -75,7 +46,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "**READ-ONLY · EVIDENCE FIRST · NOT TRADING AUTHORIZATION**"
+        "content": "**READ-ONLY \u00b7 EVIDENCE FIRST \u00b7 NOT TRADING AUTHORIZATION**"
       }
     },
     {
@@ -164,16 +135,33 @@
           },
           "custom": {
             "align": "auto",
-            "inspect": false
-          }
+            "inspect": false,
+            "filterable": true
+          },
+          "noValue": "MISSING EVIDENCE"
         },
         "overrides": []
-      }
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "Source coverage": 0,
+              "Source authority": 1,
+              "Source observed": 2,
+              "Source error": 3
+            },
+            "renameByName": {}
+          }
+        }
+      ]
     },
     {
       "id": 4,
       "type": "table",
-      "title": "PODS & PORTFOLIO · BOUNDED EVIDENCE",
+      "title": "PODS & PORTFOLIO \u00b7 BOUNDED EVIDENCE",
       "datasource": {
         "uid": "risk-projection-v1",
         "type": "yesoreyeram-infinity-datasource"
@@ -276,11 +264,35 @@
           },
           "custom": {
             "align": "auto",
-            "inspect": false
-          }
+            "inspect": false,
+            "filterable": true
+          },
+          "noValue": "MISSING EVIDENCE"
         },
         "overrides": []
-      }
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "Portfolio": 0,
+              "Research state": 1,
+              "Deployed": 2,
+              "Running": 3,
+              "Pods": 4,
+              "Signed k": 5,
+              "Exposure": 6,
+              "Loss used": 7,
+              "Loss budget": 8,
+              "Evidence": 9,
+              "Reason": 10
+            },
+            "renameByName": {}
+          }
+        }
+      ]
     },
     {
       "id": 5,
@@ -297,5 +309,8 @@
         "content": "Financial sources are not reconstructed from research registry membership."
       }
     }
-  ]
+  ],
+  "timepicker": {
+    "hidden": true
+  }
 }

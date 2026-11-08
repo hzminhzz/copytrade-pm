@@ -22,51 +22,22 @@
   "graphTooltip": 0,
   "links": [
     {
-      "title": "Pods & Portfolio",
       "type": "dashboards",
-      "asDropdown": false,
-      "includeVars": false,
-      "keepTime": false,
-      "targetBlank": false,
+      "title": "Copytrade",
+      "asDropdown": true,
       "tags": [],
-      "url": "/d/copytrade-pods-portfolio-v1"
-    },
-    {
-      "title": "Execution | T+300s",
-      "type": "dashboards",
-      "asDropdown": false,
+      "url": "",
+      "icon": "external link",
       "includeVars": false,
-      "keepTime": false,
-      "targetBlank": false,
-      "tags": [],
-      "url": "/d/copytrade-execution-v1"
-    },
-    {
-      "title": "Health & Incidents",
-      "type": "dashboards",
-      "asDropdown": false,
-      "includeVars": false,
-      "keepTime": false,
-      "targetBlank": false,
-      "tags": [],
-      "url": "/d/copytrade-health-incidents-v1"
-    },
-    {
-      "title": "Wallet Explorer",
-      "type": "dashboards",
-      "asDropdown": false,
-      "includeVars": false,
-      "keepTime": false,
-      "targetBlank": false,
-      "tags": [],
-      "url": "/d/copytrade-wallet-explorer-v1"
+      "keepTime": true,
+      "targetBlank": false
     }
   ],
   "panels": [
     {
       "id": 1,
       "type": "text",
-      "title": "CANONICAL REGISTRY — RESEARCH ONLY",
+      "title": "CANONICAL REGISTRY \u2014 RESEARCH ONLY",
       "gridPos": {
         "x": 0,
         "y": 0,
@@ -75,7 +46,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "**READ-ONLY · EVIDENCE FIRST · NOT TRADING AUTHORIZATION**"
+        "content": "**READ-ONLY \u00b7 EVIDENCE FIRST \u00b7 NOT TRADING AUTHORIZATION**"
       }
     },
     {
@@ -164,16 +135,33 @@
           },
           "custom": {
             "align": "auto",
-            "inspect": false
-          }
+            "inspect": false,
+            "filterable": true
+          },
+          "noValue": "MISSING EVIDENCE"
         },
         "overrides": []
-      }
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "Source coverage": 0,
+              "Source authority": 1,
+              "Source observed": 2,
+              "Source error": 3
+            },
+            "renameByName": {}
+          }
+        }
+      ]
     },
     {
       "id": 4,
       "type": "table",
-      "title": "WALLET EXPLORER · BOUNDED EVIDENCE",
+      "title": "WALLET EXPLORER \u00b7 BOUNDED EVIDENCE",
       "datasource": {
         "uid": "risk-projection-v1",
         "type": "yesoreyeram-infinity-datasource"
@@ -261,11 +249,32 @@
           },
           "custom": {
             "align": "auto",
-            "inspect": false
-          }
+            "inspect": false,
+            "filterable": true
+          },
+          "noValue": "MISSING EVIDENCE"
         },
         "overrides": []
-      }
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "Wallet alias": 0,
+              "Cohort": 1,
+              "Excluded": 2,
+              "Research scope": 3,
+              "Inventory SHA": 4,
+              "As-of source": 5,
+              "Evidence grade": 6,
+              "Limitation": 7
+            },
+            "renameByName": {}
+          }
+        }
+      ]
     },
     {
       "id": 5,
@@ -282,5 +291,8 @@
         "content": "The first 50 permitted aliases are published; there is no browser-triggered native pagination or SQL."
       }
     }
-  ]
+  ],
+  "timepicker": {
+    "hidden": true
+  }
 }
