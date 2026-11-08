@@ -56,7 +56,7 @@ def safe_decimal(value: object) -> str | None:
 
 SCHEMA = "copytrade_evidence_generation_v1"
 PAYLOAD_SCHEMA = "grafana_account_risk_v1"
-MAX_SIZE = 32_768
+MAX_SIZE = 131_072
 MAX_AGE_SECONDS = 45
 METRICS = (
     "Guardian state",
@@ -225,7 +225,13 @@ def _safe_projection(value: dict) -> dict:
                 or item.get("source") != "SYNTHETIC_ONLY"
             ):
                 raise EvidenceInvalid("FIXTURE_HISTORY_INVALID")
+    from .grafana_capabilities import validate_capabilities
+
+    capabilities = value.get("capabilities")
+    if capabilities is not None:
+        capabilities = validate_capabilities(capabilities, asof=observed)
     return {
+        **({"capabilities": capabilities} if capabilities is not None else {}),
         **({"history": history} if value["synthetic"] else {}),
         "schema": PAYLOAD_SCHEMA,
         "generated_at": value["generated_at"],
@@ -334,8 +340,15 @@ def read_generation(
         for r in projection["metrics"]
         if r["grade"] == "VERIFIED" and r["source_observed_at"] is not None
     ]
-    stale = age > MAX_AGE_SECONDS or any(x > MAX_AGE_SECONDS for x in observed_ages)
-    if stale:
+    publisher_stale = age > MAX_AGE_SECONDS
+    risk_stale = publisher_stale or any(x > MAX_AGE_SECONDS for x in observed_ages)
+    if "capabilities" in projection:
+        from .grafana_capabilities import age_capabilities
+
+        projection["capabilities"] = age_capabilities(
+            projection["capabilities"], now=now, published=published, max_age=MAX_AGE_SECONDS
+        )
+    if risk_stale:
         for row in projection["metrics"]:
             if row["grade"] == "VERIFIED":
                 row["grade"] = "STALE"
@@ -353,7 +366,13 @@ def no_evidence(reason: str, now: datetime | None = None) -> dict:
     now = now or _utc_now()
     if reason not in {"EVIDENCE_UNAVAILABLE", "EVIDENCE_CORRUPT", "PUBLISHER_FAILED"}:
         reason = "EVIDENCE_CORRUPT"
+    from .grafana_capabilities import CAPABILITY_SCHEMA, FIELDS, unavailable
+
     return {
+        "capabilities": {
+            "schema": CAPABILITY_SCHEMA,
+            **{name: unavailable(name, reason) for name in FIELDS},
+        },
         "schema": PAYLOAD_SCHEMA,
         "generated_at": now.isoformat(),
         "published_at": None,
@@ -438,7 +457,7 @@ def publish_once(
     from .grafana_projection import build_projection
 
     trusted_reader = reader if reader is not None else DashboardReader()
-    result = build_projection(trusted_reader)
+    result = build_projection(trusted_reader, clock=clock)
     payload = encode_generation(result, now=clock())
     publish_atomic(directory, payload)
     return payload
