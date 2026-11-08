@@ -2,6 +2,11 @@
 
 Uses Tailscale Serve owner identity when enabled; password-mode is a rollback
 compatibility path. No secret is printed or financial state written.
+
+Requires Firefox and geckodriver, removed from this host on 2026-11-08. This
+script cannot move to obscura: obscura loads every Marimo chunk but never
+mounts the app (#root stays empty, no /api/ call, no exception). Retired with
+the Marimo dashboard under #192; until then reinstall the browser to run it.
 """
 
 from __future__ import annotations
