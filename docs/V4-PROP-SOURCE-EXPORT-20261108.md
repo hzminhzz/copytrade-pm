@@ -61,6 +61,27 @@ consumer identities, installed hashes and public key pin. Do **not** chmod
 the source journal or signing key for `prop-planner`, install a signing key
 into Guardian, or let Planner modify the original `PaperJournal`.
 
+## Additive signed source spool (2026-11-09)
+
+The `python -m copytrade_pm.v4_source_spool` one-shot producer consumes the
+same read-only journal and current SQLite-sealed P1/P14/P16 selection, using
+externally provisioned Ed25519 source seed plus independently pinned public
+key. It stores an immutable, SHA-named `v4_signed_source_export_v1` packet
+with a signed `v4_source_batch_binding_v1` cover binding the full source
+alias map, verified head cursors and per-source event envelopes. The first
+invocation anchors at present head and publishes **zero** historical events.
+The private cursor record commits only after durable packet publication;
+retries are at-least-once and the consumer deduplicates signed stream cursors.
+A missing cursor with published history, key rotation, selected alias drift,
+source chain failure or non-private directory stops capture; no implicit
+backfill or auto-approval. A separate protected root-only copy stage consumes
+only the immutable signed packet, never the source private key or journal.
+
+The spool is designed for an opt-in quant-owned user timer but **is not
+installed by this source change**. External approver/reviewer signatures and
+the protected inbox remain owned by `prop-production`. See its separate
+V4 protected source operations runbook. No broker order permission exists.
+
 ## What this does not prove
 
 A signed export is not a signed production portfolio, follower equity,
