@@ -87,6 +87,55 @@ paper work in PR #179; its v3 campaign semantics remain unmodified by default.
   bulk quote polling cadence uses nominally **180 REST requests/hour**.
   Source: https://vike.io/data/api.
 
+## Isolated, additive read-only collector deployment (2026-11-08)
+
+A **quant-owned observer candidate only** is installed under systemd user
+services. It is not a Vike-to-paper execution cutover, broker deployment, or
+replacement for the official complete-position observer.
+
+- Installed **code** release: detached, clean commit
+  `2a6c889a96f031db324566fd6e4f5a19fb67f204`, path
+  `/home/quant/.local/share/copytrade/releases/vike-paper-candidate-2a6c889`.
+  The Vike PR remains draft; these services are explicitly additive candidate
+  observations and do not qualify the branch for merging.
+- `copytrade-vike-selected-0811.service`: one Vike `hl.fills` WebSocket
+  filtered to the unique address set of the current P1/P14/P16 sealed SQLite
+  profiles with explicit `min_usd:0`. Key comes from the private systemd
+  `EnvironmentFile`. Native fills, cursors, gaps and server ping heartbeats
+  persist at `prospective/vike-selected-0811/selected-fills.sqlite3`.
+- `copytrade-vike-minute-0811.service`: one bulk REST OHLCV snapshot each
+  **20 seconds**, for 28 explicitly selected/perp research markets including
+  main and HIP-3 symbols; latest price receipts persist separately at
+  `prospective/vike-minute-0811/paper-events.sqlite3`. A missing market is
+  logged as missing, never silently forward-filled.
+- Both services are `enabled`, `active`, use `quant`'s systemd user manager
+  (`Linger=yes`), run with `NoNewPrivileges`, capped memory/CPU, and
+  create no broker transactions or financial journal events.
+- First observed status around **01:32 UTC**: zero service restarts,
+  selected WS 1 acknowledged subscription, 3 ping heartbeats, 0 selected
+  fills, 0 gap records. Minute journal: **78 receipts / 26 distinct markets**;
+  sampled missing markets `para:ANSEM` and `xyz:HOOD` (not evidence of
+  permanent absence). **0 L2 receipts** in the new Vike journal.
+- The old `copytrade-ccxt-quote-feed-0711.service` and P1/P14/P16 v3
+  virtual-paper services remained active. **No v4 paper campaign was
+  installed**; an authentic Vike-selected-fill-to-complete-position signal
+  path and live execution-estimate acceptance are still missing.
+
+**Reversible observer-only stop** as `quant`:
+
+```bash
+systemctl --user disable --now \\
+  copytrade-vike-selected-0811.service \\
+  copytrade-vike-minute-0811.service
+```
+
+This rollback does not touch original CCXT, official position observations,
+Guardian, Grafana, or virtual-paper v3 journals. Runtime validation should
+inspect `systemctl --user show`, Vike's independent
+`stream_connections` and SQLite heartbeat/receipt tables. A process
+marked active alone cannot prove any delivered trade, pricing completeness,
+or financial readiness.
+
 ## Before any service cutover
 
 1. Validate independent original selected-wallet identities and complete

@@ -121,6 +121,12 @@ Parquet and original evidence outside Git. Preserve frozen PM-01 membership,
 source hashes and the `pm01_fill_only_replay_v2` consumer interface.
 Use [Vike recovery](docs/VIKE-DATA-RECOVERY-20261106.md) only within its explicit
 bounded research contract; no automatic production ingestion or credential export.
+The separate [2026-11-08 Vike read-only observer candidate](docs/FORWARD-PAPER-VIKE-MIGRATION-20261108.md)
+is a commit-pinned additive source-fill and minute-price research intake:
+it does not replace the official full-position owner, qualify v4 paper
+execution, authorize trading or retire CCXT. Never expose the dedicated key
+in Git, logs, process arguments or documentation; load only from the
+quant-owned private environment file.
 
 For persistent acquisition use [the continuous observer runbook](docs/FORWARD-PAPER-CONTINUOUS-OBSERVER.md).
 Preflight and diagnostics do not admit startup. Measure shared-IP budgets and
