@@ -28,7 +28,7 @@ From this branch, use:
 
 1. bash ops/grafana-phase1/stage.sh start
 2. Open the owner-only staging URL on HTTPS port 8444.
-3. For local test: source the generated mode-0600 private environment at ~/.local/share/copytrade-grafana-phase1/private.env and run the browser_acceptance.py script with uv --with selenium.
+3. For local test: source the generated mode-0600 private environment at ~/.local/share/copytrade-grafana-phase1/private.env and run the browser_acceptance.py script with `uv run --frozen python`. It drives the local obscura CDP server (`systemctl --user start obscura`; `obscura serve --port 9222 --stealth --allow-private-network`), so the loopback and tailnet URLs are reachable.
 4. bash ops/grafana-phase1/stage.sh stop
 
 The stage script uses pinned Docker images and a minimal root-equivalent Docker helper to configure only the staging Unix-socket Tailscale Serve route. It does not need a sudo password. It must refuse to replace a preexisting 8444 route or untrusted socket directory. Teardown removes only the matching staging route, containers, evidence volume, socket directory and generated staging secrets.
