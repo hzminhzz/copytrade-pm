@@ -173,41 +173,38 @@ Missing actual follower evidence stays BLOCKED. Synthetic EV is SCENARIO_ONLY;
 finite-horizon payouts are not infinite-horizon LTV or a purchase recommendation.
 Never alter scientific thresholds to make an engineering gate pass.
 
-## Dashboard V1 phase boundary
+## Dashboard: Marimo retired, Grafana is the operator surface
 
-Phase 2 source implementations and fail-closed owner-capture consumer are
-independently tested; do not confuse source merge with live capture permission,
-installed release, signed pod budget, broker PnL or trading authorization.
-See `docs/DASHBOARD-PHASE2.md` and prop-production's owner projection contract.
-Phase 3 implements independent dry-run incident delivery, mobile navigation,
-security regression tests and *disposable staging-only* packaging; see
-`docs/DASHBOARD-PHASE3.md`. The approved single-app topology uses
-`pages/dashboard.py` as the **only** run-only Marimo ASGI mount; the eight
-existing view notebooks are lazy embedded presentation modules under native
-`mo.routes()` hash navigation. Never reintroduce independent notebook mounts,
-server-side routing state or a global eager reactive query graph. The exact
-same-origin, authenticated, bounded Marimo UI POST allowlist is
-`function_call` and `set_ui_element_value` only; do not enable arbitrary
-kernel execution or filesystem mutation routes.
-The notification backend is NOT_CONFIGURED for external distribution; local ACK never clears Guardian HALT. URL portfolio/UTC
-scope is display-navigation context, never production selection. Browser and
-source tests cannot qualify live Guardian cadence, protected ACL, private ingress,
-source finance or a pinned installed runtime. TD-13 requires independent
-noninterference/performance evidence; TD-14 needs separately authorized pinned
-reversible installation. Never grant Marimo journal access or activate protected
-capture/Guardian services as a shortcut.
-For final dashboard review, read [the independent acceptance record](docs/DASHBOARD-FINAL-AUDIT-20261107.md)
-and the operating bounds in [the release runbook](docs/DASHBOARD-PHASE3.md).
-For an authorized dashboard install, upgrade, private ingress, service fault test
-or rollback under the shared `quant` Linux user, read
-[the quant-owned runtime receipt](docs/DASHBOARD-QUANT-DEPLOYMENT-20261107.md)
-and `ops/dashboard-quant/`. The operator explicitly chose `quant` instead of a
-dedicated UID; use the proven Bubblewrap read-only mounts and user service.
-Keep private host/secret in the host env file. Running private UI does not attest
-protected Guardian reconciliation or financial journal continuity.
-Verify actual browser CSS viewport dimensions; outer Firefox window sizes can
-silently clamp phone tests. Keep optional evidence limitations separate from
-mandatory permission, private ingress, Guardian cadence and rollback gates.
+The Marimo operator UI was retired early at the operator's direction on
+2026-11-08, **before** #190/#191 formal cutover acceptance. This is an
+observed out-of-sequence deployment state, not acceptance/closure of #192.
+The `copytrade-dashboard` user service is disabled, the Tailscale HTTPS 8443 route
+is removed, and the presentation modules (`pages/`, `server.py`,
+`navigation.py`, `views.py`, `phase2_views.py`, `release.py`) and
+`ops/dashboard-quant/` are deleted. The dated `docs/DASHBOARD-*.md` records are
+historical evidence; they do not describe current runtime.
+
+Preserved deliberately: `DashboardReader` (`adapter.py`), the registry and
+owner-capture adapters, `notifications.py` evidence, `evidence_plane.py`,
+`grafana_projection.py`, `grafana_capabilities.py` and the Polars point
+reduction in `chart_data.py`. Do not reintroduce a Marimo mount, a notebook
+route or a second presentation authority.
+
+Grafana is the only operator surface: five dashboards provisioned from
+`ops/grafana-phase1/dashboards/` behind the owner-only Tailscale HTTPS 8444
+ingress. Retirement does not close #190/#191. The Grafana stack is
+DEPLOYED_READ_ONLY with the synthetic fixture still enabled, authentic protected
+Guardian finance not admitted and full HTTPS 8443 rollback not demonstrated.
+The retained Marimo wheel passed a local-only 403/boot probe on 2026-11-08. Read
+retirement as neither Grafana acceptance nor trading authority.
+
+The notification backend is NOT_CONFIGURED for external distribution; local ACK
+never clears Guardian HALT. URL portfolio/UTC scope is display-navigation
+context, never production selection. Browser and source tests cannot qualify
+live Guardian cadence, protected ACL, private ingress, source finance or a
+pinned installed runtime. Browser acceptance runs on the local obscura CDP
+server; verify actual CSS viewport dimensions, because an outer window size can
+silently clamp phone tests.
 
 ## Review, verification and continuation
 

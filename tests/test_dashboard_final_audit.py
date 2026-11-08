@@ -1,6 +1,5 @@
 """Independent regressions for final dashboard operational review."""
 
-import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 import json
@@ -10,7 +9,6 @@ import pytest
 
 from copytrade_pm.dashboard.adapter import DashboardReader, SmallTTLCache
 from copytrade_pm.dashboard.notifications import process_once, read_state, dashboard_status
-from copytrade_pm.dashboard.views import overview_cards
 
 T0 = datetime(2026, 11, 7, 10, tzinfo=UTC)
 
@@ -112,101 +110,8 @@ def test_busy_selection_cannot_hide_guardian_unavailable_state():
     assert report["research_selection"]["status"] == "UNKNOWN"
 
 
-@pytest.mark.parametrize(
-    "path,content_type",
-    [
-        ("/login", "application/x-www-form-urlencoded"),
-        ("/api/kernel/function_call", "application/json"),
-    ],
-)
-def test_asgi_body_limit_checks_bytes_not_only_claimed_length(path, content_type):
-    pytest.importorskip("starlette", reason="requires the dashboard extra")
-    from copytrade_pm.dashboard.server import COOKIE_NAME, ViewerAuth, _cookie
-
-    messages, downstream_calls = [], []
-    key = "x" * 64
-
-    async def downstream(scope, receive, send):
-        downstream_calls.append(await receive())
-        await send({"type": "http.response.start", "status": 200, "headers": []})
-        await send({"type": "http.response.body", "body": b"ok"})
-
-    async def receive():
-        return {"type": "http.request", "body": b"x" * 20000, "more_body": False}
-
-    async def send(message):
-        messages.append(message)
-
-    scope = {
-        "type": "http",
-        "method": "POST",
-        "path": path,
-        "query_string": b"",
-        "headers": [
-            (b"host", b"localhost"),
-            (b"origin", b"https://localhost"),
-            (b"content-type", content_type.encode()),
-            (b"content-length", b"2"),
-            (b"cookie", f"{COOKIE_NAME}={_cookie(key, int(T0.timestamp()))}".encode()),
-        ],
-    }
-    asyncio.run(ViewerAuth(downstream, secret=key, clock=lambda: T0)(scope, receive, send))
-    assert messages[0]["status"] == 413
-    assert not downstream_calls
-
-
-class Cards:
-    def stat(self, value, **kwargs):
-        return {"value": value, **kwargs}
-
-    def hstack(self, items, **kwargs):
-        return items
-
-    def vstack(self, items):
-        return items
-
-    def md(self, text):
-        return text
-
-
-@pytest.mark.parametrize("status", ["STALE", "BLOCKED", "UNAVAILABLE"])
-def test_current_status_cards_label_capture_evidence(status):
-    report = {
-        "metrics": {
-            name: {"value": None, "status": status}
-            for name in ("equity", "headroom", "daily_headroom", "trailing_headroom")
-        },
-        "sources": {
-            "status": {"status": status, "data": {"state": "HALTED"}},
-            "broker": {"status": status, "data": {"certainty": "COHERENT"}},
-            "risk": {"status": status, "data": {}},
-        },
-        "retrieved_at": T0.isoformat(),
-    }
-    rendered = json.dumps(overview_cards(Cards(), report))
-    assert f"Guardian state [{status}]" in rendered
-    assert f"Broker certainty [{status}]" in rendered
-    if status == "STALE":
-        assert "last observed" in rendered
-    else:
-        assert "COHERENT" not in rendered
-
-
-def test_invalid_unicode_login_is_rejected_without_server_error():
-    pytest.importorskip("marimo", reason="requires the dashboard extra")
-    from starlette.testclient import TestClient
-    from copytrade_pm.dashboard.server import make_app
-
-    with TestClient(make_app(secret="x" * 64), base_url="https://localhost") as client:
-        response = client.post(
-            "/login", data={"secret": "sai-mật-khẩu"}, headers={"origin": "https://localhost"}
-        )
-    assert response.status_code == 401
-
-
 @pytest.mark.parametrize("break_count", [4, 8])
 def test_downsampling_retains_local_extrema_or_explicitly_refuses(break_count):
-    pytest.importorskip("altair", reason="requires the dashboard extra")
     from copytrade_pm.dashboard.chart_data import prepare_series
 
     points = []
@@ -241,7 +146,6 @@ def test_downsampling_retains_local_extrema_or_explicitly_refuses(break_count):
 def test_actual_owner_capture_round_trip_without_journal_mutation(tmp_path):
     """Use the actual pinned owner producer; OS ACL acceptance remains separate."""
     pytest.importorskip("prop_production", reason="requires the pinned owner source")
-    pytest.importorskip("altair", reason="requires the dashboard extra")
     from hashlib import sha256
 
     from prop_production.dashboard_capture import COMMANDS, export_capture

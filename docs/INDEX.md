@@ -11,7 +11,7 @@ context. [AGENTS.md](../AGENTS.md) defines the execution workflow.
 
 ## Canonical guides
 
-The local-only read-only Marimo dashboard's authenticated foundation is documented in [Dashboard Phase 1](DASHBOARD-PHASE1.md); the eight-view source-only extension, precise native read limitations and local tests are documented in [Dashboard Phase 2](DASHBOARD-PHASE2.md). Neither phase has broker or Guardian write authority or an installed dashboard financial service. For incident delivery, mobile acceptance and isolated packaging, use [the Phase 3 runbook](DASHBOARD-PHASE3.md). For independent corrections, final source evidence and the demonstrated deployment blocker, use [the final dashboard audit](DASHBOARD-FINAL-AUDIT-20261107.md).
+The Marimo operator dashboard was **retired early on 2026-11-08** at operator direction while #190/#191 remained unaccepted; #192 is not closed or technically accepted. See [the retirement record](DASHBOARD-RETIREMENT-20261108.md) for preserved artifacts, local recovery evidence and the untested 8443 restoration. Grafana is the only operator surface (`ops/grafana-phase1/`). The earlier [Phase 1](DASHBOARD-PHASE1.md), [Phase 2](DASHBOARD-PHASE2.md), [Phase 3](DASHBOARD-PHASE3.md) and [final audit](DASHBOARD-FINAL-AUDIT-20261107.md) records are historical evidence and no longer describe current runtime.
 
 | Responsibility | Guide |
 | --- | --- |

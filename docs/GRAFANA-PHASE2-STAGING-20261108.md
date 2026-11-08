@@ -40,7 +40,7 @@ uv run --frozen python ops/grafana-phase1/release_verify.py
 bash ops/grafana-phase1/stage.sh start
 set -a; . "$HOME/.local/share/copytrade-grafana-phase1/private.env"; set +a
 uv run --frozen --extra dashboard --group dev python ops/grafana-phase1/security_acceptance.py
-uv run --frozen --with selenium python ops/grafana-phase1/browser_phase2.py
+uv run --frozen --extra source python ops/grafana-phase1/browser_phase2.py
 bash ops/grafana-phase1/stage.sh stop
 ```
 
