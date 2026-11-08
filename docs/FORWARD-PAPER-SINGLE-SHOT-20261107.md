@@ -1,5 +1,14 @@
 # P1 forward research paper: single-shot market execution v3
 
+**V4 extension (2026-11-08):** The approved [position-first
+decision](decisions/2026-11-08-position-first-t300.md) preserves the
+T0+300s non-resetting entry policy, one terminal modeled market attempt
+and immediate exits. New V4 source T0 is the first locally known **genuine
+official complete selected-position transition**, not a Vike fill or initial
+baseline. A verified stream/source receipt link is required for new V4 paper;
+source gaps cancel pending new risk while preserving held unresolved exposure.
+The legacy V3 replay semantics and original journals remain unchanged.
+
 **Policy:** `single_shot_market_paper_v3`. **Owner:** isolated P1 and
 reviewed additional registry-bound observed-paper research campaigns.
 See [the multi-portfolio activation contract](REGISTRY-PAPER-PORTFOLIOS-20261107.md).

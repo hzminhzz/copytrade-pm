@@ -1,5 +1,42 @@
 # Vike forward-paper migration — isolated v4 engineering candidate (2026-11-08)
 
+## Approved position-first V4 architecture (supersedes fill-driven source admission)
+
+The [2026-11-08 binding architecture decision](decisions/2026-11-08-position-first-t300.md)
+replaces the original fill-to-complete-book requirement in #197/#200.
+**Official Hyperliquid complete selected-account all-DEX position changes**
+are the primary source authority. Vike `hl.fills` remains optional diagnostic
+and historical research evidence; it is not a mandatory first-known trigger,
+fill parity gate, or independent complete source book. Keep the running
+official position observer. Never treat baseline, reconnect, recovery, stale
+source or unverified flat as a new eligible position transition.
+
+The V4 native-catalog CLI explicitly accepts
+`--price-mode vike_minute --propr-catalog /absolute/verified/propr-layout.json`
+and uses current official Hyperliquid `/info meta` once per native DEX to
+freeze active contract identities and size precision **without requiring a
+price receipt at startup or CCXT metadata**. Missing quote rows block only
+estimated attempts, not catalog membership. `--paper-min-notional 10` is
+an explicit **scenario assumption in USD**, not independently verified
+Propr/Hyperliquid order acceptance. The Propr JSON remains the dated
+157-market public-display baseline until current scope is independently
+verified. Native-contract metadata drift fails closed on restart.
+
+Only official observer receipts atomically referenced from the source's
+`observer_stream_events` are actionable in the new native V4 consumer.
+First genuinely observed transition sets T0; pending entries are attempted
+at T0+300 seconds with non-resetting deadlines, once per intent. Source
+reductions and independent PM04 risk exits remain immediate. Source gap,
+reconnect epoch drift or a changed unprocessed latest book cancels pending new
+risk; held financial inventory is never silently flattened. The older V3
+run IDs, source evidence and paper journals remain unaffected.
+
+The code is an **unmerged V4 research candidate**. All active runtime
+services, Guardian, Grafana, CCXT, funded/demo broker routes and existing
+P1/P14/P16 V3 journals remain unchanged. Real provider/position and PnL
+acceptance, current Propr scope, native session eligibility, research
+economics and permission for a future CCXT cutover remain separate unknowns.
+
 **Scope:** read-only selected-wallet observation and modeled virtual-paper prices.
 **No Grafana, Guardian, broker, funded account, trading authority, or old v3
 journal modification.** This branch is based on the existing single-shot

@@ -292,6 +292,10 @@ class PersistentAccount:
             **receipt,
             "observation_kind": classification,
             "stream_epoch": self.epoch,
+            # Only a continuous, complete official position replacement may
+            # drive a prospective virtual-paper target. Observer admission
+            # remains NO_TRADE and is not financial/broker authorization.
+            "position_transition_eligible": classification == "OBSERVED_STATE_CHANGE",
             "signal_eligible": False,
         }
         state = {

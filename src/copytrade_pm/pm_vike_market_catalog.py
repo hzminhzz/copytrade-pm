@@ -6,10 +6,13 @@ preserved and missing prices are explicitly reported by the collector.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 from hashlib import sha256
 import json
 from pathlib import Path
+from typing import Callable
 
+from .pm03_account import Instrument, clock, digest, number
 from .pm_vike_minute import native_instrument
 
 
@@ -72,3 +75,96 @@ def load_propr_catalog(path: Path) -> MarketCatalog:
     return MarketCatalog(
         frozenset(native), sha, sha256(raw).hexdigest()
     )
+
+# Official native contract resolution is independent of the Propr display and
+# of current Vike prices. It confers no account-specific trading permission.
+@dataclass(frozen=True)
+class NativePaperContract:
+    instrument: Instrument
+    amount_step: Decimal
+    minimum_notional: Decimal
+    active: bool
+    market_known_at: str
+    catalog_sha: str
+    hip3: bool
+    provider_meta_sha: str = ""
+    metadata_source: str = "OFFICIAL_HYPERLIQUID_META"
+    min_notional_source: str = "ESTIMATED_PAPER_POLICY_NOT_VENUE_ATTESTED"
+
+    @property
+    def session_eligible(self) -> bool:
+        # The latest traded Vike minute is checked separately at attempt time.
+        # Official metadata existence is NOT independent HIP-3 session evidence.
+        return self.active
+
+
+def official_paper_contracts(
+    selected_symbols: frozenset[str],
+    *,
+    observed_at: str,
+    minimum_notional_usd: Decimal,
+    info: Callable | None = None,
+) -> dict[str, NativePaperContract]:
+    """Resolve active native contracts from official /info meta, not quote heads.
+
+    The minimum notional is an explicitly configured paper assumption. Do not
+    treat this result as an exchange order-acceptance or session attestation.
+    Missing/unlisted native symbols remain catalog identities, not permissions.
+    """
+    from .pm_e4_prospective import _guarded_info
+
+    clock(observed_at)
+    minimum_notional = number(minimum_notional_usd)
+    if not minimum_notional.is_finite() or minimum_notional <= 0:
+        raise ValueError("VIKE_NATIVE_PAPER_MINIMUM_ASSUMPTION_INVALID")
+    if not selected_symbols:
+        raise ValueError("VIKE_NATIVE_PAPER_CATALOG_EMPTY")
+    provider = info or _guarded_info
+    grouped: dict[str, set[str]] = {}
+    for native in selected_symbols:
+        if ":" in native:
+            dex, _coin = native.split(":", 1)
+        else:
+            dex = "default"
+        grouped.setdefault(dex, set()).add(native)
+
+    contracts: dict[str, NativePaperContract] = {}
+    for dex, names in sorted(grouped.items()):
+        request = {"type": "meta"} if dex == "default" else {"type": "meta", "dex": dex}
+        payload, raw, raw_sha = provider(request)
+        if (
+            not isinstance(payload, dict)
+            or not isinstance(payload.get("universe"), list)
+            or not isinstance(raw, bytes)
+            or sha256(raw).hexdigest() != raw_sha
+        ):
+            raise ValueError("VIKE_NATIVE_PAPER_OFFICIAL_META_INVALID")
+        rows = {}
+        for row in payload["universe"]:
+            if not isinstance(row, dict) or not isinstance(row.get("name"), str):
+                raise ValueError("VIKE_NATIVE_PAPER_OFFICIAL_META_ROW_INVALID")
+            if row["name"] in rows:
+                raise ValueError("VIKE_NATIVE_PAPER_OFFICIAL_META_DUPLICATE")
+            rows[row["name"]] = row
+        for native in sorted(names):
+            row = rows.get(native)
+            if row is None or row.get("isDelisted") is True:
+                continue
+            decimals = row.get("szDecimals")
+            if type(decimals) is not int or not 0 <= decimals <= 15:
+                raise ValueError("VIKE_NATIVE_PAPER_SIZE_PRECISION_UNKNOWN:" + native)
+            inst = Instrument.parse(native_instrument(native))
+            step = Decimal("1").scaleb(-decimals)
+            contracts[inst.key] = NativePaperContract(
+                instrument=inst, amount_step=step,
+                minimum_notional=minimum_notional, active=True,
+                market_known_at=observed_at, hip3=dex != "default",
+                # Contract identity is local to the selected market: a new
+                # unrelated venue listing must not invalidate this run.
+                catalog_sha=digest([
+                    inst.key, str(step), str(minimum_notional),
+                    row.get("onlyIsolated"), row.get("isDelisted", False),
+                ]),
+                provider_meta_sha=raw_sha,
+            )
+    return contracts

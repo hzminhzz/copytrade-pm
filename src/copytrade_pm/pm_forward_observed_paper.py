@@ -32,6 +32,10 @@ from .pm_forward_journal import PaperJournal
 from .pm_forward_portfolios import FrozenPaperPortfolio, P1
 from .pm_forward_single_shot import POLICY_VERSION, ESTIMATED_POLICY_VERSION
 from .pm_vike_minute import SCHEMA as VIKE_MINUTE_SCHEMA
+from .pm_vike_market_catalog import (
+    NativePaperContract, load_propr_catalog, official_paper_contracts,
+)
+from .pm_forward_stream_journal import verify_official_position_transition
 
 P1_K = {"S035": "0.0282", "S051": "0.0430", "S053": "0.0296"}
 P1_REGISTRY_ALIASES = {"S035": "S035-ENA", "S051": "S051-BTC", "S053": "S053-HYPE"}
@@ -253,7 +257,7 @@ def _read_source(conn: sqlite3.Connection, alias: str, seq: int | None = None) -
     ).fetchone() if seq > 1 else ("0" * 64,)
     if predecessor is None or prior != predecessor[0]:
         raise ValueError("OBSERVED_SOURCE_RECEIPT_PREDECESSOR_MISMATCH")
-    return {"seq": seq, "sha": sha, "receipt": receipt, "book": book}
+    return {"seq": seq, "receipt_id": rid, "sha": sha, "receipt": receipt, "book": book}
 
 
 def _read_quote(conn: sqlite3.Connection, inst: str) -> dict | None:
@@ -532,6 +536,7 @@ class ObservedP1Paper:
         portfolio_id: str = "P1",
         price_mode: str = "l2",
         price_db: Path | None = None,
+        native_contracts: Mapping[str, NativePaperContract] | None = None,
     ) -> None:
         if portfolio_id not in PAPER_PROFILES:
             raise ValueError("PAPER_PORTFOLIO_HAS_NO_APPROVED_RESEARCH_SCENARIO")
@@ -550,6 +555,9 @@ class ObservedP1Paper:
             raise ValueError("VIKE_MINUTE_REQUIRES_ISOLATED_PRICE_JOURNAL")
         self.registry_db = Path(registry_db)
         self.catalog = dict(catalog)
+        self.native_contracts = dict(native_contracts or {})
+        if self.native_contracts and price_mode != "vike_minute":
+            raise ValueError("NATIVE_PAPER_CONTRACTS_REQUIRE_VIKE_ESTIMATED_MODE")
         base = Path(state_root)
         if base.is_symlink() or (base.exists() and base.stat().st_mode & 0o077):
             raise ValueError("PAPER_ROOT_MUST_BE_PRIVATE")
@@ -570,19 +578,39 @@ class ObservedP1Paper:
             started_at = manifest["started_at"]
             rulebook = Rulebook.from_dict(manifest["rulebook"])
             market_sha = manifest["market_manifest_sha"]
+            if self.native_contracts:
+                current_market_sha = digest({
+                    key: {
+                        "catalog_sha": row.catalog_sha,
+                        "amount_step": str(row.amount_step),
+                        "minimum_notional": str(row.minimum_notional),
+                    }
+                    for key, row in sorted(self.native_contracts.items()) if row.active
+                })
+                if current_market_sha != market_sha:
+                    raise ValueError("PAPER_RESTART_NATIVE_CONTRACT_METADATA_DRIFT")
         else:
             started_at = started_at or now_utc()
-            with closing(_readonly(self.price_db)) as db:
-                table = "vike_minute_heads" if self.price_mode == "vike_minute" else "market_quote_heads"
-                keys = [row[0] for row in db.execute(f"SELECT instrument FROM {table}")]
-                reader = _read_vike_minute if self.price_mode == "vike_minute" else _read_quote
-                quotes = {key: reader(db, key) for key in keys}
-            markets: dict[str, NativeMarket] = {}
-            for key, quote in quotes.items():
-                try:
-                    markets[key] = _candidate_market(Instrument.parse(key), self.catalog, quote)
-                except (ValueError, KeyError):
-                    continue
+            if self.native_contracts:
+                # A quiet market is still a permitted identity. Its missing
+                # quote blocks only the later market-order estimate.
+                markets = {
+                    key: market for key, market in self.native_contracts.items()
+                    if market.active
+                }
+            else:
+                # Legacy v3/test compatibility, not the v4 native startup path.
+                with closing(_readonly(self.price_db)) as db:
+                    table = "vike_minute_heads" if self.price_mode == "vike_minute" else "market_quote_heads"
+                    keys = [row[0] for row in db.execute(f"SELECT instrument FROM {table}")]
+                    reader = _read_vike_minute if self.price_mode == "vike_minute" else _read_quote
+                    quotes = {key: reader(db, key) for key in keys}
+                markets = {}
+                for key, quote in quotes.items():
+                    try:
+                        markets[key] = _candidate_market(Instrument.parse(key), self.catalog, quote)
+                    except (ValueError, KeyError):
+                        continue
             if not markets:
                 raise ValueError("NO_VERIFIED_DEFAULT_PERP_MARKET_CATALOG")
             permitted = tuple(sorted((Instrument.parse(key) for key in markets)))
@@ -663,7 +691,10 @@ class ObservedP1Paper:
                 )
                 if quote is None:
                     raise ValueError("PAPER_QUOTE_MISSING:" + key)
-                market = _candidate_market(Instrument.parse(key), self.catalog, quote)
+                market = (
+                    self.native_contracts[key] if self.native_contracts
+                    else _candidate_market(Instrument.parse(key), self.catalog, quote)
+                )
                 if Instrument.parse(key) not in self.run.account.rulebook.permitted:
                     raise ValueError("PAPER_MARKET_NOT_FROZEN_IN_RUN:" + key)
                 obs.append(_market_observation(quote, market, at=at))
@@ -697,6 +728,20 @@ class ObservedP1Paper:
             return "ALREADY_SEEN"
         if book.get("account_id") != self.selected_accounts[alias]:
             return "BLOCKED_SELECTED_ACCOUNT_IDENTITY_MISMATCH"
+        receipt = source["receipt"]
+        if (
+            receipt.get("observation_kind") != "OBSERVED_STATE_CHANGE"
+            or receipt.get("position_transition_eligible") is not True
+            or not isinstance(receipt.get("stream_epoch"), str)
+            or not receipt["stream_epoch"]
+            or receipt.get("signal_eligible") is not False
+        ):
+            return "BLOCKED_SOURCE_NOT_PROSPECTIVE_POSITION_TRANSITION"
+        if self.native_contracts and not verify_official_position_transition(
+            db, alias=alias, receipt_id=source["receipt_id"],
+            receipt_sha=source["sha"], receipt=receipt,
+        ):
+            return "BLOCKED_OFFICIAL_POSITION_STREAM_PROOF"
         scope = assess_selected_parent_perp_scope(
             book, decision_at=at, max_age_seconds=MAX_SOURCE_AGE,
         )
@@ -788,6 +833,33 @@ class ObservedP1Paper:
             outcome[pod] = self.run.account.pm04_state["paper_execution"]["exits"][pod]["status"]
         return outcome
 
+    def _cancel_disconnected_entries(
+        self, db: sqlite3.Connection, at: str,
+    ) -> dict[str, str]:
+        """Fence old-epoch pending new risk BEFORE consuming recovery events."""
+        if not self.native_contracts:
+            return {}
+        state = self.run.account.pm04_state.get("paper_execution", {})
+        canceled: dict[str, str] = {}
+        for pod, intent_id in sorted(state.get("active", {}).items()):
+            intent = state["history"][intent_id]
+            if intent["status"] != "PENDING_5M":
+                continue
+            source = _read_source(db, pod, intent["source_seq"])
+            if source is not None and verify_official_position_transition(
+                db, alias=pod, receipt_id=source["receipt_id"],
+                receipt_sha=source["sha"], receipt=source["receipt"],
+            ):
+                continue
+            self.run.record(_event(
+                self.run, "PM04_PAPER_SOURCE_GAP", "gap_" + intent_id,
+                at, intent["first_known_at"],
+                {"pod": pod, "intent_id": intent_id},
+                first_known_at=intent["first_known_at"],
+            ))
+            canceled[pod] = "CANCELED_SOURCE_GAP"
+        return canceled
+
     def _execute_pending(self, db: sqlite3.Connection, at: str) -> dict[str, str]:
         state = self.run.account.pm04_state.get("paper_execution", {})
         outcome: dict[str, str] = {}
@@ -795,6 +867,23 @@ class ObservedP1Paper:
             intent = state["history"][intent_id]
             if intent["status"] != "PENDING_5M" or clock(at) < clock(intent["due_at"]):
                 continue
+            if self.native_contracts:
+                # A disconnect/reconnect invalidates a queued opportunity.
+                # Never use an earlier epoch's desired state after a gap.
+                source = _read_source(db, pod, intent["source_seq"])
+                if source is None or not verify_official_position_transition(
+                    db, alias=pod, receipt_id=source["receipt_id"],
+                    receipt_sha=source["sha"], receipt=source["receipt"],
+                    require_current_positions=True,
+                ):
+                    self.run.record(_event(
+                        self.run, "PM04_PAPER_SOURCE_GAP", "gap_" + intent_id,
+                        at, intent["first_known_at"],
+                        {"pod": pod, "intent_id": intent_id},
+                        first_known_at=intent["first_known_at"],
+                    ))
+                    outcome[pod] = "CANCELED_SOURCE_GAP"
+                    continue
             if clock(at) > clock(intent["deadline_at"]):
                 self.run.record(_event(
                     self.run, "PM04_PAPER_EXPIRE", "expire_" + intent_id,
@@ -866,6 +955,7 @@ class ObservedP1Paper:
         with closing(_readonly(self.source_db)) as db:
             db.execute("BEGIN")
             try:
+                source_gap_results = self._cancel_disconnected_entries(db, at)
                 for alias in self.members:
                     rows = db.execute(
                         "SELECT seq FROM source_receipts WHERE source_id=? AND seq>? "
@@ -948,6 +1038,7 @@ class ObservedP1Paper:
             "source_results": results,
             "execution_results": execution_results,
             "exit_results": exit_results,
+            "source_gap_results": source_gap_results,
             "pending_exits": acct.pm04_state.get("paper_execution", {}).get("exits", {}),
             "unresolved_exposures": acct.pm04_state.get(
                 "paper_execution", {}
@@ -1009,13 +1100,31 @@ def main() -> None:
     parser.add_argument("--portfolio", choices=tuple(PAPER_PROFILES), default="P1")
     parser.add_argument("--price-mode", choices=("l2", "vike_minute"), default="l2")
     parser.add_argument("--price-db", type=Path, help="Isolated Vike price journal; required for vike_minute")
-    parser.add_argument("--markets-json", type=Path, help="Optional CCXT raw load_markets JSON; otherwise public REST metadata once")
+    parser.add_argument("--markets-json", type=Path, help="Legacy v3 CCXT market metadata JSON")
+    parser.add_argument("--propr-catalog", type=Path, help="V4 pinned Propr native display catalog; price-independent")
+    parser.add_argument("--paper-min-notional", type=str, default="10", help="Explicit v4 virtual-paper minimum-notional assumption, USD")
     parser.add_argument("--watch", action="store_true")
     parser.add_argument("--poll-seconds", type=float, default=2.0)
     args = parser.parse_args()
     if not 0.1 <= args.poll_seconds <= 300:
         raise ValueError("PAPER_POLL_INTERVAL_INVALID")
-    catalog = json.loads(args.markets_json.read_text()) if args.markets_json else load_ccxt_catalog()
+    if args.price_mode == "vike_minute" and args.propr_catalog is not None:
+        if args.markets_json is not None:
+            raise ValueError("VIKE_NATIVE_CATALOG_MUST_NOT_REQUIRE_CCXT")
+        native_catalog = load_propr_catalog(args.propr_catalog)
+        contracts = official_paper_contracts(
+            native_catalog.native_symbols,
+            observed_at=now_utc(),
+            minimum_notional_usd=Decimal(args.paper_min_notional),
+        )
+        if not contracts:
+            raise ValueError("VIKE_NATIVE_CATALOG_NO_VERIFIED_ACTIVE_CONTRACTS")
+        catalog = {}
+    else:
+        if args.price_mode == "vike_minute":
+            raise ValueError("VIKE_V4_REQUIRES_PINNED_NATIVE_PROPR_CATALOG")
+        contracts = None
+        catalog = json.loads(args.markets_json.read_text()) if args.markets_json else load_ccxt_catalog()
     with _exclusive_runner(args.state_root, args.run_id):
         consumer = ObservedP1Paper(
             source_db=args.source_db,
@@ -1026,6 +1135,7 @@ def main() -> None:
             portfolio_id=args.portfolio,
             price_mode=args.price_mode,
             price_db=args.price_db,
+            native_contracts=contracts,
         )
         while True:
             print(json.dumps(consumer.step(), sort_keys=True), flush=True)

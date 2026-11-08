@@ -276,6 +276,22 @@ def apply_paper_event(account: Account, event: Event, policy: RiskPolicy, mode: 
         state["history"][intent_id] = intent
         state["active"][pod] = intent_id
         return {"status": "PENDING_5M", "intent_id": intent_id, "due_at": intent["due_at"]}
+    if event.kind == "PM04_PAPER_SOURCE_GAP":
+        # A disconnected official source cannot authorize pending new risk.
+        # Do not touch held inventory, pod risk latches or unresolved exits.
+        pod = raw["pod"]
+        intent_id = raw["intent_id"]
+        if pod not in account.pm04_state["policy"]["pods"]:
+            raise ValueError("UNSELECTED_PAPER_POD")
+        if state["active"].get(pod) != intent_id:
+            raise ValueError("SOURCE_GAP_INTENT_MISMATCH")
+        intent = state["history"].get(intent_id)
+        if intent is None or intent["status"] != "PENDING_5M":
+            raise ValueError("SOURCE_GAP_INTENT_NOT_PENDING")
+        intent["status"] = "CANCELED_SOURCE_GAP"
+        intent["terminal_at"] = event.decision_at
+        intent["reason"] = "OFFICIAL_POSITION_STREAM_NOT_CONTINUOUS"
+        return {"status": "CANCELED_SOURCE_GAP", "intent_id": intent_id}
     if event.kind == "PM04_PAPER_EXPIRE":
         intent = state["history"].get(raw["intent_id"])
         if intent is None or intent["status"] != "PENDING_5M":

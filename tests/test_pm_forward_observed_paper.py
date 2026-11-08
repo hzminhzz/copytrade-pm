@@ -59,6 +59,8 @@ def add_quote(journal: PaperJournal, at_seconds: int, *, size: int = 200) -> Non
 def add_source(
     journal: PaperJournal, seq: int, seconds: int, positions: dict,
     *, account_id: str | None = None,
+    observation_kind: str = "OBSERVED_STATE_CHANGE",
+    position_transition_eligible: bool = True,
 ) -> None:
     book = {
         "schema": "paper_source_book_v1",
@@ -84,6 +86,10 @@ def add_source(
         "payload_sha": book["snapshot_sha"],
         "source_book": book,
         "status": "BLOCKED_INCOMPLETE_WHOLE_WALLET",
+        "observation_kind": observation_kind,
+        "position_transition_eligible": position_transition_eligible,
+        "signal_eligible": False,
+        "stream_epoch": "fixture-official-position-epoch",
     }
     journal.append_source_receipt("S035", seq, f"s035-{seq}", receipt)
 
@@ -157,6 +163,49 @@ def test_future_started_run_never_backfills_old_source(tmp_path):
     )
     result = paper.step(at(14))
     assert result["source_results"]["S035"] == "PRE_START_UNMODELED"
+    assert paper.run.account.quantities == {}
+
+
+def test_post_start_baseline_is_never_a_new_risk_signal(tmp_path):
+    source = PaperJournal(tmp_path / "observations")
+    add_quote(source, 10)
+    paper = ObservedP1Paper(
+        source_db=source.path, state_root=tmp_path / "isolated",
+        run_id="position_only", catalog={RAW_MARKET["symbol"]: RAW_MARKET},
+        registry_db=registry(tmp_path / "registry.sqlite"), started_at=at(0),
+    )
+    add_source(
+        source, 1, 12, {BTC.key: "20"}, observation_kind="BASELINE",
+        position_transition_eligible=False,
+    )
+    blocked = paper.step(at(14))
+    assert blocked["source_results"]["S035"] == "BLOCKED_SOURCE_NOT_PROSPECTIVE_POSITION_TRANSITION"
+    assert blocked["quantity_count"] == 0
+    assert blocked["execution_intents"] == {}
+    # A later verified continuous position increase may initiate T+300.
+    add_source(source, 2, 20, {BTC.key: "25"})
+    accepted = paper.step(at(22))
+    assert accepted["source_results"]["S035"] == "RECORDED_PAPER_SOURCE"
+    assert accepted["execution_intents"]["S035"]["due_at"] == at(321)
+    assert accepted["quantity_count"] == 0
+
+
+def test_unverified_position_change_cannot_forge_t300(tmp_path):
+    source = PaperJournal(tmp_path / "observations")
+    add_quote(source, 10)
+    paper = ObservedP1Paper(
+        source_db=source.path, state_root=tmp_path / "isolated",
+        run_id="not_prospective", catalog={RAW_MARKET["symbol"]: RAW_MARKET},
+        registry_db=registry(tmp_path / "registry.sqlite"), started_at=at(0),
+    )
+    add_source(
+        source, 1, 12, {BTC.key: "20"},
+        observation_kind="OBSERVED_STATE_CHANGE",
+        position_transition_eligible=False,
+    )
+    result = paper.step(at(15))
+    assert result["source_results"]["S035"] == "BLOCKED_SOURCE_NOT_PROSPECTIVE_POSITION_TRANSITION"
+    assert not result["execution_intents"]
     assert paper.run.account.quantities == {}
 
 
