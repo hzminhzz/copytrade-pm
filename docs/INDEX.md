@@ -20,7 +20,7 @@ The Marimo operator dashboard was **retired early on 2026-11-08** at operator di
 | Protected native metadata writes | [Native SQLite controls](SQLITE-NATIVE-LEGACY-LOCK-20261105.md) |
 | Registry release, verification and rollback | [Registry release runbook](WALLET-REGISTRY-RELEASE-RUNBOOK.md) |
 | Default fixed-k sizing; leader NAV optional | [Sizing policy](RISK-BUDGETED-K-SIZING-20261106.md) |
-| Signed producer/Guardian handoff | [Production handoff](PRODUCTION-HANDOFF.md) |
+| Signed producer/Guardian handoff | [Production handoff](PRODUCTION-HANDOFF.md), [V4 source export](V4-PROP-SOURCE-EXPORT-20261108.md) |
 | Source acquisition and retrospective recovery | [Data acquisition](DATA-ACQUISITION.md), [Vike contract](VIKE-DATA-RECOVERY-20261106.md) |
 | Persistent public observation | [Continuous observer](FORWARD-PAPER-CONTINUOUS-OBSERVER.md) |
 | Approved official position-first T+300 policy | [2026-11-08 position authority ADR](decisions/2026-11-08-position-first-t300.md) |
