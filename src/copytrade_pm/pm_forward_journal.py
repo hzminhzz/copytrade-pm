@@ -1502,7 +1502,8 @@ class PaperJournal:
                     return {"status": "DUPLICATE_VIKE_MINUTE", "instrument": instrument}
                 head = db.execute(
                     "SELECT cursor,event_at,known_at,chain_sha FROM vike_minute_heads "
-                    "WHERE instrument=?", (instrument,),
+                    "WHERE instrument=?",
+                    (instrument,),
                 ).fetchone()
                 if head is not None:
                     seq, prior_event, prior_known, previous = head
@@ -1525,16 +1526,30 @@ class PaperJournal:
                     )
                 db.execute(
                     "INSERT INTO vike_minute_receipts VALUES (?,?,?,?,?,?,?,?,?)",
-                    (instrument, seq, raw_sha, _json(observation), raw_sha, previous,
-                     chain, event_at, known_at),
+                    (
+                        instrument,
+                        seq,
+                        raw_sha,
+                        _json(observation),
+                        raw_sha,
+                        previous,
+                        chain,
+                        event_at,
+                        known_at,
+                    ),
                 )
                 db.execute("COMMIT")
             except Exception:
                 db.execute("ROLLBACK")
                 raise
-        return {"status": "RECORDED_ESTIMATED_PRICE_ONLY", "instrument": instrument,
-                "cursor": seq, "journal_head_sha": chain, "paper_observed": False,
-                "order_route": "NONE"}
+        return {
+            "status": "RECORDED_ESTIMATED_PRICE_ONLY",
+            "instrument": instrument,
+            "cursor": seq,
+            "journal_head_sha": chain,
+            "paper_observed": False,
+            "order_route": "NONE",
+        }
 
     def market_quote_status(self, instrument: str) -> dict:
         """Read-only full chain audit; no market/financial mutations."""

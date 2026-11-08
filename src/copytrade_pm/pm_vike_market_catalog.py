@@ -3,6 +3,7 @@
 The display snapshot is not a broker tradability claim. Native IDs are
 preserved and missing prices are explicitly reported by the collector.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -53,7 +54,9 @@ def load_propr_catalog(path: Path) -> MarketCatalog:
         if not isinstance(socket, dict) or not isinstance(socket.get("instruments"), list):
             raise ValueError("PROPR_CATALOG_SOCKET_INVALID")
         for instrument in socket["instruments"]:
-            if not isinstance(instrument, str) or not instrument.startswith("hyperliquid/mainnet:perp:"):
+            if not isinstance(instrument, str) or not instrument.startswith(
+                "hyperliquid/mainnet:perp:"
+            ):
                 raise ValueError("PROPR_CATALOG_INSTRUMENT_INVALID")
             prefix, sep, symbol = instrument.rpartition("/")
             if not sep or not symbol:
@@ -72,9 +75,8 @@ def load_propr_catalog(path: Path) -> MarketCatalog:
         raise ValueError("PROPR_CATALOG_DUPLICATE_NATIVE_MARKET")
     if len(native) != doc.get("native_market_count"):
         raise ValueError("PROPR_CATALOG_MARKET_COUNT_MISMATCH")
-    return MarketCatalog(
-        frozenset(native), sha, sha256(raw).hexdigest()
-    )
+    return MarketCatalog(frozenset(native), sha, sha256(raw).hexdigest())
+
 
 # Official native contract resolution is independent of the Propr display and
 # of current Vike prices. It confers no account-specific trading permission.
@@ -156,15 +158,23 @@ def official_paper_contracts(
             inst = Instrument.parse(native_instrument(native))
             step = Decimal("1").scaleb(-decimals)
             contracts[inst.key] = NativePaperContract(
-                instrument=inst, amount_step=step,
-                minimum_notional=minimum_notional, active=True,
-                market_known_at=observed_at, hip3=dex != "default",
+                instrument=inst,
+                amount_step=step,
+                minimum_notional=minimum_notional,
+                active=True,
+                market_known_at=observed_at,
+                hip3=dex != "default",
                 # Contract identity is local to the selected market: a new
                 # unrelated venue listing must not invalidate this run.
-                catalog_sha=digest([
-                    inst.key, str(step), str(minimum_notional),
-                    row.get("onlyIsolated"), row.get("isDelisted", False),
-                ]),
+                catalog_sha=digest(
+                    [
+                        inst.key,
+                        str(step),
+                        str(minimum_notional),
+                        row.get("onlyIsolated"),
+                        row.get("isDelisted", False),
+                    ]
+                ),
                 provider_meta_sha=raw_sha,
             )
     return contracts

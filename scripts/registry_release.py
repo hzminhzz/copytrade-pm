@@ -337,8 +337,15 @@ def _installed_doctor(release: Path) -> None:
     # release. No network, broker, source or tracker writes allowed.
     try:
         raw = command(
-            "uv", "run", "--offline", "--frozen", "--no-dev",
-            "--directory", str(release), "copytrade-wallet-registry", "doctor",
+            "uv",
+            "run",
+            "--offline",
+            "--frozen",
+            "--no-dev",
+            "--directory",
+            str(release),
+            "copytrade-wallet-registry",
+            "doctor",
         )
     except subprocess.CalledProcessError as exc:
         # A read-only metadata release may diagnose an unrelated unsigned

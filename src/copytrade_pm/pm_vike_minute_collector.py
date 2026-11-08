@@ -4,6 +4,7 @@ Writes only versioned price observations to a separate private PaperJournal.
 A minute close is NOT a limit-order-book quote or proven executable liquidity.
 No wallet selection, broker access or production cutover is performed here.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -27,7 +28,8 @@ def fetch_latest(*, api_key: str, timeout: float = 15) -> tuple[dict, str]:
         raise ValueError("VIKE_PRICE_KEY_MISSING")
     url = URL + "?" + parse.urlencode({"market": "perp", "interval": "1m"})
     req = request.Request(
-        url, method="GET",
+        url,
+        method="GET",
         headers={
             "X-API-KEY": api_key,
             "Accept": "application/json",
@@ -68,8 +70,11 @@ def parse_markets(value: str) -> frozenset[str]:
 
 
 def collect_once(
-    journal: PaperJournal, *,
-    doc: dict, received_at: str, markets: frozenset[str],
+    journal: PaperJournal,
+    *,
+    doc: dict,
+    received_at: str,
+    markets: frozenset[str],
 ) -> dict:
     if not markets:
         raise ValueError("VIKE_PRICE_NO_SELECTED_MARKETS")
@@ -78,7 +83,9 @@ def collect_once(
     recorded = duplicate = 0
     availability = {
         market: {
-            "price_status": "ESTIMATED_TRADE_PRICE" if market in available else "MISSING_PROVIDER_ROW",
+            "price_status": "ESTIMATED_TRADE_PRICE"
+            if market in available
+            else "MISSING_PROVIDER_ROW",
             "propr_orderability": "UNKNOWN",
             "execution_liquidity_verified": False,
         }
@@ -109,7 +116,9 @@ def main() -> int:
     p.add_argument("--state-root", required=True, type=Path)
     scope = p.add_mutually_exclusive_group(required=True)
     scope.add_argument("--markets", help="Native names, e.g. BTC,ETH,xyz:BRENTOIL")
-    scope.add_argument("--propr-catalog", type=Path, help="Pinned 157-market Propr display snapshot")
+    scope.add_argument(
+        "--propr-catalog", type=Path, help="Pinned 157-market Propr display snapshot"
+    )
     p.add_argument("--watch", action="store_true")
     p.add_argument("--cadence-seconds", type=int, default=20)
     args = p.parse_args()
@@ -123,10 +132,15 @@ def main() -> int:
         markets = parse_markets(args.markets)
     key = os.getenv("VIKE_API_KEY")
     if not key:
-        print(json.dumps({
-            "status": "BLOCKED_DEDICATED_VIKE_API_KEY_MISSING",
-            "state_created": False, "order_route": "NONE",
-        }))
+        print(
+            json.dumps(
+                {
+                    "status": "BLOCKED_DEDICATED_VIKE_API_KEY_MISSING",
+                    "state_created": False,
+                    "order_route": "NONE",
+                }
+            )
+        )
         return 2
     # Always a distinct root from original source/CCXT and v3 account journals.
     if args.state_root.is_symlink():

@@ -1,12 +1,18 @@
 """Shared Vike fill journal: native identity, PIT clocks and restart recovery."""
+
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from copytrade_pm.pm_vike_selected_fills import (
-    apply_frame, current_cursor, had_gap, open_selected_journal,
-    record_event, selected_subscription, selected_wallets_from_registry,
+    apply_frame,
+    current_cursor,
+    had_gap,
+    open_selected_journal,
+    record_event,
+    selected_subscription,
+    selected_wallets_from_registry,
 )
 
 
@@ -17,22 +23,28 @@ T = datetime.now(UTC)
 
 def event(wallet=W1, tid=101, *, usd=3.5):
     return {
-        "schema": "vike.event.v1", "source": "hl.fills",
-        "kind": "fill", "event_id": f"hl.fills:{wallet}:test:{tid}",
+        "schema": "vike.event.v1",
+        "source": "hl.fills",
+        "kind": "fill",
+        "event_id": f"hl.fills:{wallet}:test:{tid}",
         "subject": {"wallet": wallet, "symbol": "xyz:BRENTOIL"},
         "ts": (T - timedelta(seconds=2)).isoformat(),
-        "data": {"trade_id": tid, "price": 65, "size_token": .05,
-                 "size_usd": usd, "side": "buy"},
+        "data": {"trade_id": tid, "price": 65, "size_token": 0.05, "size_usd": usd, "side": "buy"},
     }
 
 
 def frame(wallet=W1, tid=101, cursor="1793930404464-0001"):
-    return {"type": "event", "ids": ["copytrade_selected"],
-            "cursor": cursor, "event": event(wallet, tid)}
+    return {
+        "type": "event",
+        "ids": ["copytrade_selected"],
+        "cursor": cursor,
+        "event": event(wallet, tid),
+    }
 
 
 def test_selected_wallets_derive_from_sealed_registry_without_addresses_in_output(
-    tmp_path, monkeypatch,
+    tmp_path,
+    monkeypatch,
 ):
     from test_pm_forward_multi_portfolio import full_registry, pin_reviewed_registry
     from test_pm_forward_observed_paper import at
@@ -40,20 +52,26 @@ def test_selected_wallets_derive_from_sealed_registry_without_addresses_in_outpu
     pin_reviewed_registry(monkeypatch)
     database = full_registry(tmp_path)
     selected = selected_wallets_from_registry(
-        database, portfolios=("P14", "P16"), as_of=at(0),
+        database,
+        portfolios=("P14", "P16"),
+        as_of=at(0),
     )
     assert len(selected) == 5
     assert selected == tuple(sorted(set(selected)))
     assert all(addr.startswith("0x") and len(addr) == 42 for addr in selected)
     with pytest.raises(ValueError, match="PORTFOLIO_IDS_INVALID"):
         selected_wallets_from_registry(
-            database, portfolios=("P14", "P14"), as_of=at(0),
+            database,
+            portfolios=("P14", "P14"),
+            as_of=at(0),
         )
     # Legacy fixture lacks authentic P1 portfolio seal; it is not silently
     # promoted to a live allowlist by merely matching alias names.
     with pytest.raises(ValueError, match="SEAL_NOT_VERIFIED"):
         selected_wallets_from_registry(
-            database, portfolios=("P1",), as_of=at(0),
+            database,
+            portfolios=("P1",),
+            as_of=at(0),
         )
 
 
@@ -67,17 +85,38 @@ def test_shared_subscription_zero_minimum_and_distinct_native_wallets():
 def test_server_pings_are_persisted_without_any_selected_wallet_fills(tmp_path):
     root = tmp_path / "selected"
     with closing(open_selected_journal(root)) as db:
-        assert apply_frame(
-            db, {"type": "subscribed", "id": "copytrade_selected",
-                 "channel": "hl.fills", "cursor": "1793930404464-0000"},
-            (W1, W2), T.isoformat(),
-        ) == "SUBSCRIBED"
-        assert apply_frame(
-            db, {"type": "ping"}, (W1, W2), T.isoformat(),
-        ) == "PONG_REQUIRED"
-        assert apply_frame(
-            db, {"type": "ping"}, (W1, W2), T.isoformat(),
-        ) == "PONG_REQUIRED"
+        assert (
+            apply_frame(
+                db,
+                {
+                    "type": "subscribed",
+                    "id": "copytrade_selected",
+                    "channel": "hl.fills",
+                    "cursor": "1793930404464-0000",
+                },
+                (W1, W2),
+                T.isoformat(),
+            )
+            == "SUBSCRIBED"
+        )
+        assert (
+            apply_frame(
+                db,
+                {"type": "ping"},
+                (W1, W2),
+                T.isoformat(),
+            )
+            == "PONG_REQUIRED"
+        )
+        assert (
+            apply_frame(
+                db,
+                {"type": "ping"},
+                (W1, W2),
+                T.isoformat(),
+            )
+            == "PONG_REQUIRED"
+        )
     with closing(open_selected_journal(root)) as db:
         assert db.execute(
             "SELECT ping_count, subscription_count FROM selected_transport WHERE id=1"
@@ -89,8 +128,10 @@ def test_two_wallets_atomic_cursor_dedupe_and_private_restart(tmp_path):
     root = tmp_path / "selected"
     with closing(open_selected_journal(root)) as db:
         assert apply_frame(db, frame(), (W1, W2), T.isoformat()) == "PROSPECTIVE_FILL"
-        assert apply_frame(db, frame(W2, 102, "1793930404464-0002"),
-                           (W1, W2), T.isoformat()) == "PROSPECTIVE_FILL"
+        assert (
+            apply_frame(db, frame(W2, 102, "1793930404464-0002"), (W1, W2), T.isoformat())
+            == "PROSPECTIVE_FILL"
+        )
         assert apply_frame(db, frame(), (W1, W2), T.isoformat()) == "DUPLICATE"
         assert current_cursor(db) == "1793930404464-0002"
         assert db.execute("SELECT count(*) FROM selected_fills").fetchone()[0] == 2
@@ -115,8 +156,12 @@ def test_duplicate_payload_drift_does_not_advance_checkpoint(tmp_path):
 def test_retroactive_rest_does_not_manufacture_prospective_known_time(tmp_path):
     with closing(open_selected_journal(tmp_path / "selected")) as db:
         result = record_event(
-            db, event(), cursor="1793930404464-0001",
-            known_at=T.isoformat(), wallets=(W1, W2), prospective=False,
+            db,
+            event(),
+            cursor="1793930404464-0001",
+            known_at=T.isoformat(),
+            wallets=(W1, W2),
+            prospective=False,
         )
         assert result == "RECOVERED_FILL"
         assert db.execute("SELECT prospective FROM selected_fills").fetchone()[0] == 0
@@ -126,13 +171,20 @@ def test_retroactive_rest_does_not_manufacture_prospective_known_time(tmp_path):
 
 def test_gap_remains_latched_and_cannot_be_explained_away(tmp_path):
     with closing(open_selected_journal(tmp_path / "selected")) as db:
-        assert apply_frame(
-            db, {"type": "gap", "channel": "hl.fills",
-                 "cursor": "1793930404464-0001"}, (W1, W2), T.isoformat(),
-        ) == "GAP"
+        assert (
+            apply_frame(
+                db,
+                {"type": "gap", "channel": "hl.fills", "cursor": "1793930404464-0001"},
+                (W1, W2),
+                T.isoformat(),
+            )
+            == "GAP"
+        )
         assert had_gap(db) is True
-        assert apply_frame(db, frame(cursor="1793930404464-0002"),
-                           (W1, W2), T.isoformat()) == "PROSPECTIVE_FILL"
+        assert (
+            apply_frame(db, frame(cursor="1793930404464-0002"), (W1, W2), T.isoformat())
+            == "PROSPECTIVE_FILL"
+        )
         assert had_gap(db) is True
 
 

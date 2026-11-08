@@ -1,4 +1,5 @@
 """Pinned catalog cannot silently omit or remap Propr native instruments."""
+
 import json
 from pathlib import Path
 from decimal import Decimal
@@ -7,11 +8,14 @@ from hashlib import sha256
 import pytest
 
 from copytrade_pm.pm_vike_market_catalog import (
-    load_propr_catalog, official_paper_contracts,
+    load_propr_catalog,
+    official_paper_contracts,
 )
 from copytrade_pm.pm03_account import Instrument
 
-CATALOG = Path(__file__).resolve().parents[1] / "docs/FORWARD-PAPER-PROPR-157-THREE-SOCKETS-20261105.json"
+CATALOG = (
+    Path(__file__).resolve().parents[1] / "docs/FORWARD-PAPER-PROPR-157-THREE-SOCKETS-20261105.json"
+)
 
 
 def test_official_native_contracts_are_independent_of_price_rows():
@@ -38,7 +42,11 @@ def test_official_native_contracts_are_independent_of_price_rows():
     assert calls == [{"type": "meta"}, {"type": "meta", "dex": "xyz"}]
     btc = Instrument("hyperliquid", "mainnet:perp:default", "BTC")
     xyz = Instrument("hyperliquid", "mainnet:perp:xyz", "SP500")
-    assert set(contracts) == {btc.key, Instrument("hyperliquid", "mainnet:perp:default", "ETH").key, xyz.key}
+    assert set(contracts) == {
+        btc.key,
+        Instrument("hyperliquid", "mainnet:perp:default", "ETH").key,
+        xyz.key,
+    }
     assert contracts[btc.key].amount_step == Decimal("0.00001")
     assert contracts[xyz.key].amount_step == Decimal("0.01")
     assert contracts[xyz.key].hip3
@@ -53,8 +61,10 @@ def test_official_native_contracts_reject_unauthenticated_meta():
 
     with pytest.raises(ValueError, match="OFFICIAL_META_INVALID"):
         official_paper_contracts(
-            frozenset({"BTC"}), observed_at="2026-11-08T10:00:00+00:00",
-            minimum_notional_usd=Decimal("10"), info=bad_info,
+            frozenset({"BTC"}),
+            observed_at="2026-11-08T10:00:00+00:00",
+            minimum_notional_usd=Decimal("10"),
+            info=bad_info,
         )
 
 
@@ -67,12 +77,19 @@ def test_propr_catalog_has_all_157_native_markets():
     assert catalog.scope == "PROPR_DISPLAY_ONLY_NOT_ORDER_AUTHORIZED"
 
 
-@pytest.mark.parametrize("mutation", [
-    lambda d: d["physical_sockets"][0]["instruments"].append(d["physical_sockets"][0]["instruments"][0]),
-    lambda d: d.update(propr_order_ids_attested=True),
-    lambda d: d["physical_sockets"][0]["instruments"].append("hyperliquid/mainnet:perp:xyz/BTC"),
-    lambda d: d.update(native_market_count=999),
-])
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda d: d["physical_sockets"][0]["instruments"].append(
+            d["physical_sockets"][0]["instruments"][0]
+        ),
+        lambda d: d.update(propr_order_ids_attested=True),
+        lambda d: d["physical_sockets"][0]["instruments"].append(
+            "hyperliquid/mainnet:perp:xyz/BTC"
+        ),
+        lambda d: d.update(native_market_count=999),
+    ],
+)
 def test_catalog_fails_closed_on_corruption(tmp_path, mutation):
     doc = json.loads(CATALOG.read_text())
     mutation(doc)

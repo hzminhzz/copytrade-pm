@@ -10,22 +10,30 @@ from copytrade_pm.pm_forward_ccxt_market import parse_ccxt_book, parse_ccxt_mark
 from copytrade_pm.pm_forward_observed_paper import ObservedP1Paper, _exclusive_runner
 from copytrade_pm.pm_forward_single_shot import SingleShotMarketExecutionModel
 from test_pm_forward_observed_paper import (
-    BTC, RAW_MARKET, T, add_quote, add_source, at, registry,
+    BTC,
+    RAW_MARKET,
+    T,
+    add_quote,
+    add_source,
+    at,
+    registry,
 )
 
 
 def new_paper(tmp_path, tape, *, run_id="single_attempt"):
     return ObservedP1Paper(
-        source_db=tape.path, state_root=tmp_path / "private",
-        run_id=run_id, registry_db=registry(tmp_path / "registry.sqlite"),
-        catalog={RAW_MARKET["symbol"]: RAW_MARKET}, started_at=at(0),
+        source_db=tape.path,
+        state_root=tmp_path / "private",
+        run_id=run_id,
+        registry_db=registry(tmp_path / "registry.sqlite"),
+        catalog={RAW_MARKET["symbol"]: RAW_MARKET},
+        started_at=at(0),
     )
 
 
 def entry_attempts(paper):
     return [
-        r["event"] for r in paper.run.ledger.read()
-        if r["event"]["kind"] == "PM04_PAPER_EXECUTE"
+        r["event"] for r in paper.run.ledger.read() if r["event"]["kind"] == "PM04_PAPER_EXECUTE"
     ]
 
 
@@ -137,11 +145,12 @@ def test_fresh_source_close_exits_without_300_second_wait(tmp_path):
     assert closed["pending_exits"]["S035"]["status"] == "EXIT_FILLED"
     assert closed["unresolved_exposures"] == {}
     assert len(entry_attempts(paper)) == 1
-    assert len([r for r in paper.run.ledger.read()
-                if r["event"]["kind"] == "PM04_PAPER_EXIT"]) == 1
+    assert len([r for r in paper.run.ledger.read() if r["event"]["kind"] == "PM04_PAPER_EXIT"]) == 1
     restarted = ObservedP1Paper(
-        source_db=tape.path, state_root=tmp_path / "private",
-        run_id="single_attempt", registry_db=tmp_path / "registry.sqlite",
+        source_db=tape.path,
+        state_root=tmp_path / "private",
+        run_id="single_attempt",
+        registry_db=tmp_path / "registry.sqlite",
         catalog={RAW_MARKET["symbol"]: RAW_MARKET},
     )
     assert restarted.run.account.snapshot() == paper.run.account.snapshot()
@@ -179,8 +188,7 @@ def test_pod_drawdown_halt_closes_actual_inventory_without_new_source(tmp_path):
     assert stopped["unresolved_exposures"] == {}
     assert len(entry_attempts(paper)) == 1
     paper.step(at(323))
-    assert len([r for r in paper.run.ledger.read()
-                if r["event"]["kind"] == "PM04_PAPER_EXIT"]) == 1
+    assert len([r for r in paper.run.ledger.read() if r["event"]["kind"] == "PM04_PAPER_EXIT"]) == 1
 
 
 def test_risk_latch_overrides_terminal_failed_source_exit_once(tmp_path):
@@ -201,11 +209,16 @@ def test_risk_latch_overrides_terminal_failed_source_exit_once(tmp_path):
     assert D(rejected["positions"][BTC.key]) == D("5.64")
 
     market = parse_ccxt_market(RAW_MARKET, first_known_at=at(1), expected=BTC)
-    dropped = parse_ccxt_book(market, {
-        "symbol": RAW_MARKET["symbol"],
-        "timestamp": int((T + timedelta(seconds=329)).timestamp() * 1000),
-        "bids": [[40, 200]], "asks": [[40.2, 200]],
-    }, first_known_at=at(330))
+    dropped = parse_ccxt_book(
+        market,
+        {
+            "symbol": RAW_MARKET["symbol"],
+            "timestamp": int((T + timedelta(seconds=329)).timestamp() * 1000),
+            "bids": [[40, 200]],
+            "asks": [[40.2, 200]],
+        },
+        first_known_at=at(330),
+    )
     tape.append_market_quote(dropped.payload())
     stopped = paper.step(at(331))
     assert stopped["pod_risk"]["S035"]["state"] == "SUSPENDED"
@@ -216,11 +229,9 @@ def test_risk_latch_overrides_terminal_failed_source_exit_once(tmp_path):
     assert stopped["unresolved_exposures"] == {}
     history = paper.run.account.pm04_state["paper_execution"]["exit_history"]
     assert history[failed_id]["status"] == "UNRESOLVED_EXPOSURE"
-    assert len([r for r in paper.run.ledger.read()
-                if r["event"]["kind"] == "PM04_PAPER_EXIT"]) == 2
+    assert len([r for r in paper.run.ledger.read() if r["event"]["kind"] == "PM04_PAPER_EXIT"]) == 2
     paper.step(at(333))
-    assert len([r for r in paper.run.ledger.read()
-                if r["event"]["kind"] == "PM04_PAPER_EXIT"]) == 2
+    assert len([r for r in paper.run.ledger.read() if r["event"]["kind"] == "PM04_PAPER_EXIT"]) == 2
 
 
 def test_failed_exit_remains_unresolved_real_paper_liability(tmp_path):
@@ -251,18 +262,21 @@ def test_exit_one_full_market_order_not_separate_fill_groups(tmp_path):
     assert D(opening["positions"][BTC.key]) == D("0.564")
 
     native = parse_ccxt_market(RAW_MARKET, first_known_at=at(1), expected=BTC)
-    book = parse_ccxt_book(native, {
-        "symbol": RAW_MARKET["symbol"],
-        "timestamp": int((T + timedelta(seconds=319)).timestamp() * 1000),
-        "bids": [[100, 0.1], [99.5, 10]],
-        "asks": [[101, 10], [102, 10]],
-    }, first_known_at=at(320))
+    book = parse_ccxt_book(
+        native,
+        {
+            "symbol": RAW_MARKET["symbol"],
+            "timestamp": int((T + timedelta(seconds=319)).timestamp() * 1000),
+            "bids": [[100, 0.1], [99.5, 10]],
+            "asks": [[101, 10], [102, 10]],
+        },
+        first_known_at=at(320),
+    )
     tape.append_market_quote(book.payload())
     add_source(tape, 2, 319, {})
     close = paper.step(at(321))
     assert close["positions"] == {}
-    exits = [r["event"] for r in paper.run.ledger.read()
-             if r["event"]["kind"] == "PM04_PAPER_EXIT"]
+    exits = [r["event"] for r in paper.run.ledger.read() if r["event"]["kind"] == "PM04_PAPER_EXIT"]
     assert len(exits) == 1
     outcome = close["execution_outcomes"][close["pending_exits"]["S035"]["exit_id"]]
     order = outcome[BTC.key]
@@ -277,11 +291,12 @@ def test_exit_one_full_market_order_not_separate_fill_groups(tmp_path):
 
     add_quote(tape, 330, size=200)
     assert paper.step(at(331))["positions"] == {}
-    assert len([r for r in paper.run.ledger.read()
-                if r["event"]["kind"] == "PM04_PAPER_EXIT"]) == 1
+    assert len([r for r in paper.run.ledger.read() if r["event"]["kind"] == "PM04_PAPER_EXIT"]) == 1
     restarted = ObservedP1Paper(
-        source_db=tape.path, state_root=tmp_path / "private",
-        run_id="exit_order", registry_db=tmp_path / "registry.sqlite",
+        source_db=tape.path,
+        state_root=tmp_path / "private",
+        run_id="exit_order",
+        registry_db=tmp_path / "registry.sqlite",
         catalog={RAW_MARKET["symbol"]: RAW_MARKET},
     )
     assert restarted.run.account.snapshot() == paper.run.account.snapshot()
@@ -306,8 +321,7 @@ def test_short_cover_is_one_immediate_ask_side_market_order(tmp_path):
     assert D(order["requested"]) == D("0.564")
     assert D(order["vwap"]) > D("101")
     assert len(order["fills"]) == 1
-    assert len([r for r in paper.run.ledger.read()
-                if r["event"]["kind"] == "PM04_PAPER_EXIT"]) == 1
+    assert len([r for r in paper.run.ledger.read() if r["event"]["kind"] == "PM04_PAPER_EXIT"]) == 1
     assert paper.run.restore()["account"] == paper.run.account.snapshot()
 
 
@@ -325,16 +339,13 @@ def test_partial_leader_reduction_is_one_exit_without_delayed_rebalance(tmp_path
     assert D(reduced["positions"][BTC.key]) == D("0.282")
     assert reduced["pending_exits"]["S035"]["status"] == "EXIT_FILLED"
     assert reduced["execution_intents"]["S035"]["status"] == "FILLED"
-    order = reduced["execution_outcomes"][
-        reduced["pending_exits"]["S035"]["exit_id"]
-    ][BTC.key]
+    order = reduced["execution_outcomes"][reduced["pending_exits"]["S035"]["exit_id"]][BTC.key]
     assert D(order["requested"]) == D("-0.282")
     assert D(order["quantity"]) == D("-0.282")
     add_quote(tape, 700, size=200)
     after = paper.step(at(701))
     assert D(after["positions"][BTC.key]) == D("0.282")
-    assert len([r for r in paper.run.ledger.read()
-                if r["event"]["kind"] == "PM04_PAPER_EXIT"]) == 1
+    assert len([r for r in paper.run.ledger.read() if r["event"]["kind"] == "PM04_PAPER_EXIT"]) == 1
     assert len(entry_attempts(paper)) == 1
 
 
@@ -368,8 +379,7 @@ def test_two_distinct_exit_signals_cannot_reuse_same_displayed_bid_depth(tmp_pat
     add_quote(tape, 329, size=200)
     later = paper.step(at(331))
     assert D(later["positions"][BTC.key]) == D("0.423")
-    assert len([r for r in paper.run.ledger.read()
-                if r["event"]["kind"] == "PM04_PAPER_EXIT"]) == 2
+    assert len([r for r in paper.run.ledger.read() if r["event"]["kind"] == "PM04_PAPER_EXIT"]) == 2
 
 
 def test_pending_exit_canceled_if_leader_restores_size_before_quote(tmp_path):
@@ -389,8 +399,7 @@ def test_pending_exit_canceled_if_leader_restores_size_before_quote(tmp_path):
     add_quote(tape, 355, size=200)
     later = paper.step(at(357))
     assert D(later["positions"][BTC.key]) == D("0.564")
-    assert len([r for r in paper.run.ledger.read()
-                if r["event"]["kind"] == "PM04_PAPER_EXIT"]) == 0
+    assert len([r for r in paper.run.ledger.read() if r["event"]["kind"] == "PM04_PAPER_EXIT"]) == 0
 
 
 def test_genuinely_new_source_reduction_can_create_new_terminal_exit(tmp_path):
@@ -414,8 +423,7 @@ def test_genuinely_new_source_reduction_can_create_new_terminal_exit(tmp_path):
     assert closed["pending_exits"]["S035"]["exit_id"] != first_id
     history = paper.run.account.pm04_state["paper_execution"]["exit_history"]
     assert history[first_id]["status"] == "UNRESOLVED_EXPOSURE"
-    assert len([r for r in paper.run.ledger.read()
-                if r["event"]["kind"] == "PM04_PAPER_EXIT"]) == 2
+    assert len([r for r in paper.run.ledger.read() if r["event"]["kind"] == "PM04_PAPER_EXIT"]) == 2
 
 
 def test_exit_does_not_retry_on_new_source_increase_below_stale_actual(tmp_path):
@@ -441,8 +449,7 @@ def test_exit_does_not_retry_on_new_source_increase_below_stale_actual(tmp_path)
     assert after["pending_exits"]["S035"]["exit_id"] == first_id
     assert after["pending_exits"]["S035"]["status"] == "UNRESOLVED_EXPOSURE"
     assert D(after["positions"][BTC.key]) == D("0.564")
-    assert len([r for r in paper.run.ledger.read()
-                if r["event"]["kind"] == "PM04_PAPER_EXIT"]) == 1
+    assert len([r for r in paper.run.ledger.read() if r["event"]["kind"] == "PM04_PAPER_EXIT"]) == 1
 
 
 def test_two_exit_updates_before_a_quote_preserve_original_once_only_opportunity(tmp_path):
@@ -469,17 +476,16 @@ def test_two_exit_updates_before_a_quote_preserve_original_once_only_opportunity
     closed = paper.step(at(357))
     assert closed["positions"] == {}
     assert closed["pending_exits"]["S035"]["status"] == "EXIT_FILLED"
-    assert len([r for r in paper.run.ledger.read()
-                if r["event"]["kind"] == "PM04_PAPER_EXIT"]) == 1
+    assert len([r for r in paper.run.ledger.read() if r["event"]["kind"] == "PM04_PAPER_EXIT"]) == 1
 
 
 def test_single_market_intent_can_use_multiple_book_levels_with_vwap():
-    model = SingleShotMarketExecutionModel(
-        taker_fee_bps=D("5"), extra_slippage_bps=D("0")
-    )
+    model = SingleShotMarketExecutionModel(taker_fee_bps=D("5"), extra_slippage_bps=D("0"))
     book = {
-        "best_bid": "99", "bid_size": "1",
-        "best_ask": "101", "ask_size": "0.2",
+        "best_bid": "99",
+        "bid_size": "1",
+        "best_ask": "101",
+        "ask_size": "0.2",
         "ask_levels": [["101", "0.2"], ["102", "0.8"], ["103", "1.0"]],
         "bid_levels": [["99", "0.2"], ["98", "0.8"], ["97", "1.0"]],
     }
@@ -512,25 +518,31 @@ def test_observed_multilevel_book_preserves_depth_integrity_and_prices_vwap(tmp_
     tape.append_market_quote(quote.payload())
     assert quote.payload()["ask_levels"] == [["101", "0.1"], ["102", "20"]]
     model = SingleShotMarketExecutionModel(extra_slippage_bps=D("0"))
-    priced = model.price(D("1"), quote.payload(), step=D("0.1"),
-                         minimum_notional=D("1"))
+    priced = model.price(D("1"), quote.payload(), step=D("0.1"), minimum_notional=D("1"))
     assert priced["status"] == "FILLED"
     assert D(priced["vwap"]) == D("101.9")
 
 
 def test_invalid_lot_and_depth_fail_closed_without_fabricated_partial():
     model = SingleShotMarketExecutionModel()
-    book = {"best_ask": "101", "ask_size": "0.2",
-            "best_bid": "99", "bid_size": "0.2"}
-    assert model.price(D("1"), book, step=D("0.1"),
-                       minimum_notional=D("1"))["status"] == "UNPRICEABLE_MARKET_ORDER"
-    assert model.price(D("0.25"), book, step=D("0.1"),
-                       minimum_notional=D("1"))["status"] == "REJECTED_NATIVE_STEP"
-    assert model.price(D("0.1"), book, step=D("0.1"),
-                       minimum_notional=D("100"))["status"] == "REJECTED_MIN_NOTIONAL"
+    book = {"best_ask": "101", "ask_size": "0.2", "best_bid": "99", "bid_size": "0.2"}
+    assert (
+        model.price(D("1"), book, step=D("0.1"), minimum_notional=D("1"))["status"]
+        == "UNPRICEABLE_MARKET_ORDER"
+    )
+    assert (
+        model.price(D("0.25"), book, step=D("0.1"), minimum_notional=D("1"))["status"]
+        == "REJECTED_NATIVE_STEP"
+    )
+    assert (
+        model.price(D("0.1"), book, step=D("0.1"), minimum_notional=D("100"))["status"]
+        == "REJECTED_MIN_NOTIONAL"
+    )
     corrupted = {**book, "ask_levels": [["102", "200"]]}
-    assert model.price(D("1"), corrupted, step=D("0.1"),
-                       minimum_notional=D("1"))["status"] == "UNPRICEABLE_MARKET_ORDER"
+    assert (
+        model.price(D("1"), corrupted, step=D("0.1"), minimum_notional=D("1"))["status"]
+        == "UNPRICEABLE_MARKET_ORDER"
+    )
 
 
 def test_due_intent_restart_is_executed_exactly_once(tmp_path):
@@ -540,15 +552,19 @@ def test_due_intent_restart_is_executed_exactly_once(tmp_path):
     add_source(tape, 1, 12, {BTC.key: "20"})
     paper.step(at(14))
     restarted = ObservedP1Paper(
-        source_db=tape.path, state_root=tmp_path / "private",
-        run_id="single_attempt", registry_db=tmp_path / "registry.sqlite",
+        source_db=tape.path,
+        state_root=tmp_path / "private",
+        run_id="single_attempt",
+        registry_db=tmp_path / "registry.sqlite",
         catalog={RAW_MARKET["symbol"]: RAW_MARKET},
     )
     add_quote(tape, 312)
     assert D(restarted.step(at(313))["positions"][BTC.key]) == D("0.564")
     completed = ObservedP1Paper(
-        source_db=tape.path, state_root=tmp_path / "private",
-        run_id="single_attempt", registry_db=tmp_path / "registry.sqlite",
+        source_db=tape.path,
+        state_root=tmp_path / "private",
+        run_id="single_attempt",
+        registry_db=tmp_path / "registry.sqlite",
         catalog={RAW_MARKET["symbol"]: RAW_MARKET},
     )
     completed.step(at(320))

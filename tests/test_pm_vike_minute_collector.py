@@ -1,4 +1,5 @@
 """Shared Vike 1m collector is read-only and fails closed on missing markets."""
+
 from datetime import UTC, datetime
 
 import pytest
@@ -13,16 +14,26 @@ T = datetime(2026, 11, 7, 12, 0, 30, tzinfo=UTC)
 def candle(*, dex="HL", symbol="BTC"):
     return {
         "ts": int(T.replace(second=0).timestamp() * 1000),
-        "dex": dex, "symbol": symbol, "kind": "perp",
-        "open": 100, "high": 102, "low": 99, "close": 101,
-        "volume": 20, "volume_usd": 2020, "n_trades": 5,
+        "dex": dex,
+        "symbol": symbol,
+        "kind": "perp",
+        "open": 100,
+        "high": 102,
+        "low": 99,
+        "close": 101,
+        "volume": 20,
+        "volume_usd": 2020,
+        "n_trades": 5,
     }
 
 
 def test_one_shared_price_journal_records_native_hip3_without_faking_orderbook(tmp_path):
     prices = PaperJournal(tmp_path / "shared-price")
-    doc = {"market": "perp", "interval": "1m",
-           "candles": [candle(), candle(dex="xyz", symbol="BRENTOIL")]}
+    doc = {
+        "market": "perp",
+        "interval": "1m",
+        "candles": [candle(), candle(dex="xyz", symbol="BRENTOIL")],
+    }
     wanted = parse_markets("BTC,xyz:BRENTOIL")
     first = collect_once(prices, doc=doc, received_at=T.isoformat(), markets=wanted)
     assert first["status"] == "OBSERVED_PRICES_ONLY"
@@ -37,8 +48,10 @@ def test_one_shared_price_journal_records_native_hip3_without_faking_orderbook(t
 def test_missing_selected_market_is_explicit_and_never_backfilled(tmp_path):
     prices = PaperJournal(tmp_path / "shared-price")
     result = collect_once(
-        prices, doc={"market": "perp", "interval": "1m", "candles": [candle()]},
-        received_at=T.isoformat(), markets=parse_markets("BTC,ETH"),
+        prices,
+        doc={"market": "perp", "interval": "1m", "candles": [candle()]},
+        received_at=T.isoformat(),
+        markets=parse_markets("BTC,ETH"),
     )
     assert result["status"] == "BLOCKED_INCOMPLETE_MARKET_SCOPE"
     assert result["missing_native_markets"] == ["ETH"]

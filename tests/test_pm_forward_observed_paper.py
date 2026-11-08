@@ -30,8 +30,11 @@ def registry(path):
             db.execute("INSERT INTO wallets VALUES (?,?)", (i, address))
             db.execute(
                 "INSERT INTO wallet_aliases VALUES (?,?,?)",
-                (i, {"S035": "S035-ENA", "S051": "S051-BTC", "S053": "S053-HYPE"}[alias],
-                 "2026-11-01T00:00:00+00:00"),
+                (
+                    i,
+                    {"S035": "S035-ENA", "S051": "S051-BTC", "S053": "S053-HYPE"}[alias],
+                    "2026-11-01T00:00:00+00:00",
+                ),
             )
     return path
 
@@ -57,8 +60,12 @@ def add_quote(journal: PaperJournal, at_seconds: int, *, size: int = 200) -> Non
 
 
 def add_source(
-    journal: PaperJournal, seq: int, seconds: int, positions: dict,
-    *, account_id: str | None = None,
+    journal: PaperJournal,
+    seq: int,
+    seconds: int,
+    positions: dict,
+    *,
+    account_id: str | None = None,
     observation_kind: str = "OBSERVED_STATE_CHANGE",
     position_transition_eligible: bool = True,
 ) -> None:
@@ -156,8 +163,10 @@ def test_future_started_run_never_backfills_old_source(tmp_path):
     add_quote(observed, 10)
     add_source(observed, 1, 12, {BTC.key: "20"})
     paper = ObservedP1Paper(
-        source_db=observed.path, state_root=tmp_path / "private",
-        run_id="forward_only", catalog={RAW_MARKET["symbol"]: RAW_MARKET},
+        source_db=observed.path,
+        state_root=tmp_path / "private",
+        run_id="forward_only",
+        catalog={RAW_MARKET["symbol"]: RAW_MARKET},
         registry_db=registry(tmp_path / "registry.sqlite"),
         started_at=at(13),
     )
@@ -170,12 +179,19 @@ def test_post_start_baseline_is_never_a_new_risk_signal(tmp_path):
     source = PaperJournal(tmp_path / "observations")
     add_quote(source, 10)
     paper = ObservedP1Paper(
-        source_db=source.path, state_root=tmp_path / "isolated",
-        run_id="position_only", catalog={RAW_MARKET["symbol"]: RAW_MARKET},
-        registry_db=registry(tmp_path / "registry.sqlite"), started_at=at(0),
+        source_db=source.path,
+        state_root=tmp_path / "isolated",
+        run_id="position_only",
+        catalog={RAW_MARKET["symbol"]: RAW_MARKET},
+        registry_db=registry(tmp_path / "registry.sqlite"),
+        started_at=at(0),
     )
     add_source(
-        source, 1, 12, {BTC.key: "20"}, observation_kind="BASELINE",
+        source,
+        1,
+        12,
+        {BTC.key: "20"},
+        observation_kind="BASELINE",
         position_transition_eligible=False,
     )
     blocked = paper.step(at(14))
@@ -194,12 +210,18 @@ def test_unverified_position_change_cannot_forge_t300(tmp_path):
     source = PaperJournal(tmp_path / "observations")
     add_quote(source, 10)
     paper = ObservedP1Paper(
-        source_db=source.path, state_root=tmp_path / "isolated",
-        run_id="not_prospective", catalog={RAW_MARKET["symbol"]: RAW_MARKET},
-        registry_db=registry(tmp_path / "registry.sqlite"), started_at=at(0),
+        source_db=source.path,
+        state_root=tmp_path / "isolated",
+        run_id="not_prospective",
+        catalog={RAW_MARKET["symbol"]: RAW_MARKET},
+        registry_db=registry(tmp_path / "registry.sqlite"),
+        started_at=at(0),
     )
     add_source(
-        source, 1, 12, {BTC.key: "20"},
+        source,
+        1,
+        12,
+        {BTC.key: "20"},
         observation_kind="OBSERVED_STATE_CHANGE",
         position_transition_eligible=False,
     )
@@ -214,9 +236,12 @@ def test_unpriceable_book_rejects_once_without_residual_chasing(tmp_path):
     catalog = {RAW_MARKET["symbol"]: RAW_MARKET}
     add_quote(observed, 10, size=3)
     paper = ObservedP1Paper(
-        source_db=observed.path, state_root=tmp_path / "private",
-        run_id="unpriceable", catalog=catalog,
-        registry_db=registry(tmp_path / "registry.sqlite"), started_at=at(0),
+        source_db=observed.path,
+        state_root=tmp_path / "private",
+        run_id="unpriceable",
+        catalog=catalog,
+        registry_db=registry(tmp_path / "registry.sqlite"),
+        started_at=at(0),
     )
     add_source(observed, 1, 12, {BTC.key: "20"})
     assert paper.step(at(14))["quantity_count"] == 0
@@ -235,8 +260,9 @@ def test_unpriceable_book_rejects_once_without_residual_chasing(tmp_path):
     after = paper.step(at(321))
     assert after["positions"] == {}
     assert after["execution_intents"]["S035"]["status"] == "REJECTED"
-    assert len([r for r in paper.run.ledger.read()
-                if r["event"]["kind"] == "PM04_PAPER_EXECUTE"]) == 1
+    assert (
+        len([r for r in paper.run.ledger.read() if r["event"]["kind"] == "PM04_PAPER_EXECUTE"]) == 1
+    )
     assert paper.run.restore()["account"] == paper.run.account.snapshot()
 
 
@@ -252,7 +278,10 @@ def test_registry_mismatched_selected_account_never_opens_a_paper_position(tmp_p
         started_at=at(0),
     )
     add_source(
-        observed, 1, 12, {BTC.key: "20"},
+        observed,
+        1,
+        12,
+        {BTC.key: "20"},
         account_id=sha256(b"unknown-unselected-account").hexdigest(),
     )
     result = paper.step(at(14))

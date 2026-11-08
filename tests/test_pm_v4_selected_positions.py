@@ -10,7 +10,8 @@ import pytest
 from copytrade_pm.pm_forward_journal import PaperJournal
 from copytrade_pm.pm_forward_observed_paper import _read_source, _readonly
 from copytrade_pm.pm_forward_stream_journal import (
-    verify_official_position_transition, verify_streams,
+    verify_official_position_transition,
+    verify_streams,
 )
 from copytrade_pm.pm_v4_selected_positions import official_accounts, selected_parents
 from test_pm_forward_multi_portfolio import full_registry, pin_reviewed_registry
@@ -26,7 +27,9 @@ def test_selected_service_uses_exact_verified_p1_p14_p16_parent_union(tmp_path, 
         conn.execute("CREATE TABLE portfolio_seals (id INTEGER PRIMARY KEY)")
         conn.commit()
     parents = selected_parents(
-        db, portfolios=("P1", "P14", "P16"), as_of=at(0),
+        db,
+        portfolios=("P1", "P14", "P16"),
+        as_of=at(0),
     )
     assert set(parents) == {"S035", "S051", "S053", "S064", "Whale_0x5f94"}
     assert len(set(parents.values())) == 5
@@ -55,7 +58,8 @@ def test_official_wire_sha_and_signed_positions_verify_without_fill_rebuild(tmp_
         frame = official_frame(at_seconds, qty)
         wire = json.dumps(frame, separators=(",", ":"))
         result = source.observe(
-            frame, at(at_seconds + 1),
+            frame,
+            at(at_seconds + 1),
             raw_sha=sha256(wire.encode()).hexdigest(),
             raw_text=wire,
         )
@@ -65,8 +69,11 @@ def test_official_wire_sha_and_signed_positions_verify_without_fill_rebuild(tmp_
         receipt = _read_source(db, "S035", 2)
         assert receipt is not None
         assert verify_official_position_transition(
-            db, alias="S035", receipt_id=receipt["receipt_id"],
-            receipt_sha=receipt["sha"], receipt=receipt["receipt"],
+            db,
+            alias="S035",
+            receipt_id=receipt["receipt_id"],
+            receipt_sha=receipt["sha"],
+            receipt=receipt["receipt"],
             require_current_positions=True,
         )
     assert verify_streams(journal.path)["streams"]["account:S035"]["observation_count"] == 1
@@ -77,8 +84,11 @@ def test_official_wire_sha_and_signed_positions_verify_without_fill_rebuild(tmp_
     with closing(_readonly(journal.path)) as db:
         receipt = _read_source(db, "S035", 2)
         assert not verify_official_position_transition(
-            db, alias="S035", receipt_id=receipt["receipt_id"],
-            receipt_sha=receipt["sha"], receipt=receipt["receipt"],
+            db,
+            alias="S035",
+            receipt_id=receipt["receipt_id"],
+            receipt_sha=receipt["sha"],
+            receipt=receipt["receipt"],
         )
 
 

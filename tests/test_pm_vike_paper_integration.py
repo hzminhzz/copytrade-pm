@@ -1,4 +1,5 @@
 """Vike estimated minute-price path through the existing PM03 ledger."""
+
 from datetime import timedelta
 from decimal import Decimal as D
 
@@ -11,16 +12,29 @@ from copytrade_pm.pm_vike_market_catalog import NativePaperContract
 from copytrade_pm.pm03_account import digest
 from copytrade_pm.pm_forward_source_stream import PersistentAccount
 from test_pm_forward_observed_paper import (
-    ADDRESSES, BTC, RAW_MARKET, T, add_source, at, registry,
+    ADDRESSES,
+    BTC,
+    RAW_MARKET,
+    T,
+    add_source,
+    at,
+    registry,
 )
 
 
 def price(tape, seconds, *, volume=1000):
     started = (T + timedelta(seconds=seconds)).replace(second=0, microsecond=0)
     row = {
-        "ts": int(started.timestamp() * 1000), "symbol": "BTC", "dex": "HL",
-        "kind": "perp", "open": 100, "high": 102, "low": 99,
-        "close": 101, "volume": volume, "volume_usd": volume * 101,
+        "ts": int(started.timestamp() * 1000),
+        "symbol": "BTC",
+        "dex": "HL",
+        "kind": "perp",
+        "open": 100,
+        "high": 102,
+        "low": 99,
+        "close": 101,
+        "volume": volume,
+        "volume_usd": volume * 101,
         "n_trades": 50 if volume else 0,
     }
     observation = minute_observation(row, received_at=at(seconds))
@@ -29,31 +43,36 @@ def price(tape, seconds, *, volume=1000):
 
 def new_paper(tmp_path, source, prices, *, run_id="vike_estimated"):
     return ObservedP1Paper(
-        source_db=source.path, price_db=prices.path,
+        source_db=source.path,
+        price_db=prices.path,
         price_mode="vike_minute",
         registry_db=registry(tmp_path / "registry.sqlite"),
-        state_root=tmp_path / "vike_virtual", run_id=run_id,
-        catalog={RAW_MARKET["symbol"]: RAW_MARKET}, started_at=at(0),
+        state_root=tmp_path / "vike_virtual",
+        run_id=run_id,
+        catalog={RAW_MARKET["symbol"]: RAW_MARKET},
+        started_at=at(0),
     )
 
 
 def official_frame(seconds, quantity):
-    positions = (
-        [{"position": {"coin": "BTC", "szi": str(quantity)}}] if quantity else []
-    )
+    positions = [{"position": {"coin": "BTC", "szi": str(quantity)}}] if quantity else []
     return {
         "channel": "allDexsClearinghouseState",
         "data": {
             "user": ADDRESSES["S035"],
             "clearinghouseStates": [
-                ["", {
-                    "marginSummary": {
-                        "accountValue": "100", "totalNtlPos": "100",
-                        "totalMarginUsed": "10",
+                [
+                    "",
+                    {
+                        "marginSummary": {
+                            "accountValue": "100",
+                            "totalNtlPos": "100",
+                            "totalMarginUsed": "10",
+                        },
+                        "assetPositions": positions,
+                        "time": int((T + timedelta(seconds=seconds)).timestamp() * 1000),
                     },
-                    "assetPositions": positions,
-                    "time": int((T + timedelta(seconds=seconds)).timestamp() * 1000),
-                }],
+                ],
             ],
         },
     }
@@ -61,8 +80,12 @@ def official_frame(seconds, quantity):
 
 def official_observer(source):
     obs = PersistentAccount(
-        journal=source, alias="S035", address=ADDRESSES["S035"],
-        dex_catalog=[None], subaccounts=None, parent_alias="S035",
+        journal=source,
+        alias="S035",
+        address=ADDRESSES["S035"],
+        dex_catalog=[None],
+        subaccounts=None,
+        parent_alias="S035",
         scope_sha=digest(["S035", "default"]),
     )
     obs.begin(at(0))
@@ -74,17 +97,24 @@ def test_v4_native_catalog_freezes_quiet_market_before_first_price(tmp_path):
     source = PaperJournal(tmp_path / "source")
     prices = PaperJournal(tmp_path / "prices")
     native = NativePaperContract(
-        instrument=BTC, amount_step=D("0.001"),
-        minimum_notional=D("10"), active=True,
-        market_known_at=at(0), catalog_sha=digest(["native", BTC.key]),
+        instrument=BTC,
+        amount_step=D("0.001"),
+        minimum_notional=D("10"),
+        active=True,
+        market_known_at=at(0),
+        catalog_sha=digest(["native", BTC.key]),
         hip3=False,
     )
     paper = ObservedP1Paper(
-        source_db=source.path, price_db=prices.path,
-        price_mode="vike_minute", state_root=tmp_path / "v4_native",
+        source_db=source.path,
+        price_db=prices.path,
+        price_mode="vike_minute",
+        state_root=tmp_path / "v4_native",
         registry_db=registry(tmp_path / "registry.sqlite"),
-        run_id="quiet_then_live", catalog={},
-        native_contracts={BTC.key: native}, started_at=at(0),
+        run_id="quiet_then_live",
+        catalog={},
+        native_contracts={BTC.key: native},
+        started_at=at(0),
     )
     assert BTC in paper.run.account.rulebook.permitted
     official = official_observer(source)
@@ -109,25 +139,34 @@ def test_v4_native_catalog_freezes_quiet_market_before_first_price(tmp_path):
     assert closed["real_broker_fills"] == 0
     # Exact catalog and risk manifest must replay after restart.
     restored = ObservedP1Paper(
-        source_db=source.path, price_db=prices.path,
-        price_mode="vike_minute", state_root=tmp_path / "v4_native",
+        source_db=source.path,
+        price_db=prices.path,
+        price_mode="vike_minute",
+        state_root=tmp_path / "v4_native",
         registry_db=tmp_path / "registry.sqlite",
-        run_id="quiet_then_live", catalog={},
+        run_id="quiet_then_live",
+        catalog={},
         native_contracts={BTC.key: native},
     )
     assert restored.run.account.snapshot() == paper.run.account.snapshot()
     changed_contract = NativePaperContract(
-        instrument=BTC, amount_step=D("0.01"),
-        minimum_notional=D("10"), active=True,
-        market_known_at=at(0), catalog_sha=digest(["changed", BTC.key]),
+        instrument=BTC,
+        amount_step=D("0.01"),
+        minimum_notional=D("10"),
+        active=True,
+        market_known_at=at(0),
+        catalog_sha=digest(["changed", BTC.key]),
         hip3=False,
     )
     with pytest.raises(ValueError, match="NATIVE_CONTRACT_METADATA_DRIFT"):
         ObservedP1Paper(
-            source_db=source.path, price_db=prices.path,
-            price_mode="vike_minute", state_root=tmp_path / "v4_native",
+            source_db=source.path,
+            price_db=prices.path,
+            price_mode="vike_minute",
+            state_root=tmp_path / "v4_native",
             registry_db=tmp_path / "registry.sqlite",
-            run_id="quiet_then_live", catalog={},
+            run_id="quiet_then_live",
+            catalog={},
             native_contracts={BTC.key: changed_contract},
         )
 
@@ -138,17 +177,24 @@ def test_v4_gap_cancels_pending_risk_without_inventing_flat(tmp_path):
     official = official_observer(source)
     official.observe(official_frame(12, 20), at(13))
     contract = NativePaperContract(
-        instrument=BTC, amount_step=D("0.001"),
-        minimum_notional=D("10"), active=True,
-        market_known_at=at(0), catalog_sha=digest(["native", BTC.key]),
+        instrument=BTC,
+        amount_step=D("0.001"),
+        minimum_notional=D("10"),
+        active=True,
+        market_known_at=at(0),
+        catalog_sha=digest(["native", BTC.key]),
         hip3=False,
     )
     paper = ObservedP1Paper(
-        source_db=source.path, price_db=prices.path,
-        price_mode="vike_minute", state_root=tmp_path / "native",
+        source_db=source.path,
+        price_db=prices.path,
+        price_mode="vike_minute",
+        state_root=tmp_path / "native",
         registry_db=registry(tmp_path / "registry.sqlite"),
-        run_id="gap_recovery", catalog={},
-        native_contracts={BTC.key: contract}, started_at=at(0),
+        run_id="gap_recovery",
+        catalog={},
+        native_contracts={BTC.key: contract},
+        started_at=at(0),
     )
     first = paper.step(at(14))
     assert first["execution_intents"]["S035"]["due_at"] == at(313)
@@ -163,7 +209,9 @@ def test_v4_gap_cancels_pending_risk_without_inventing_flat(tmp_path):
     official.begin(at(320))
     official.observe(official_frame(321, 0), at(322))
     baseline = paper.step(at(323))
-    assert baseline["source_results"]["S035"] == "BLOCKED_SOURCE_NOT_PROSPECTIVE_POSITION_TRANSITION"
+    assert (
+        baseline["source_results"]["S035"] == "BLOCKED_SOURCE_NOT_PROSPECTIVE_POSITION_TRANSITION"
+    )
     assert baseline["execution_intents"]["S035"]["status"] == "CANCELED_SOURCE_GAP"
     # A genuinely new transition gets its own non-resetting deadline.
     official.observe(official_frame(330, 10), at(331))
@@ -178,17 +226,24 @@ def test_v4_reconnect_before_old_deadline_starts_fresh_t300(tmp_path):
     official = official_observer(source)
     official.observe(official_frame(12, 20), at(13))
     contract = NativePaperContract(
-        instrument=BTC, amount_step=D("0.001"),
-        minimum_notional=D("10"), active=True,
-        market_known_at=at(0), catalog_sha=digest(["native", BTC.key]),
+        instrument=BTC,
+        amount_step=D("0.001"),
+        minimum_notional=D("10"),
+        active=True,
+        market_known_at=at(0),
+        catalog_sha=digest(["native", BTC.key]),
         hip3=False,
     )
     paper = ObservedP1Paper(
-        source_db=source.path, price_db=prices.path,
-        price_mode="vike_minute", state_root=tmp_path / "native",
+        source_db=source.path,
+        price_db=prices.path,
+        price_mode="vike_minute",
+        state_root=tmp_path / "native",
         registry_db=registry(tmp_path / "registry.sqlite"),
-        run_id="early_reconnect", catalog={},
-        native_contracts={BTC.key: contract}, started_at=at(0),
+        run_id="early_reconnect",
+        catalog={},
+        native_contracts={BTC.key: contract},
+        started_at=at(0),
     )
     first = paper.step(at(14))
     old_id = first["execution_intents"]["S035"]["intent_id"]
@@ -202,7 +257,10 @@ def test_v4_reconnect_before_old_deadline_starts_fresh_t300(tmp_path):
     assert resumed["source_gap_results"]["S035"] == "CANCELED_SOURCE_GAP"
     assert resumed["execution_intents"]["S035"]["due_at"] == at(431)
     assert resumed["execution_intents"]["S035"]["intent_id"] != old_id
-    assert paper.run.account.pm04_state["paper_execution"]["history"][old_id]["status"] == "CANCELED_SOURCE_GAP"
+    assert (
+        paper.run.account.pm04_state["paper_execution"]["history"][old_id]["status"]
+        == "CANCELED_SOURCE_GAP"
+    )
     assert resumed["positions"] == {}
     assert resumed["real_broker_fills"] == 0
 
@@ -213,17 +271,24 @@ def test_v4_due_uses_latest_known_official_position_not_stale_pending(tmp_path):
     official = official_observer(source)
     official.observe(official_frame(12, 20), at(13))
     contract = NativePaperContract(
-        instrument=BTC, amount_step=D("0.001"),
-        minimum_notional=D("10"), active=True,
-        market_known_at=at(0), catalog_sha=digest(["native", BTC.key]),
+        instrument=BTC,
+        amount_step=D("0.001"),
+        minimum_notional=D("10"),
+        active=True,
+        market_known_at=at(0),
+        catalog_sha=digest(["native", BTC.key]),
         hip3=False,
     )
     paper = ObservedP1Paper(
-        source_db=source.path, price_db=prices.path,
-        price_mode="vike_minute", state_root=tmp_path / "native",
+        source_db=source.path,
+        price_db=prices.path,
+        price_mode="vike_minute",
+        state_root=tmp_path / "native",
         registry_db=registry(tmp_path / "registry.sqlite"),
-        run_id="stale_target", catalog={},
-        native_contracts={BTC.key: contract}, started_at=at(0),
+        run_id="stale_target",
+        catalog={},
+        native_contracts={BTC.key: contract},
+        started_at=at(0),
     )
     assert paper.step(at(14))["execution_intents"]["S035"]["due_at"] == at(313)
     # The consumer is delayed. A later source frame changes the target, but
@@ -240,17 +305,24 @@ def test_v4_rejects_forged_position_transition_without_observer_link(tmp_path):
     source = PaperJournal(tmp_path / "source")
     prices = PaperJournal(tmp_path / "prices")
     contract = NativePaperContract(
-        instrument=BTC, amount_step=D("0.001"),
-        minimum_notional=D("10"), active=True,
-        market_known_at=at(0), catalog_sha=digest(["native", BTC.key]),
+        instrument=BTC,
+        amount_step=D("0.001"),
+        minimum_notional=D("10"),
+        active=True,
+        market_known_at=at(0),
+        catalog_sha=digest(["native", BTC.key]),
         hip3=False,
     )
     paper = ObservedP1Paper(
-        source_db=source.path, price_db=prices.path,
-        price_mode="vike_minute", state_root=tmp_path / "native",
+        source_db=source.path,
+        price_db=prices.path,
+        price_mode="vike_minute",
+        state_root=tmp_path / "native",
         registry_db=registry(tmp_path / "registry.sqlite"),
-        run_id="forged_position", catalog={},
-        native_contracts={BTC.key: contract}, started_at=at(0),
+        run_id="forged_position",
+        catalog={},
+        native_contracts={BTC.key: contract},
+        started_at=at(0),
     )
     add_source(source, 1, 12, {BTC.key: "20"})
     result = paper.step(at(14))
@@ -287,16 +359,21 @@ def test_vike_minute_new_campaign_entry_exit_and_restart(tmp_path):
     assert closed["order_route"] == "NONE"
 
     restored = ObservedP1Paper(
-        source_db=source.path, price_db=market.path, price_mode="vike_minute",
+        source_db=source.path,
+        price_db=market.path,
+        price_mode="vike_minute",
         registry_db=tmp_path / "registry.sqlite",
-        state_root=tmp_path / "vike_virtual", run_id="vike_estimated",
+        state_root=tmp_path / "vike_virtual",
+        run_id="vike_estimated",
         catalog={RAW_MARKET["symbol"]: RAW_MARKET},
     )
     assert restored.run.account.snapshot() == paper.run.account.snapshot()
     with pytest.raises(ValueError, match="POLICY_DRIFT"):
         ObservedP1Paper(
-            source_db=source.path, registry_db=tmp_path / "registry.sqlite",
-            state_root=tmp_path / "vike_virtual", run_id="vike_estimated",
+            source_db=source.path,
+            registry_db=tmp_path / "registry.sqlite",
+            state_root=tmp_path / "vike_virtual",
+            run_id="vike_estimated",
             catalog={RAW_MARKET["symbol"]: RAW_MARKET},
         )
 
@@ -313,7 +390,9 @@ def test_vike_paper_cannot_run_without_independent_price_journal(tmp_path):
     source = PaperJournal(tmp_path / "source")
     with pytest.raises(ValueError, match="ISOLATED_PRICE_JOURNAL"):
         ObservedP1Paper(
-            source_db=source.path, price_mode="vike_minute",
-            state_root=tmp_path / "campaign", run_id="vike",
+            source_db=source.path,
+            price_mode="vike_minute",
+            state_root=tmp_path / "campaign",
+            run_id="vike",
             catalog={RAW_MARKET["symbol"]: RAW_MARKET},
         )

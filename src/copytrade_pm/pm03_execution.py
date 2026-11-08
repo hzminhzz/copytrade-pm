@@ -106,17 +106,23 @@ class CostModel:
             if px <= ZERO:
                 raise ValueError("NEGATIVE_EXECUTION_PRICE")
             fee = (abs(qty * px) * self.fee_bps / D("10000")).quantize(D("0.00000001"))
-            return px, fee, {
-                "execution_price": str(px),
-                "fee": str(fee),
-                "spread_slippage_impact_bps": str((px / quote.mark - D("1")) * direction * D("10000")),
-                "mid_price": str(quote.mark),
-                "quality": quote.quality,
-                "capacity_basis": quote.capacity_basis,
-                "not_real_bid_ask": False,
-                "hypothetical_only": True,
-                "deeper_book_and_actual_fill_unknown": True,
-            }
+            return (
+                px,
+                fee,
+                {
+                    "execution_price": str(px),
+                    "fee": str(fee),
+                    "spread_slippage_impact_bps": str(
+                        (px / quote.mark - D("1")) * direction * D("10000")
+                    ),
+                    "mid_price": str(quote.mark),
+                    "quality": quote.quality,
+                    "capacity_basis": quote.capacity_basis,
+                    "not_real_bid_ask": False,
+                    "hypothetical_only": True,
+                    "deeper_book_and_actual_fill_unknown": True,
+                },
+            )
         share = abs(qty) / liquidity
         bps = (
             self.full_spread_bps / 2
