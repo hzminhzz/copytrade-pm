@@ -138,11 +138,37 @@
             "inspect": false,
             "filterable": true
           },
-          "noValue": "MISSING EVIDENCE"
+          "noValue": "\u2014"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Source observed"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeUtc"
+              }
+            ]
+          }
+        ]
       },
       "transformations": [
+        {
+          "id": "convertFieldType",
+          "options": {
+            "conversions": [
+              {
+                "destinationType": "time",
+                "targetField": "Source observed",
+                "dateFormat": "ISO"
+              }
+            ],
+            "fields": {}
+          }
+        },
         {
           "id": "organize",
           "options": {
@@ -282,7 +308,7 @@
             "inspect": false,
             "filterable": true
           },
-          "noValue": "MISSING EVIDENCE"
+          "noValue": "\u2014"
         },
         "overrides": []
       },

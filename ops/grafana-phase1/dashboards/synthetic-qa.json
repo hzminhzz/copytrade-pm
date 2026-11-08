@@ -64,7 +64,7 @@
         "w": 8,
         "h": 4
       },
-      "description": "This is a publication status, not a claim that trading is safe.",
+      "description": "Publication status and age of the evidence file. Not a claim that trading is safe.",
       "targets": [
         {
           "refId": "A",
@@ -103,12 +103,49 @@
       },
       "fieldConfig": {
         "defaults": {
+          "noValue": "\u2014",
           "custom": {
-            "filterable": true
+            "align": "left",
+            "filterable": false
           },
-          "noValue": "MISSING EVIDENCE"
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 45
+              }
+            ]
+          }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Age seconds"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          }
+        ]
       },
       "transformations": [
         {
@@ -137,7 +174,7 @@
         "x": 8,
         "y": 3,
         "w": 8,
-        "h": 3
+        "h": 4
       },
       "targets": [
         {
@@ -213,7 +250,7 @@
                 },
                 "6": {
                   "text": "UNAVAILABLE",
-                  "color": "purple"
+                  "color": "gray"
                 },
                 "11": {
                   "text": "HALTED",
@@ -271,7 +308,7 @@
         "x": 16,
         "y": 3,
         "w": 8,
-        "h": 3
+        "h": 4
       },
       "targets": [
         {
@@ -347,7 +384,7 @@
                 },
                 "6": {
                   "text": "UNAVAILABLE",
-                  "color": "purple"
+                  "color": "gray"
                 },
                 "11": {
                   "text": "HALTED",
@@ -467,7 +504,7 @@
             "align": "left",
             "filterable": true
           },
-          "noValue": "MISSING EVIDENCE"
+          "noValue": "\u2014"
         },
         "overrides": [
           {
@@ -504,7 +541,7 @@
                       },
                       "UNAVAILABLE": {
                         "text": "UNAVAILABLE",
-                        "color": "purple"
+                        "color": "gray"
                       }
                     }
                   }
@@ -517,10 +554,47 @@
                 }
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Source Observed At"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeUtc"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Evidence Error"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 260
+              }
+            ]
           }
         ]
       },
       "transformations": [
+        {
+          "id": "convertFieldType",
+          "options": {
+            "conversions": [
+              {
+                "destinationType": "time",
+                "targetField": "Source Observed At",
+                "dateFormat": "ISO"
+              }
+            ],
+            "fields": {}
+          }
+        },
         {
           "id": "organize",
           "options": {
@@ -615,7 +689,7 @@
             "align": "left",
             "filterable": true
           },
-          "noValue": "MISSING EVIDENCE"
+          "noValue": "\u2014"
         },
         "overrides": [
           {
@@ -652,7 +726,7 @@
                       },
                       "UNAVAILABLE": {
                         "text": "UNAVAILABLE",
-                        "color": "purple"
+                        "color": "gray"
                       }
                     }
                   }
@@ -685,10 +759,47 @@
                 "value": "right"
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Source Observed At"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeUtc"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Evidence Error"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 260
+              }
+            ]
           }
         ]
       },
       "transformations": [
+        {
+          "id": "convertFieldType",
+          "options": {
+            "conversions": [
+              {
+                "destinationType": "time",
+                "targetField": "Source Observed At",
+                "dateFormat": "ISO"
+              }
+            ],
+            "fields": {}
+          }
+        },
         {
           "id": "organize",
           "options": {
@@ -773,7 +884,7 @@
             "align": "left",
             "filterable": true
           },
-          "noValue": "MISSING EVIDENCE"
+          "noValue": "\u2014"
         },
         "overrides": [
           {
@@ -810,7 +921,7 @@
                       },
                       "UNAVAILABLE": {
                         "text": "UNAVAILABLE",
-                        "color": "purple"
+                        "color": "gray"
                       }
                     }
                   }
@@ -821,6 +932,18 @@
                 "value": {
                   "type": "color-background"
                 }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Evidence Error"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 260
               }
             ]
           }
@@ -996,11 +1119,54 @@
           "custom": {
             "filterable": true
           },
-          "noValue": "MISSING EVIDENCE"
+          "noValue": "\u2014"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Captured At"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeUtc"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Retrieved At"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeUtc"
+              }
+            ]
+          }
+        ]
       },
       "transformations": [
+        {
+          "id": "convertFieldType",
+          "options": {
+            "conversions": [
+              {
+                "destinationType": "time",
+                "targetField": "Captured At",
+                "dateFormat": "ISO"
+              },
+              {
+                "destinationType": "time",
+                "targetField": "Retrieved At",
+                "dateFormat": "ISO"
+              }
+            ],
+            "fields": {}
+          }
+        },
         {
           "id": "organize",
           "options": {
@@ -1090,7 +1256,7 @@
                 },
                 "UNAVAILABLE": {
                   "text": "UNAVAILABLE",
-                  "color": "purple"
+                  "color": "gray"
                 }
               }
             }
