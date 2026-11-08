@@ -1,0 +1,27 @@
+[Unit]
+Description=Copytrade V4 16-portfolio official selected-position observer (read-only, no broker)
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=/home/quant/.local/share/copytrade/releases/v4-sixteen-paper-0911
+ExecStart=/home/quant/.local/share/copytrade/releases/v4-sixteen-paper-0911/.venv/bin/python -m copytrade_pm.pm_v4_selected_positions --registry-db /home/quant/.local/share/copytrade/registry/wallet_registry.sqlite --state-root /home/quant/.local/share/copytrade/prospective/v4-selected-sixteen-0911 --portfolios P1,P14,P15,P16,E1,E2,E3,E4,E5,E6,E7,E8,E9,E10,E11,E12 --campaign-manifest /home/quant/dev/copytrade-pm/data/private/gemini_phase3_phase4_eligibility_20261104.json --campaign-sha256 7c0b2a021a449c06f818cacf2f757a4d40b89e77669316107dc08ca659237e6f
+Restart=on-failure
+RestartSec=15
+TimeoutStopSec=35
+KillSignal=SIGTERM
+UMask=0077
+Environment=PYTHONDONTWRITEBYTECODE=1
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/quant/.local/share/copytrade/prospective/v4-selected-sixteen-0911
+MemoryMax=512M
+CPUQuota=65%
+TasksMax=128
+
+[Install]
+WantedBy=default.target
