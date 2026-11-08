@@ -6,7 +6,7 @@ import pytest
 
 from copytrade_pm.pm_vike_selected_fills import (
     apply_frame, current_cursor, had_gap, open_selected_journal,
-    record_event, selected_subscription,
+    record_event, selected_subscription, selected_wallets_from_registry,
 )
 
 
@@ -31,11 +31,58 @@ def frame(wallet=W1, tid=101, cursor="1793930404464-0001"):
             "cursor": cursor, "event": event(wallet, tid)}
 
 
+def test_selected_wallets_derive_from_sealed_registry_without_addresses_in_output(
+    tmp_path, monkeypatch,
+):
+    from test_pm_forward_multi_portfolio import full_registry, pin_reviewed_registry
+    from test_pm_forward_observed_paper import at
+
+    pin_reviewed_registry(monkeypatch)
+    database = full_registry(tmp_path)
+    selected = selected_wallets_from_registry(
+        database, portfolios=("P14", "P16"), as_of=at(0),
+    )
+    assert len(selected) == 5
+    assert selected == tuple(sorted(set(selected)))
+    assert all(addr.startswith("0x") and len(addr) == 42 for addr in selected)
+    with pytest.raises(ValueError, match="PORTFOLIO_IDS_INVALID"):
+        selected_wallets_from_registry(
+            database, portfolios=("P14", "P14"), as_of=at(0),
+        )
+    # Legacy fixture lacks authentic P1 portfolio seal; it is not silently
+    # promoted to a live allowlist by merely matching alias names.
+    with pytest.raises(ValueError, match="SEAL_NOT_VERIFIED"):
+        selected_wallets_from_registry(
+            database, portfolios=("P1",), as_of=at(0),
+        )
+
+
 def test_shared_subscription_zero_minimum_and_distinct_native_wallets():
     sub = selected_subscription((W2, W1), None)
     assert sub["filter"] == {"wallet": [W1, W2], "min_usd": 0}
     with pytest.raises(ValueError, match="UNIVERSE_INVALID"):
         selected_subscription((W1, W1), None)
+
+
+def test_server_pings_are_persisted_without_any_selected_wallet_fills(tmp_path):
+    root = tmp_path / "selected"
+    with closing(open_selected_journal(root)) as db:
+        assert apply_frame(
+            db, {"type": "subscribed", "id": "copytrade_selected",
+                 "channel": "hl.fills", "cursor": "1793930404464-0000"},
+            (W1, W2), T.isoformat(),
+        ) == "SUBSCRIBED"
+        assert apply_frame(
+            db, {"type": "ping"}, (W1, W2), T.isoformat(),
+        ) == "PONG_REQUIRED"
+        assert apply_frame(
+            db, {"type": "ping"}, (W1, W2), T.isoformat(),
+        ) == "PONG_REQUIRED"
+    with closing(open_selected_journal(root)) as db:
+        assert db.execute(
+            "SELECT ping_count, subscription_count FROM selected_transport WHERE id=1"
+        ).fetchone() == (2, 1)
+        assert db.execute("SELECT COUNT(*) FROM selected_fills").fetchone()[0] == 0
 
 
 def test_two_wallets_atomic_cursor_dedupe_and_private_restart(tmp_path):

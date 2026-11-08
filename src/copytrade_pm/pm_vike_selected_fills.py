@@ -40,7 +40,59 @@ CREATE TABLE IF NOT EXISTS selected_checkpoint (
 CREATE TABLE IF NOT EXISTS selected_gaps (
  cursor TEXT PRIMARY KEY, known_at TEXT NOT NULL, reason TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS selected_transport (
+ id INTEGER PRIMARY KEY CHECK(id=1),
+ last_server_frame_at TEXT NOT NULL,
+ ping_count INTEGER NOT NULL,
+ subscription_count INTEGER NOT NULL
+);
 """
+
+
+def selected_wallets_from_registry(
+    registry_db: Path, *, portfolios: tuple[str, ...], as_of: str,
+) -> tuple[str, ...]:
+    """Read only the exact sealed, currently resolvable selected accounts.
+
+    This is a transport allowlist, never proof of an admitted signal, source
+    position census, or a fresh research selection. No addresses are logged.
+    """
+    from .pm_forward_observed_paper import (
+        PAPER_PROFILES, _readonly, _verify_portfolio_selection,
+    )
+
+    if not portfolios or len(portfolios) != len(set(portfolios)):
+        raise ValueError("VIKE_SELECTED_PORTFOLIO_IDS_INVALID")
+    if any(portfolio not in PAPER_PROFILES for portfolio in portfolios):
+        raise ValueError("VIKE_SELECTED_PORTFOLIO_NOT_FROZEN")
+    _stamp(as_of)
+    accounts = set()
+    for portfolio in portfolios:
+        profile = PAPER_PROFILES[portfolio]
+        seal = _verify_portfolio_selection(registry_db, profile, as_of=as_of)
+        digest_value = seal.get("definition_sha256")
+        if (
+            not isinstance(digest_value, str)
+            or len(digest_value) != 64
+            or any(char not in "0123456789abcdef" for char in digest_value)
+        ):
+            raise ValueError("VIKE_SELECTED_PORTFOLIO_SEAL_NOT_VERIFIED")
+        with closing(_readonly(registry_db)) as conn:
+            conn.execute("BEGIN")
+            try:
+                for alias in profile.full_aliases:
+                    rows = conn.execute(
+                        "SELECT DISTINCT w.address FROM wallets w "
+                        "JOIN wallet_aliases a ON a.wallet_id=w.wallet_id "
+                        "WHERE a.alias=? AND a.known_at<=?",
+                        (alias, as_of),
+                    ).fetchall()
+                    if len(rows) != 1:
+                        raise ValueError("VIKE_SELECTED_ALIAS_IDENTITY_AMBIGUOUS")
+                    accounts.add(allowed_wallet(rows[0][0]))
+            finally:
+                conn.execute("ROLLBACK")
+    return tuple(sorted(accounts))
 
 
 def selected_subscription(wallets: tuple[str, ...], cursor: str | None) -> dict:
@@ -96,6 +148,22 @@ def _checkpoint(conn: sqlite3.Connection, cursor: str, known_at: str, gap: bool)
     )
 
 
+def _record_transport(conn: sqlite3.Connection, known_at: str, kind: str) -> None:
+    _stamp(known_at)
+    if kind not in ("PING", "SUBSCRIBED"):
+        raise ValueError("VIKE_SELECTED_TRANSPORT_KIND_INVALID")
+    with conn:
+        conn.execute(
+            "INSERT INTO selected_transport VALUES(1,?,?,?) "
+            "ON CONFLICT(id) DO UPDATE SET "
+            "last_server_frame_at=excluded.last_server_frame_at, "
+            "ping_count=selected_transport.ping_count+excluded.ping_count, "
+            "subscription_count=selected_transport.subscription_count+"
+            "excluded.subscription_count",
+            (known_at, int(kind == "PING"), int(kind == "SUBSCRIBED")),
+        )
+
+
 def record_event(
     conn: sqlite3.Connection, event: dict, *,
     cursor: str, known_at: str, wallets: tuple[str, ...], prospective: bool,
@@ -132,6 +200,7 @@ def apply_frame(
 ) -> str:
     kind = frame.get("type")
     if kind == "ping":
+        _record_transport(conn, known_at, "PING")
         return "PONG_REQUIRED"
     if kind == "error":
         raise ValueError("VIKE_SELECTED_SERVER_ERROR")
@@ -142,6 +211,7 @@ def apply_frame(
         with conn:
             if current_cursor(conn) is None:
                 _checkpoint(conn, cursor, known_at, False)
+        _record_transport(conn, known_at, "SUBSCRIBED")
         return "SUBSCRIBED"
     if kind == "gap":
         if frame.get("channel") != CHANNEL:
@@ -310,8 +380,15 @@ async def run_selected(
         else:
             if monotonic() < deadline and attempts >= 3:
                 stop_reason = "BOUNDED_RECONNECT_BUDGET_EXHAUSTED"
+        heartbeat = conn.execute(
+            "SELECT ping_count,subscription_count,last_server_frame_at "
+            "FROM selected_transport WHERE id=1"
+        ).fetchone()
         return {
             "schema": "vike_selected_fill_observer_v1",
+            "transport_pings": heartbeat[0] if heartbeat else 0,
+            "subscription_acknowledgments": heartbeat[1] if heartbeat else 0,
+            "last_server_frame_at": heartbeat[2] if heartbeat else None,
             "status": (
                 "BLOCKED_STREAM_GAP" if had_gap(conn)
                 else "OBSERVED_FILL_INTAKE_ONLY"
@@ -330,8 +407,13 @@ async def run_selected(
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--state-root", required=True, type=Path)
-    p.add_argument("--wallets-file", required=True, type=Path,
-                   help="Private JSON list of selected native addresses")
+    source = p.add_mutually_exclusive_group(required=True)
+    source.add_argument("--wallets-file", type=Path,
+                        help="Private JSON list of selected native addresses")
+    source.add_argument("--registry-db", type=Path,
+                        help="Sealed SQLite registry; no private addresses printed")
+    p.add_argument("--portfolios", default="P1,P14,P16",
+                   help="Comma-separated frozen portfolio IDs, for --registry-db")
     p.add_argument("--seconds", type=float, default=60)
     p.add_argument("--dedicated-key-only", action="store_true")
     args = p.parse_args()
@@ -342,13 +424,19 @@ def main() -> int:
         print(json.dumps({"status": "BLOCKED_NO_DEDICATED_VIKE_KEY",
                           "state_created": False, "order_route": "NONE"}))
         return 2
-    private = args.wallets_file
-    if private.is_symlink() or stat.S_IMODE(private.stat().st_mode) & 0o077:
-        raise ValueError("VIKE_SELECTED_WALLETS_FILE_NOT_PRIVATE")
-    wallets = json.loads(private.read_text())
-    if not isinstance(wallets, list):
-        raise ValueError("VIKE_SELECTED_WALLET_FILE_INVALID")
-    selection = tuple(sorted(allowed_wallet(value) for value in wallets))
+    if args.registry_db is not None:
+        selection = selected_wallets_from_registry(
+            args.registry_db, portfolios=tuple(args.portfolios.split(",")),
+            as_of=datetime.now(UTC).isoformat(),
+        )
+    else:
+        private = args.wallets_file
+        if private.is_symlink() or stat.S_IMODE(private.stat().st_mode) & 0o077:
+            raise ValueError("VIKE_SELECTED_WALLETS_FILE_NOT_PRIVATE")
+        wallets = json.loads(private.read_text())
+        if not isinstance(wallets, list):
+            raise ValueError("VIKE_SELECTED_WALLET_FILE_INVALID")
+        selection = tuple(sorted(allowed_wallet(value) for value in wallets))
     selected_subscription(selection, None)
     try:
         result = asyncio.run(run_selected(
@@ -363,6 +451,12 @@ def main() -> int:
         }))
         return 2
     print(json.dumps(result, sort_keys=True))
+    # systemd RestartPreventExitStatus=42: never fight another process sharing
+    # this key or retry revoked credentials in a replacement storm.
+    if result.get("stop_reason") in (
+        "REPLACED_BY_OTHER_CONNECTION_4410", "CREDENTIAL_REFUSED",
+    ):
+        return 42
     return 0 if result["status"] == "OBSERVED_FILL_INTAKE_ONLY" else 2
 
 

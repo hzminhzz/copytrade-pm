@@ -41,19 +41,25 @@ paper work in PR #179; its v3 campaign semantics remain unmodified by default.
 
 ## Isolation and preflight
 
-- Use a **new, dedicated read-only Vike API key** in private runtime
-  configuration. ChatGPT Vike MCP OAuth credentials are **not** a VPS credential.
+- Use a **dedicated Vike key for read-only client operations** in private
+  runtime configuration. Vike keys are not scoped by permission; this software
+  has no mutating provider or broker API. ChatGPT Vike MCP OAuth credentials
+  are **not** a VPS credential.
   Do not store credentials in Git, command lines or WebSocket query strings.
   Vike imposes **one active socket per key/path**; close 4410 means another
   connection replaced this one. Never create a replacement storm.
-- Use a separate private wallet file (`0600`) containing exactly the selected
-  wallet addresses, a separate fills state directory (`0700`) and a separate
-  price state directory (`0700`). The selected allowlist must be independently
-  matched to the verified SQLite sealed portfolio before live adoption.
-- No current private dedicated `VIKE_API_KEY` was present in the inspected
-  `quant` environment. Do **not** claim live Vike validation or cutover.
-- For **finite read-only** research observation, with a private key:
-  `copytrade-pm-vike-fills --wallets-file /private/selected.json --state-root /private/vike-fills --seconds 60 --dedicated-key-only`.
+- Use a sealed SQLite registry allowlist with
+  `--registry-db /private/wallet_registry.sqlite --portfolios P1,P14,P16`.
+  Every selected alias must map unambiguously to the independently verified
+  current frozen portfolio definition. A private explicit `--wallets-file`
+  (`0600`) remains an opt-in alternate mode. Use separate fills (`0700`)
+  and price (`0700`) state directories.
+- On 2026-11-08, a dedicated Vike key was provisioned for the `quant` user
+  at `/home/quant/.local/share/copytrade/vike-dedicated.env` (`0600`, in a
+  parent directory with `0700` permissions). **Never commit or print its
+  value.** Access through a private environment file.
+- For **finite read-only** research observation, with the credential loaded:
+  `copytrade-pm-vike-fills --registry-db /private/wallet_registry.sqlite --portfolios P1,P14,P16 --state-root /private/vike-fills --seconds 60 --dedicated-key-only`.
   A separate shared price check:
   `copytrade-pm-vike-minute --state-root /private/vike-prices --markets BTC,ETH,xyz:BRENTOIL`.
   Neither CLI starts trading or is a qualified complete-position signal source.
@@ -62,6 +68,24 @@ paper work in PR #179; its v3 campaign semantics remain unmodified by default.
   `copytrade-pm-paper-observed --source-db /private/verified-source.sqlite3 --price-db /private/vike-prices/paper-events.sqlite3 --price-mode vike_minute --registry-db /private/wallet_registry.sqlite --state-root /private/v4-paper --run-id p1_vike_estimated_v4 --portfolio P1`.
   The same price producer may serve separately isolated P14/P16 PM03 accounts.
   **Never** run it against the v3 state root/run identity.
+
+## Initial authenticated VPS evidence (2026-11-08 UTC)
+
+- 01:23:32: bulk 1m REST request authenticated; BTC/ETH were captured,
+  `xyz:AAOI` absent, so the three-market request correctly returned
+  `BLOCKED_INCOMPLETE_MARKET_SCOPE`. A separate BTC/ETH request passed.
+- 01:23:42–01:24:42: native W028 `hl.fills` WS subscribed, zero delivered
+  fill events, zero gap notices; no authenticated matched REST/WS parity.
+- 01:25:49–01:27:09: selected P1/P14/P16 registry-resolved wallet stream
+  stayed connected 80 seconds, with zero matching wallet fills, zero gaps,
+  no reconnect. Vike's independent connection list confirmed two distinct
+  clean close-code-1000 sessions and zero events sent.
+- Neither stream test supports claims of follower performance, fill
+  completeness, 24–48-hour uptime, or verified selected-account positions.
+- Official published API budget: **20,000 REST requests/hour and 200/minute
+  per key**, while WS connections and frames are not counted. A 20-second
+  bulk quote polling cadence uses nominally **180 REST requests/hour**.
+  Source: https://vike.io/data/api.
 
 ## Before any service cutover
 
