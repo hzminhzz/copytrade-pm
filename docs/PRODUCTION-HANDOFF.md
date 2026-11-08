@@ -43,6 +43,14 @@ with the approved policy digest, including signed scope evidence. Changing eithe
 invalidates the original approval. Policy approval does not repair an unknown
 historical identity.
 
+## V4 official-position SHADOW source export
+
+The additive, read-only, externally signed V4 position-source export is
+specified in [the source-export runbook](V4-PROP-SOURCE-EXPORT-20261108.md).
+It preserves first-local-known T0 and SHA-linked native-account/DEX evidence,
+but cannot independently approve a production release, supply executable quotes
+or authorize a Guardian order. Baselines and reconnects cannot create new risk.
+
 ## Twenty-day economics
 
 `copytrade-pm-production-economics` reuses `load_tape`,
