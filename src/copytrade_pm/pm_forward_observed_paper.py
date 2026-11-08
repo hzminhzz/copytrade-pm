@@ -30,12 +30,14 @@ from .pm_exposure_sizing import target_from_fixed_k
 from .pm_forward_ccxt_market import NativeMarket, parse_ccxt_market
 from .pm_forward_journal import PaperJournal
 from .pm_forward_portfolios import FrozenPaperPortfolio, P1
-from .pm_forward_single_shot import POLICY_VERSION
+from .pm_forward_single_shot import POLICY_VERSION, ESTIMATED_POLICY_VERSION
+from .pm_vike_minute import SCHEMA as VIKE_MINUTE_SCHEMA
 
 P1_K = {"S035": "0.0282", "S051": "0.0430", "S053": "0.0296"}
 P1_REGISTRY_ALIASES = {"S035": "S035-ENA", "S051": "S051-BTC", "S053": "S053-HYPE"}
 DEFAULT_REGISTRY = Path("/home/quant/.local/share/copytrade/registry/wallet_registry.sqlite")
 SCHEMA = "observed_fixed_k_p1_single_shot_v3"
+VIKE_PAPER_SCHEMA = "observed_fixed_k_vike_minute_estimated_v4"
 CAPACITY_BASIS = "DISPLAYED_L2_TOP_LEVEL"
 MAX_SOURCE_AGE = 180
 MAX_QUOTE_AGE = 30
@@ -281,6 +283,45 @@ def _read_quote(conn: sqlite3.Connection, inst: str) -> dict | None:
     return quote
 
 
+def _read_vike_minute(conn: sqlite3.Connection, inst: str) -> dict | None:
+    """Read the independent minute-price chain without pretending it is L2."""
+    from .pm_vike_minute import validate_observation
+    row = conn.execute(
+        "SELECT seq,payload,payload_sha,prior_sha,chain_sha,event_at,known_at "
+        "FROM vike_minute_receipts WHERE instrument=? ORDER BY seq DESC LIMIT 1",
+        (inst,),
+    ).fetchone()
+    if row is None:
+        return None
+    seq, raw, sha, prior, chain, source_at, known_at = row
+    observation = json.loads(raw)
+    predecessor = conn.execute(
+        "SELECT chain_sha FROM vike_minute_receipts "
+        "WHERE instrument=? AND seq=?", (inst, seq - 1),
+    ).fetchone() if seq > 1 else ("0" * 64,)
+    if (
+        observation.get("schema") != VIKE_MINUTE_SCHEMA
+        or observation.get("first_known_at") != known_at
+        or observation.get("bar_start_at") != source_at
+        or digest({k: v for k, v in observation.items() if k != "observation_sha"})
+        != observation.get("observation_sha")
+        or digest(observation) != sha
+        or predecessor is None or prior != predecessor[0]
+        or chain != digest([inst, seq, sha, prior])
+    ):
+        raise ValueError("PAPER_VIKE_MINUTE_RECEIPT_INTEGRITY_FAILURE")
+    validate_observation(observation)
+    return {
+        "schema": "paper_vike_minute_estimated_quote_v1",
+        "instrument": inst,
+        "first_known_at": known_at,
+        "source_event_at": source_at,
+        "market_known_at": known_at,
+        "mid_quote": observation["price"],
+        "vike_observation": observation,
+    }
+
+
 def load_ccxt_catalog(injected: Mapping[str, dict] | None = None) -> dict[str, dict]:
     """One-time public REST metadata only; never open additional user WS slots."""
     if injected is not None:
@@ -311,8 +352,10 @@ def _candidate_market(inst: Instrument, catalog: Mapping[str, dict], quote: dict
         name = info.get("name")
         if inst.market == "mainnet:perp:default" and name != inst.symbol:
             continue
-        if inst.market != "mainnet:perp:default":
-            # HIP-3 is not independently session-attested by this observer.
+        if inst.market != "mainnet:perp:default" and quote.get(
+            "schema"
+        ) != "paper_vike_minute_estimated_quote_v1":
+            # HIP-3 L2 sessions are not independently attested.
             raise ValueError("HIP3_SESSION_NOT_ATTESTED_FOR_PAPER")
         try:
             resolved = parse_ccxt_market(
@@ -320,17 +363,26 @@ def _candidate_market(inst: Instrument, catalog: Mapping[str, dict], quote: dict
             )
         except (ValueError, KeyError, TypeError):
             continue
-        if resolved.catalog_sha != quote.get("catalog_sha") or not resolved.session_eligible:
+        if quote.get("schema") == "paper_vike_minute_estimated_quote_v1":
+            # Provider price observations do NOT attest executable market depth.
+            # Require verified, active native metadata and identity separately.
+            if not resolved.active:
+                raise ValueError("VIKE_NATIVE_MARKET_INACTIVE")
+        elif resolved.catalog_sha != quote.get("catalog_sha") or not resolved.session_eligible:
             raise ValueError("QUOTE_CATALOG_DRIFT_OR_SESSION_NOT_ELIGIBLE")
         return resolved
     raise ValueError("VERIFIED_NATIVE_MARKET_CATALOG_MISSING")
 
 
-def _policy(profile: PaperPortfolioSpec | None = None) -> dict:
+def _policy(
+    profile: PaperPortfolioSpec | None = None, *, price_mode: str = "l2",
+) -> dict:
     profile = profile or PAPER_PROFILES["P1"]
+    if price_mode not in ("l2", "vike_minute"):
+        raise ValueError("PAPER_PRICE_MODE_UNSUPPORTED")
     return {
         "schema": "pm04_research_policy_v1",
-        "version": POLICY_VERSION,
+        "version": ESTIMATED_POLICY_VERSION if price_mode == "vike_minute" else POLICY_VERSION,
         "approval_reference": "docs/decisions/2026-11-03-gemini-phase3-adoption-180d.md",
         "pods": {
             alias: {
@@ -376,6 +428,22 @@ def _costs() -> dict:
 
 
 def _market_observation(quote: dict, market: NativeMarket, *, at: str) -> dict:
+    if quote.get("schema") == "paper_vike_minute_estimated_quote_v1":
+        age = (clock(at) - clock(quote["first_known_at"])).total_seconds()
+        if not 0 <= age <= MAX_QUOTE_AGE:
+            raise ValueError("VIKE_MINUTE_QUOTE_STALE_OR_FUTURE")
+        return {
+            "instrument": quote["instrument"],
+            "event_at": quote["source_event_at"],
+            "first_known_at": quote["first_known_at"],
+            "mark": quote["mid_quote"],
+            "volume_base": quote["vike_observation"]["volume_base"],
+            "quality": "ESTIMATED_TRADE_PRICE_ONLY",
+            "supported": True,
+            "capacity_basis": "MINUTE_VOLUME_PARTICIPATION_ESTIMATE",
+            "quantity_step": str(market.amount_step),
+            "minimum_notional": str(market.minimum_notional),
+        }
     if quote.get("session_trust") != "LIVE_DEFAULT_PERP_TWO_SIDED_ONLY":
         raise ValueError("UNATTESTED_QUOTE_SESSION")
     age = (clock(at) - clock(quote["first_known_at"])).total_seconds()
@@ -416,7 +484,11 @@ def _event(
             "rulebook_sha": run.account.rulebook.sha,
             "input": payload,
             "order_route": "NONE",
-            "evidence_class": "PUBLIC_FIRST_KNOWN_MODELED_L2_ONLY",
+            "evidence_class": (
+                "PUBLIC_FIRST_KNOWN_ESTIMATED_VIKE_MINUTE_ONLY"
+                if run.account.rulebook.version == VIKE_PAPER_SCHEMA
+                else "PUBLIC_FIRST_KNOWN_MODELED_L2_ONLY"
+            ),
         },
     )
 
@@ -458,13 +530,24 @@ class ObservedP1Paper:
         registry_db: Path = DEFAULT_REGISTRY,
         started_at: str | None = None,
         portfolio_id: str = "P1",
+        price_mode: str = "l2",
+        price_db: Path | None = None,
     ) -> None:
         if portfolio_id not in PAPER_PROFILES:
             raise ValueError("PAPER_PORTFOLIO_HAS_NO_APPROVED_RESEARCH_SCENARIO")
         self.profile = PAPER_PROFILES[portfolio_id]
         self.members = self.profile.source_ids
         self.portfolio_id = portfolio_id
+        if price_mode not in ("l2", "vike_minute"):
+            raise ValueError("PAPER_PRICE_MODE_UNSUPPORTED")
+        self.price_mode = price_mode
+        self.schema = VIKE_PAPER_SCHEMA if price_mode == "vike_minute" else SCHEMA
         self.source_db = Path(source_db)
+        self.price_db = (
+            Path(price_db) if price_db is not None else self.source_db
+        )
+        if price_mode == "vike_minute" and price_db is None:
+            raise ValueError("VIKE_MINUTE_REQUIRES_ISOLATED_PRICE_JOURNAL")
         self.registry_db = Path(registry_db)
         self.catalog = dict(catalog)
         base = Path(state_root)
@@ -481,6 +564,7 @@ class ObservedP1Paper:
                 or manifest["rulebook"].get("program")
                 != f"{self.portfolio_id}_10000_VIRTUAL_PAPER"
                 or manifest.get("mode") != "RESEARCH_SYNTHETIC"
+                or manifest["rulebook"].get("version") != self.schema
             ):
                 raise ValueError("PAPER_RESTART_MANIFEST_POLICY_DRIFT")
             started_at = manifest["started_at"]
@@ -488,9 +572,11 @@ class ObservedP1Paper:
             market_sha = manifest["market_manifest_sha"]
         else:
             started_at = started_at or now_utc()
-            with closing(_readonly(self.source_db)) as db:
-                keys = [row[0] for row in db.execute("SELECT instrument FROM market_quote_heads")]
-                quotes = {key: _read_quote(db, key) for key in keys}
+            with closing(_readonly(self.price_db)) as db:
+                table = "vike_minute_heads" if self.price_mode == "vike_minute" else "market_quote_heads"
+                keys = [row[0] for row in db.execute(f"SELECT instrument FROM {table}")]
+                reader = _read_vike_minute if self.price_mode == "vike_minute" else _read_quote
+                quotes = {key: reader(db, key) for key in keys}
             markets: dict[str, NativeMarket] = {}
             for key, quote in quotes.items():
                 try:
@@ -504,7 +590,7 @@ class ObservedP1Paper:
                 program=f"{self.portfolio_id}_10000_VIRTUAL_PAPER",
                 stage="RESEARCH_PAPER",
                 source=f"{self.portfolio_id}_20261103_RISK_REFERENCE_NOT_PROP_CONTRACT",
-                observed_at=started_at, version=SCHEMA, timezone="UTC",
+                observed_at=started_at, version=self.schema, timezone="UTC",
                 initial_balance=Decimal("10000"),
                 profit_target=None, daily_loss=Decimal("500"),
                 static_loss=Decimal("1000"), trailing_loss=None,
@@ -524,7 +610,7 @@ class ObservedP1Paper:
             self.registry_db, as_of=started_at, aliases=self.profile.registry_aliases,
         )
         self.policy = {
-            **_policy(self.profile),
+            **_policy(self.profile, price_mode=self.price_mode),
             "selected_account_hashes": self.selected_accounts,
         }
         if self.portfolio_id != "P1":
@@ -568,16 +654,30 @@ class ObservedP1Paper:
 
     def _observations(self, db: sqlite3.Connection, required: set[str], at: str) -> tuple[list[dict], dict[str, dict], dict[str, NativeMarket]]:
         quotes, markets, obs = {}, {}, []
-        for key in sorted(required):
-            quote = _read_quote(db, key)
-            if quote is None:
-                raise ValueError("PAPER_QUOTE_MISSING:" + key)
-            market = _candidate_market(Instrument.parse(key), self.catalog, quote)
-            if Instrument.parse(key) not in self.run.account.rulebook.permitted:
-                raise ValueError("PAPER_MARKET_NOT_FROZEN_IN_RUN:" + key)
-            obs.append(_market_observation(quote, market, at=at))
-            quotes[key] = quote
-            markets[key] = market
+        def collect(price_connection: sqlite3.Connection) -> None:
+            for key in sorted(required):
+                quote = (
+                    _read_vike_minute(price_connection, key)
+                    if self.price_mode == "vike_minute"
+                    else _read_quote(price_connection, key)
+                )
+                if quote is None:
+                    raise ValueError("PAPER_QUOTE_MISSING:" + key)
+                market = _candidate_market(Instrument.parse(key), self.catalog, quote)
+                if Instrument.parse(key) not in self.run.account.rulebook.permitted:
+                    raise ValueError("PAPER_MARKET_NOT_FROZEN_IN_RUN:" + key)
+                obs.append(_market_observation(quote, market, at=at))
+                quotes[key] = quote
+                markets[key] = market
+        if self.price_mode == "vike_minute":
+            with closing(_readonly(self.price_db)) as price_connection:
+                price_connection.execute("BEGIN")
+                try:
+                    collect(price_connection)
+                finally:
+                    price_connection.execute("ROLLBACK")
+        else:
+            collect(db)
         return obs, quotes, markets
 
     def _known_instruments(self) -> set[str]:
@@ -613,7 +713,7 @@ class ObservedP1Paper:
             "first_known_at": book["first_known_at"],
             "source_book_sha": book["snapshot_sha"],
             "sizing_policy": "FIXED_K_NATIVE_QUANTITY",
-            "policy_version": POLICY_VERSION,
+            "policy_version": self.policy["version"],
         }
         self.run.record(_event(
             self.run, "PM04_PAPER_SOURCE", f"src_{alias}_{source['seq']}", at,
@@ -678,7 +778,7 @@ class ObservedP1Paper:
                 "markets": {key: {"amount_step": str(m.amount_step),
                                   "minimum_notional": str(m.minimum_notional)}
                             for key, m in markets.items()},
-                "policy_version": POLICY_VERSION, "source_nav_required": False,
+                "policy_version": self.policy["version"], "source_nav_required": False,
             }
             self.run.record(_event(
                 self.run, "PM04_PAPER_EXIT", "exit_" + pending["exit_id"],
@@ -744,7 +844,7 @@ class ObservedP1Paper:
                           "minimum_notional": str(m.minimum_notional)}
                     for key, m in markets.items()
                 },
-                "policy_version": POLICY_VERSION,
+                "policy_version": self.policy["version"],
                 "sizing_policy": "FIXED_K_NATIVE_QUANTITY",
                 "source_nav_required": False,
             }
@@ -838,7 +938,7 @@ class ObservedP1Paper:
         }
         pod_pnl = acct.pm_equity_pnl()
         return {
-            "schema": SCHEMA,
+            "schema": self.schema,
             "run_id": self.run_id,
             "portfolio_id": self.portfolio_id,
             "portfolio_seal": self.portfolio_seal,
@@ -852,7 +952,10 @@ class ObservedP1Paper:
             "unresolved_exposures": acct.pm04_state.get(
                 "paper_execution", {}
             ).get("unresolved_exposures", {}),
-            "execution_policy_version": POLICY_VERSION,
+            "execution_policy_version": (
+                ESTIMATED_POLICY_VERSION if self.price_mode == "vike_minute"
+                else POLICY_VERSION
+            ),
             "execution_intents": {
                 pod: dict(acct.pm04_state["paper_execution"]["history"][intent_id])
                 for pod, intent_id in sorted(
@@ -904,6 +1007,8 @@ def main() -> None:
     parser.add_argument("--state-root", required=True, type=Path)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--portfolio", choices=tuple(PAPER_PROFILES), default="P1")
+    parser.add_argument("--price-mode", choices=("l2", "vike_minute"), default="l2")
+    parser.add_argument("--price-db", type=Path, help="Isolated Vike price journal; required for vike_minute")
     parser.add_argument("--markets-json", type=Path, help="Optional CCXT raw load_markets JSON; otherwise public REST metadata once")
     parser.add_argument("--watch", action="store_true")
     parser.add_argument("--poll-seconds", type=float, default=2.0)
@@ -919,6 +1024,8 @@ def main() -> None:
             run_id=args.run_id,
             catalog=catalog,
             portfolio_id=args.portfolio,
+            price_mode=args.price_mode,
+            price_db=args.price_db,
         )
         while True:
             print(json.dumps(consumer.step(), sort_keys=True), flush=True)

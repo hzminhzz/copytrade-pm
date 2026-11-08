@@ -23,6 +23,7 @@ The local-only read-only Marimo dashboard's authenticated foundation is document
 | Signed producer/Guardian handoff | [Production handoff](PRODUCTION-HANDOFF.md) |
 | Source acquisition and retrospective recovery | [Data acquisition](DATA-ACQUISITION.md), [Vike contract](VIKE-DATA-RECOVERY-20261106.md) |
 | Persistent public observation | [Continuous observer](FORWARD-PAPER-CONTINUOUS-OBSERVER.md) |
+| Additive Vike selected fills + 1m estimated paper candidate (not cutover) | [Vike migration and reversible observer deployment](FORWARD-PAPER-VIKE-MIGRATION-20261108.md) |
 | Isolated, registry-sealed virtual paper portfolio deployments | [Registry paper profiles](REGISTRY-PAPER-PORTFOLIOS-20261107.md) |
 | Protected standby/watchdog staging | [Protected operations](FORWARD-PAPER-PROTECTED-OPS-STAGING-20261105.md) |
 | Native capability discovery and operator commands | [Agent operations](AGENT-NATIVE-OPERATIONS.md), [Runbook](RUNBOOK.md) |

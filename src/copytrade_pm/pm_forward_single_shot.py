@@ -18,6 +18,27 @@ from .pm03_risk import RiskPolicy
 ENTRY_DELAY_SECONDS = 300
 ENTRY_GRACE_SECONDS = 30
 POLICY_VERSION = "single_shot_market_paper_v3"
+ESTIMATED_POLICY_VERSION = "single_shot_vike_minute_estimated_v4"
+
+
+def _price_order(
+    delta: D, quote: Mapping, *, step: D, minimum_notional: D, decision_at: str,
+    policy_version: str,
+) -> dict:
+    if policy_version == ESTIMATED_POLICY_VERSION:
+        if quote.get("schema") != "paper_vike_minute_estimated_quote_v1":
+            raise ValueError("PAPER_VIKE_ESTIMATED_PRICE_REQUIRED")
+        from .pm_vike_minute import EstimatedMinuteExecutionModel
+
+        return EstimatedMinuteExecutionModel().price(
+            delta, quote["vike_observation"], step=step,
+            minimum_notional=minimum_notional, decision_at=decision_at,
+        )
+    if policy_version != POLICY_VERSION or "vike_observation" in quote:
+        raise ValueError("PAPER_L2_PRICE_REQUIRED")
+    return SingleShotMarketExecutionModel().price(
+        delta, quote, step=step, minimum_notional=minimum_notional,
+    )
 
 
 def _time_plus(stamp: str, seconds: int) -> str:
@@ -130,6 +151,9 @@ def apply_paper_event(account: Account, event: Event, policy: RiskPolicy, mode: 
         raise ValueError("SINGLE_SHOT_RESEARCH_ONLY")
     raw = event.payload["input"]
     state = _new_state(account)
+    version = account.pm04_state["policy"].get("version", POLICY_VERSION)
+    if version not in (POLICY_VERSION, ESTIMATED_POLICY_VERSION):
+        raise ValueError("PAPER_EXECUTION_POLICY_UNRECOGNIZED")
     if event.kind == "PM04_PAPER_SOURCE":
         pod = raw["pod"]
         seq = raw["source_seq"]
@@ -186,7 +210,7 @@ def apply_paper_event(account: Account, event: Event, policy: RiskPolicy, mode: 
                 and pending_exit.get("reason") == "POD_RISK_LATCHED"
             )
         ):
-            exit_id = digest([event.payload["run_id"], pod, seq, "EXIT", POLICY_VERSION])
+            exit_id = digest([event.payload["run_id"], pod, seq, "EXIT", version])
             row = {
                 "exit_id": exit_id, "pod": pod, "source_seq": seq,
                 "source_sha": raw["source_sha"], "first_known_at": raw["first_known_at"],
@@ -235,7 +259,7 @@ def apply_paper_event(account: Account, event: Event, policy: RiskPolicy, mode: 
         known = raw["first_known_at"]
         if clock(known) > clock(event.decision_at) or clock(known) < clock(event.source_event_at):
             raise ValueError("SOURCE_FIRST_KNOWN_CLOCK_INVALID")
-        intent_id = digest([event.payload["run_id"], pod, seq, known, POLICY_VERSION])
+        intent_id = digest([event.payload["run_id"], pod, seq, known, version])
         if intent_id in state["history"]:
             raise ValueError("PAPER_INTENT_ID_COLLISION")
         intent = {
@@ -281,7 +305,7 @@ def apply_paper_event(account: Account, event: Event, policy: RiskPolicy, mode: 
             pending["risk_trigger_at"] = event.decision_at
             return {"status": "PENDING_RISK_EXIT_ESCALATED",
                     "exit_id": pending["exit_id"]}
-        exit_id = digest([event.payload["run_id"], pod, event.event_id, POLICY_VERSION])
+        exit_id = digest([event.payload["run_id"], pod, event.event_id, version])
         row = {
             "exit_id": exit_id, "pod": pod,
             "source_seq": state["last_source_seq"].get(pod, 0),
@@ -319,7 +343,6 @@ def apply_paper_event(account: Account, event: Event, policy: RiskPolicy, mode: 
             raise ValueError("PAPER_EXIT_UNMARKED_INVENTORY")
         account.mark(prices, event.decision_at)
         targets = {Instrument.parse(key): number(qty) for key, qty in raw["targets"].items()}
-        model = SingleShotMarketExecutionModel()
         attempts = {}
         for inst, actual in sorted(account.pm_quantities.get(pod, {}).items()):
             if not actual:
@@ -331,16 +354,20 @@ def apply_paper_event(account: Account, event: Event, policy: RiskPolicy, mode: 
                 continue
             delta = wanted - actual
             row = raw["markets"][inst.key]
-            priced = model.price(
+            priced = _price_order(
                 delta, quotes[inst.key], step=number(row["amount_step"]),
                 minimum_notional=number(row["minimum_notional"]),
+                decision_at=event.decision_at, policy_version=version,
             )
-            order_id = digest([pending["exit_id"], inst.key, POLICY_VERSION])
+            order_id = digest([pending["exit_id"], inst.key, version])
             if priced["status"] == "FILLED" and not _claim_quote_once(
                 state, inst, delta, raw["quote_shas"][inst.key],
                 order_id, pending["exit_id"], event.decision_at,
             ):
-                priced = {"status": "REJECTED_REUSED_L2_QUOTE"}
+                priced = {"status": (
+                    "REJECTED_REUSED_PRICE_OBSERVATION"
+                    if version == ESTIMATED_POLICY_VERSION else "REJECTED_REUSED_L2_QUOTE"
+                )}
             attempts[inst.key] = {"order_id": order_id, "requested": str(delta), **priced}
             if priced["status"] == "FILLED":
                 account.simulate_fill(
@@ -451,7 +478,6 @@ def apply_paper_event(account: Account, event: Event, policy: RiskPolicy, mode: 
     ):
         reasons.append("POD_STRESS_LIMIT")
     attempts = {}
-    model = SingleShotMarketExecutionModel()
     for inst, target in sorted(destination.items()):
         actual = account.pm_quantities.get(pod, {}).get(inst, ZERO)
         delta = target - actual
@@ -459,21 +485,26 @@ def apply_paper_event(account: Account, event: Event, policy: RiskPolicy, mode: 
             continue
         if delta * actual < ZERO and abs(delta) > abs(actual):
             delta = -actual
-        order_id = digest([intent["intent_id"], inst.key, POLICY_VERSION])
+        order_id = digest([intent["intent_id"], inst.key, version])
         if reasons and has_increase and abs(target) > abs(actual):
             attempts[inst.key] = {"order_id": order_id, "status": "REJECTED_RISK",
                                   "rejections": sorted(set(reasons)), "requested": str(delta)}
             continue
         if delta and (delta * actual >= ZERO or abs(delta) <= abs(actual)):
             market = raw["markets"][inst.key]
-            priced = model.price(delta, quotes[inst.key],
-                                 step=number(market["amount_step"]),
-                                 minimum_notional=number(market["minimum_notional"]))
+            priced = _price_order(delta, quotes[inst.key],
+                                  step=number(market["amount_step"]),
+                                  minimum_notional=number(market["minimum_notional"]),
+                                  decision_at=event.decision_at,
+                                  policy_version=version)
             if priced["status"] == "FILLED" and not _claim_quote_once(
                 state, inst, delta, raw["quote_shas"][inst.key],
                 order_id, intent["intent_id"], event.decision_at,
             ):
-                priced = {"status": "REJECTED_REUSED_L2_QUOTE"}
+                priced = {"status": (
+                    "REJECTED_REUSED_PRICE_OBSERVATION"
+                    if version == ESTIMATED_POLICY_VERSION else "REJECTED_REUSED_L2_QUOTE"
+                )}
             attempts[inst.key] = {"order_id": order_id, "requested": str(delta), **priced}
             if priced["status"] == "FILLED":
                 qty = number(priced["quantity"])
