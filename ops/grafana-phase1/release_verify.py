@@ -74,11 +74,35 @@ def verify(root: Path = ROOT) -> dict:
     }
 
 
+def verify_approved(root: Path, *, expected_bundle_sha256: str) -> dict:
+    """Compare source bytes against an independently supplied approved pin.
+
+    This does not prove installed container identity or a working rollback.
+    """
+    if len(expected_bundle_sha256) != 64 or any(
+        char not in "0123456789abcdef" for char in expected_bundle_sha256
+    ):
+        raise ValueError("INVALID_APPROVED_BUNDLE_PIN")
+    result = verify(root)
+    if result["sha256"] != expected_bundle_sha256:
+        raise ValueError("UNAPPROVED_RELEASE_BUNDLE")
+    return result
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, default=ROOT)
+    parser.add_argument(
+        "--expected-bundle-sha256",
+        help="Independently approved SHA256; required for release admission",
+    )
     args = parser.parse_args()
-    result = verify(args.root.resolve())
+    result = (
+        verify_approved(args.root.resolve(), expected_bundle_sha256=args.expected_bundle_sha256)
+        if args.expected_bundle_sha256
+        else verify(args.root.resolve())
+    )
+    result["release_admitted"] = bool(args.expected_bundle_sha256)
     revision = subprocess.run(
         ["git", "-C", str(args.root.resolve()), "rev-parse", "HEAD"],
         capture_output=True,

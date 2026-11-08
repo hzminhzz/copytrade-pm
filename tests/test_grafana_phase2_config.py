@@ -77,6 +77,25 @@ def test_versioned_source_bundle_rejects_bad_release_and_restores_baseline(tmp_p
     assert verify(ROOT)["sha256"] == expected["sha256"]
 
 
+def test_release_verifier_rejects_valid_but_unapproved_artifacts(tmp_path):
+    release = runpy.run_path(str(OPS / "release_verify.py"))
+    verify = release["verify"]
+    baseline = verify(ROOT)
+    for name in release["SOURCES"]:
+        target = tmp_path / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / name, target)
+    release["verify_approved"](tmp_path, expected_bundle_sha256=baseline["sha256"])
+    dashboard = tmp_path / "ops/grafana-phase1/dashboards/execution.json"
+    data = json.loads(dashboard.read_text())
+    data["title"] += " (unauthorized change)"
+    dashboard.write_text(json.dumps(data))
+    # Structurally valid dashboards must not be admitted by self-fingerprinting.
+    assert verify(tmp_path)["sha256"] != baseline["sha256"]
+    with pytest.raises(ValueError, match="UNAPPROVED_RELEASE_BUNDLE"):
+        release["verify_approved"](tmp_path, expected_bundle_sha256=baseline["sha256"])
+
+
 def test_projection_image_and_staging_config_retain_isolation():
     projection = (OPS / "Dockerfile.projection").read_text()
     assert "grafana_capabilities.py" in projection
