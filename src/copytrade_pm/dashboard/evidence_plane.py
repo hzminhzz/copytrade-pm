@@ -229,7 +229,7 @@ def _safe_projection(value: dict) -> dict:
 
     capabilities = value.get("capabilities")
     if capabilities is not None:
-        capabilities = validate_capabilities(capabilities)
+        capabilities = validate_capabilities(capabilities, asof=observed)
     return {
         **({"capabilities": capabilities} if capabilities is not None else {}),
         **({"history": history} if value["synthetic"] else {}),
@@ -342,21 +342,12 @@ def read_generation(
     ]
     publisher_stale = age > MAX_AGE_SECONDS
     risk_stale = publisher_stale or any(x > MAX_AGE_SECONDS for x in observed_ages)
-    for section in projection.get("capabilities", {}).values():
-        if not isinstance(section, dict) or "status" not in section:
-            continue
-        source_time = parse_utc(section.get("source_observed_at"))
-        source_stale = (
-            source_time is not None and (now - source_time).total_seconds() > MAX_AGE_SECONDS
+    if "capabilities" in projection:
+        from .grafana_capabilities import age_capabilities
+
+        projection["capabilities"] = age_capabilities(
+            projection["capabilities"], now=now, published=published, max_age=MAX_AGE_SECONDS
         )
-        if (publisher_stale or source_stale) and section["status"] == "VERIFIED":
-            section["status"] = "STALE"
-            section["error_code"] = "EVIDENCE_AGE_EXCEEDED"
-            for item in section["rows"]:
-                if item.get("grade") == "VERIFIED":
-                    item["grade"] = "STALE"
-                if item.get("source_grade") == "VERIFIED":
-                    item["source_grade"] = "STALE"
     if risk_stale:
         for row in projection["metrics"]:
             if row["grade"] == "VERIFIED":
@@ -466,7 +457,7 @@ def publish_once(
     from .grafana_projection import build_projection
 
     trusted_reader = reader if reader is not None else DashboardReader()
-    result = build_projection(trusted_reader)
+    result = build_projection(trusted_reader, clock=clock)
     payload = encode_generation(result, now=clock())
     publish_atomic(directory, payload)
     return payload

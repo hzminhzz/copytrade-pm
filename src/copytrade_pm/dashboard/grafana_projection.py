@@ -11,7 +11,8 @@ import hmac
 import json
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
+from datetime import datetime
 
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -26,7 +27,9 @@ FIXTURE_PATH = "/v1/fixture-states"
 MAX_BYTES = 131_072
 
 
-def build_projection(reader: "DashboardReader") -> dict:
+def build_projection(
+    reader: "DashboardReader", *, clock: Callable[[], datetime] | None = None
+) -> dict:
     """Publisher-only adapter. The HTTP gateway never calls this function."""
     from .adapter import safe_text, safe_decimal
 
@@ -94,12 +97,18 @@ def build_projection(reader: "DashboardReader") -> dict:
         for x in snapshot.get("incidents", [])[:40]
         if safe_text(x, 96)
     ]
-    from .grafana_capabilities import build_capabilities
+    from .grafana_capabilities import build_capabilities, qualify_capabilities
+    from .evidence_plane import parse_utc
 
+    # Capture all independent reads first. Publisher generation is the end of
+    # this bounded read cycle, never the timestamp of its first overview read.
+    capabilities = build_capabilities(reader)
+    generated = clock() if clock is not None else parse_utc(snapshot["retrieved_at"])
+    capabilities = qualify_capabilities(capabilities, asof=generated)
     return {
-        "capabilities": build_capabilities(reader),
+        "capabilities": capabilities,
         "schema": "grafana_account_risk_v1",
-        "generated_at": snapshot["retrieved_at"],
+        "generated_at": generated.isoformat(),
         "coverage": "VERIFIED" if all(r["grade"] == "VERIFIED" for r in rows) else "INCOMPLETE",
         "synthetic": False,
         "trading_authorized": False,
@@ -189,19 +198,20 @@ def create_app(
         # indicators, never evidence of Guardian financial health.
         published_age = result.get("publication_age_seconds")
         capabilities = result.get("capabilities") or {}
+        from .grafana_capabilities import operational_incident
+        from .evidence_plane import FINANCE
+
+        finance = [r for r in result["metrics"] if r["metric"] in FINANCE]
+        # Account membership is optional presentation context, not a fifth
+        # critical finance metric. Missing optional operational sources are not incidents.
         result["monitoring"] = {
             "generation_fault": int(
                 not isinstance(published_age, (int, float))
                 or published_age > 45
                 or result.get("generation_sha256") is None
             ),
-            "account_evidence_fault": int(result.get("coverage") != "VERIFIED"),
-            "operational_evidence_fault": int(
-                any(
-                    capabilities.get(key, {}).get("status") != "VERIFIED"
-                    for key in ("portfolios", "execution", "health", "wallets")
-                )
-            ),
+            "account_evidence_fault": int(any(r["grade"] in {"STALE", "BLOCKED"} for r in finance)),
+            "operational_evidence_fault": int(operational_incident(capabilities)),
         }
         payload = json.dumps(result, separators=(",", ":"), allow_nan=False).encode()
         if len(payload) > MAX_BYTES:

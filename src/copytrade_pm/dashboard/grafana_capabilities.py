@@ -6,6 +6,7 @@ No account finance is reconstructed from research metadata or process liveness.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 CAPABILITY_SCHEMA = "grafana_operational_capabilities_v1"
@@ -54,6 +55,9 @@ FIELDS = {
 MAX_ROWS = {"portfolios": 25, "execution": 25, "health": 18, "wallets": 50}
 STATES = {"VERIFIED", "DEGRADED", "STALE", "BLOCKED", "UNKNOWN", "UNAVAILABLE"}
 MAX_TEXT = 96
+# A market order can legitimately fill a few seconds after the due instant.
+# Beyond this bound the latest owner-authenticated fill is an execution exception.
+FILL_LATENESS_MS = 5_000
 
 
 def _text(value: object) -> str | None:
@@ -86,6 +90,7 @@ def _rows(
     authority: str,
     observed: str | None = None,
     error: str | None = None,
+    completeness: str | None = None,
 ) -> dict:
     from .evidence_plane import EvidenceInvalid
 
@@ -125,11 +130,38 @@ def _rows(
         if "source_grade" in item and item["source_grade"] not in STATES:
             raise EvidenceInvalid("OPERATIONAL_ROW_GRADE")
         clean.append(item)
+    if completeness is None:
+        completeness = (
+            "COMPLETE"
+            if clean and status == "VERIFIED"
+            else (
+                "EMPTY"
+                if status == "VERIFIED" and not clean
+                else "UNAVAILABLE"
+                if status == "UNAVAILABLE"
+                else "INCOMPLETE"
+            )
+        )
+    if completeness not in {"COMPLETE", "EMPTY", "INCOMPLETE", "UNAVAILABLE"}:
+        raise EvidenceInvalid("OPERATIONAL_COMPLETENESS_INVALID")
+    if status == "VERIFIED" and completeness not in {"COMPLETE", "EMPTY"}:
+        raise EvidenceInvalid("OPERATIONAL_CONTRADICTORY_COMPLETENESS")
+    if status == "VERIFIED" and any(
+        item.get("grade", item.get("source_grade", "UNKNOWN")) != "VERIFIED" for item in clean
+    ):
+        raise EvidenceInvalid("OPERATIONAL_CONTRADICTORY_VERIFICATION")
+    if status in {"UNKNOWN", "UNAVAILABLE", "STALE", "BLOCKED"} and any(
+        item.get("grade", item.get("source_grade")) == "VERIFIED" for item in clean
+    ):
+        raise EvidenceInvalid("OPERATIONAL_CONTRADICTORY_PARENT")
+    if status == "VERIFIED" and observed is None:
+        raise EvidenceInvalid("OPERATIONAL_VERIFIED_MISSING_SOURCE_CLOCK")
     return {
         "status": status,
         "authority": authority,
         "source_observed_at": observed,
         "error_code": _text(error),
+        "completeness": completeness,
         "rows": clean,
     }
 
@@ -166,7 +198,7 @@ def unavailable(name: str, reason: str = "NATIVE_EVIDENCE_UNAVAILABLE") -> dict:
     return _rows(name, [row], status="UNAVAILABLE", authority=authority, error=reason)
 
 
-def validate_capabilities(value: object) -> dict:
+def validate_capabilities(value: object, *, asof: datetime | None = None) -> dict:
     from .evidence_plane import EvidenceInvalid
 
     if (
@@ -183,6 +215,7 @@ def validate_capabilities(value: object) -> dict:
             "authority",
             "source_observed_at",
             "error_code",
+            "completeness",
             "rows",
         }:
             raise EvidenceInvalid("OPERATIONAL_SECTION_INVALID")
@@ -193,8 +226,76 @@ def validate_capabilities(value: object) -> dict:
             authority=item["authority"],
             observed=item["source_observed_at"],
             error=item["error_code"],
+            completeness=item["completeness"],
         )
+        if asof is not None:
+            from .evidence_plane import parse_utc
+
+            times = [result[name]["source_observed_at"]]
+            times.extend(row.get("source_time") for row in result[name]["rows"])
+            times.extend(row.get("asof") for row in result[name]["rows"])
+            if any(parse_utc(t) > asof for t in times if t is not None):
+                raise EvidenceInvalid("FUTURE_CAPABILITY_SOURCE_CLOCK")
     return result
+
+
+def age_capabilities(value: dict, *, now: datetime, published: datetime, max_age: int) -> dict:
+    """The only row/section freshness transition policy; never refresh from HTTP time."""
+    from .evidence_plane import parse_utc
+
+    aged = validate_capabilities(value)
+    publisher_stale = (now - published).total_seconds() > max_age
+    for name in FIELDS:
+        section = aged[name]
+        source = parse_utc(section["source_observed_at"])
+        section_stale = publisher_stale or (
+            source is not None and (now - source).total_seconds() > max_age
+        )
+        for row in section["rows"]:
+            row_time = parse_utc(row.get("source_time")) if row.get("source_time") else None
+            row_stale = section_stale or (
+                row_time is not None and (now - row_time).total_seconds() > max_age
+            )
+            if row_stale:
+                for field in ("grade", "source_grade"):
+                    if row.get(field) == "VERIFIED":
+                        row[field] = "STALE"
+                if section["status"] == "VERIFIED" or row_time is not None:
+                    section_stale = True
+        if section_stale:
+            if section["status"] == "VERIFIED":
+                section["status"] = "STALE"
+            if section["status"] == "DEGRADED":
+                section["status"] = "STALE"
+            section["error_code"] = "EVIDENCE_AGE_EXCEEDED"
+            section["completeness"] = "INCOMPLETE"
+    return aged
+
+
+def operational_incident(capabilities: dict) -> bool:
+    """Only authenticated observed faults, not routine unavailable optional sources."""
+    for row in capabilities.get("health", {}).get("rows", []):
+        if row.get("source_grade") == "VERIFIED" and row.get("reported_state") in {
+            "HALTED",
+            "FAILED",
+            "DIVERGENT",
+            "ERROR",
+            "STOPPED",
+            "INACTIVE",
+        }:
+            return True
+    return any(
+        row.get("grade") == "DEGRADED"
+        and row.get("reason")
+        in {
+            "MULTIPLE_ORDER_INTENTS",
+            "FILL_LATE_BROKER_RECEIPT",
+            "DECISION_LATE",
+            "TRUNCATED_NATIVE_RECEIPTS",
+            "DUPLICATE_BROKER_FILL_ID",
+        }
+        for row in capabilities.get("execution", {}).get("rows", [])
+    )
 
 
 def _get(reader: object, method: str, *, kwargs: dict | None = None) -> dict:
@@ -207,7 +308,55 @@ def _get(reader: object, method: str, *, kwargs: dict | None = None) -> dict:
     return answer
 
 
-def build_capabilities(reader: object) -> dict:
+def _execution_observed(source: dict) -> str | None:
+    """An owner capture clock, never the observer's own retrieval time."""
+    from .evidence_plane import parse_utc
+
+    sources = source.get("sources")
+    if not isinstance(sources, dict):
+        return None
+    clocks = []
+    identities = set()
+    for key in ("status", "portfolio", "intent", "broker"):
+        item = sources.get(key)
+        if not isinstance(item, dict) or item.get("status") != "VERIFIED":
+            return None
+        observed = _clock(item.get("source_observed_at"))
+        if observed is None:
+            return None
+        clocks.append(observed)
+        identities.add(
+            (
+                item.get("account_binding_sha"),
+                item.get("revision"),
+                item.get("journal_sequence"),
+                item.get("captured_at"),
+            )
+        )
+    if len(identities) != 1 or any(value is None for value in next(iter(identities))):
+        return None
+    return min(clocks, key=lambda t: parse_utc(t))
+
+
+def _source_time_valid(section: dict, *, asof: datetime) -> bool:
+    from .evidence_plane import parse_utc
+
+    values = [section.get("source_observed_at")]
+    for row in section.get("rows", []):
+        values.extend((row.get("source_time"), row.get("asof")))
+    return all(t is None or (parse_utc(t) is not None and parse_utc(t) <= asof) for t in values)
+
+
+def qualify_capabilities(value: dict, *, asof: datetime) -> dict:
+    """Quarantine a future-dated capability without discarding independent evidence."""
+    result = validate_capabilities(value)
+    for name in FIELDS:
+        if not _source_time_valid(result[name], asof=asof):
+            result[name] = unavailable(name, "CAUSALLY_INVALID_SOURCE_CLOCK")
+    return validate_capabilities(result, asof=asof)
+
+
+def build_capabilities(reader: object, *, asof: datetime | None = None) -> dict:
     """Separate read failures by capability. Never promote availability by guess."""
     result: dict = {"schema": CAPABILITY_SCHEMA}
     for name, method, kwargs in (
@@ -245,7 +394,7 @@ def build_capabilities(reader: object) -> dict:
                     )
                 result[name] = _rows(
                     name,
-                    rows or unavailable(name)["rows"],
+                    rows if status == "VERIFIED" else rows or unavailable(name)["rows"],
                     status=status if status in STATES else "UNKNOWN",
                     authority="canonical_sqlite_research_metadata",
                     observed=_clock(source.get("catalog", {}).get("source_observed_at"))
@@ -275,23 +424,51 @@ def build_capabilities(reader: object) -> dict:
                         and type(due) is int
                         and due == first + 300_000
                     ):
-                        grade = "VERIFIED"
-                        reason = (
-                            "SINGLE_INTENT_UNCONFIRMED"
-                            if entry.get("confirmed_fills", 0) == 0
-                            else "CHECK_BROKER_RECEIPTS"
-                        )
-                        if (
-                            type(entry.get("batch_decision_at")) is int
-                            and entry["batch_decision_at"] > due
-                        ):
-                            reason = "DECISION_LATE"
+                        # Owner receipts, never the planned schedule, qualify execution.
+                        decision = entry.get("batch_decision_at")
+                        accepted = entry.get("broker_acceptance_at")
+                        filled = entry.get("broker_fill_at")
+                        intent_at = entry.get("guardian_intent_at_ms")
                         if (
                             intent_groups.get((entry.get("decision_id"), entry.get("market")), 0)
                             > 1
                         ):
-                            reason = "MULTIPLE_ORDER_INTENTS"
-                            grade = "DEGRADED"
+                            grade, reason = "DEGRADED", "MULTIPLE_ORDER_INTENTS"
+                        elif type(decision) is int and decision > due:
+                            grade, reason = "DEGRADED", "DECISION_LATE"
+                        elif type(intent_at) is int and intent_at < due:
+                            grade, reason = "DEGRADED", "INTENT_BEFORE_DUE"
+                        elif (
+                            type(filled) is int
+                            and entry.get("fill_trace_status") == "VERIFIED_OWNER_FILL_ID"
+                            and filled > due + FILL_LATENESS_MS
+                        ):
+                            grade, reason = "DEGRADED", "FILL_LATE_BROKER_RECEIPT"
+                        elif accepted is None:
+                            grade, reason = (
+                                "UNKNOWN",
+                                "SINGLE_INTENT_UNCONFIRMED"
+                                if not entry.get("confirmed_fills")
+                                else "BROKER_ACCEPTANCE_UNAVAILABLE",
+                            )
+                        elif (
+                            type(accepted) is int
+                            and accepted >= due
+                            and type(filled) is int
+                            and filled >= accepted
+                            and source.get("reconciliation") == "RECONCILED"
+                            and entry.get("fill_trace_status") == "VERIFIED_OWNER_FILL_ID"
+                        ):
+                            grade, reason = "VERIFIED", "RECONCILED_SINGLE_MARKET_ORDER"
+                        else:
+                            grade, reason = "UNKNOWN", "BROKER_EXECUTION_UNQUALIFIED"
+                    if source.get("truncated") or source.get("duplicate_fill_identity"):
+                        grade, reason = (
+                            "DEGRADED",
+                            "TRUNCATED_NATIVE_RECEIPTS"
+                            if source.get("truncated")
+                            else "DUPLICATE_BROKER_FILL_ID",
+                        )
                     rows.append(
                         dict(
                             intent=_text(entry.get("intent_id")),
@@ -312,9 +489,16 @@ def build_capabilities(reader: object) -> dict:
                     )
                 result[name] = _rows(
                     name,
-                    rows or unavailable(name)["rows"],
-                    status="VERIFIED" if coherent else "UNKNOWN",
+                    rows if coherent else rows or unavailable(name)["rows"],
+                    status="DEGRADED"
+                    if source.get("truncated") or any(r["grade"] == "DEGRADED" for r in rows)
+                    else "VERIFIED"
+                    if coherent
+                    and all(r["grade"] == "VERIFIED" for r in rows)
+                    and _execution_observed(source) is not None
+                    else "UNKNOWN",
                     authority="protected_guardian_owner_receipts",
+                    observed=_execution_observed(source),
                     error="TRUNCATED_NATIVE_RECEIPTS" if source.get("truncated") else None,
                 )
             elif name == "health":
@@ -328,7 +512,14 @@ def build_capabilities(reader: object) -> dict:
                         dict(
                             component=component,
                             reported_state=_text(item.get("state")) or "UNKNOWN",
-                            source_grade=status if status in STATES else "UNKNOWN",
+                            source_grade=(
+                                "BLOCKED"
+                                if status == "VERIFIED"
+                                and _clock(item.get("source_observed_at")) is None
+                                else status
+                                if status in STATES
+                                else "UNKNOWN"
+                            ),
                             source_time=_clock(item.get("source_observed_at")),
                             authority=_text(item.get("authority")) or "unverified_source",
                             reason=_text(
@@ -354,7 +545,9 @@ def build_capabilities(reader: object) -> dict:
                 result[name] = _rows(
                     name,
                     rows or unavailable(name)["rows"],
-                    status="UNKNOWN",
+                    status="DEGRADED"
+                    if any(r["source_grade"] == "VERIFIED" for r in rows)
+                    else "UNKNOWN",
                     authority="independent_operational_observations",
                     observed=_clock(source.get("retrieved_at")),
                 )
@@ -381,12 +574,16 @@ def build_capabilities(reader: object) -> dict:
                     )
                 result[name] = _rows(
                     name,
-                    rows or unavailable(name)["rows"],
+                    rows if status == "VERIFIED" else rows or unavailable(name)["rows"],
                     status=status if status in STATES else "UNKNOWN",
                     authority="canonical_sqlite_registry",
                     observed=_clock(source.get("source_observed_at")),
                     error=_text(source.get("error_code")),
                 )
-        except ValueError, TypeError, KeyError, OverflowError:
+        except ValueError, TypeError, KeyError, OverflowError, RuntimeError:
             result[name] = unavailable(name)
-    return validate_capabilities(result)
+    return (
+        qualify_capabilities(result, asof=asof)
+        if asof is not None
+        else validate_capabilities(result)
+    )
