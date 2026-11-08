@@ -76,6 +76,14 @@ def collect_once(
     available = minute_latest(doc, received_at=received_at)
     missing = sorted(markets - available.keys())
     recorded = duplicate = 0
+    availability = {
+        market: {
+            "price_status": "ESTIMATED_TRADE_PRICE" if market in available else "MISSING_PROVIDER_ROW",
+            "propr_orderability": "UNKNOWN",
+            "execution_liquidity_verified": False,
+        }
+        for market in sorted(markets)
+    }
     for market in sorted(markets & available.keys()):
         outcome = journal.append_vike_minute(available[market])
         if outcome["status"] == "RECORDED_ESTIMATED_PRICE_ONLY":
@@ -89,6 +97,7 @@ def collect_once(
         "recorded": recorded,
         "duplicates": duplicate,
         "missing_native_markets": missing,
+        "market_availability": availability,
         "status": "OBSERVED_PRICES_ONLY" if not missing else "BLOCKED_INCOMPLETE_MARKET_SCOPE",
         "order_route": "NONE",
         "broker_executed": False,

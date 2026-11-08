@@ -42,6 +42,12 @@ def test_missing_selected_market_is_explicit_and_never_backfilled(tmp_path):
     )
     assert result["status"] == "BLOCKED_INCOMPLETE_MARKET_SCOPE"
     assert result["missing_native_markets"] == ["ETH"]
+    assert result["market_availability"]["ETH"] == {
+        "price_status": "MISSING_PROVIDER_ROW",
+        "propr_orderability": "UNKNOWN",
+        "execution_liquidity_verified": False,
+    }
+    assert result["market_availability"]["BTC"]["price_status"] == "ESTIMATED_TRADE_PRICE"
     assert result["broker_executed"] is False
 
 
