@@ -140,6 +140,8 @@ remain immediate. Preserve PM-03/04 finance, frozen fixed k, separate pod
 budgets, unresolved inventory and one terminal modeled attempt. No funded
 authorization or service cutover. See
 [the binding decision](docs/decisions/2026-11-08-position-first-t300.md).
+For user-authorized V4 read-only installation and rollback, use the
+[separate V4 release runbook](docs/V4-POSITION-FIRST-DEPLOY-20261108.md).
 
 For persistent acquisition use [the continuous observer runbook](docs/FORWARD-PAPER-CONTINUOUS-OBSERVER.md).
 Preflight and diagnostics do not admit startup. Measure shared-IP budgets and

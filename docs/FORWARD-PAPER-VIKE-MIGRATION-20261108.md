@@ -31,11 +31,14 @@ reconnect epoch drift or a changed unprocessed latest book cancels pending new
 risk; held financial inventory is never silently flattened. The older V3
 run IDs, source evidence and paper journals remain unaffected.
 
-The code is an **unmerged V4 research candidate**. All active runtime
-services, Guardian, Grafana, CCXT, funded/demo broker routes and existing
-P1/P14/P16 V3 journals remain unchanged. Real provider/position and PnL
-acceptance, current Propr scope, native session eligibility, research
-economics and permission for a future CCXT cutover remain separate unknowns.
+On 2026-11-08, the operator subsequently authorized **merging PR #206
+and deploying a separate virtual-paper V4**. The binding
+[deploy/rollback runbook](V4-POSITION-FIRST-DEPLOY-20261108.md)
+specifies the allowed quant-owned service boundary and independent verification;
+the current installed state must be checked live. Guardian, Grafana, funded/demo
+broker routes and P1/P14/P16 V3 journals are outside this authorization.
+Live transition/PnL acceptance, account-specific Propr orderability and
+permission to **retire CCXT** remain separate unknowns.
 
 **Scope:** read-only selected-wallet observation and modeled virtual-paper prices.
 **No Grafana, Guardian, broker, funded account, trading authority, or old v3
@@ -175,15 +178,16 @@ or financial readiness.
 
 ## Before any service cutover
 
-1. Validate independent original selected-wallet identities and complete
-   all-DEX position receipts (including required HIP-3 and deliberately selected
-   subaccount scope), Vike native IDs and sub-$1,000 fills in the same live
-   window. Do not mistake one selected-wallet canary for full completeness.
+1. Verify the exact SQLite-selected parent accounts and complete official
+   all-DEX position baselines, native/HIP-3 identity and new first-known
+   **prospective position transitions**. Vike `hl.fills` is optional audit
+   evidence, not a mandatory admission gate. A short baseline-only canary
+   does not prove transition fidelity.
 2. Prove authentic
-   `live Vike fill → verified selected position state → durable new source receipt
+   `official complete selected position change → immutable linked source receipt
    → T+300 one modeled entry → immediate modeled exit → PM03 accounting`.
-   This precise production-like chain is **not yet verified** by the tests
-   of the isolated price execution path.
+   Record UNKNOWN when no live post-baseline source transition occurs; do not
+   invent a fill or reuse a reconnect baseline.
 3. Run bounded restart, socket 4410 replacement, three-day cursor expiry,
    REST catch-up, missing HIP-3 symbol and stale price fault tests against real
    provider traffic. Measure latency, minute price availability, fees,

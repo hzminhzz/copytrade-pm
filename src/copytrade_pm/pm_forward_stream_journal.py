@@ -295,7 +295,12 @@ def verify_official_position_transition(
             or event.get("epoch") != receipt["stream_epoch"]
             or event.get("first_known_at") != receipt.get("first_known_at")
             or event.get("source_event_at") != receipt.get("source_event_at")
-            or event.get("raw_sha") != receipt.get("source_sha")
+            or digest(event.get("details", {}).get("native_frame"))
+            != receipt.get("source_sha")
+            or (
+                event.get("details", {}).get("native_wire") is None
+                and event.get("raw_sha") != receipt.get("source_sha")
+            )
             or event.get("details", {}).get("classification") != "OBSERVED_STATE_CHANGE"
             or not event.get("details", {}).get("position_changes")
             or event.get("checkpoint", {}).get("positions")
@@ -303,8 +308,15 @@ def verify_official_position_transition(
             or event.get("checkpoint", {}).get("last_receipt_sha") != digest(receipt)
         ):
             return False
-        # A subsequent connection gap invalidates all earlier queued entry
-        # opportunities. A fresh BASELINE is recovery, never a new signal.
+        # Even a same-epoch GAP followed by a new BASELINE invalidates the
+        # earlier new-risk intent. Do not rely on epoch comparison alone.
+        interruption = db.execute(
+            "SELECT 1 FROM observer_stream_events WHERE stream_id=? AND seq>? "
+            "AND json_extract(payload, '$.kind') IN ('GAP','BASELINE','SCOPE') LIMIT 1",
+            (sid, seq),
+        ).fetchone()
+        if interruption is not None:
+            return False
         head = _head(db, sid)
         state = head["checkpoint"]
         return (
