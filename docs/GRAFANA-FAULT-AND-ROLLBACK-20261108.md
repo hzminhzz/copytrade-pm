@@ -4,6 +4,9 @@ Evidence for #189 (reproducible release with rollback) and #190 (alert
 transitions, performance). Isolated staging stack on Tailscale HTTPS 8444.
 No protected service, Guardian, broker or registry state was touched.
 
+**These tests do not close #189 or #190.** The gaps that remain are listed at
+the end, and two of them are mandatory gates.
+
 ## Alert transition matrix
 
 Rules are file-provisioned from `ops/grafana-phase1/provisioning/alerting/operational.json`,
@@ -20,50 +23,82 @@ owner browser session.
 | Publisher restarted, age 9.9s | inactive | inactive | inactive |
 | Projection stopped (datasource error) | **firing / error** | **firing / error** | **firing / error** |
 | Projection restarted | inactive / ok | inactive / ok | inactive / ok |
+| Grafana restarted (`docker compose restart grafana`) | inactive / ok | inactive / ok | inactive / ok |
 
 No transition produced a false-green state: a dead datasource raises all three
-rules rather than reporting healthy.
+rules rather than reporting healthy. After the Grafana restart all three rules
+re-evaluated to `inactive/ok` and the dashboards re-rendered.
 
-While stale, the Risk Command dashboard showed `ACCOUNT EVIDENCE COVERAGE:
-INCOMPLETE`, publication age `2.4 mins` then `3.4 mins` (threshold red), and the
-finance rows stayed `UNAVAILABLE` with `PROTECTED_CAPTURE_UNAVAILABLE`.
+While stale, Risk Command showed `ACCOUNT EVIDENCE COVERAGE: INCOMPLETE`,
+publication age `2.4 mins` then `3.4 mins` (threshold red), and the finance rows
+stayed `UNAVAILABLE` with `PROTECTED_CAPTURE_UNAVAILABLE`.
+
+### NoData is not reachable for these rules
+
+`noDataState: Alerting` is configured, but the gateway always emits a
+`monitoring` block — `grafana_projection.py` sets it on both the
+`read_generation` path and the `no_evidence` fail-closed path before
+responding. The Infinity query therefore always returns a value, and the
+equivalent failure surfaces as the **error** transition above. NoData was not
+demonstrated and cannot be without changing the gateway contract.
 
 ## Release rollback
 
-Installed release `~/.local/share/copytrade-grafana/current`, approved bundle
-`aecf29bdbb6f8646a29b87c32f1e1be4dd1895ae29088e934626badd683bad65`.
+Three releases are installed under `~/.local/share/copytrade-grafana/releases/`.
 
-1. Tampered one provisioned dashboard (structurally valid JSON, panel height
-   changed) in the mounted release directory.
-2. `release_verify.py --expected-bundle-sha256 <approved>` → **`UNAPPROVED_RELEASE_BUNDLE`**,
-   fail closed. A structurally valid edit cannot self-admit.
-3. Restored the file from the pinned release.
-4. Re-ran the verifier → bundle SHA matches the approved value, `release_admitted: true`.
-5. Re-ran browser acceptance → 6/6 route/viewport checks pass, no horizontal overflow.
+| Step | Action | Observed |
+|---|---|---|
+| 1 | `current` → `153ae4f` (previous good), recreate grafana | Grafana healthy; Risk Command shows the **time picker** and coverage columns in alphabetical order — the pre-fix release is genuinely served |
+| 2 | `current` → `96898de` (current), recreate grafana | Time picker hidden, `Coverage` before `Age seconds` — the fixed release is served again |
+
+Rollback and forward restore both verified by observable dashboard differences,
+not by container state alone.
+
+### Bad-config provisioning failure
+
+A candidate release with `dashboards/health.json` replaced by invalid JSON:
+
+- Grafana **starts** and `/api/health` returns `database: ok`.
+- Provisioning logs, every 15s:
+  `failed to load dashboard from /etc/grafana/staging-dashboards/health.json error="invalid character 't' looking for beginning of object key string"`.
+- The health dashboard route is unavailable; `risk-command` still loads.
+- Restoring `current` to `96898de` and recreating grafana brings the health
+  dashboard back.
+
+Blast radius is one dashboard, not the stack.
+
+### Bundle fingerprint — detection only, not admission
+
+`release_verify.py` over the installed release yields bundle
+`aecf29bdbb6f8646a29b87c32f1e1be4dd1895ae29088e934626badd683bad65`.
+A structurally valid dashboard edit (one panel height changed) is rejected with
+`UNAPPROVED_RELEASE_BUNDLE` when that value is passed as
+`--expected-bundle-sha256`.
+
+**That SHA was derived from the same installed bundle, so this proves tamper
+detection, not independent admission.** #189 requires an independently approved
+pin; that approval does not exist yet and this test does not substitute for it.
 
 ## Performance
 
-Cold render of the five dashboards at 1280×800, 390×844 and 430×932, measured by
-`ops/grafana-phase1/browser_acceptance.py` across four runs on the live staging
-stack:
-
-| Run | p50 | p95 (nearest rank) |
+| Harness | Coverage | Result |
 |---|---|---|
-| 1 | 4185 ms | 4368 ms |
-| 2 | 4318 ms | 4502 ms |
-| 3 | 3997 ms | 4208 ms |
-| 4 | 4033 ms | 4432 ms |
+| `browser_acceptance.py` | 2 dashboards × 3 viewports | p50 3.99–4.32 s, p95 4.21–4.50 s over four runs |
+| `browser_phase2.py` | 5 dashboards × 3 viewports | 15/15 pass, no horizontal overflow |
 
 **The provisional #180 target of p95 < 2 s is not met.** p95 sits at 4.2–4.5 s.
-This is a measured finding, not a pass: either the target is revised or the
-dashboards need fewer Infinity round-trips per load.
+Measured finding, not a pass.
 
-## Still unverified
+## Gates that remain open
 
-- Authentic protected Guardian finance (the publisher has no protected capture,
-  so every financial cell is `UNAVAILABLE`).
-- Genuine non-owner Tailscale principal denial (#184) — deferred by operator
-  decision.
-- Protected Guardian journal continuity and reconciliation cadence during load.
-- Independent visual review by a second reviewer.
-- Installed bad-plugin / failed-start rollback (only bad-config was exercised).
+- **Independent approval of the release bundle SHA** — the admission test above is circular.
+- **Authentic protected Guardian finance** — the publisher has no protected
+  capture, so every financial cell is `UNAVAILABLE`.
+- **Genuine non-owner Tailscale principal denial** (#184) — deferred by operator
+  decision, not passed.
+- **Protected Guardian journal continuity and reconciliation cadence** during
+  load — not attempted.
+- **Independent visual review** by a second reviewer — screenshots exist, no
+  human signoff.
+- **NoData transition** — unreachable without changing the gateway contract.
+- **Bad-plugin rollback** — only bad config was exercised.
