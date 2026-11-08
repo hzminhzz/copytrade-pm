@@ -82,7 +82,9 @@ from pathlib import Path
 import json
 from copytrade_pm.pm_forward_propr_universe import build_propr_public_socket_layout
 
-source = Path("/home/quant/.local/share/copytrade/reports/five-pod-20261029-research/PROPR_PUBLIC_ASSET_UNIVERSE_20261030.json")
+source = Path(
+    "/home/quant/.local/share/copytrade/reports/five-pod-20261029-research/PROPR_PUBLIC_ASSET_UNIVERSE_20261030.json"
+)
 layout = build_propr_public_socket_layout(
     source, top40_layout_path=Path("docs/FORWARD-PAPER-MARKET-TOP40-SHARDS-20261105.json")
 )

@@ -33,7 +33,9 @@ from .pm_forward_portfolios import FrozenPaperPortfolio, P1
 from .pm_forward_single_shot import POLICY_VERSION, ESTIMATED_POLICY_VERSION
 from .pm_vike_minute import SCHEMA as VIKE_MINUTE_SCHEMA
 from .pm_vike_market_catalog import (
-    NativePaperContract, load_propr_catalog, official_paper_contracts,
+    NativePaperContract,
+    load_propr_catalog,
+    official_paper_contracts,
 )
 from .pm_forward_stream_journal import verify_official_position_transition
 
@@ -61,9 +63,19 @@ class PaperPortfolioSpec:
 
     def __post_init__(self) -> None:
         n = len(self.source_ids)
-        if not n or any(len(seq) != n for seq in (
-            self.full_aliases, self.k_by_pod, self.losses,
-        )) or len(set(self.source_ids)) != n or len(set(self.full_aliases)) != n:
+        if (
+            not n
+            or any(
+                len(seq) != n
+                for seq in (
+                    self.full_aliases,
+                    self.k_by_pod,
+                    self.losses,
+                )
+            )
+            or len(set(self.source_ids)) != n
+            or len(set(self.full_aliases)) != n
+        ):
             raise ValueError("INVALID_PAPER_PORTFOLIO_PROFILE")
         if sum((Decimal(value) for value in self.losses), Decimal("0")) != Decimal(
             self.nominal_risk
@@ -94,20 +106,24 @@ class PaperPortfolioSpec:
 # portfolio name or auto-admit NON_EXECUTABLE_SIGNED_RESEARCH references.
 PAPER_PROFILES = {
     "P1": PaperPortfolioSpec(
-        "P1", P1.members, ("S035-ENA", "S051-BTC", "S053-HYPE"),
-        ("0.0282", "0.0430", "0.0296"), ("200", "200", "200"),
+        "P1",
+        P1.members,
+        ("S035-ENA", "S051-BTC", "S053-HYPE"),
+        ("0.0282", "0.0430", "0.0296"),
+        ("200", "200", "200"),
         "EXISTING_P1_V3_PAPER_REFERENCE",
     ),
     "P14": PaperPortfolioSpec(
-        "P14", ("S035", "S051", "S053", "S064", "Whale_0x5f94"),
-        ("S035-ENA", "S051-BTC", "S053-HYPE",
-         "S064-xyz:BRENTOIL", "Whale_0x5f94"),
+        "P14",
+        ("S035", "S051", "S053", "S064", "Whale_0x5f94"),
+        ("S035-ENA", "S051-BTC", "S053-HYPE", "S064-xyz:BRENTOIL", "Whale_0x5f94"),
         ("0.0169", "0.0258", "0.0178", "0.0191", "0.00011"),
         ("120", "120", "120", "120", "120"),
         "GEMINI_PHASE3_REFERENCE_PAPER_SCENARIO",
     ),
     "P16": PaperPortfolioSpec(
-        "P16", ("S035", "S051", "S053", "Whale_0x5f94"),
+        "P16",
+        ("S035", "S051", "S053", "Whale_0x5f94"),
         ("S035-ENA", "S051-BTC", "S053-HYPE", "Whale_0x5f94"),
         # Explicit research-only derivation from P1/P14 fixed-k references:
         # 30/30/25/15 percent of the equal $600 nominal risk.
@@ -119,7 +135,10 @@ PAPER_PROFILES = {
 
 
 def _verify_portfolio_selection(
-    registry_db: Path, profile: PaperPortfolioSpec, *, as_of: str,
+    registry_db: Path,
+    profile: PaperPortfolioSpec,
+    *,
+    as_of: str,
 ) -> dict[str, str | int]:
     """Verify immutable portfolio definition from SQLite, not only alias names."""
     from .wallet_registry_portfolios import select_asof
@@ -127,15 +146,18 @@ def _verify_portfolio_selection(
     with closing(_readonly(registry_db)) as db:
         db.execute("BEGIN")
         try:
-            if profile.registry_id == "P1" and not db.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' "
-                "AND name='portfolio_seals'"
-            ).fetchone():
+            if (
+                profile.registry_id == "P1"
+                and not db.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='portfolio_seals'"
+                ).fetchone()
+            ):
                 # Legacy unit fixtures contain verified P1 wallet aliases,
                 # but no registry portfolio tables. Do NOT mislabel this SHA
                 # as a verified registry definition in source evidence.
                 return {
-                    "portfolio_id": "P1", "version": 0,
+                    "portfolio_id": "P1",
+                    "version": 0,
                     "definition_sha256": None,
                     "validation": "LEGACY_P1_TEST_FIXTURE_ONLY",
                 }
@@ -173,7 +195,9 @@ def _readonly(path: Path) -> sqlite3.Connection:
 
 
 def _sealed_p1_accounts(
-    registry_db: Path, *, as_of: str,
+    registry_db: Path,
+    *,
+    as_of: str,
     aliases: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
     """Pin canonical source-account identity once; never use a display label as ownership."""
@@ -201,8 +225,10 @@ def _exclusive_runner(root: Path, run_id: str) -> Iterator[None]:
     if (
         not run_id
         or len(run_id) > 64
-        or any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
-               for c in run_id)
+        or any(
+            c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
+            for c in run_id
+        )
     ):
         raise ValueError("INVALID_PAPER_RUN_ID")
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -220,8 +246,10 @@ def _exclusive_runner(root: Path, run_id: str) -> Iterator[None]:
 
 
 def _read_source(conn: sqlite3.Connection, alias: str, seq: int | None = None) -> dict | None:
-    query = ("SELECT seq,receipt_id,payload,receipt_sha,prior_sha,chain_sha "
-             "FROM source_receipts WHERE source_id=?")
+    query = (
+        "SELECT seq,receipt_id,payload,receipt_sha,prior_sha,chain_sha "
+        "FROM source_receipts WHERE source_id=?"
+    )
     if seq is None:
         query += " ORDER BY seq DESC LIMIT 1"
         args = (alias,)
@@ -251,10 +279,14 @@ def _read_source(conn: sqlite3.Connection, alias: str, seq: int | None = None) -
         <= clock(receipt["captured_at"])
     ):
         raise ValueError("OBSERVED_SOURCE_RECEIPT_CLOCK_INVALID")
-    predecessor = conn.execute(
-        "SELECT chain_sha FROM source_receipts WHERE source_id=? AND seq=?",
-        (alias, seq - 1),
-    ).fetchone() if seq > 1 else ("0" * 64,)
+    predecessor = (
+        conn.execute(
+            "SELECT chain_sha FROM source_receipts WHERE source_id=? AND seq=?",
+            (alias, seq - 1),
+        ).fetchone()
+        if seq > 1
+        else ("0" * 64,)
+    )
     if predecessor is None or prior != predecessor[0]:
         raise ValueError("OBSERVED_SOURCE_RECEIPT_PREDECESSOR_MISMATCH")
     return {"seq": seq, "receipt_id": rid, "sha": sha, "receipt": receipt, "book": book}
@@ -263,7 +295,8 @@ def _read_source(conn: sqlite3.Connection, alias: str, seq: int | None = None) -
 def _read_quote(conn: sqlite3.Connection, inst: str) -> dict | None:
     row = conn.execute(
         "SELECT seq,quote_id,payload,payload_sha,prior_sha,chain_sha,event_at,known_at "
-        "FROM market_quote_receipts WHERE instrument=? ORDER BY seq DESC LIMIT 1", (inst,)
+        "FROM market_quote_receipts WHERE instrument=? ORDER BY seq DESC LIMIT 1",
+        (inst,),
     ).fetchone()
     if row is None:
         return None
@@ -278,10 +311,14 @@ def _read_quote(conn: sqlite3.Connection, inst: str) -> dict | None:
     ):
         raise ValueError("OBSERVED_MARKET_QUOTE_INTEGRITY_FAILURE")
     PaperJournal._validate_market_quote(quote)
-    predecessor = conn.execute(
-        "SELECT chain_sha FROM market_quote_receipts WHERE instrument=? AND seq=?",
-        (inst, seq - 1),
-    ).fetchone() if seq > 1 else ("0" * 64,)
+    predecessor = (
+        conn.execute(
+            "SELECT chain_sha FROM market_quote_receipts WHERE instrument=? AND seq=?",
+            (inst, seq - 1),
+        ).fetchone()
+        if seq > 1
+        else ("0" * 64,)
+    )
     if predecessor is None or prior != predecessor[0]:
         raise ValueError("OBSERVED_MARKET_QUOTE_PREDECESSOR_MISMATCH")
     return quote
@@ -290,6 +327,7 @@ def _read_quote(conn: sqlite3.Connection, inst: str) -> dict | None:
 def _read_vike_minute(conn: sqlite3.Connection, inst: str) -> dict | None:
     """Read the independent minute-price chain without pretending it is L2."""
     from .pm_vike_minute import validate_observation
+
     row = conn.execute(
         "SELECT seq,payload,payload_sha,prior_sha,chain_sha,event_at,known_at "
         "FROM vike_minute_receipts WHERE instrument=? ORDER BY seq DESC LIMIT 1",
@@ -299,10 +337,14 @@ def _read_vike_minute(conn: sqlite3.Connection, inst: str) -> dict | None:
         return None
     seq, raw, sha, prior, chain, source_at, known_at = row
     observation = json.loads(raw)
-    predecessor = conn.execute(
-        "SELECT chain_sha FROM vike_minute_receipts "
-        "WHERE instrument=? AND seq=?", (inst, seq - 1),
-    ).fetchone() if seq > 1 else ("0" * 64,)
+    predecessor = (
+        conn.execute(
+            "SELECT chain_sha FROM vike_minute_receipts WHERE instrument=? AND seq=?",
+            (inst, seq - 1),
+        ).fetchone()
+        if seq > 1
+        else ("0" * 64,)
+    )
     if (
         observation.get("schema") != VIKE_MINUTE_SCHEMA
         or observation.get("first_known_at") != known_at
@@ -310,7 +352,8 @@ def _read_vike_minute(conn: sqlite3.Connection, inst: str) -> dict | None:
         or digest({k: v for k, v in observation.items() if k != "observation_sha"})
         != observation.get("observation_sha")
         or digest(observation) != sha
-        or predecessor is None or prior != predecessor[0]
+        or predecessor is None
+        or prior != predecessor[0]
         or chain != digest([inst, seq, sha, prior])
     ):
         raise ValueError("PAPER_VIKE_MINUTE_RECEIPT_INTEGRITY_FAILURE")
@@ -356,16 +399,19 @@ def _candidate_market(inst: Instrument, catalog: Mapping[str, dict], quote: dict
         name = info.get("name")
         if inst.market == "mainnet:perp:default" and name != inst.symbol:
             continue
-        if inst.market != "mainnet:perp:default" and quote.get(
-            "schema"
-        ) != "paper_vike_minute_estimated_quote_v1":
+        if (
+            inst.market != "mainnet:perp:default"
+            and quote.get("schema") != "paper_vike_minute_estimated_quote_v1"
+        ):
             # HIP-3 L2 sessions are not independently attested.
             raise ValueError("HIP3_SESSION_NOT_ATTESTED_FOR_PAPER")
         try:
             resolved = parse_ccxt_market(
-                raw, first_known_at=quote["market_known_at"], expected=inst,
+                raw,
+                first_known_at=quote["market_known_at"],
+                expected=inst,
             )
-        except (ValueError, KeyError, TypeError):
+        except ValueError, KeyError, TypeError:
             continue
         if quote.get("schema") == "paper_vike_minute_estimated_quote_v1":
             # Provider price observations do NOT attest executable market depth.
@@ -379,7 +425,9 @@ def _candidate_market(inst: Instrument, catalog: Mapping[str, dict], quote: dict
 
 
 def _policy(
-    profile: PaperPortfolioSpec | None = None, *, price_mode: str = "l2",
+    profile: PaperPortfolioSpec | None = None,
+    *,
+    price_mode: str = "l2",
 ) -> dict:
     profile = profile or PAPER_PROFILES["P1"]
     if price_mode not in ("l2", "vike_minute"):
@@ -395,9 +443,9 @@ def _policy(
                     if profile.registry_id == "P1"
                     else profile.registry_id.lower() + "_paper_" + alias
                 ),
-                "daily_loss": format(
-                    Decimal(profile.risk[alias]) * Decimal("0.75"), "f"
-                ).rstrip("0").rstrip("."),
+                "daily_loss": format(Decimal(profile.risk[alias]) * Decimal("0.75"), "f")
+                .rstrip("0")
+                .rstrip("."),
                 "max_drawdown": profile.risk[alias],
                 "stress_loss": profile.risk[alias],
             }
@@ -405,8 +453,7 @@ def _policy(
         },
         "fixed_k_by_pod": profile.k,
         "follower_allocations": {
-            alias: str(Decimal("9000") / len(profile.source_ids))
-            for alias in profile.source_ids
+            alias: str(Decimal("9000") / len(profile.source_ids)) for alias in profile.source_ids
         },
         "nominal_portfolio_risk": profile.nominal_risk,
         "max_gross_notional": "20000",
@@ -424,9 +471,12 @@ def _policy(
 
 def _costs() -> dict:
     return {
-        "fee_bps": "5", "full_spread_bps": "0",
-        "slippage_bps": "2", "impact_bps_at_full_participation": "0",
-        "max_participation": "0.1", "max_age_seconds": MAX_QUOTE_AGE,
+        "fee_bps": "5",
+        "full_spread_bps": "0",
+        "slippage_bps": "2",
+        "impact_bps_at_full_participation": "0",
+        "max_participation": "0.1",
+        "max_age_seconds": MAX_QUOTE_AGE,
         "latency_seconds": 0,
     }
 
@@ -472,8 +522,14 @@ def _market_observation(quote: dict, market: NativeMarket, *, at: str) -> dict:
 
 
 def _event(
-    run: ShadowRun, kind: str, event_id: str, at: str, source_at: str,
-    payload: dict, *, first_known_at: str | None = None,
+    run: ShadowRun,
+    kind: str,
+    event_id: str,
+    at: str,
+    source_at: str,
+    payload: dict,
+    *,
+    first_known_at: str | None = None,
 ) -> Event:
     return Event(
         event_id=event_id,
@@ -548,9 +604,7 @@ class ObservedP1Paper:
         self.price_mode = price_mode
         self.schema = VIKE_PAPER_SCHEMA if price_mode == "vike_minute" else SCHEMA
         self.source_db = Path(source_db)
-        self.price_db = (
-            Path(price_db) if price_db is not None else self.source_db
-        )
+        self.price_db = Path(price_db) if price_db is not None else self.source_db
         if price_mode == "vike_minute" and price_db is None:
             raise ValueError("VIKE_MINUTE_REQUIRES_ISOLATED_PRICE_JOURNAL")
         self.registry_db = Path(registry_db)
@@ -569,8 +623,7 @@ class ObservedP1Paper:
             if (
                 manifest.get("pm01_sha") != self.profile.reference_sha
                 or not isinstance(manifest.get("pm02_sha"), str)
-                or manifest["rulebook"].get("program")
-                != f"{self.portfolio_id}_10000_VIRTUAL_PAPER"
+                or manifest["rulebook"].get("program") != f"{self.portfolio_id}_10000_VIRTUAL_PAPER"
                 or manifest.get("mode") != "RESEARCH_SYNTHETIC"
                 or manifest["rulebook"].get("version") != self.schema
             ):
@@ -579,14 +632,17 @@ class ObservedP1Paper:
             rulebook = Rulebook.from_dict(manifest["rulebook"])
             market_sha = manifest["market_manifest_sha"]
             if self.native_contracts:
-                current_market_sha = digest({
-                    key: {
-                        "catalog_sha": row.catalog_sha,
-                        "amount_step": str(row.amount_step),
-                        "minimum_notional": str(row.minimum_notional),
+                current_market_sha = digest(
+                    {
+                        key: {
+                            "catalog_sha": row.catalog_sha,
+                            "amount_step": str(row.amount_step),
+                            "minimum_notional": str(row.minimum_notional),
+                        }
+                        for key, row in sorted(self.native_contracts.items())
+                        if row.active
                     }
-                    for key, row in sorted(self.native_contracts.items()) if row.active
-                })
+                )
                 if current_market_sha != market_sha:
                     raise ValueError("PAPER_RESTART_NATIVE_CONTRACT_METADATA_DRIFT")
         else:
@@ -595,13 +651,16 @@ class ObservedP1Paper:
                 # A quiet market is still a permitted identity. Its missing
                 # quote blocks only the later market-order estimate.
                 markets = {
-                    key: market for key, market in self.native_contracts.items()
-                    if market.active
+                    key: market for key, market in self.native_contracts.items() if market.active
                 }
             else:
                 # Legacy v3/test compatibility, not the v4 native startup path.
                 with closing(_readonly(self.price_db)) as db:
-                    table = "vike_minute_heads" if self.price_mode == "vike_minute" else "market_quote_heads"
+                    table = (
+                        "vike_minute_heads"
+                        if self.price_mode == "vike_minute"
+                        else "market_quote_heads"
+                    )
                     keys = [row[0] for row in db.execute(f"SELECT instrument FROM {table}")]
                     reader = _read_vike_minute if self.price_mode == "vike_minute" else _read_quote
                     quotes = {key: reader(db, key) for key in keys}
@@ -609,7 +668,7 @@ class ObservedP1Paper:
                 for key, quote in quotes.items():
                     try:
                         markets[key] = _candidate_market(Instrument.parse(key), self.catalog, quote)
-                    except (ValueError, KeyError):
+                    except ValueError, KeyError:
                         continue
             if not markets:
                 raise ValueError("NO_VERIFIED_DEFAULT_PERP_MARKET_CATALOG")
@@ -618,52 +677,78 @@ class ObservedP1Paper:
                 program=f"{self.portfolio_id}_10000_VIRTUAL_PAPER",
                 stage="RESEARCH_PAPER",
                 source=f"{self.portfolio_id}_20261103_RISK_REFERENCE_NOT_PROP_CONTRACT",
-                observed_at=started_at, version=self.schema, timezone="UTC",
+                observed_at=started_at,
+                version=self.schema,
+                timezone="UTC",
                 initial_balance=Decimal("10000"),
-                profit_target=None, daily_loss=Decimal("500"),
-                static_loss=Decimal("1000"), trailing_loss=None,
-                confirmed=True, account_terms_confirmed=False,
-                permitted=permitted, max_gross_leverage=Decimal("2"),
+                profit_target=None,
+                daily_loss=Decimal("500"),
+                static_loss=Decimal("1000"),
+                trailing_loss=None,
+                confirmed=True,
+                account_terms_confirmed=False,
+                permitted=permitted,
+                max_gross_leverage=Decimal("2"),
             )
-            market_sha = digest({
-                key: {"catalog_sha": row.catalog_sha, "amount_step": str(row.amount_step),
-                      "minimum_notional": str(row.minimum_notional)}
-                for key, row in sorted(markets.items())
-            })
+            market_sha = digest(
+                {
+                    key: {
+                        "catalog_sha": row.catalog_sha,
+                        "amount_step": str(row.amount_step),
+                        "minimum_notional": str(row.minimum_notional),
+                    }
+                    for key, row in sorted(markets.items())
+                }
+            )
         self.started_at = started_at
         self.portfolio_seal = _verify_portfolio_selection(
-            self.registry_db, self.profile, as_of=started_at,
+            self.registry_db,
+            self.profile,
+            as_of=started_at,
         )
         self.selected_accounts = _sealed_p1_accounts(
-            self.registry_db, as_of=started_at, aliases=self.profile.registry_aliases,
+            self.registry_db,
+            as_of=started_at,
+            aliases=self.profile.registry_aliases,
         )
         self.policy = {
             **_policy(self.profile, price_mode=self.price_mode),
             "selected_account_hashes": self.selected_accounts,
         }
         if self.portfolio_id != "P1":
-            self.policy.update({
-                "registry_portfolio": self.portfolio_seal,
-                "paper_sizing_evidence_class": self.profile.sizing_evidence,
-            })
+            self.policy.update(
+                {
+                    "registry_portfolio": self.portfolio_seal,
+                    "paper_sizing_evidence_class": self.profile.sizing_evidence,
+                }
+            )
         self.policy_sha = digest(self.policy)
         if saved.exists() and manifest.get("pm02_sha") != self.policy_sha:
             raise ValueError("PAPER_RESTART_CANONICAL_ACCOUNT_POLICY_DRIFT")
         self.run = ShadowRun(
-            base, run_id=run_id, rulebook=rulebook, started_at=started_at,
-            mode="RESEARCH_SYNTHETIC", pm01_sha=self.profile.reference_sha,
+            base,
+            run_id=run_id,
+            rulebook=rulebook,
+            started_at=started_at,
+            mode="RESEARCH_SYNTHETIC",
+            pm01_sha=self.profile.reference_sha,
             pm02_sha=self.policy_sha,
             market_manifest_sha=market_sha,
         )
         if not self.run.account.pm04_state:
-            self.run.record(_event(
-                self.run, "PM04_CONFIG", "configure", started_at, started_at,
-                {"policy": self.policy},
-            ))
+            self.run.record(
+                _event(
+                    self.run,
+                    "PM04_CONFIG",
+                    "configure",
+                    started_at,
+                    started_at,
+                    {"policy": self.policy},
+                )
+            )
         state = self.run.account.pm04_state.get("paper_execution", {})
         self.last_seen = {
-            alias: state.get("last_source_seq", {}).get(alias, 0)
-            for alias in self.members
+            alias: state.get("last_source_seq", {}).get(alias, 0) for alias in self.members
         }
         self.prestart_seen = {alias: False for alias in self.members}
         # This read-only cursor is derived from the immutable run start and
@@ -674,14 +759,18 @@ class ObservedP1Paper:
                 row = db.execute(
                     "SELECT MAX(seq) FROM source_receipts WHERE source_id=? "
                     "AND julianday(json_extract(payload, '$.first_known_at')) "
-                    "<= julianday(?)", (alias, self.started_at),
+                    "<= julianday(?)",
+                    (alias, self.started_at),
                 ).fetchone()
                 cutoff = int(row[0]) if row[0] is not None else 0
                 self.prestart_seen[alias] = cutoff > 0 and self.last_seen[alias] == 0
                 self.last_seen[alias] = max(self.last_seen[alias], cutoff)
 
-    def _observations(self, db: sqlite3.Connection, required: set[str], at: str) -> tuple[list[dict], dict[str, dict], dict[str, NativeMarket]]:
+    def _observations(
+        self, db: sqlite3.Connection, required: set[str], at: str
+    ) -> tuple[list[dict], dict[str, dict], dict[str, NativeMarket]]:
         quotes, markets, obs = {}, {}, []
+
         def collect(price_connection: sqlite3.Connection) -> None:
             for key in sorted(required):
                 quote = (
@@ -692,7 +781,8 @@ class ObservedP1Paper:
                 if quote is None:
                     raise ValueError("PAPER_QUOTE_MISSING:" + key)
                 market = (
-                    self.native_contracts[key] if self.native_contracts
+                    self.native_contracts[key]
+                    if self.native_contracts
                     else _candidate_market(Instrument.parse(key), self.catalog, quote)
                 )
                 if Instrument.parse(key) not in self.run.account.rulebook.permitted:
@@ -700,6 +790,7 @@ class ObservedP1Paper:
                 obs.append(_market_observation(quote, market, at=at))
                 quotes[key] = quote
                 markets[key] = market
+
         if self.price_mode == "vike_minute":
             with closing(_readonly(self.price_db)) as price_connection:
                 price_connection.execute("BEGIN")
@@ -738,12 +829,17 @@ class ObservedP1Paper:
         ):
             return "BLOCKED_SOURCE_NOT_PROSPECTIVE_POSITION_TRANSITION"
         if self.native_contracts and not verify_official_position_transition(
-            db, alias=alias, receipt_id=source["receipt_id"],
-            receipt_sha=source["sha"], receipt=receipt,
+            db,
+            alias=alias,
+            receipt_id=source["receipt_id"],
+            receipt_sha=source["sha"],
+            receipt=receipt,
         ):
             return "BLOCKED_OFFICIAL_POSITION_STREAM_PROOF"
         scope = assess_selected_parent_perp_scope(
-            book, decision_at=at, max_age_seconds=MAX_SOURCE_AGE,
+            book,
+            decision_at=at,
+            max_age_seconds=MAX_SOURCE_AGE,
         )
         if scope["status"] != "SELECTED_SCOPE_OBSERVED_RESEARCH_ONLY":
             return "BLOCKED_SOURCE_SCOPE:" + ",".join(scope["reasons"])
@@ -760,10 +856,17 @@ class ObservedP1Paper:
             "sizing_policy": "FIXED_K_NATIVE_QUANTITY",
             "policy_version": self.policy["version"],
         }
-        self.run.record(_event(
-            self.run, "PM04_PAPER_SOURCE", f"src_{alias}_{source['seq']}", at,
-            book["source_event_at"], payload, first_known_at=book["first_known_at"],
-        ))
+        self.run.record(
+            _event(
+                self.run,
+                "PM04_PAPER_SOURCE",
+                f"src_{alias}_{source['seq']}",
+                at,
+                book["source_event_at"],
+                payload,
+                first_known_at=book["first_known_at"],
+            )
+        )
         self.last_seen[alias] = source["seq"]
         return "RECORDED_PAPER_SOURCE"
 
@@ -774,22 +877,31 @@ class ObservedP1Paper:
             if pending["status"] != "PENDING_EXIT":
                 continue
             if clock(at) > clock(pending["deadline_at"]):
-                self.run.record(_event(
-                    self.run, "PM04_PAPER_EXIT_UNRESOLVED", "exit_unresolved_" + pending["exit_id"],
-                    at, pending["source_event_at"],
-                    {"pod": pod, "reason": "NO_EXECUTABLE_QUOTE_WITHIN_EXIT_GRACE"},
-                    first_known_at=pending["first_known_at"],
-                ))
+                self.run.record(
+                    _event(
+                        self.run,
+                        "PM04_PAPER_EXIT_UNRESOLVED",
+                        "exit_unresolved_" + pending["exit_id"],
+                        at,
+                        pending["source_event_at"],
+                        {"pod": pod, "reason": "NO_EXECUTABLE_QUOTE_WITHIN_EXIT_GRACE"},
+                        first_known_at=pending["first_known_at"],
+                    )
+                )
                 outcome[pod] = "UNRESOLVED_EXPOSURE"
                 continue
             if self.run.account.breached:
-                self.run.record(_event(
-                    self.run, "PM04_PAPER_EXIT_UNRESOLVED",
-                    "exit_unresolved_" + pending["exit_id"],
-                    at, pending["source_event_at"],
-                    {"pod": pod, "reason": "CONTRACTUAL_BREACH_NO_SIMULATED_EXIT"},
-                    first_known_at=pending["first_known_at"],
-                ))
+                self.run.record(
+                    _event(
+                        self.run,
+                        "PM04_PAPER_EXIT_UNRESOLVED",
+                        "exit_unresolved_" + pending["exit_id"],
+                        at,
+                        pending["source_event_at"],
+                        {"pod": pod, "reason": "CONTRACTUAL_BREACH_NO_SIMULATED_EXIT"},
+                        first_known_at=pending["first_known_at"],
+                    )
+                )
                 outcome[pod] = "UNRESOLVED_EXPOSURE"
                 continue
             required = set(pending["positions"]) | self._known_instruments()
@@ -816,25 +928,40 @@ class ObservedP1Paper:
                 outcome[pod] = "WAIT_EXIT_MARKET:" + str(exc)
                 continue
             payload = {
-                "pod": pod, "exit_id": pending["exit_id"],
-                "source_seq": pending["source_seq"], "targets": target,
+                "pod": pod,
+                "exit_id": pending["exit_id"],
+                "source_seq": pending["source_seq"],
+                "targets": target,
                 "quotes": quotes,
                 "quote_shas": {key: digest(quote) for key, quote in quotes.items()},
-                "markets": {key: {"amount_step": str(m.amount_step),
-                                  "minimum_notional": str(m.minimum_notional)}
-                            for key, m in markets.items()},
-                "policy_version": self.policy["version"], "source_nav_required": False,
+                "markets": {
+                    key: {
+                        "amount_step": str(m.amount_step),
+                        "minimum_notional": str(m.minimum_notional),
+                    }
+                    for key, m in markets.items()
+                },
+                "policy_version": self.policy["version"],
+                "source_nav_required": False,
             }
-            self.run.record(_event(
-                self.run, "PM04_PAPER_EXIT", "exit_" + pending["exit_id"],
-                at, pending["source_event_at"], payload,
-                first_known_at=pending["first_known_at"],
-            ))
+            self.run.record(
+                _event(
+                    self.run,
+                    "PM04_PAPER_EXIT",
+                    "exit_" + pending["exit_id"],
+                    at,
+                    pending["source_event_at"],
+                    payload,
+                    first_known_at=pending["first_known_at"],
+                )
+            )
             outcome[pod] = self.run.account.pm04_state["paper_execution"]["exits"][pod]["status"]
         return outcome
 
     def _cancel_disconnected_entries(
-        self, db: sqlite3.Connection, at: str,
+        self,
+        db: sqlite3.Connection,
+        at: str,
     ) -> dict[str, str]:
         """Fence old-epoch pending new risk BEFORE consuming recovery events."""
         if not self.native_contracts:
@@ -847,16 +974,24 @@ class ObservedP1Paper:
                 continue
             source = _read_source(db, pod, intent["source_seq"])
             if source is not None and verify_official_position_transition(
-                db, alias=pod, receipt_id=source["receipt_id"],
-                receipt_sha=source["sha"], receipt=source["receipt"],
+                db,
+                alias=pod,
+                receipt_id=source["receipt_id"],
+                receipt_sha=source["sha"],
+                receipt=source["receipt"],
             ):
                 continue
-            self.run.record(_event(
-                self.run, "PM04_PAPER_SOURCE_GAP", "gap_" + intent_id,
-                at, intent["first_known_at"],
-                {"pod": pod, "intent_id": intent_id},
-                first_known_at=intent["first_known_at"],
-            ))
+            self.run.record(
+                _event(
+                    self.run,
+                    "PM04_PAPER_SOURCE_GAP",
+                    "gap_" + intent_id,
+                    at,
+                    intent["first_known_at"],
+                    {"pod": pod, "intent_id": intent_id},
+                    first_known_at=intent["first_known_at"],
+                )
+            )
             canceled[pod] = "CANCELED_SOURCE_GAP"
         return canceled
 
@@ -872,25 +1007,41 @@ class ObservedP1Paper:
                 # Never use an earlier epoch's desired state after a gap.
                 source = _read_source(db, pod, intent["source_seq"])
                 if source is None or not verify_official_position_transition(
-                    db, alias=pod, receipt_id=source["receipt_id"],
-                    receipt_sha=source["sha"], receipt=source["receipt"],
+                    db,
+                    alias=pod,
+                    receipt_id=source["receipt_id"],
+                    receipt_sha=source["sha"],
+                    receipt=source["receipt"],
                     require_current_positions=True,
                 ):
-                    self.run.record(_event(
-                        self.run, "PM04_PAPER_SOURCE_GAP", "gap_" + intent_id,
-                        at, intent["first_known_at"],
-                        {"pod": pod, "intent_id": intent_id},
-                        first_known_at=intent["first_known_at"],
-                    ))
+                    self.run.record(
+                        _event(
+                            self.run,
+                            "PM04_PAPER_SOURCE_GAP",
+                            "gap_" + intent_id,
+                            at,
+                            intent["first_known_at"],
+                            {"pod": pod, "intent_id": intent_id},
+                            first_known_at=intent["first_known_at"],
+                        )
+                    )
                     outcome[pod] = "CANCELED_SOURCE_GAP"
                     continue
             if clock(at) > clock(intent["deadline_at"]):
-                self.run.record(_event(
-                    self.run, "PM04_PAPER_EXPIRE", "expire_" + intent_id,
-                    at, intent["first_known_at"],
-                    {"intent_id": intent_id, "reason": "MARKET_OR_TARGET_UNAVAILABLE_WITHIN_GRACE"},
-                    first_known_at=intent["first_known_at"],
-                ))
+                self.run.record(
+                    _event(
+                        self.run,
+                        "PM04_PAPER_EXPIRE",
+                        "expire_" + intent_id,
+                        at,
+                        intent["first_known_at"],
+                        {
+                            "intent_id": intent_id,
+                            "reason": "MARKET_OR_TARGET_UNAVAILABLE_WITHIN_GRACE",
+                        },
+                        first_known_at=intent["first_known_at"],
+                    )
+                )
                 outcome[pod] = "EXPIRED_NO_TRADE"
                 continue
             required = set(intent["positions"]) | self._known_instruments()
@@ -929,28 +1080,36 @@ class ObservedP1Paper:
                 "quotes": quotes,
                 "quote_shas": {key: digest(quote) for key, quote in quotes.items()},
                 "markets": {
-                    key: {"amount_step": str(m.amount_step),
-                          "minimum_notional": str(m.minimum_notional)}
+                    key: {
+                        "amount_step": str(m.amount_step),
+                        "minimum_notional": str(m.minimum_notional),
+                    }
                     for key, m in markets.items()
                 },
                 "policy_version": self.policy["version"],
                 "sizing_policy": "FIXED_K_NATIVE_QUANTITY",
                 "source_nav_required": False,
             }
-            self.run.record(_event(
-                self.run, "PM04_PAPER_EXECUTE", "attempt_" + intent_id,
-                at, intent["first_known_at"], payload,
-                first_known_at=intent["first_known_at"],
-            ))
-            outcome[pod] = self.run.account.pm04_state["paper_execution"]["history"][intent_id]["status"]
+            self.run.record(
+                _event(
+                    self.run,
+                    "PM04_PAPER_EXECUTE",
+                    "attempt_" + intent_id,
+                    at,
+                    intent["first_known_at"],
+                    payload,
+                    first_known_at=intent["first_known_at"],
+                )
+            )
+            outcome[pod] = self.run.account.pm04_state["paper_execution"]["history"][intent_id][
+                "status"
+            ]
         return outcome
 
     def step(self, at: str | None = None) -> dict:
         at = at or now_utc()
         clock(at)
-        prior_positions = {
-            key.key: qty for key, qty in self.run.account.quantities.items() if qty
-        }
+        prior_positions = {key.key: qty for key, qty in self.run.account.quantities.items() if qty}
         results: dict[str, str] = {}
         with closing(_readonly(self.source_db)) as db:
             db.execute("BEGIN")
@@ -959,12 +1118,16 @@ class ObservedP1Paper:
                 for alias in self.members:
                     rows = db.execute(
                         "SELECT seq FROM source_receipts WHERE source_id=? AND seq>? "
-                        "ORDER BY seq ASC", (alias, self.last_seen[alias]),
+                        "ORDER BY seq ASC",
+                        (alias, self.last_seen[alias]),
                     ).fetchall()
                     if not rows:
                         results[alias] = (
-                            "PRE_START_UNMODELED" if self.prestart_seen[alias]
-                            else "ALREADY_SEEN" if self.last_seen[alias] else "SOURCE_MISSING"
+                            "PRE_START_UNMODELED"
+                            if self.prestart_seen[alias]
+                            else "ALREADY_SEEN"
+                            if self.last_seen[alias]
+                            else "SOURCE_MISSING"
                         )
                         continue
                     for (seq,) in rows:
@@ -987,18 +1150,25 @@ class ObservedP1Paper:
                             "prices": {row["instrument"]: row["mark"] for row in obs},
                             "l2_quote_shas": {key: digest(quote) for key, quote in quotes.items()},
                         }
-                        self.run.record(_event(
-                            self.run, "MARK", "mark_" + digest([at, inp]), at, at, inp,
-                        ))
+                        self.run.record(
+                            _event(
+                                self.run,
+                                "MARK",
+                                "mark_" + digest([at, inp]),
+                                at,
+                                at,
+                                inp,
+                            )
+                        )
                         tick_status = "PAPER_MARK_COMMITTED"
                         # Market-driven pod HALTs require prompt exits even
                         # without a new leader/source position receipt.
                         risk_state = self.run.account.pm04_state
                         for pod, stats in sorted(risk_state["pod_stats"].items()):
                             held = self.run.account.pm_quantities.get(pod, {})
-                            pending = risk_state.get("paper_execution", {}).get(
-                                "exits", {}
-                            ).get(pod)
+                            pending = (
+                                risk_state.get("paper_execution", {}).get("exits", {}).get(pod)
+                            )
                             if (
                                 stats["state"] not in ("SUSPENDED", "REDUCED")
                                 or not any(held.values())
@@ -1009,11 +1179,16 @@ class ObservedP1Paper:
                             ):
                                 continue
                             trigger_id = digest([self.run_id, pod, at, "POD_RISK_EXIT"])
-                            self.run.record(_event(
-                                self.run, "PM04_PAPER_RISK_TRIGGER",
-                                "risk_" + trigger_id, at, at,
-                                {"pod": pod, "quote_sha": digest(quotes)},
-                            ))
+                            self.run.record(
+                                _event(
+                                    self.run,
+                                    "PM04_PAPER_RISK_TRIGGER",
+                                    "risk_" + trigger_id,
+                                    at,
+                                    at,
+                                    {"pod": pod, "quote_sha": digest(quotes)},
+                                )
+                            )
                         exit_results.update(self._execute_exits(db, at))
                     except ValueError as exc:
                         tick_status = "BLOCKED_PAPER_MARK:" + str(exc)
@@ -1022,7 +1197,9 @@ class ObservedP1Paper:
         acct = self.run.account
         current_positions = {key.key: qty for key, qty in acct.quantities.items() if qty}
         position_deltas = {
-            key: str(current_positions.get(key, Decimal("0")) - prior_positions.get(key, Decimal("0")))
+            key: str(
+                current_positions.get(key, Decimal("0")) - prior_positions.get(key, Decimal("0"))
+            )
             for key in sorted(set(current_positions) | set(prior_positions))
             if current_positions.get(key, Decimal("0")) != prior_positions.get(key, Decimal("0"))
         }
@@ -1040,12 +1217,11 @@ class ObservedP1Paper:
             "exit_results": exit_results,
             "source_gap_results": source_gap_results,
             "pending_exits": acct.pm04_state.get("paper_execution", {}).get("exits", {}),
-            "unresolved_exposures": acct.pm04_state.get(
-                "paper_execution", {}
-            ).get("unresolved_exposures", {}),
+            "unresolved_exposures": acct.pm04_state.get("paper_execution", {}).get(
+                "unresolved_exposures", {}
+            ),
             "execution_policy_version": (
-                ESTIMATED_POLICY_VERSION if self.price_mode == "vike_minute"
-                else POLICY_VERSION
+                ESTIMATED_POLICY_VERSION if self.price_mode == "vike_minute" else POLICY_VERSION
             ),
             "execution_intents": {
                 pod: dict(acct.pm04_state["paper_execution"]["history"][intent_id])
@@ -1053,9 +1229,7 @@ class ObservedP1Paper:
                     acct.pm04_state.get("paper_execution", {}).get("active", {}).items()
                 )
             },
-            "execution_outcomes": acct.pm04_state.get(
-                "paper_execution", {}
-            ).get("outcomes", {}),
+            "execution_outcomes": acct.pm04_state.get("paper_execution", {}).get("outcomes", {}),
             "tick": tick_status,
             "equity": str(acct.equity),
             "cash": str(acct.cash),
@@ -1099,10 +1273,21 @@ def main() -> None:
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--portfolio", choices=tuple(PAPER_PROFILES), default="P1")
     parser.add_argument("--price-mode", choices=("l2", "vike_minute"), default="l2")
-    parser.add_argument("--price-db", type=Path, help="Isolated Vike price journal; required for vike_minute")
+    parser.add_argument(
+        "--price-db", type=Path, help="Isolated Vike price journal; required for vike_minute"
+    )
     parser.add_argument("--markets-json", type=Path, help="Legacy v3 CCXT market metadata JSON")
-    parser.add_argument("--propr-catalog", type=Path, help="V4 pinned Propr native display catalog; price-independent")
-    parser.add_argument("--paper-min-notional", type=str, default="10", help="Explicit v4 virtual-paper minimum-notional assumption, USD")
+    parser.add_argument(
+        "--propr-catalog",
+        type=Path,
+        help="V4 pinned Propr native display catalog; price-independent",
+    )
+    parser.add_argument(
+        "--paper-min-notional",
+        type=str,
+        default="10",
+        help="Explicit v4 virtual-paper minimum-notional assumption, USD",
+    )
     parser.add_argument("--watch", action="store_true")
     parser.add_argument("--poll-seconds", type=float, default=2.0)
     args = parser.parse_args()
@@ -1124,7 +1309,9 @@ def main() -> None:
         if args.price_mode == "vike_minute":
             raise ValueError("VIKE_V4_REQUIRES_PINNED_NATIVE_PROPR_CATALOG")
         contracts = None
-        catalog = json.loads(args.markets_json.read_text()) if args.markets_json else load_ccxt_catalog()
+        catalog = (
+            json.loads(args.markets_json.read_text()) if args.markets_json else load_ccxt_catalog()
+        )
     with _exclusive_runner(args.state_root, args.run_id):
         consumer = ObservedP1Paper(
             source_db=args.source_db,

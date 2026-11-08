@@ -799,7 +799,8 @@ def _execute(
             raise ValueError("PAPER_L2_QUOTE_SHA_MAP_INVALID")
         consumed = state.get("modeled_l2_consumed", {})
         reuse = [
-            inst.key for inst, wanted in proposed.items()
+            inst.key
+            for inst, wanted in proposed.items()
             if wanted != account.quantities.get(inst, ZERO)
             and inst.key in consumed
             and quote_shas.get(inst.key) == consumed[inst.key]

@@ -4,6 +4,7 @@ The latest candle is not L2 liquidity. A forming candle's 'close' is the
 latest trade as of REST receipt, never its eventual finalized close.
 No historical/backfilled row may acquire a prospective first-known clock.
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -50,8 +51,12 @@ def minute_observation(row: Mapping, *, received_at: str) -> dict:
         raise ValueError("VIKE_MINUTE_FUTURE_OR_STALE")
     symbol, dex = row.get("symbol"), row.get("dex")
     if (
-        not isinstance(symbol, str) or not symbol or len(symbol) > 32
-        or not isinstance(dex, str) or not dex or len(dex) > 16
+        not isinstance(symbol, str)
+        or not symbol
+        or len(symbol) > 32
+        or not isinstance(dex, str)
+        or not dex
+        or len(dex) > 16
         or row.get("kind", "perp") not in ("perp", None)
     ):
         raise ValueError("VIKE_MINUTE_NATIVE_MARKET_INVALID")
@@ -61,8 +66,10 @@ def minute_observation(row: Mapping, *, received_at: str) -> dict:
         name: _positive(row.get(name), "VIKE_MINUTE_PRICE_INVALID")
         for name in ("open", "high", "low", "close")
     }
-    if not (prices["low"] <= prices["open"] <= prices["high"]
-            and prices["low"] <= prices["close"] <= prices["high"]):
+    if not (
+        prices["low"] <= prices["open"] <= prices["high"]
+        and prices["low"] <= prices["close"] <= prices["high"]
+    ):
         raise ValueError("VIKE_MINUTE_OHLC_INCONSISTENT")
     volume = _nonnegative(row.get("volume"), "VIKE_MINUTE_VOLUME_INVALID")
     volume_usd = _nonnegative(row.get("volume_usd"), "VIKE_MINUTE_VOLUME_INVALID")
@@ -115,8 +122,7 @@ def validate_observation(observation: Mapping) -> None:
     ):
         raise ValueError("VIKE_MINUTE_STORED_HASH_INVALID")
     start, end, known = (
-        clock(observation[key]) for key in
-        ("bar_start_at", "bar_end_at", "first_known_at")
+        clock(observation[key]) for key in ("bar_start_at", "bar_end_at", "first_known_at")
     )
     if end - start != timedelta(minutes=1):
         raise ValueError("VIKE_MINUTE_STORED_INTERVAL_INVALID")
@@ -194,7 +200,9 @@ class EstimatedMinuteExecutionModel:
     """
 
     def __init__(
-        self, *, taker_fee_bps: Decimal = Decimal("5"),
+        self,
+        *,
+        taker_fee_bps: Decimal = Decimal("5"),
         half_spread_bps: Decimal = Decimal("4"),
         slippage_bps: Decimal = Decimal("8"),
         max_participation: Decimal = Decimal("0.1"),
@@ -205,24 +213,34 @@ class EstimatedMinuteExecutionModel:
         self.slippage = number(slippage_bps)
         self.cap = number(max_participation)
         self.impact = number(impact_bps_at_cap)
-        if (any(x < 0 for x in (self.fee, self.spread, self.slippage, self.impact))
-                or not Decimal("0") < self.cap <= Decimal("1")):
+        if any(x < 0 for x in (self.fee, self.spread, self.slippage, self.impact)) or not Decimal(
+            "0"
+        ) < self.cap <= Decimal("1"):
             raise ValueError("VIKE_MINUTE_ESTIMATE_PARAMETERS_INVALID")
 
     def price(
-        self, quantity: Decimal, observation: Mapping, *,
-        step: Decimal, minimum_notional: Decimal, decision_at: str,
+        self,
+        quantity: Decimal,
+        observation: Mapping,
+        *,
+        step: Decimal,
+        minimum_notional: Decimal,
+        decision_at: str,
     ) -> dict:
         if observation.get("schema") != SCHEMA:
             raise ValueError("VIKE_MINUTE_EXECUTION_REQUIRES_EXPLICIT_PRICE_SCHEMA")
-        if digest({k: v for k, v in observation.items() if k != "observation_sha"}) != observation.get("observation_sha"):
+        if digest(
+            {k: v for k, v in observation.items() if k != "observation_sha"}
+        ) != observation.get("observation_sha"):
             raise ValueError("VIKE_MINUTE_OBSERVATION_HASH_MISMATCH")
         decision = clock(decision_at)
         received = clock(observation["first_known_at"])
         if not 0 <= (decision - received).total_seconds() <= MAX_BAR_AGE_SECONDS:
             return {"status": "UNPRICEABLE_STALE_OR_FUTURE"}
-        if (observation["forming"] and
-                observation["price_semantics"] != "LAST_OBSERVED_TRADE_AS_OF_RECEIPT"):
+        if (
+            observation["forming"]
+            and observation["price_semantics"] != "LAST_OBSERVED_TRADE_AS_OF_RECEIPT"
+        ):
             raise ValueError("VIKE_MINUTE_FORMING_FUTURE_CLOSE_FORBIDDEN")
         qty, step, minimum = number(quantity), number(step), number(minimum_notional)
         if not qty or step <= 0 or minimum <= 0:
@@ -232,19 +250,33 @@ class EstimatedMinuteExecutionModel:
         price = _positive(observation["price"], "VIKE_MINUTE_PRICE_INVALID")
         volume = _nonnegative(observation["volume_base"], "VIKE_MINUTE_VOLUME_INVALID")
         if not volume or abs(qty) > volume * self.cap:
-            return {"status": "UNPRICEABLE_CAPACITY_NOT_VERIFIED",
-                    "minute_volume_base": str(volume), "max_participation": str(self.cap)}
+            return {
+                "status": "UNPRICEABLE_CAPACITY_NOT_VERIFIED",
+                "minute_volume_base": str(volume),
+                "max_participation": str(self.cap),
+            }
         if abs(qty) * price < minimum:
             return {"status": "REJECTED_MIN_NOTIONAL"}
         direction = Decimal("1") if qty > 0 else Decimal("-1")
         participation = abs(qty) / volume
         costs_bps = self.spread + self.slippage + self.impact * participation / self.cap
-        modeled_price = (price * (Decimal("1") + direction * costs_bps / Decimal("10000"))).quantize(Decimal("0.00000001"))
-        fee = (abs(qty * modeled_price) * self.fee / Decimal("10000")).quantize(Decimal("0.00000001"))
+        modeled_price = (
+            price * (Decimal("1") + direction * costs_bps / Decimal("10000"))
+        ).quantize(Decimal("0.00000001"))
+        fee = (abs(qty * modeled_price) * self.fee / Decimal("10000")).quantize(
+            Decimal("0.00000001")
+        )
         return {
-            "status": "FILLED", "quantity": str(qty), "vwap": str(modeled_price),
-            "fee": str(fee), "modeled_only": True, "real_order_count": 0,
-            "single_market_intent": True, "execution_evidence": "ESTIMATED_EXECUTION",
-            "liquidity_verified": False, "price_observation_sha": observation["observation_sha"],
-            "cost_bps_ex_fee": str(costs_bps), "participation": str(participation),
+            "status": "FILLED",
+            "quantity": str(qty),
+            "vwap": str(modeled_price),
+            "fee": str(fee),
+            "modeled_only": True,
+            "real_order_count": 0,
+            "single_market_intent": True,
+            "execution_evidence": "ESTIMATED_EXECUTION",
+            "liquidity_verified": False,
+            "price_observation_sha": observation["observation_sha"],
+            "cost_bps_ex_fee": str(costs_bps),
+            "participation": str(participation),
         }

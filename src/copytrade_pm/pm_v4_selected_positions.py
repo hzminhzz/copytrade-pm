@@ -4,6 +4,7 @@ One native WS for a sealed, deduplicated parent account set. The existing
 PersistentAccount / PaperJournal stream owner handles baseline, transitions,
 raw provenance, gaps and restart. No Vike fills, CCXT, broker or finance writes.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -23,13 +24,17 @@ from .pm_forward_continuous import run_native_accounts
 from .pm_forward_continuous_transport import ConnectionBudget, SerialWriter
 from .pm_forward_journal import PaperJournal
 from .pm_forward_observed_paper import (
-    PAPER_PROFILES, _readonly, _verify_portfolio_selection,
+    PAPER_PROFILES,
+    _readonly,
+    _verify_portfolio_selection,
 )
 from .pm_forward_source_stream import PersistentAccount
 from .pm_forward_stream_journal import verify_streams
 
 
-def selected_parents(registry_db: Path, *, portfolios: tuple[str, ...], as_of: str) -> dict[str, str]:
+def selected_parents(
+    registry_db: Path, *, portfolios: tuple[str, ...], as_of: str
+) -> dict[str, str]:
     """Read exact current portfolio selections once; do not widen to child NAV."""
     if not portfolios or len(portfolios) != len(set(portfolios)):
         raise ValueError("V4_SELECTED_PORTFOLIOS_INVALID")
@@ -37,7 +42,9 @@ def selected_parents(registry_db: Path, *, portfolios: tuple[str, ...], as_of: s
         raise ValueError("V4_SELECTED_PORTFOLIO_UNAPPROVED")
     for pid in portfolios:
         selection = _verify_portfolio_selection(
-            registry_db, PAPER_PROFILES[pid], as_of=as_of,
+            registry_db,
+            PAPER_PROFILES[pid],
+            as_of=as_of,
         )
         if not selection.get("definition_sha256"):
             raise ValueError("V4_SELECTED_PORTFOLIO_SEAL_MISSING")
@@ -57,8 +64,10 @@ def selected_parents(registry_db: Path, *, portfolios: tuple[str, ...], as_of: s
                     if len(addresses) != 1:
                         raise ValueError("V4_SELECTED_ACCOUNT_IDENTITY_AMBIGUOUS")
                     address = addresses[0][0].lower()
-                    if not address.startswith("0x") or len(address) != 42 or any(
-                        c not in "0123456789abcdef" for c in address[2:]
+                    if (
+                        not address.startswith("0x")
+                        or len(address) != 42
+                        or any(c not in "0123456789abcdef" for c in address[2:])
                     ):
                         raise ValueError("V4_SELECTED_ADDRESS_INVALID")
                     previous = parents.setdefault(alias, address)
@@ -72,36 +81,42 @@ def selected_parents(registry_db: Path, *, portfolios: tuple[str, ...], as_of: s
 
 
 def official_accounts(
-    journal: PaperJournal, parents: dict[str, str], *,
+    journal: PaperJournal,
+    parents: dict[str, str],
+    *,
     info: Callable = _guarded_info,
 ) -> dict[str, PersistentAccount]:
     """Verify a real official DEX census; only explicitly selected parents."""
     if not parents:
         raise ValueError("V4_SELECTED_ACCOUNTS_EMPTY")
     catalog, raw, provided_sha = info({"type": "perpDexs"})
-    if (
-        not isinstance(raw, bytes)
-        or sha256(raw).hexdigest() != provided_sha
-    ):
+    if not isinstance(raw, bytes) or sha256(raw).hexdigest() != provided_sha:
         raise ValueError("V4_OFFICIAL_DEX_CATALOG_PROVENANCE_INVALID")
     _dex_universe(catalog)
-    scope_sha = digest([
-        "SELECTED_PARENT_PERP_ONLY",
-        sorted((alias, sha256(addr.encode()).hexdigest()) for alias, addr in parents.items()),
-        provided_sha,
-    ])
+    scope_sha = digest(
+        [
+            "SELECTED_PARENT_PERP_ONLY",
+            sorted((alias, sha256(addr.encode()).hexdigest()) for alias, addr in parents.items()),
+            provided_sha,
+        ]
+    )
     return {
         alias: PersistentAccount(
-            journal=journal, alias=alias, address=address,
-            dex_catalog=catalog, subaccounts=None,
-            parent_alias=alias, scope_sha=scope_sha,
+            journal=journal,
+            alias=alias,
+            address=address,
+            dex_catalog=catalog,
+            subaccounts=None,
+            parent_alias=alias,
+            scope_sha=scope_sha,
         )
         for alias, address in parents.items()
     }
 
 
 async def observe(
-    accounts: dict[str, PersistentAccount], *,
+    accounts: dict[str, PersistentAccount],
+    *,
     duration_seconds: float = 0,
     stop: asyncio.Event | None = None,
 ) -> dict:
@@ -109,7 +124,9 @@ async def observe(
     async with SerialWriter(max_pending=256) as writer:
         worker = asyncio.create_task(
             run_native_accounts(
-                accounts, writer=writer, stop=stop,
+                accounts,
+                writer=writer,
+                stop=stop,
                 connect=None,
                 now=lambda: datetime.now(UTC).isoformat(timespec="microseconds"),
                 limiter=ConnectionBudget(per_minute=6),
@@ -118,6 +135,7 @@ async def observe(
         timer = None
         try:
             if duration_seconds:
+
                 async def end_after_duration():
                     try:
                         await asyncio.wait_for(stop.wait(), timeout=duration_seconds)

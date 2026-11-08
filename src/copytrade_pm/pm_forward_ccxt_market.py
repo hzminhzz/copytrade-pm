@@ -306,6 +306,7 @@ def parse_ccxt_book(
     spread_bps = (ask - bid) / mid * Decimal("10000")
     if spread_bps > max_spread_bps:
         raise ValueError("CCXT_BOOK_SPREAD_TOO_WIDE")
+
     def valid_levels(raw: list, *, direction: str) -> tuple[tuple[Decimal, Decimal], ...]:
         if len(raw) > 64:
             raise ValueError("CCXT_BOOK_DEPTH_LIMIT_EXCEEDED")
@@ -317,8 +318,7 @@ def parse_ccxt_book(
             px = _positive(level[0], reason="CCXT_BOOK_LEVEL_INVALID")
             size = _positive(level[1], reason="CCXT_BOOK_LEVEL_INVALID")
             if previous is not None and (
-                (direction == "bid" and px >= previous)
-                or (direction == "ask" and px <= previous)
+                (direction == "bid" and px >= previous) or (direction == "ask" and px <= previous)
             ):
                 raise ValueError("CCXT_BOOK_LEVELS_NOT_STRICTLY_SORTED")
             previous = px
@@ -456,8 +456,7 @@ def verify_l2_evidence(
                     px = _positive(level[0], reason="INVALID_L2_DEPTH_PRICE")
                     size = _positive(level[1], reason="INVALID_L2_DEPTH_SIZE")
                     if prev is not None and (
-                        (descending and px >= prev)
-                        or (not descending and px <= prev)
+                        (descending and px >= prev) or (not descending and px <= prev)
                     ):
                         raise ValueError("NONMONOTONIC_L2_DEPTH")
                     levels.append([str(px), str(size)])

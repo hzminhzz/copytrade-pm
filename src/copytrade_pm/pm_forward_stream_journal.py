@@ -252,10 +252,13 @@ def read_stream_head(path: Path, stream_id: str) -> dict:
         return _head(db, stream_id)
 
 
-
 def verify_official_position_transition(
-    db: sqlite3.Connection, *,
-    alias: str, receipt_id: str, receipt_sha: str, receipt: dict,
+    db: sqlite3.Connection,
+    *,
+    alias: str,
+    receipt_id: str,
+    receipt_sha: str,
+    receipt: dict,
     require_current_positions: bool = False,
 ) -> bool:
     """Require an atomic, first-known official OBSERVATION receipt reference.
@@ -295,8 +298,7 @@ def verify_official_position_transition(
             or event.get("epoch") != receipt["stream_epoch"]
             or event.get("first_known_at") != receipt.get("first_known_at")
             or event.get("source_event_at") != receipt.get("source_event_at")
-            or digest(event.get("details", {}).get("native_frame"))
-            != receipt.get("source_sha")
+            or digest(event.get("details", {}).get("native_frame")) != receipt.get("source_sha")
             or (
                 event.get("details", {}).get("native_wire") is None
                 and event.get("raw_sha") != receipt.get("source_sha")
@@ -329,8 +331,9 @@ def verify_official_position_transition(
                 or state.get("positions") == receipt.get("source_book", {}).get("positions")
             )
         )
-    except (sqlite3.Error, ValueError, KeyError, TypeError):
+    except sqlite3.Error, ValueError, KeyError, TypeError:
         return False
+
 
 class StreamProgress:
     """Publish in-memory projection only after durable receipt/checkpoint success."""
