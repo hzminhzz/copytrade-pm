@@ -154,8 +154,10 @@ Never alter scientific thresholds to make an engineering gate pass.
 
 ## Dashboard: Marimo retired, Grafana is the operator surface
 
-The Marimo operator UI was retired on 2026-11-08 under #192. The
-`copytrade-dashboard` user service is disabled, the Tailscale HTTPS 8443 route
+The Marimo operator UI was retired early at the operator's direction on
+2026-11-08, **before** #190/#191 formal cutover acceptance. This is an
+observed out-of-sequence deployment state, not acceptance/closure of #192.
+The `copytrade-dashboard` user service is disabled, the Tailscale HTTPS 8443 route
 is removed, and the presentation modules (`pages/`, `server.py`,
 `navigation.py`, `views.py`, `phase2_views.py`, `release.py`) and
 `ops/dashboard-quant/` are deleted. The dated `docs/DASHBOARD-*.md` records are
@@ -171,7 +173,8 @@ Grafana is the only operator surface: five dashboards provisioned from
 `ops/grafana-phase1/dashboards/` behind the owner-only Tailscale HTTPS 8444
 ingress. Retirement does not close #190/#191. The Grafana stack is
 DEPLOYED_READ_ONLY with the synthetic fixture still enabled, authentic protected
-Guardian finance not admitted and installed rollback not demonstrated. Read
+Guardian finance not admitted and full HTTPS 8443 rollback not demonstrated.
+The retained Marimo wheel passed a local-only 403/boot probe on 2026-11-08. Read
 retirement as neither Grafana acceptance nor trading authority.
 
 The notification backend is NOT_CONFIGURED for external distribution; local ACK

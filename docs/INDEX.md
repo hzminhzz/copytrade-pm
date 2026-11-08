@@ -11,7 +11,7 @@ context. [AGENTS.md](../AGENTS.md) defines the execution workflow.
 
 ## Canonical guides
 
-The Marimo operator dashboard was **retired on 2026-11-08** under #192; see [the retirement record](DASHBOARD-RETIREMENT-20261108.md) for what was removed, what was preserved and how to roll back. Grafana is the only operator surface (`ops/grafana-phase1/`). The earlier [Phase 1](DASHBOARD-PHASE1.md), [Phase 2](DASHBOARD-PHASE2.md), [Phase 3](DASHBOARD-PHASE3.md) and [final audit](DASHBOARD-FINAL-AUDIT-20261107.md) records are historical evidence and no longer describe current runtime.
+The Marimo operator dashboard was **retired early on 2026-11-08** at operator direction while #190/#191 remained unaccepted; #192 is not closed or technically accepted. See [the retirement record](DASHBOARD-RETIREMENT-20261108.md) for preserved artifacts, local recovery evidence and the untested 8443 restoration. Grafana is the only operator surface (`ops/grafana-phase1/`). The earlier [Phase 1](DASHBOARD-PHASE1.md), [Phase 2](DASHBOARD-PHASE2.md), [Phase 3](DASHBOARD-PHASE3.md) and [final audit](DASHBOARD-FINAL-AUDIT-20261107.md) records are historical evidence and no longer describe current runtime.
 
 | Responsibility | Guide |
 | --- | --- |

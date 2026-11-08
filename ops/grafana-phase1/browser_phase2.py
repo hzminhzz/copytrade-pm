@@ -22,9 +22,9 @@ ROUTES = (
         "PORTFOLIO STATE IS NOT A RUNNING ACCOUNT",
         "REGISTRY_READ_FAILED",
     ),
-    # The row marker tracks the projection's current execution state; it was
-    # NATIVE_EVIDENCE_UNAVAILABLE before the publisher began reporting an empty
-    # receipt set.
+    # Execution intent is NO_VERIFIED_RECEIPTS; NATIVE_EVIDENCE_UNAVAILABLE is
+    # a separate failure reason. The original Firefox assertion checked the
+    # reason instead of the displayed intent; this is not a CDP port effect.
     ("copytrade-execution-v1", "EXECUTION", "NO_VERIFIED_RECEIPTS"),
     ("copytrade-health-incidents-v1", "HEALTH", "UNKNOWN"),
     ("copytrade-wallet-explorer-v1", "WALLET", "WALLET_INVENTORY_READ_FAILED"),

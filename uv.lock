@@ -325,10 +325,8 @@ actuary = [
     { name = "numpy" },
 ]
 dashboard = [
-    { name = "altair" },
     { name = "httpx" },
     { name = "httpx2" },
-    { name = "marimo" },
     { name = "polars" },
     { name = "starlette" },
     { name = "uvicorn" },
@@ -352,12 +350,10 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "altair", marker = "extra == 'dashboard'", specifier = ">=6.0,<7" },
     { name = "ccxt", marker = "extra == 'market-stream'", specifier = "==4.5.91" },
     { name = "cryptography", specifier = ">=46.0" },
     { name = "httpx", marker = "extra == 'dashboard'", specifier = ">=0.28,<0.30" },
     { name = "httpx2", marker = "extra == 'dashboard'", specifier = ">=2.13,<3" },
-    { name = "marimo", marker = "extra == 'dashboard'", specifier = "==0.24.0" },
     { name = "numpy", marker = "extra == 'actuary'", specifier = ">=2.0,<3" },
     { name = "pandas", marker = "extra == 'market'", specifier = ">=2.3" },
     { name = "polars", marker = "extra == 'dashboard'", specifier = ">=2.0,<3" },

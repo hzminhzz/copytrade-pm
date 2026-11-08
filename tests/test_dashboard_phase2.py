@@ -266,7 +266,6 @@ def test_chart_preserves_gaps_utc_reset_and_actual_extrema():
 
 
 def test_chart_rejects_contradictory_evidence_and_unbounded_data():
-    pytest.importorskip("altair", reason="requires the dashboard extra")
     from copytrade_pm.dashboard.chart_data import prepare_series
 
     base = dict(

@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import runpy
 import shutil
+import tomllib
 
 import pytest
 
@@ -35,6 +36,48 @@ def test_dashboard_inventory_and_allowed_datasource():
                 assert query["datasource"]["uid"] == "risk-projection-v1"
                 assert not query.get("filters")
         assert not value["templating"]["list"]
+
+
+def test_frozen_dashboard_extra_excludes_retired_presentation_dependencies():
+    lock = tomllib.loads((ROOT / "uv.lock").read_text())
+    project = next(p for p in lock["package"] if p["name"] == "copytrade-pm")
+    names = {item["name"] for item in project["optional-dependencies"]["dashboard"]}
+    assert names == {"polars", "starlette", "uvicorn", "httpx", "httpx2"}
+    assert all(
+        entry["name"] not in {"altair", "marimo"}
+        for entry in project["metadata"]["requires-dist"]
+        if entry.get("marker") == "extra == 'dashboard'"
+    )
+
+
+def test_infinity_value_field_alias_is_bounded_to_the_four_risk_tables():
+    """The installed Infinity parser may emit A instead of the declared Value.
+
+    Both candidate names are supported; the visible browser check must also
+    verify the Value header. A plugin upgrade still needs a raw-frame review.
+    """
+    for filename in ("risk-command.json", "synthetic-qa.json"):
+        dashboard = json.loads((OPS / "dashboards" / filename).read_text())
+        tables = [
+            panel
+            for panel in dashboard["panels"]
+            if any(
+                col.get("selector") == "value" and col.get("text") == "Value"
+                for target in panel.get("targets", [])
+                for col in target.get("columns", [])
+            )
+        ]
+        assert {panel["id"] for panel in tables} == {2, 3}
+        for panel in tables:
+            transforms = [t for t in panel.get("transformations", []) if t["id"] == "organize"]
+            assert len(transforms) == 1
+            options = transforms[0]["options"]
+            order = options["indexByName"]
+            assert order["Metric"] == 0
+            assert order["A"] == order["Value"] == 1
+            assert order["Grade"] == 2
+            assert order["Evidence Error"] == 4
+            assert options["renameByName"] == {"A": "Value"}
 
 
 def test_alerts_are_browser_independent_and_fail_closed():

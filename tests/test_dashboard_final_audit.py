@@ -112,7 +112,6 @@ def test_busy_selection_cannot_hide_guardian_unavailable_state():
 
 @pytest.mark.parametrize("break_count", [4, 8])
 def test_downsampling_retains_local_extrema_or_explicitly_refuses(break_count):
-    pytest.importorskip("altair", reason="requires the dashboard extra")
     from copytrade_pm.dashboard.chart_data import prepare_series
 
     points = []
@@ -147,7 +146,6 @@ def test_downsampling_retains_local_extrema_or_explicitly_refuses(break_count):
 def test_actual_owner_capture_round_trip_without_journal_mutation(tmp_path):
     """Use the actual pinned owner producer; OS ACL acceptance remains separate."""
     pytest.importorskip("prop_production", reason="requires the pinned owner source")
-    pytest.importorskip("altair", reason="requires the dashboard extra")
     from hashlib import sha256
 
     from prop_production.dashboard_capture import COMMANDS, export_capture
