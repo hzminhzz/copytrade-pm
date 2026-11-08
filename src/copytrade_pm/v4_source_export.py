@@ -270,12 +270,24 @@ def export_signed_events(
                 _record(db, alias=alias, identity=identity, row=row, signer=signer) for row in rows
             ]
             heads[alias] = head
-    return {
+    result = {
         "schema": "v4_signed_source_export_v1",
         "head_cursors": heads,
         "events": records,
         "trading_authorized": False,
     }
+    result["batch_envelope"] = sign(
+        {
+            "schema": "v4_source_batch_binding_v1",
+            "selected": {alias: address.lower() for alias, address in selected.items()},
+            "head_cursors": heads,
+            "events_sha": digest(records),
+            "trading_authorized": False,
+        },
+        signer,
+        "source-observer-v4-batch",
+    )
+    return result
 
 
 def _private_input(path: Path) -> bytes:
