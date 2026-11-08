@@ -59,7 +59,9 @@ def evaluate(receipt: dict, *, candidate: str, bundle_sha256: str) -> dict:
             and isinstance(item.get("evidence"), str)
             and item["evidence"].startswith("sha256:")
             and bool(SHA.fullmatch(item["evidence"][7:]))
-            and item.get("issuer") != "dashboard_under_test"
+            and isinstance(item.get("issuer"), str)
+            and bool(item["issuer"].strip())
+            and item["issuer"] != "dashboard_under_test"
         )
         if not valid:
             states[name] = "UNKNOWN"

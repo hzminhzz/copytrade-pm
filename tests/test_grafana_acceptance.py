@@ -48,6 +48,7 @@ def test_all_mandatory_independent_receipts_qualify(tmp_path):
             "candidate": "a" * 40,
             "bundle_sha256": "b" * 64,
             "evidence": "sha256:" + "c" * 64,
+            "issuer": "independent_test_authority",
         }
         for name in MANDATORY_GATES
     }
@@ -74,6 +75,7 @@ def test_false_pass_from_different_candidate_is_rejected(tmp_path):
             "candidate": "d" * 40,
             "bundle_sha256": "b" * 64,
             "evidence": "sha256:" + "c" * 64,
+            "issuer": "independent_test_authority",
         }
         for name in MANDATORY_GATES
     }
@@ -92,6 +94,7 @@ def test_explicit_failure_rejects_even_when_others_pass(tmp_path):
             "candidate": "a" * 40,
             "bundle_sha256": "b" * 64,
             "evidence": "sha256:" + "c" * 64,
+            "issuer": "independent_test_authority",
         }
         for name in MANDATORY_GATES
     }
@@ -99,6 +102,23 @@ def test_explicit_failure_rejects_even_when_others_pass(tmp_path):
     process, result = evaluate(tmp_path, gates)
     assert process.returncode == 2
     assert result["decision"] == "REJECT"
+
+
+def test_missing_issuer_cannot_qualify_external_gates(tmp_path):
+    from copytrade_pm.dashboard.grafana_acceptance import MANDATORY_GATES
+
+    gates = {
+        name: {
+            "status": "PASS",
+            "candidate": "a" * 40,
+            "bundle_sha256": "b" * 64,
+            "evidence": "sha256:" + "c" * 64,
+        }
+        for name in MANDATORY_GATES
+    }
+    process, result = evaluate(tmp_path, gates)
+    assert process.returncode == 2
+    assert result["gates"]["protected_guardian_journal_noninterference"] == "UNKNOWN"
 
 
 def test_self_attestation_cannot_qualify_external_gates(tmp_path):
