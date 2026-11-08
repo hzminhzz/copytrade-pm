@@ -1,6 +1,6 @@
 # Combo 2 — prospective Propr paper tracking (engineering preview)
 
-**Scope:** local hypothetical shadow ledger only. **Not a live connector, not a working unattended monitor, not scientifically qualified.** Source of truth: [spec](specs/combo2-propr-paper-tracking/spec.md) and [single-issue plan](specs/combo2-propr-paper-tracking/plan.md). This document describes only what the current repository implementation establishes; external source/event services and the existing untracked Propr launcher are separate components.
+**Scope:** local hypothetical shadow ledger plus strictly read-only, hash-verified receipt ingestion. **Not a live connector, not a working unattended monitor, not scientifically qualified.** Source of truth: [spec](specs/combo2-propr-paper-tracking/spec.md) and [single-issue plan](specs/combo2-propr-paper-tracking/plan.md). This document describes only what the current repository implementation establishes; external source/event services and the existing untracked Propr launcher are separate components.
 
 ## Frozen research experiment
 
@@ -32,10 +32,66 @@ Do not copy a fixture's fabricated first-known timestamps into genuine prospecti
 
 An official [Hyperliquid info state](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint/perpetuals) is **read-only** even though it is requested through \`POST /info\`. It is not a broker order. An authenticated Propr display-universe list does not by itself authorize an instrument. Unsupported mappings and missing marks require explicit partial-book attribution and/or a blocked opening.
 
+## Prospective source receipt import (continuation under Issue #22)
+
+The read-only `pm_combo2_capture` bridge consumes official Hyperliquid frames **already captured by the local E4 producer**, with their immutable raw SHA and first-local receipt metadata. It does not open a WebSocket or query/modify an exchange. The downstream Combo2 paper engine records a **second, later consumer first-known time** (the local ingestion clock). A producer frame older than 90 seconds at ingestion is rejected instead of becoming a backdated signal. Reprocessing an already journaled capture is idempotent and cannot move its action clock.
+
+`SOURCE_BOOK` events persist complete normalized leader positions and equity inside the existing owner-private hash-chained PM-03 event ledger. The first book of each source is **baseline only**. Later signed quantity changes schedule T+300s; additional snapshots refresh the live equity denominator without extending the deadline. WebSocket resubscription or generation rotation is an explicit rebaseline, not an invented catch-up fill. `SOURCE_GAP` clears stale pending operations. Prospective rebalances use **only books restored from this ledger**, require all three recently seen, nongapped books, and reject arbitrary leader payload overrides.
+
+This first bridge deliberately accepts only explicit, verified **single-account / no-subaccount** scopes in `STANDARD_SEPARATE_DEX_BALANCES` mode, with official complete all-DEX state and an independent spot-collateral-absent attestation. Parent accounts with children, unified/portfolio-margin accounts, uncertain source equity and incomplete markets remain blocked; it is **not** a whole-manager solution for a leader with subaccounts. Scope evidence hashes and any market contract SHA are frozen into the run manifest. Market quotes require the frozen attestation SHA, a verified native market ID flag and the same freshness/stress checks; SHA fields record private evidence references and are not cryptographic proof that external claims are true.
+
+Owner-private config (file mode 0600, outside Git) has schema `combo2_prospective_source_config_v1` with keys `run_id`, `started_at`, optional `market_contract_sha` (null while unknown), and exactly three `scopes` entries W028/CA-008/W015. Each scope requires `address`, `expected_dexs`, `account_mode`, `subaccount_scope_complete`, `verified_no_subaccounts`, `spot_collateral_verified_absent`, `evidence_sha256`. **Do not set these gates true without independently retained evidence.** Starting a new paper run does not make a previous E4 generation first-known for that run.
+
+Read-only local example (will fail closed until the real private source proofs exist):
+
+~~~bash
+uv run --group dev python -m copytrade_pm.pm_combo2_capture_cli \\
+  --private-manifest /private/copytrade/combo2-source-config.json \\
+  --generation /private/copytrade/e4/gE420261102T000000000000Z-00000000 \\
+  --paper-root /private/copytrade/combo2-paper
+~~~
+
+The importer requires a finished, private, error-free E4 session with one complete account window, original raw frame SHA parity, no unobserved subjects, and capture timestamps no more than 90 seconds older than ingestion. This input can establish a **captured source event**, not simulated paper execution by itself. A prospective `PAPER_REBALANCE` must be separately called with genuinely attested instrument metadata, valid current quotes and stress evidence; the current CLI **does not automatically trigger a due batch or submit any remote request**.
+
+**Current external blockers:** the running `copytrade-source-abc.service` rotates A/B/C and does not provide continuous complete Combo2 (W028, CA-008, W015) capture. Existing W028 observations report additional subaccounts, so the single-account proof cannot safely be asserted; CA-008 is not an A/B/C member. Starting another reader concurrently can violate the shared Hyperliquid per-IP account limit. A bounded shared-source producer, aggregate source-NAV/subaccount proof, real Propr market-ID/lot/session attestations, and separate connector-owned SQLite projection/independent transport spy remain required. Do not deploy a Combo2 service from this ingestion-only module.
+
+## November 2, 2026 read-only source acquisition evidence
+
+The immutable, **REST-only** `pm_combo2_rest_capture` collector captured W028 parent + seven subaccounts, CA-008 and W015, each across the 11 official DEX namespaces. The two completed generations reside privately under `/home/quant/.local/share/copytrade/reports/combo2-source-20261102/`. Each generation recorded **134 `POST /info` informational calls**, 10/10 accounts, zero account-census errors and zero order API calls. Hyperliquid's documented `userAbstraction` query returned **`unifiedAccount` for all three leaders**; separate-DEX `marginSummary.accountValue` is **not** the complete wallet denominator in unified mode. The collector explicitly records `follower_source_equity_verified=false` and never feeds this unqualified partial-source account into the paper simulator.
+
+Capture again without consuming extra WebSocket user subscriptions:
+
+~~~bash
+uv run --group dev python -m copytrade_pm.pm_combo2_rest_capture \\
+  --research-root /home/quant/.local/share/copytrade/reports/five-pod-20261029-research \\
+  --store /home/quant/.local/share/copytrade/reports/combo2-source-20261102
+~~~
+
+Read-only health for one specific generation:
+
+~~~bash
+uv run --group dev python -m copytrade_pm.pm_combo2_health \\
+  --generation /home/quant/.local/share/copytrade/reports/combo2-source-20261102/gC2-readonly-20261102-a
+~~~
+
+The second capture succeeded as a **transient `systemd --user` service** with exit `0/SUCCESS`, and the existing `copytrade-source-abc.service` stayed active. This is a bounded acquisition/service-health smoke, **not** a deployed unattended paper follower. The source-health result intentionally reports `BLOCKED_SOURCE_EQUITY_AND_MARKET_ATTESTATION`; no live/paper opening permission is derived from capture completeness.
+
+`Combo2PaperTracker.verified_paper_decisions()` independently checks every journal hash, post-state and synthetic decision. The separate `trading-connector` module `connectors.propr.combo2_paper_projection` accepts only these verified paper reports and stores them in dedicated `combo2_paper_*` tables in the existing local SQLite IntentJournal. The real broker `intents` and `audit` rows remain unchanged; paper fills are never broker fills. The connector-owned import CLI is `python -m connectors.propr.examples.project_combo2_paper --paper-root ... --run-id ... --sqlite ...`. This projection has been tested across repository boundaries, including crash/restart and zero outbound socket spies, but has not been installed as a production paper supervisor.
+
+Authenticated, read-only Propr `GET` inspection confirmed margin configuration records for `HYPE`, `ZEC`, and `xyz:MU` and nine leverage-limit overrides. The response exposes margin mode/leverage but **not** validated instrument lots, tick sizes, order minima, session calendars or execution prices. Those market contracts remain **UNKNOWN**; generic/unverified registry aliases may not authorize model fills.
+
+## Signed REST position-change detector (Issue #22)
+
+`pm_combo2_signed_delta.compare_generations(previous, current)` verifies two private, complete, SHA-checked REST snapshots. It nets the parent and subaccounts per manager and instrument before detecting signed changes. Subaccount-only transfers with zero net exposure change do not signal. Changed account identities, account modes, DEX lists, raw hashes or excessively spaced observations fail closed.
+
+The new aggregate observation is first-known only when the entire second sweep completes. Its due timestamp uses the unchanged Combo 2 `BATCH_SECONDS=300` constant. Each event carries signed before/after/delta, deterministic signal ID, source-event time explicitly unknown, and no equity or trading authorization. REST differences are not identified as exact native fills.
+
+Read-only CLI: `python -m copytrade_pm.pm_combo2_signed_delta --earlier PRIVATE_GEN_1 --later PRIVATE_GEN_2`. The connector may use a selected real delta for a separate, capped Free Trial diagnostic. The original `Combo2PaperTracker` remains broker-free and unified source-equity sizing is still blocked.
+
 ## Current limits and release gates
 
-- **IMPLEMENTED IN THIS BRANCH:** synthetic event receipts, five-minute deadline, whole-position equity scaling, pre-net instrument gross clamping, nominal portfolio gross restriction, PM-03 reused cash/P&L/position accounting, local append-only event hashes, modeled fee/spread/slippage/capacity, fixture CLI, and unit tests.
-- **NOT YET VERIFIED AS PROSPECTIVE:** continuous first-local-receipt source acquisition for the three exact wallet/subaccount scopes, complete live equity across account abstraction modes, complete market-ID/lot/cost/calendar support on account #JhW9, local SQLite intent projection by the existing connector launcher, true paper fill calibration, and end-to-end read-only connector smoke.
+- **IMPLEMENTED IN THIS BRANCH:** the existing offline synthetic engine plus the new hash-checked, single-account prospective E4 source-book ingest, frozen scope/market proof manifests, independent consumer first-known clock, reconnect baselines and safe source-gap state. Offline receipt-to-paper fixture tests do not establish a continuously running follower.
+- **NOT YET VERIFIED AS PROSPECTIVE:** complete continuous real source acquisition for W028/CA-008/W015 across their subaccounts/account modes; official aggregate live source equity; market-ID/lot/cost/calendar support on #JhW9; connector SQLite intent projection; read-only end-to-end paper fills, calibration and no-mutation transport spy.
 - **NO DEPLOYMENT AUTHORIZATION:** the original \`trading-connector/connectors/propr/examples/paper_track_combo2.py\` is a separately owned untracked file in a dirty checkout. This work must not overwrite it or install a real order gateway. The current command has no network or order transport.
 - **ENGINEERING VERIFIED** requires the exact run's CI/lint, frozen fixture-based P&L reconciliation, duplicate/reconnect/crash fault matrix, an independently reviewed no-mutation boundary and evidence SHA. **PAPER OBSERVED** requires actual first-known source receipts plus separately tagged model fills and bounded observation. **SCIENTIFICALLY QUALIFIED** and **LIVE AUTHORIZED** remain **NO**.
 
