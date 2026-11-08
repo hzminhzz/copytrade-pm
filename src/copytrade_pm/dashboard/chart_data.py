@@ -1,4 +1,4 @@
-"""Bounded, evidence-separated Polars/Altair presentation of owner-supplied series.
+"""Bounded, evidence-separated Polars reduction of owner-supplied series.
 
 No source retrieval or contractual risk computation happens here. In the absence
 of a trusted native historical read, callers must show UNAVAILABLE instead of
@@ -10,7 +10,6 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
-import altair as alt
 import polars as pl
 
 from .adapter import parse_utc, safe_decimal, safe_text
@@ -188,35 +187,3 @@ def prepare_series(
     if len(output) > max_points:
         raise ValueError("TOTAL_FINANCIAL_POINTS_EXCEED_DISPLAY_BUDGET")
     return output
-
-
-def linked_chart(points: list[dict[str, Any]]) -> alt.VConcatChart:
-    """A purely browser-side Vega-Lite brush; no callback or financial re-read."""
-    if not points:
-        raise ValueError("NO_AUTHORITATIVE_FINANCIAL_POINTS")
-    if len(points) > 5000:
-        raise ValueError("CHART_RENDER_BUDGET_EXCEEDED")
-    data = pl.DataFrame(points).to_dicts()
-    base = (
-        alt.Chart(alt.InlineData(values=data))
-        .mark_line(point=True)
-        .encode(
-            x=alt.X("timestamp:T", title="UTC", scale=alt.Scale(type="utc")),
-            y=alt.Y("value:Q", title="Presentation-only value"),
-            color=alt.Color("trace:N", title="Source / evidence class"),
-            detail="segment:N",
-            tooltip=[
-                "timestamp:T",
-                "value_exact:N",
-                "source_id:N",
-                "evidence_class:N",
-                "metric:N",
-                "gap_before:N",
-                "reset_boundary:N",
-            ],
-        )
-    )
-    brush = alt.selection_interval(encodings=["x"], name="time_brush")
-    focus = base.transform_filter(brush).properties(height=260, title="Evidence-qualified view")
-    context = base.mark_line().add_params(brush).properties(height=80, title="Brush UTC scope")
-    return alt.vconcat(focus, context).resolve_scale(x="shared")

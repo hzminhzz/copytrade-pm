@@ -32,8 +32,7 @@ class Browser:
             version = json.load(urllib.request.urlopen(f"{cdp_url}/json/version", timeout=5))
         except OSError as exc:
             raise RuntimeError(
-                f"OBSCURA_CDP_UNAVAILABLE {cdp_url}: {exc} "
-                "(systemctl --user start obscura)"
+                f"OBSCURA_CDP_UNAVAILABLE {cdp_url}: {exc} (systemctl --user start obscura)"
             ) from exc
         self._ws = self._loop.run_until_complete(
             websockets.connect(version["webSocketDebuggerUrl"], max_size=32_000_000)

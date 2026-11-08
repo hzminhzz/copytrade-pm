@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-import json
 
 import pytest
 
@@ -241,8 +240,7 @@ def test_research_missing_cache_and_bounded_filters():
 
 
 def test_chart_preserves_gaps_utc_reset_and_actual_extrema():
-    pytest.importorskip("altair", reason="requires the dashboard extra")
-    from copytrade_pm.dashboard.chart_data import prepare_series, linked_chart
+    from copytrade_pm.dashboard.chart_data import prepare_series
 
     base = datetime(2026, 11, 1, tzinfo=UTC)
     points = []
@@ -265,7 +263,6 @@ def test_chart_preserves_gaps_utc_reset_and_actual_extrema():
     assert any(p["gap_before"] for p in data)
     assert any(p["reset_boundary"] for p in data)
     assert len({p["segment"] for p in data}) == 2
-    assert "time_brush" in json.dumps(linked_chart(data).to_dict())
 
 
 def test_chart_rejects_contradictory_evidence_and_unbounded_data():

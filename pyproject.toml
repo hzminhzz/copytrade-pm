@@ -10,7 +10,7 @@ dependencies = ["cryptography>=46.0"]
 market = ["polars>=2.0,<3", "pandas>=2.3"]
 actuary = ["numpy>=2.0,<3"]
 source = ["websockets==15.0.1"]
-dashboard = ["marimo==0.24.0", "altair>=6.0,<7", "polars>=2.0,<3", "starlette>=1.6,<2", "uvicorn>=0.52,<0.53", "httpx>=0.28,<0.30", "httpx2>=2.13,<3"]
+dashboard = ["polars>=2.0,<3", "starlette>=1.6,<2", "uvicorn>=0.52,<0.53", "httpx>=0.28,<0.30", "httpx2>=2.13,<3"]
 market-stream = ["ccxt==4.5.91"]
 
 [dependency-groups]
