@@ -164,6 +164,12 @@ def main() -> int:
     parser.add_argument("--registry-db", type=Path, required=True)
     parser.add_argument("--state-root", type=Path, required=True)
     parser.add_argument("--portfolios", default="P1,P14,P16")
+    parser.add_argument(
+        "--campaign-manifest",
+        type=Path,
+        help="Owner-private SHA-pinned sixteen-portfolio prospective paper study",
+    )
+    parser.add_argument("--campaign-sha256")
     parser.add_argument("--duration-seconds", type=float, default=0)
     args = parser.parse_args()
     if not 0 <= args.duration_seconds <= 86400:
@@ -171,7 +177,26 @@ def main() -> int:
     os.umask(0o077)
     now = datetime.now(UTC).isoformat(timespec="microseconds")
     ids = tuple(args.portfolios.split(","))
-    parents = selected_parents(args.registry_db, portfolios=ids, as_of=now)
+    if args.campaign_manifest is not None:
+        from .pm_v4_sixteen_scenarios import IDENTITIES, load_campaign
+
+        if (
+            args.campaign_sha256 is None
+            or len(ids) != len(IDENTITIES)
+            or set(ids) != set(IDENTITIES)
+        ):
+            raise ValueError("V4_CAMPAIGN_PORTFOLIO_SCOPE_MISMATCH")
+        campaign = load_campaign(
+            manifest=args.campaign_manifest,
+            registry_db=args.registry_db,
+            at=now,
+            expected_sha256=args.campaign_sha256,
+        )
+        parents = campaign.parents
+    else:
+        if args.campaign_sha256 is not None:
+            raise ValueError("V4_CAMPAIGN_REQUIRES_PRIVATE_MANIFEST")
+        parents = selected_parents(args.registry_db, portfolios=ids, as_of=now)
     journal = PaperJournal(args.state_root)
     verify_streams(journal.path)
     accounts = official_accounts(journal, parents)

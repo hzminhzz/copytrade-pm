@@ -593,10 +593,42 @@ class ObservedP1Paper:
         price_mode: str = "l2",
         price_db: Path | None = None,
         native_contracts: Mapping[str, NativePaperContract] | None = None,
+        study_profile: PaperPortfolioSpec | None = None,
+        study_seal: Mapping[str, object] | None = None,
+        study_accounts: Mapping[str, str] | None = None,
     ) -> None:
-        if portfolio_id not in PAPER_PROFILES:
-            raise ValueError("PAPER_PORTFOLIO_HAS_NO_APPROVED_RESEARCH_SCENARIO")
-        self.profile = PAPER_PROFILES[portfolio_id]
+        # Existing three registry-sealed profiles remain the default. Other
+        # scenarios require an explicit, independently checked private campaign.
+        if study_profile is None:
+            if portfolio_id not in PAPER_PROFILES:
+                raise ValueError("PAPER_PORTFOLIO_HAS_NO_APPROVED_RESEARCH_SCENARIO")
+            self.profile = PAPER_PROFILES[portfolio_id]
+        else:
+            if study_profile.registry_id != portfolio_id:
+                raise ValueError("V4_CAMPAIGN_PROFILE_PORTFOLIO_MISMATCH")
+            if portfolio_id in PAPER_PROFILES:
+                if study_profile != PAPER_PROFILES[portfolio_id] or study_seal is not None:
+                    raise ValueError("V4_CAMPAIGN_CANNOT_OVERRIDE_REGISTRY_PROFILE")
+            else:
+                from .pm_v4_sixteen_scenarios import MANIFEST_SHA256
+
+                if (
+                    study_seal is None
+                    or study_seal.get("source_manifest_sha256") != MANIFEST_SHA256
+                    or study_seal.get("portfolio_id") != portfolio_id
+                    or study_seal.get("selection_kind")
+                    != "UNSIGNED_PROSPECTIVE_PAPER_SCENARIO_NOT_SQLITE_SELECTION"
+                    or study_accounts is None
+                    or set(study_accounts) != set(study_profile.source_ids)
+                    or any(
+                        not isinstance(value, str)
+                        or len(value) != 64
+                        or any(char not in "0123456789abcdef" for char in value)
+                        for value in study_accounts.values()
+                    )
+                ):
+                    raise ValueError("V4_CAMPAIGN_EXTERNAL_STUDY_NOT_VERIFIED")
+            self.profile = study_profile
         self.members = self.profile.source_ids
         self.portfolio_id = portfolio_id
         if price_mode not in ("l2", "vike_minute"):
@@ -701,20 +733,36 @@ class ObservedP1Paper:
                 }
             )
         self.started_at = started_at
-        self.portfolio_seal = _verify_portfolio_selection(
-            self.registry_db,
-            self.profile,
-            as_of=started_at,
-        )
-        self.selected_accounts = _sealed_p1_accounts(
-            self.registry_db,
-            as_of=started_at,
-            aliases=self.profile.registry_aliases,
-        )
+        if portfolio_id in PAPER_PROFILES:
+            self.portfolio_seal = _verify_portfolio_selection(
+                self.registry_db,
+                self.profile,
+                as_of=started_at,
+            )
+            self.selected_accounts = _sealed_p1_accounts(
+                self.registry_db,
+                as_of=started_at,
+                aliases=self.profile.registry_aliases,
+            )
+            if study_accounts is not None and dict(study_accounts) != self.selected_accounts:
+                raise ValueError("V4_CAMPAIGN_LEGACY_IDENTITY_DRIFT")
+        else:
+            assert study_seal is not None and study_accounts is not None
+            self.portfolio_seal = dict(study_seal)
+            self.selected_accounts = dict(study_accounts)
         self.policy = {
             **_policy(self.profile, price_mode=self.price_mode),
             "selected_account_hashes": self.selected_accounts,
         }
+        if portfolio_id not in PAPER_PROFILES:
+            self.policy.update(
+                {
+                    "v4_paper_study": self.portfolio_seal,
+                    "approval_reference": "docs/V4-SIXTEEN-PAPER-20261109.md",
+                    "scientific_qualification": "NOT_ESTABLISHED",
+                    "exclusion_warnings_not_revoked": True,
+                }
+            )
         if self.portfolio_id != "P1":
             self.policy.update(
                 {

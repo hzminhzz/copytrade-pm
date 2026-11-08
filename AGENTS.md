@@ -142,6 +142,9 @@ authorization or service cutover. See
 [the binding decision](docs/decisions/2026-11-08-position-first-t300.md).
 For user-authorized V4 read-only installation and rollback, use the
 [separate V4 release runbook](docs/V4-POSITION-FIRST-DEPLOY-20261108.md).
+The later [16-portfolio V4 virtual-paper study](docs/V4-SIXTEEN-PAPER-20261109.md)
+uses separately derived, explicitly non-qualifying private research scenarios;
+preserve the original exclusion and historical selection records.
 
 For persistent acquisition use [the continuous observer runbook](docs/FORWARD-PAPER-CONTINUOUS-OBSERVER.md).
 Preflight and diagnostics do not admit startup. Measure shared-IP budgets and

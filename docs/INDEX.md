@@ -25,6 +25,7 @@ The Marimo operator dashboard was **retired early on 2026-11-08** at operator di
 | Persistent public observation | [Continuous observer](FORWARD-PAPER-CONTINUOUS-OBSERVER.md) |
 | Approved official position-first T+300 policy | [2026-11-08 position authority ADR](decisions/2026-11-08-position-first-t300.md) |
 | Position-first v4 isolated release and rollback | [V4 deployment runbook](V4-POSITION-FIRST-DEPLOY-20261108.md) |
+| Owner-requested 16-portfolio prospective virtual-paper campaign (not SQLite promotion) | [16-portfolio paper release and exclusions](V4-SIXTEEN-PAPER-20261109.md) |
 | Additive Vike selected fills + 1m estimated paper candidate (not cutover) | [Vike migration and reversible observer deployment](FORWARD-PAPER-VIKE-MIGRATION-20261108.md) |
 | Isolated, registry-sealed virtual paper portfolio deployments | [Registry paper profiles](REGISTRY-PAPER-PORTFOLIOS-20261107.md) |
 | Protected standby/watchdog staging | [Protected operations](FORWARD-PAPER-PROTECTED-OPS-STAGING-20261105.md) |
