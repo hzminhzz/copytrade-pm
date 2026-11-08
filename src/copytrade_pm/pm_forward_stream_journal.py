@@ -252,6 +252,86 @@ def read_stream_head(path: Path, stream_id: str) -> dict:
         return _head(db, stream_id)
 
 
+
+def verify_official_position_transition(
+    db: sqlite3.Connection, *,
+    alias: str, receipt_id: str, receipt_sha: str, receipt: dict,
+    require_current_positions: bool = False,
+) -> bool:
+    """Require an atomic, first-known official OBSERVATION receipt reference.
+
+    Caller supplies the same SQLite read transaction as the source receipt.
+    An unsigned flag added by a foreign source writer is not transition proof.
+    This is virtual-paper provenance, not an exchange signature or broker permit.
+    """
+    if (
+        receipt.get("observation_kind") != "OBSERVED_STATE_CHANGE"
+        or receipt.get("position_transition_eligible") is not True
+        or receipt.get("signal_eligible") is not False
+        or not isinstance(receipt.get("stream_epoch"), str)
+    ):
+        return False
+    sid = "account:" + alias
+    try:
+        matches = db.execute(
+            "SELECT e.seq,e.event_sha,e.payload,e.receipt_refs,e.prior_sha,"
+            "e.chain_sha,e.committed_at FROM observer_stream_events e "
+            "WHERE e.stream_id=? AND EXISTS ("
+            "SELECT 1 FROM json_each(e.receipt_refs) r WHERE "
+            "json_extract(r.value,'$.kind')='source' AND "
+            "json_extract(r.value,'$.key[0]')=? AND "
+            "json_extract(r.value,'$.key[1]')=? AND "
+            "json_extract(r.value,'$.sha')=?)",
+            (sid, alias, receipt_id, receipt_sha),
+        ).fetchall()
+        if len(matches) != 1:
+            return False
+        seq, event_sha, payload, refs, prior, chain, committed_at = matches[0]
+        event, receipt_refs = json.loads(payload), json.loads(refs)
+        if (
+            digest(event) != event_sha
+            or chain != digest([sid, seq, event_sha, prior, committed_at, receipt_refs])
+            or event.get("kind") != "OBSERVATION"
+            or event.get("epoch") != receipt["stream_epoch"]
+            or event.get("first_known_at") != receipt.get("first_known_at")
+            or event.get("source_event_at") != receipt.get("source_event_at")
+            or digest(event.get("details", {}).get("native_frame"))
+            != receipt.get("source_sha")
+            or (
+                event.get("details", {}).get("native_wire") is None
+                and event.get("raw_sha") != receipt.get("source_sha")
+            )
+            or event.get("details", {}).get("classification") != "OBSERVED_STATE_CHANGE"
+            or not event.get("details", {}).get("position_changes")
+            or event.get("checkpoint", {}).get("positions")
+            != receipt.get("source_book", {}).get("positions")
+            or event.get("checkpoint", {}).get("last_receipt_sha") != digest(receipt)
+        ):
+            return False
+        # Even a same-epoch GAP followed by a new BASELINE invalidates the
+        # earlier new-risk intent. Do not rely on epoch comparison alone.
+        interruption = db.execute(
+            "SELECT 1 FROM observer_stream_events WHERE stream_id=? AND seq>? "
+            "AND json_extract(payload, '$.kind') IN ('GAP','BASELINE','SCOPE') LIMIT 1",
+            (sid, seq),
+        ).fetchone()
+        if interruption is not None:
+            return False
+        head = _head(db, sid)
+        state = head["checkpoint"]
+        return (
+            state.get("baseline_valid") is True
+            and state.get("transport") == "CONNECTED"
+            and head["event"] is not None
+            and head["event"]["epoch"] == event["epoch"]
+            and (
+                not require_current_positions
+                or state.get("positions") == receipt.get("source_book", {}).get("positions")
+            )
+        )
+    except (sqlite3.Error, ValueError, KeyError, TypeError):
+        return False
+
 class StreamProgress:
     """Publish in-memory projection only after durable receipt/checkpoint success."""
 

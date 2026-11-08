@@ -121,6 +121,27 @@ Parquet and original evidence outside Git. Preserve frozen PM-01 membership,
 source hashes and the `pm01_fill_only_replay_v2` consumer interface.
 Use [Vike recovery](docs/VIKE-DATA-RECOVERY-20261106.md) only within its explicit
 bounded research contract; no automatic production ingestion or credential export.
+The separate [2026-11-08 Vike read-only observer candidate](docs/FORWARD-PAPER-VIKE-MIGRATION-20261108.md)
+is a commit-pinned additive source-fill and minute-price research intake:
+it does not replace the official full-position owner, qualify v4 paper
+execution, authorize trading or retire CCXT. Never expose the dedicated key
+in Git, logs, process arguments or documentation; load only from the
+quant-owned private environment file.
+
+**Position-first V4 decision (2026-11-08):** Official complete selected-account
+`allDexsClearinghouseState` transitions are the ONLY source of new desired
+exposure for V4 paper. Vike fills are optional research/consistency evidence,
+not a mandatory fill-to-position reconstruction or signal. Use the existing
+atomic official stream/source journal, and require a linked verified
+`OBSERVED_STATE_CHANGE` (not BASELINE, GAP, recovery or unverifiable flat)
+before creating a non-resetting first-known T+300 entry. At due require the
+latest complete valid official position book; source reductions and risk exits
+remain immediate. Preserve PM-03/04 finance, frozen fixed k, separate pod
+budgets, unresolved inventory and one terminal modeled attempt. No funded
+authorization or service cutover. See
+[the binding decision](docs/decisions/2026-11-08-position-first-t300.md).
+For user-authorized V4 read-only installation and rollback, use the
+[separate V4 release runbook](docs/V4-POSITION-FIRST-DEPLOY-20261108.md).
 
 For persistent acquisition use [the continuous observer runbook](docs/FORWARD-PAPER-CONTINUOUS-OBSERVER.md).
 Preflight and diagnostics do not admit startup. Measure shared-IP budgets and

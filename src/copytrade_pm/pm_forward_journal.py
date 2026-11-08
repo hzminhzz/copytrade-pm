@@ -80,6 +80,27 @@ class PaperJournal:
                     PRIMARY KEY (instrument, seq),
                     UNIQUE (instrument, quote_id)
                 );
+                CREATE TABLE IF NOT EXISTS vike_minute_heads (
+                    instrument TEXT PRIMARY KEY,
+                    cursor INTEGER NOT NULL,
+                    event_at TEXT NOT NULL,
+                    known_at TEXT NOT NULL,
+                    chain_sha TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS vike_minute_receipts (
+                    instrument TEXT NOT NULL,
+                    seq INTEGER NOT NULL,
+                    observation_id TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    payload_sha TEXT NOT NULL,
+                    prior_sha TEXT NOT NULL,
+                    chain_sha TEXT NOT NULL,
+                    event_at TEXT NOT NULL,
+                    known_at TEXT NOT NULL,
+                    PRIMARY KEY(instrument, seq),
+                    UNIQUE(instrument, observation_id),
+                    FOREIGN KEY(instrument) REFERENCES vike_minute_heads(instrument)
+                );
                 CREATE TABLE IF NOT EXISTS market_trade_heads (
                     instrument TEXT PRIMARY KEY,
                     cursor INTEGER NOT NULL,
@@ -1452,6 +1473,68 @@ class PaperJournal:
             "paper_observed": False,
             "order_route": "NONE",
         }
+
+    def append_vike_minute(self, observation: dict) -> dict:
+        """Store a causally observed minute trade price separately from L2.
+
+        A finalized historical bar cannot acquire a fictional earlier receipt.
+        Both forming and finalized observations carry their actual REST clock.
+        """
+        from .pm_vike_minute import native_instrument, validate_observation
+
+        validate_observation(observation)
+        instrument = native_instrument(observation["native_symbol"])
+        known_at = observation["first_known_at"]
+        event_at = observation["bar_start_at"]
+        if clock(event_at) > clock(known_at):
+            raise ValueError("PAPER_VIKE_FUTURE_PRICE")
+        raw_sha = digest(observation)
+        with self._writer() as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                old = db.execute(
+                    "SELECT payload_sha FROM vike_minute_receipts "
+                    "WHERE instrument=? AND observation_id=?",
+                    (instrument, raw_sha),
+                ).fetchone()
+                if old is not None:
+                    db.execute("COMMIT")
+                    return {"status": "DUPLICATE_VIKE_MINUTE", "instrument": instrument}
+                head = db.execute(
+                    "SELECT cursor,event_at,known_at,chain_sha FROM vike_minute_heads "
+                    "WHERE instrument=?", (instrument,),
+                ).fetchone()
+                if head is not None:
+                    seq, prior_event, prior_known, previous = head
+                    if clock(event_at) < clock(prior_event) or clock(known_at) < clock(prior_known):
+                        raise ValueError("PAPER_VIKE_MINUTE_CLOCK_REGRESSION")
+                else:
+                    seq, previous = 0, "0" * 64
+                seq += 1
+                chain = digest([instrument, seq, raw_sha, previous])
+                if head is None:
+                    db.execute(
+                        "INSERT INTO vike_minute_heads VALUES (?,?,?,?,?)",
+                        (instrument, seq, event_at, known_at, chain),
+                    )
+                else:
+                    db.execute(
+                        "UPDATE vike_minute_heads SET cursor=?,event_at=?,known_at=?,"
+                        "chain_sha=? WHERE instrument=?",
+                        (seq, event_at, known_at, chain, instrument),
+                    )
+                db.execute(
+                    "INSERT INTO vike_minute_receipts VALUES (?,?,?,?,?,?,?,?,?)",
+                    (instrument, seq, raw_sha, _json(observation), raw_sha, previous,
+                     chain, event_at, known_at),
+                )
+                db.execute("COMMIT")
+            except Exception:
+                db.execute("ROLLBACK")
+                raise
+        return {"status": "RECORDED_ESTIMATED_PRICE_ONLY", "instrument": instrument,
+                "cursor": seq, "journal_head_sha": chain, "paper_observed": False,
+                "order_route": "NONE"}
 
     def market_quote_status(self, instrument: str) -> dict:
         """Read-only full chain audit; no market/financial mutations."""
