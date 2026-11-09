@@ -266,3 +266,35 @@ Rollback keeps already published packets and committed cursors. Private orphaned
 staging files are non-authoritative; do not delete or rewind final history. The
 old publisher reintroduces partial-final visibility and should not be used for
 future publication. Financial consumer idempotency is independently gated by #219.
+
+## PYDN-06 / #219 — independent consumer commits and lost acknowledgements
+
+Existing ledger owners already provide the required atomicity; no new database,
+financial ledger or cross-destination delivery flag was added. The fanout module
+now documents both supported paths. SQLite consume_source_effect commits the
+local effect ID, source cursor and financial state in one transaction. V4 uses
+ShadowRun: PM04_PAPER_SOURCE commits consumed sequence and opportunity together;
+PM04_PAPER_EXECUTE commits a stable per-run attempt ID and financial effect.
+
+New tests/test_pydantic_consumer_recovery.py kills real child processes before
+and after SQLite COMMIT, with Portfolio B still lacking the receipt. Reopening A
+rolls back all precommit state or restores exactly one committed cash/fee/position
+effect. B catches up the unchanged original source identity and applies its own
+quantity. Conflicting same-ID payload is rejected. A local HALT cannot alter B.
+Separate V4 process crashes after durable ledger append and before in-memory
+assignment/ACK verify restored source progress, original intent and exactly one
+terminal financial effect across independent run IDs. Duplicate event retry
+replays; conflicting payload fails. The late-consumer negative case deliberately
+rejects stale first admission instead of backdating an entry window.
+
+Verification: focused consumer/atomic/fanout/fault/observed/continuity suite
+38 passed; full suite 1681 passed, 1 skipped (33.86 s); Ruff check, format
+(532 files), wheel/sdist build and diff checks passed. One initial harness failure
+omitted the legacy fixture market catalog quote; adding the required startup
+quote fixed the fixture. No production defect or new semantics was invented to
+justify a rewrite. Actual owner code and diff reviewed for local transaction
+boundaries, strict-native proof requirements, replay and independent finances.
+
+Rollback is documentation/tests only. Neither receipt copies nor missed ACKs
+provide order authority. All positive fills are explicit offline synthetic
+models; no deployment, forward evidence or scientific qualification is claimed.
