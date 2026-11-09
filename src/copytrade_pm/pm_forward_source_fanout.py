@@ -2,9 +2,14 @@
 
 The public source observer records each wallet exactly once. Financial
 account journals are independent OS/state authorities; verified *copies* of
-source receipts are imported as evidence only. A future PM04/PM03 effect must
-still call the destination journal's atomic consume_source_effect() and pass
-every separate source/market admission gate.
+source receipts are imported as evidence only. SQLite PaperCampaign effects
+use that destination's atomic consume_source_effect(): local source cursor,
+effect ID and financial state share one transaction. V4 ObservedP1Paper instead
+uses its existing ShadowRun ledger: PM04_PAPER_SOURCE seals the local sequence
+and opportunity together; PM04_PAPER_EXECUTE seals the stable attempt ID and
+financial effect together. Replay restores both after a lost acknowledgement.
+There is no cross-destination ACK or second financial ledger. Receipt copies
+alone do not supply the native stream proof required by strict V4 admission.
 
 Never subscribe twice, import historical fills, synthesize equity, create a
 paper fill or make an inter-DB atomicity claim.
