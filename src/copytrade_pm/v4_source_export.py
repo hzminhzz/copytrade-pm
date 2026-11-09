@@ -298,33 +298,41 @@ def _private_input(path: Path) -> bytes:
 
 
 def _atomic_private_output(path: Path, payload: bytes, *, replace: bool = False) -> None:
+    """Publish only complete durable bytes; never remove a published packet.
+
+    A private random staging name is not a consumer packet. File fsync precedes
+    atomic link/replace; directory fsync precedes the producer cursor update.
+    Existing v1 payload bytes and signatures pass through unchanged.
+    """
     import os
+    from tempfile import NamedTemporaryFile
 
     if path.parent.is_symlink() or path.parent.stat().st_mode & 0o077:
         raise ValueError("V4_PRIVATE_OUTPUT_DIRECTORY_REQUIRED")
     if path.is_symlink() or (path.exists() and not replace):
         raise ValueError("V4_PRIVATE_OUTPUT_EXISTS")
-    if replace:
-        temporary = path.with_name(path.name + ".new")
-        if temporary.exists() or temporary.is_symlink():
-            raise ValueError("V4_OUTPUT_STAGING_EXISTS")
-        path = temporary
-    fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
+    temporary = None
     try:
-        with os.fdopen(fd, "wb") as stream:
+        with NamedTemporaryFile(
+            dir=path.parent, prefix=".v4-stage-", suffix=".tmp", delete=False
+        ) as stream:
+            temporary = Path(stream.name)
+            os.fchmod(stream.fileno(), 0o600)
             stream.write(payload)
             stream.flush()
             os.fsync(stream.fileno())
         if replace:
-            os.replace(path, path.with_name(path.name.removesuffix(".new")))
-            dir_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
-            try:
-                os.fsync(dir_fd)
-            finally:
-                os.close(dir_fd)
-    except BaseException:
-        path.unlink(missing_ok=True)
-        raise
+            os.replace(temporary, path)
+        else:
+            os.link(temporary, path)  # Atomic no-clobber publication.
+        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def main(argv: list[str] | None = None) -> int:

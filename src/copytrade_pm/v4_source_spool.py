@@ -56,6 +56,64 @@ def _expected_state(raw: bytes, selected: dict[str, str], pinned_public: bytes) 
     return state["cursors"]
 
 
+def _recover_bootstrap(outbox: Path, selected: dict[str, str], public: Ed25519PublicKey) -> dict:
+    """Recover only the authenticated first empty publication.
+
+    Later missing-cursor history is ambiguous and stays blocked. A first packet
+    signed at an explicit cutoff contains no replayable historical opportunity.
+    Unpublished private staging files never count as packets.
+    """
+    from .production_manifest import verify
+
+    packets = []
+    for path in outbox.iterdir():
+        if path.name.startswith(".v4-stage-") and path.name.endswith(".tmp"):
+            continue
+        if not path.name.endswith(".json"):
+            raise ValueError("V4_SPOOL_UNRECOGNIZED_HISTORY")
+        packets.append(path)
+    if not packets:
+        return {}
+    if len(packets) != 1:
+        raise ValueError("V4_SPOOL_STATE_MISSING_WITH_HISTORY")
+    packet_path = packets[0]
+    raw = _private_input(packet_path)
+    packet = json.loads(raw)
+    if (
+        not isinstance(packet, dict)
+        or set(packet)
+        != {"schema", "head_cursors", "events", "trading_authorized", "batch_envelope"}
+        or packet["schema"] != "v4_signed_source_export_v1"
+        or packet["trading_authorized"] is not False
+        or packet["events"] != {alias: [] for alias in selected}
+        or raw != canonical(packet)
+        or not packet_path.name.endswith("-" + sha256(raw).hexdigest()[:16] + ".json")
+    ):
+        raise ValueError("V4_SPOOL_BOOTSTRAP_INVALID")
+    bound = verify(packet["batch_envelope"], public, "source-observer-v4-batch")
+    heads = packet["head_cursors"]
+    if (
+        bound
+        != {
+            "schema": "v4_source_batch_binding_v1",
+            "selected": {a: address.lower() for a, address in selected.items()},
+            "head_cursors": heads,
+            "events_sha": digest(packet["events"]),
+            "trading_authorized": False,
+        }
+        or not isinstance(heads, dict)
+        or set(heads) != set(selected)
+        or any(type(value) is not int or value < 0 for value in heads.values())
+    ):
+        raise ValueError("V4_SPOOL_BOOTSTRAP_PIN_OR_CURSOR_INVALID")
+    directory = os.open(outbox, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+    return heads
+
+
 def capture_once(
     *,
     registry_db: Path,
@@ -91,11 +149,18 @@ def capture_once(
         if state_exists:
             cursors = _expected_state(_private_input(cursor_path), chosen, raw_public)
         else:
-            # A missing cursor with previous packets is an incomplete recovery.
-            # Never bootstrap beyond potentially undelivered source transitions.
-            if any(outbox.iterdir()):
-                raise ValueError("V4_SPOOL_STATE_MISSING_WITH_HISTORY")
-            cursors = None
+            recovered = _recover_bootstrap(outbox, chosen, public)
+            if recovered:
+                state = {
+                    "schema": "v4_spool_cursor_state_v1",
+                    "selected_sha": digest(chosen),
+                    "public_sha": sha256(raw_public).hexdigest(),
+                    "cursors": recovered,
+                }
+                _atomic_private_output(cursor_path, canonical(state))
+                state_exists, cursors = True, recovered
+            else:
+                cursors = None
         snapshot = export_signed_events(journal_db, selected=chosen, signer=key, after=cursors)
         count = sum(len(events) for events in snapshot["events"].values())
         if cursors is not None and count == 0:

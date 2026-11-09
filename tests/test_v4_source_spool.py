@@ -77,7 +77,7 @@ def test_spool_rejects_missing_cursor_with_history_and_changed_key(tmp_path, mon
         "selected_parents",
         lambda *args, **kwargs: {"S035": ADDRESSES["S035"]},
     )
-    journal, _source = observer(tmp_path)
+    journal, source = observer(tmp_path)
     root, _key, seed, pin = provision(tmp_path)
 
     def capture():
@@ -90,6 +90,10 @@ def test_spool_rejects_missing_cursor_with_history_and_changed_key(tmp_path, mon
             portfolios=("P1",),
         )
 
+    capture()
+    (root / "cursor.json").unlink()
+    assert capture()["state"] == "NO_NEW_VERIFIED_EVENTS"  # Authenticated empty bootstrap only.
+    source_event(source, 10, 20)
     capture()
     (root / "cursor.json").unlink()
     with pytest.raises(ValueError, match="STATE_MISSING"):
