@@ -255,6 +255,16 @@ def _exclusion_manifest(path: Path) -> tuple[list[tuple[str, str]], str]:
     return entries, sha256(raw).hexdigest()
 
 
+def _sync_archive_directories(db: Path, directory: Path) -> None:
+    """Persist the artifact link and newly created parents before SQLite refers to it."""
+    for path in (directory, directory.parent, db.parent):
+        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+
+
 def _seal_manifest(
     db: Path, manifest: Path, expected_sha: str, *, category: str = "native-cohorts"
 ) -> str:
@@ -285,6 +295,9 @@ def _seal_manifest(
             or sha256(final.read_bytes()).hexdigest() != expected_sha
         ):
             raise ValueError("NATIVE_EVIDENCE_CONFLICT")
+        # A previous process may have died after linking but before directory
+        # fsync. Re-verify and finish durability before adopting this orphan.
+        _sync_archive_directories(db, directory)
         return str(location)
     partial = directory / f".{expected_sha}.{os.getpid()}.partial"
     fd = os.open(partial, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
@@ -296,10 +309,15 @@ def _seal_manifest(
         try:
             os.link(partial, final, follow_symlinks=False)
         except FileExistsError:
-            if final.is_symlink() or sha256(final.read_bytes()).hexdigest() != expected_sha:
+            if (
+                final.is_symlink()
+                or stat.S_IMODE(final.stat().st_mode) != 0o600
+                or sha256(final.read_bytes()).hexdigest() != expected_sha
+            ):
                 raise ValueError("NATIVE_EVIDENCE_CONFLICT") from None
     finally:
         partial.unlink(missing_ok=True)
+    _sync_archive_directories(db, directory)
     return str(location)
 
 

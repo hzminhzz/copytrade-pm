@@ -357,3 +357,45 @@ unknown inventory, pending order reservations, quote freshness and risk isolatio
 Rollback must retain a reader for paper semantics v2 once these events exist;
 do not rewind or truncate journals to run an older reducer. No deployment or
 Guardian financial-policy change was made.
+
+## PYDN-09 / #222 — native evidence durability and coherent registry releases
+
+Mandatory read-only doctor/status/native-status/release-verify preflight passed.
+SQLite physical integrity and current signed research selection were verified;
+legacy-import freshness, historic provenance gaps, runtime admission and science
+remain separate facts. Private hashes, release pins and inventory details are
+retained only on the VPS. No native registration, exclusion, release activation,
+pointer repair or roster change was performed against the actual registry.
+
+The existing strict versioned native manifests, signed selection verifier,
+SQLite metadata transactions and locked release controller remain the owners.
+A new durability regression demonstrated that native evidence publication had
+no parent-directory fsync before the SQLite writer opened. Publication now
+syncs the archive directory and both created parent links before metadata can
+commit. A valid orphan on retry is reverified and synced before adoption.
+Competing publication must also retain private file permissions. Corrupt or
+conflicting orphans fail closed and remain available for inspection.
+
+Six real subprocess cuts exercise before/after artifact file fsync, after final
+link, after archive-directory fsync, before SQLite commit and after commit.
+Precommit crashes preserve the previous inventory; postcommit restart restores
+one new version. Retry never duplicates membership/evidence or promotes current
+research selection. Raw manifest bytes and original committed clocks remain
+unchanged. A concurrent supported release reader blocks during pointer/metadata
+divergence, then verifies the coherent generation. Crash after committed release
+metadata retains the new generation; existing pointer-crash tests restore only
+the last committed release and reject a tampered prior fingerprint. This tests
+process crashes and durability ordering, not a physical power-loss experiment.
+
+Verification: initial directory-durability test failed as expected. Final focused
+native/release/signature/selection/scope suite: 79 passed. Full suite: 1710 passed,
+1 skipped (36.14 s). Ruff check/format (537 files), wheel/sdist and diff checks
+passed. The fault harness was narrowed after an initial hook also intercepted
+the preceding backup link/fsync; final tests target the artifact path exactly.
+Actual production diff reviewed: 20 lines in the existing native publisher;
+no second registry, rewritten signatures, schema promotion or financial state.
+
+Rollback preserves all committed SQLite history, original artifacts, orphan
+staging files and selection proofs. The old publisher lacks directory durability;
+keep the fsync fix for future writes. Existing read-only release recovery remains
+separate from any authorized registry data recovery or service deployment.
