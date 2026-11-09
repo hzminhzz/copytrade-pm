@@ -25,6 +25,8 @@ class ForwardBatch:
     dispatched: bool = False
     events_seen: int = 0
     blocked_reasons: tuple[str, ...] = field(default_factory=tuple)
+    needs_rebaseline: bool = False
+    baseline_only: bool = False
 
     def __post_init__(self) -> None:
         self.follower_allocated_equity = number(self.follower_allocated_equity)
@@ -41,11 +43,29 @@ class ForwardBatch:
         clock(first_known_at)
         if self.dispatched:
             raise ValueError("ALREADY_DISPATCHED")
-        if not admission.admitted or admission.source_equity is None:
-            self.blocked_reasons = admission.reason_codes or ("SOURCE_NOT_ADMITTED",)
-            return {"status": "BLOCKED", "reasons": list(self.blocked_reasons)}
         if self.latest_first_known_at and clock(first_known_at) < clock(self.latest_first_known_at):
             raise ValueError("BACKDATED_SOURCE_RECEIPT")
+        if not admission.admitted or admission.source_equity is None:
+            self.needs_rebaseline = self.needs_rebaseline or self.latest is not None
+            self.blocked_reasons = admission.reason_codes or ("SOURCE_NOT_ADMITTED",)
+            self.latest = None
+            self.latest_first_known_at = first_known_at
+            self.opened_at = self.due_at = None
+            return {"status": "BLOCKED", "reasons": list(self.blocked_reasons)}
+        self.blocked_reasons = ()
+        if self.needs_rebaseline or (
+            self.baseline_only
+            and self.latest is not None
+            and self.latest.positions == admission.positions
+        ):
+            status = "BASELINE" if self.needs_rebaseline else "UNCHANGED"
+            self.needs_rebaseline = False
+            self.baseline_only = True
+            self.latest = admission
+            self.latest_first_known_at = first_known_at
+            self.events_seen += 1
+            return {"status": status, "due_at": None, "events_seen": self.events_seen}
+        self.baseline_only = False
         if self.opened_at is None:
             known = clock(first_known_at).astimezone(UTC)
             if self.timing_policy == "FIRST_SIGNAL_PLUS_5M":
@@ -68,8 +88,15 @@ class ForwardBatch:
     def preview_due(
         self, *, decision_at: str, follower_marks: dict[Instrument, Decimal] | None = None
     ) -> dict:
+        if self.blocked_reasons:
+            return {"status": "BLOCKED", "reasons": list(self.blocked_reasons)}
         if not self.due_at or not self.latest:
-            return {"status": "BLOCKED", "reasons": ["NO_ADMITTED_SOURCE"]}
+            return {
+                "status": "BLOCKED",
+                "reasons": [
+                    "RECOVERY_BASELINE_ONLY" if self.baseline_only else "NO_ADMITTED_SOURCE"
+                ],
+            }
         if self.dispatched:
             return {"status": "BLOCKED", "reasons": ["ALREADY_DISPATCHED"]}
         if clock(decision_at) < clock(self.due_at):
