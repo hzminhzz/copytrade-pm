@@ -19,6 +19,7 @@ import re
 import tempfile
 from typing import Any
 
+from .pm_acquisition_contracts import sync_publication
 from .pm_hyperx_gap_recovery import _adapter, _private_dir
 from .pm_sources import load_cohort
 from .pm_research import _write_private_evidence
@@ -104,6 +105,7 @@ def _write_immutable_private(path: Path, payload: bytes) -> str:
         if path.exists():
             raise ValueError("GENERATION_REUSE_NOT_AUTHORIZED")
         os.link(tmp, path)
+        sync_publication(path)
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)

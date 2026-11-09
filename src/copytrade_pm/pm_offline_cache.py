@@ -13,13 +13,47 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import tempfile
+from typing import Annotated, Literal
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from .pm_offline_manifest import ManifestBlocked, ManifestInvalid
 
 SHA = re.compile(r"^[0-9a-f]{64}$")
 KIND = re.compile(r"^[a-z][a-z0-9_]{1,55}$")
 SCHEMA = "pm_offline_cache_v1"
+
+
+class CacheManifest(BaseModel):
+    """Strict metadata projection; raw v1 identity/hash algorithms stay unchanged."""
+
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
+    schema_name: Literal["pm_offline_cache_v1"] = Field(alias="schema")
+    key: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    kind: Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]{1,55}$")]
+    dependencies: Annotated[
+        dict[
+            Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]{1,55}$")],
+            Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")],
+        ],
+        Field(min_length=1),
+    ]
+    version: Annotated[str, Field(min_length=1)]
+    sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    byte_count: Annotated[int, Field(alias="bytes", ge=0)]
+
+
+def _read_private_bounded(path: Path, limit: int) -> bytes:
+    with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW), "rb") as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077:
+            raise ManifestBlocked("INSECURE_CACHE_OBJECT")
+        raw = stream.read(limit + 1)
+    if len(raw) > limit:
+        raise ManifestBlocked("CACHE_SIZE_MISMATCH")
+    return raw
 
 
 def _canonical(obj: dict) -> bytes:
@@ -134,24 +168,29 @@ class ImmutableCache:
         if not content_path.is_file():
             raise ManifestBlocked("CACHE_MANIFEST_WITHOUT_PAYLOAD")
         try:
-            doc = json.loads(metadata_path.read_text())
+            doc = CacheManifest.model_validate(
+                json.loads(_read_private_bounded(metadata_path, 65536))
+            )
         except (OSError, ValueError, TypeError) as exc:
             raise ManifestBlocked("CORRUPT_CACHE_MANIFEST") from exc
         if (
-            doc.get("schema") != SCHEMA
-            or doc.get("key") != key
-            or doc.get("kind") != kind
-            or doc.get("dependencies") != dependencies
-            or doc.get("version") != version
+            doc.key != key
+            or doc.kind != kind
+            or doc.dependencies != dependencies
+            or doc.version != version
         ):
             raise ManifestBlocked("CACHE_DEPENDENCY_MISMATCH")
-        size = content_path.stat().st_size
-        if size > self.max_object_bytes or size != doc.get("bytes"):
+        try:
+            content = _read_private_bounded(content_path, self.max_object_bytes)
+        except OSError as exc:
+            raise ManifestBlocked("CACHE_OBJECT_UNREADABLE") from exc
+        if len(content) != doc.byte_count:
             raise ManifestBlocked("CACHE_SIZE_MISMATCH")
-        actual = _checksum(content_path)
-        if actual != doc.get("sha256"):
+        # Hash the exact bounded bytes returned to the consumer. A separate
+        # checksum pass followed by reopening the path is vulnerable to mutation.
+        if sha256(content).hexdigest() != doc.sha256:
             raise ManifestBlocked("CORRUPT_CACHE_SHA")
-        return content_path.read_bytes()
+        return content
 
     def publish(
         self,

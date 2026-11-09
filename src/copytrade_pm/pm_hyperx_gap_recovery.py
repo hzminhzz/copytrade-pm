@@ -21,6 +21,13 @@ import re
 import tempfile
 import time
 
+from .pm_acquisition_contracts import (
+    HyperXPageReceipt,
+    begin_generation,
+    read_hyperx_pages,
+    sync_publication,
+    verify_raw,
+)
 from .pm_fill_replay import _coins, _source_fills, _same_position
 from .pm_sources import load_cohort
 
@@ -55,6 +62,7 @@ def _atomic(path: Path, data: bytes) -> None:
     if path.exists():
         if path.read_bytes() != data:
             raise ValueError("IMMUTABLE_GENERATION_CONFLICT")
+        sync_publication(path)
         return
     fd, tmp = tempfile.mkstemp(prefix=".pending-", dir=path.parent)
     try:
@@ -67,6 +75,7 @@ def _atomic(path: Path, data: bytes) -> None:
         if path.exists():
             raise ValueError("SOURCE_PAGE_ALREADY_PRESENT")
         os.link(tmp, path)
+        sync_publication(path)
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
@@ -115,28 +124,7 @@ def _gaps(root: Path, entry) -> dict[str, list[dict]]:
 
 
 def _generation_pages(dirpath: Path, alias: str, coin: str) -> list[dict]:
-    all_rows = []
-    page = 1
-    while True:
-        archive = dirpath / f"page-{page:05d}.json.gz"
-        sidecar = dirpath / f"page-{page:05d}.meta.json"
-        if not archive.exists() and not sidecar.exists():
-            break
-        if not archive.is_file() or not sidecar.is_file():
-            raise ValueError("BROKEN_GENERATION_PAGE_PAIR")
-        raw = gzip.decompress(archive.read_bytes())
-        metadata = json.loads(sidecar.read_text())
-        if (
-            metadata.get("sha256") != sha256(raw).hexdigest()
-            or metadata.get("alias") != alias
-            or metadata.get("coin") != coin
-            or metadata.get("page") != page
-        ):
-            raise ValueError("GENERATION_PAGE_IDENTITY_MISMATCH")
-        obj = json.loads(raw)
-        all_rows.append(obj)
-        page += 1
-    return all_rows
+    return read_hyperx_pages(dirpath, alias, coin)
 
 
 def _post_audit(root: Path, entry, coin: str, new_pages: list[dict]) -> dict:
@@ -211,6 +199,9 @@ def recover(
     if len(set(aliases)) != len(aliases) or any(a not in by_alias for a in aliases):
         raise ValueError("DUPLICATED_OR_UNKNOWN_ALIAS")
     _private_dir(output)
+    generation = begin_generation(output, "HYPERX_GAP", _atomic, resume=True)
+    if (output / "generation-summary.json").exists():
+        raise ValueError("SEALED_GENERATION_REQUIRES_NEW_GENERATION")
     provider = _adapter(root)
     token = provider.key_from_existing_tracker_env()
     selected = [
@@ -241,25 +232,30 @@ def recover(
             calls += 1
             try:
                 obj, raw, rate = provider.provider_request(alias, entry.address, coin, page, token)
+                verify_raw(obj, raw, sha256(raw).hexdigest())
                 valid = provider.validate(obj, alias, coin, page, entry.address)
-                metadata = {
-                    "schema": "pm01_hyperx_gap_generation_page_v1",
-                    "alias": alias,
-                    "coin": coin,
-                    "page": page,
-                    "sha256": sha256(raw).hexdigest(),
-                    "frozen_research_cutoff_ms": FROZEN_CUTOFF_MS,
-                    "retrieved_at_utc": datetime.now(UTC).isoformat(),
-                    "validation": valid,
-                    "rate_budget_remaining": rate.get("x-ratelimit-remaining"),
-                }
+                metadata = HyperXPageReceipt.model_validate(
+                    {
+                        "schema": "pm01_hyperx_gap_generation_page_v2",
+                        "generation_id": generation.generation_id,
+                        "historical_first_known": False,
+                        "alias": alias,
+                        "coin": coin,
+                        "page": page,
+                        "sha256": sha256(raw).hexdigest(),
+                        "frozen_research_cutoff_ms": FROZEN_CUTOFF_MS,
+                        "retrieved_at_utc": datetime.now(UTC).isoformat(),
+                        "validation": valid,
+                        "rate_budget_remaining": rate.get("x-ratelimit-remaining"),
+                    }
+                ).model_dump(by_alias=True)
                 _atomic(target_dir / f"page-{page:05d}.json.gz", gzip.compress(raw, mtime=0))
                 _atomic(
                     target_dir / f"page-{page:05d}.meta.json",
                     (json.dumps(metadata, sort_keys=True, indent=2) + "\n").encode(),
                 )
-                fresh.append(obj)
-                completed = obj.get("has_more") is False
+                fresh = _generation_pages(target_dir, alias, coin)
+                completed = fresh[-1]["has_more"] is False
                 # Provider budget below a floor => stop after this page.
                 remaining = rate.get("x-ratelimit-remaining")
                 if remaining is not None and int(remaining) < 15:
@@ -290,7 +286,9 @@ def recover(
         if calls >= max_calls or error == "PROVIDER_RATE_BUDGET_LOW":
             break
     report = {
-        "schema": "pm01_fresh_hyperx_gap_generation_v1",
+        "schema": "pm01_fresh_hyperx_gap_generation_v2",
+        "generation_id": generation.generation_id,
+        "historical_first_known": False,
         "provider": "HyperX authenticated Data API (NOT trading API)",
         "all_source_aliases": list(aliases),
         "planned_gap_pairs": len(selected),

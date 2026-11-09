@@ -399,3 +399,56 @@ Rollback preserves all committed SQLite history, original artifacts, orphan
 staging files and selection proofs. The old publisher lacks directory durability;
 keep the fsync fix for future writes. Existing read-only release recovery remains
 separate from any authorized registry data recovery or service deployment.
+
+## #223 — bucket corrections, acquisition generations and cache integrity
+
+Families 12, 24 and 25 and CF07 are covered through the existing PaperJournal,
+HyperX recovery/overlay, E4 backfill and ImmutableCache owners. Nine acquisition
+regressions initially failed: both HyperX readers accepted missing middle pages,
+duplicate fresh trade IDs, unknown schemas and boolean page numbers; E4 could
+accept a provider raw-digest conflict. Four cache regressions also failed before
+the fix (returned-byte mutation and malformed/ambiguous metadata).
+
+New acquisitions have strict frozen Pydantic generation/page receipts. A random
+generation ID binds the raw page, alias, instrument/series, page and original
+receipt clock; complete foreign pairs, gaps and digest conflicts fail closed.
+The original raw bytes are retained. Bounded reads reject duplicate JSON fields
+and symlink objects. Publication fsyncs file and ancestor directory entries.
+A fully persisted HyperX pair resumes after process death without another fetch;
+a raw-only partial pair stays quarantined and requires a separate generation.
+E4 already rejected generation reuse before provider calls, which is preserved.
+Its inclusive timestamp overlap and same-clock ledger events remain legitimate;
+the existing deduplication semantics are retained. An initial overbroad attempted
+duplicate check on timestamp-only E4 events was removed after the existing
+same-timestamp regression caught it.
+
+Legacy v1 acquisitions stay readable as explicitly unbound historical evidence.
+They cannot be resumed as v2, and no generation identity or first-known clock is
+backfilled into them. HyperX overlay and E4 output remain retrospective only.
+Cache identity and v1 serialization remain unchanged. Strict metadata validation
+and one bounded read now verify the exact bytes returned to the research consumer.
+
+CF07 kills a real child process before and after cache-manifest publication,
+reopens the existing journal, appends duplicate and late data, and proves that
+the immutable UTC seal cannot be silently changed. The existing owner requires
+an explicit correction; it never admits these provisional buckets to finance.
+Corrupt cache bytes are retained and rejected; a separate generation can rebuild.
+There is no scientifically final UTC bucket state to promote in this owner.
+
+Validation:
+
+- New/focused acquisition, cache, bucket and existing consumer suite: 60 passed.
+- uv run --frozen --group dev pytest -q: 1731 passed, 1 skipped (35.60 s).
+- uv run --frozen --group dev ruff check . and
+  uv run --frozen --group dev ruff format --check .: passed, 541 files.
+- uv build --offline: wheel and sdist built. git diff --check: passed.
+
+Direct production-diff review confirmed no source hash reserialization, clock
+rewrites, financial state owner, qualification threshold or Guardian changes.
+Tests use synthetic provider responses; no remote acquisition was performed.
+Process-crash and fsync-order evidence do not claim a physical power-loss test.
+
+Rollback: preserve every generation, raw page, original sidecar and bucket seal.
+Old readers do not understand v2 generation binding; retain the new reader for
+v2 archives and use a new generation for future capture. Do not downgrade by
+editing receipt schemas or repairing corrupted cache objects in place.
