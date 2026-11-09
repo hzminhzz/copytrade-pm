@@ -212,6 +212,7 @@ def execute_targets(
     No assumed fill when capacity is unknown, when quote clocks are invalid,
     or when a mark is stale. The return is an auditable hypothetical fill plan.
     """
+    account._prepare_risk_semantics(account._risk_semantics_version)
     if clock(hypothetical_fill_at) < clock(decision_at):
         raise ValueError("HYPOTHETICAL_FILL_BEFORE_DECISION")
     if (clock(hypothetical_fill_at) - clock(decision_at)).total_seconds() < costs.latency_seconds:
@@ -246,8 +247,7 @@ def execute_targets(
         if quote.capacity_for(D("1")) is None or quote.capacity_for(D("-1")) is None:
             rejections.append(f"UNKNOWN_CAPACITY:{key.key}")
     if rejections:
-        account.risk = RiskState.RED
-        account.risk_reasons = tuple(sorted(rejections))
+        account.block_readiness(sorted(rejections))
         return {
             "status": "BLOCKED",
             "fills": [],
