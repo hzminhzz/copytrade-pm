@@ -172,6 +172,7 @@ class PositionObservation(Contract):
     scope_generation: Sha
     economic_sha: Sha
     changed_instruments: tuple[str, ...]
+    scope_changed: bool = False
     financial_admission: Literal["NOT_GRANTED"] = "NOT_GRANTED"
 
 
@@ -187,6 +188,30 @@ class UnavailableObservation(Contract):
     ]
     reason: str
     financial_admission: Literal["NOT_GRANTED"] = "NOT_GRANTED"
+
+
+class SourceObservationRejected(ValueError):
+    """Safe typed rejection; provider payload never appears in the message."""
+
+    def __init__(self, reason: str, *, status="INVALID"):
+        self.availability = UnavailableObservation(status=status, reason=reason)
+        super().__init__(reason)
+
+
+def source_rejection(exc: Exception) -> SourceObservationRejected:
+    reason = str(exc)
+    if re.fullmatch(r"[A-Z][A-Z0-9_]{2,100}", reason) is None:
+        reason = "SOURCE_CRITICAL_SCHEMA_INVALID"
+    status = (
+        "STALE"
+        if "STALE" in reason
+        else "INCOMPLETE"
+        if any(t in reason for t in ("MISSING", "CENSUS", "ALL_DEXS_NOT_EQUAL"))
+        else "UNSUPPORTED_VERSION"
+        if "SEMANTICS_UNKNOWN" in reason
+        else "INVALID"
+    )
+    return SourceObservationRejected(reason, status=status)
 
 
 # Native fields are explicitly inventoried from official docs and authentic S0
@@ -271,9 +296,30 @@ def decide_source_transition(
     prior_clocks = previous.get("dex_clocks", {})
     if any(value < prior_clocks.get(dex, 0) for dex, value in clocks.items()):
         raise ValueError("SOURCE_NATIVE_CLOCK_REGRESSION")
-    baseline = not previous.get("baseline_valid", False) or snapshot
     before = {k: exact_decimal(v) for k, v in previous.get("positions", {}).items()}
     current = book.vector
+    added_dexes = clocks.keys() - prior_clocks.keys()
+    removed_dexes = prior_clocks.keys() - clocks.keys()
+
+    def dex(key):
+        return key.split("/")[1].split(":")[-1]
+
+    relevant_census_change = bool(prior_clocks) and (
+        any(dex(k) in added_dexes for k in current) or any(dex(k) in removed_dexes for k in before)
+    )
+    scope_changed = relevant_census_change or (
+        previous.get("account_scope_sha", book.scope.generation) != book.scope.generation
+    )
+    if relevant_census_change:
+        scope = SelectedPerpScope(
+            account_sha=book.scope.account_sha,
+            dexes=book.scope.dexes,
+            generation=digest([book.scope.generation, sorted(added_dexes), sorted(removed_dexes)]),
+        )
+        book = CanonicalPositionBook(
+            evidence=book.evidence, scope=scope, positions=book.positions, clocks=book.clocks
+        )
+    baseline = not previous.get("baseline_valid", False) or snapshot or scope_changed
     changed = (
         ()
         if baseline
@@ -283,7 +329,7 @@ def decide_source_transition(
             if before.get(k, Decimal(0)) != current.get(k, Decimal(0))
         )
     )
-    if changed and clocks == prior_clocks:
+    if any(clocks.get(dex(key)) == prior_clocks.get(dex(key)) for key in changed):
         raise ValueError("SOURCE_SAME_CLOCK_CONFLICTING_POSITIONS")
     if baseline:
         kind, journal = "BASELINE", "BASELINE"
@@ -300,6 +346,7 @@ def decide_source_transition(
             scope_generation=book.scope.generation,
             economic_sha=book.economic_sha,
             changed_instruments=changed,
+            scope_changed=scope_changed,
         ),
         next_book=book,
         journal_kind=journal,

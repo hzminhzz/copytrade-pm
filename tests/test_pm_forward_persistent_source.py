@@ -59,7 +59,7 @@ def test_baseline_then_change_and_duplicate_do_not_create_economic_effect(tmp_pa
 @pytest.mark.parametrize(
     "fault", ["wrong", "partial", "delta", "regress", "snapshot_type", "snapshot_top_type"]
 )
-def test_invalid_frame_never_advances_source_or_projection(tmp_path, fault):
+def test_invalid_frame_preserves_positions_and_commits_continuity_fence(tmp_path, fault):
     source, journal = account(tmp_path)
     source.observe(frame(), T.isoformat())
     before = deepcopy(source.checkpoint)
@@ -78,7 +78,11 @@ def test_invalid_frame_never_advances_source_or_projection(tmp_path, fault):
         bad["isSnapshot"] = "true"
     with pytest.raises(ValueError):
         source.observe(bad, (T + timedelta(seconds=1)).isoformat())
-    assert source.checkpoint == before
+    assert source.checkpoint["positions"] == before["positions"]
+    assert source.checkpoint["source_event_at"] == before["source_event_at"]
+    assert source.checkpoint["baseline_valid"] is False
+    assert source.checkpoint["transport"] == "QUARANTINED"
+    assert source.progress.head["event"]["kind"] == "GAP"
     assert journal.source_status("test")["cursor"] == 1
 
 

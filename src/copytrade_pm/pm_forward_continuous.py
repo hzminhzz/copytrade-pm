@@ -774,6 +774,7 @@ def _acknowledge_native(feed, known):
 
 async def run_native_accounts(accounts, *, writer, stop, connect, now, limiter, queue_size=256):
     from .pm_forward_continuous_transport import native_session, wait_or_stop
+    from .pm_source_contracts import SourceObservationRejected
 
     by_address = {account.address: account for account in accounts.values()}
     while not stop.is_set():
@@ -786,19 +787,34 @@ async def run_native_accounts(accounts, *, writer, stop, connect, now, limiter, 
 
         async def handle(frame, known, raw_sha, wire):
             data = frame.get("data")
-            if frame.get("channel") != "allDexsClearinghouseState" or not isinstance(data, dict):
-                raise ValueError("SOURCE_NATIVE_CHANNEL_MISMATCH")
-            account = by_address.get(str(data.get("user", "")).lower())
-            if account is None:
-                raise ValueError("SOURCE_NATIVE_ACCOUNT_NOT_SUBSCRIBED")
+            account = (
+                by_address.get(str(data.get("user", "")).lower())
+                if isinstance(data, dict)
+                else None
+            )
+            if frame.get("channel") != "allDexsClearinghouseState" or account is None:
+                reason = "SOURCE_NATIVE_AMBIGUOUS_IDENTITY_OR_CHANNEL"
+                for affected in accounts.values():
+                    await writer.submit(
+                        lambda a=affected: a.gap(
+                            known,
+                            reason,
+                            frame=frame,
+                            raw_sha=raw_sha,
+                            raw_text=wire,
+                        )
+                    )
+                raise ValueError(reason)
             try:
                 await writer.submit(
                     lambda: account.observe(frame, known, raw_sha=raw_sha, raw_text=wire)
                 )
-            except ValueError as exc:
+            except SourceObservationRejected:
+                # The account owner has already committed its targeted quarantine.
+                # Keep other subscribed accounts alive; a bounded rejection budget
+                # prevents malformed traffic from causing endless reconnects.
                 if writer.failed:
                     raise
-                await writer.submit(lambda reason=_reason(exc): account.gap(now(), reason))
 
         async def transport(known):
             for account in accounts.values():
@@ -1237,7 +1253,28 @@ class ContinuousObserver:
 
         family = await discover_persistent_family(self.parents, info=self.info, now=self.now)
         self.budget.plan(self.configured, account_count=len(family["accounts"]))
-        if self.family is None or family["scope_sha"] != self.family["scope_sha"]:
+        old_identities = {
+            alias: (row["address"], row["parent_alias"])
+            for alias, row in (self.family or {}).get("accounts", {}).items()
+        }
+        identities = {
+            alias: (row["address"], row["parent_alias"])
+            for alias, row in family["accounts"].items()
+        }
+        if self.family is not None and identities == old_identities:
+            for alias, account in self.accounts.items():
+                await writer.submit(
+                    lambda a=account: a.reconfigure(
+                        dex_catalog=family["catalog"],
+                        observer_generation=family["scope_sha"],
+                        known_at=self.now(),
+                    )
+                )
+                account.subaccounts = family["accounts"][alias]["subaccounts"]
+            self.family = family
+        else:
+            # Subscription identity changes really require a new shared socket.
+            # Its transport gap is explicit; metadata-only refreshes above do not.
             await self._stop_job(("accounts",))
             self.family = family
             self.accounts = {
