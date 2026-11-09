@@ -2,14 +2,14 @@
 
 Specification: [#213](https://github.com/hzminhzz/copytrade-pm/issues/213).
 Implementation authorized 2026-11-09; deployment and trading are not authorized.
-Implementation checkout: /home/quant/dev/copytrade-pydantic-0911,
-branch feat/pydantic-0911. Starting origin/main:
+Implementation branch: feat/pydantic-0911. Starting origin/main:
 175d54dec4fcda88ccf6bea885d172646aa63e4e. The original and design worktrees
 remain untouched.
 
 ## PYDN-02 / #215 — durable HALT (audit family 02)
 
-Disposition: FIXED, pending integration at this record.
+Disposition: FIXED. Implementation 5c2b917757fa63347c36e64b638324d535c70855;
+merged by PR #231 as 001dece05664b8d091c834b68ba5041903b319ee.
 
 Independent regression: seven public-interface cases failed on 175d54d
 (HALT became RED after unknown funding, unknown margin, source rejection,
@@ -49,3 +49,91 @@ events or rewind history. Existing installed processes remain unchanged.
 
 Engineering tests do not establish prospective performance, scientific alpha,
 deployment, or order authorization.
+
+## PYDN-01 / #214 — source and compatibility baseline
+
+The prepared implementation worktree was clean at 175d54d. Its environment,
+remote, branch, installed readers and preserved design checkout were inspected.
+A separately named preflight report was not found; the recorded inspection and
+executable checks independently establish this baseline.
+
+### Native source envelope
+
+A bounded read-only sample of 14 original immutable account-stream rows verified
+all raw-wire hashes, canonical native-frame hashes, event hashes and sampled
+journal-chain links. The source identities, exact original clocks, hashes and
+private runtime inventory remain in local ignored evidence. No private account
+observations are published to GitHub. This sample is not a full journal audit.
+
+All sampled clearinghouseStates are arrays of [DEX, state] pairs. States contain
+assetPositions, marginSummary, crossMarginSummary, crossMaintenanceMarginUsed,
+withdrawable and time. Quantities are strings; marginSummary includes accountValue,
+totalNtlPos, totalMarginUsed and totalRawUsd. This agrees with the official
+[WebSocket subscription envelope](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket/subscriptions),
+inspected 2026-11-09. The historical map/array mismatch hypothesis is disproved
+for this baseline. Required marginSummary stays required; selected-perp validity
+does not establish whole-wallet NAV. Unknown wire shapes must fail closed.
+
+Read-only reproduction:
+`uv run --frozen --group dev python scripts/verify_pydantic_native_sample.py DATABASE --sample PRIVATE_SAMPLE`.
+The sample records immutable stream/sequence references, original raw/frame SHA
+and both original clocks. The verifier checks those fields against the original
+read-only SQLite transaction without printing source identities or financial data.
+
+### Installed compatibility, independent of repository HEAD
+
+The current source/paper installation's declared revision was independently
+compared against all 170 tracked source files: byte-identical. The independent
+Guardian's installed COMMIT, TREE and compatibility manifest were read directly,
+including pinned repository versions, schemas, sizing mode and authorization.
+They were distinguished from the companion development checkouts. Exact installed
+identifiers and paths remain in the local evidence, not this public report.
+One older installation has no source-revision attestation: its full source commit
+is UNKNOWN and is not inferred from a directory label.
+
+The installed Guardian reports SHADOW and trading_authorized=false. Legacy CCXT,
+source/fill collectors and older paper paths are still reachable. No unit,
+protected financial policy, release pointer or installed dependency was changed.
+
+### Independent oracles, timing and cost
+
+The synthetic `tests/fixtures/pydantic_source_oracles.json` declares historical
+and independently specified corrected behavior for format-only 20/20.0, real
+20/21 changes and flat/20/flat/20 separate transitions. The original synthetic
+v1 HALT journal fixture retains the historically wrong RED result and old hashes.
+Neither fixture is authentic provider or forward economic evidence.
+
+`tests/test_pydantic_baseline.py` exercises PersistentAccount.observe through
+PaperJournal and ObservedP1Paper.step through PM03/04. On 001dece, 100 durable
+synthetic frames measured median 1.383 ms, p95 1.720 ms, 732.67 frames/s,
+0.13649 CPU seconds and 48208 KiB process peak RSS. First-known T0 is
+08:00:13, due 08:05:13 and modeled attempt 08:05:14 UTC in the synthetic
+2026-11-07 case; the intent and attempt identities are emitted by the harness.
+The synthetic scheduler jitter is one second. Real deployed scheduler jitter
+is UNMEASURED. Live CPU/RSS and connection counts were separately captured in
+local evidence. Offline verification opens zero provider connections.
+
+Reproduction:
+`uv run --frozen --group dev python -m pytest -q -s tests/test_pydantic_baseline.py`.
+The initial harness referenced a nonexistent Event.received_at; it was corrected
+to decision_at before acceptance. The focused baseline/source/paper/HALT suite
+then passed 27 tests. Ruff, format and diff checks passed. Existing full tests
+and package build are recorded above; this slice changes tests/documentation.
+
+For #228 use the same harness and actual source/paper fault owners. Investigate
+p95 above 5 ms or throughput below 250 frames/s on the same host. These are
+regression tripwires, not live provider latency or scientific claims.
+
+### Preservation and publication boundary
+
+All 16 approved design/glossary files were copied byte-for-byte from the specified
+design checkout. Their original historical authorization status is retained;
+current engineering authorization and evidence are recorded here. The original
+dirty checkout and INDEX edit remain untouched.
+
+Automatic approval review rejected an initial combined commit/push command
+because it included private-derived journal/runtime evidence. That command made
+no Git changes. The detailed witnesses were retained locally and explicitly
+ignored. Only sanitized findings, synthetic fixtures, a read-only verifier and
+the preserved architecture documents are published. Original source evidence,
+financial journals and installed services remain unchanged.
