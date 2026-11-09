@@ -2,7 +2,7 @@
 # Additive Pydantic V4 sixteen-portfolio research SHADOW only. No extra WS, brokers or Guardian.
 set -Eeuo pipefail
 ROOT=/home/quant/.local/share/copytrade
-RELEASE="$ROOT/releases/pydnative-v4-sixteen-0911"
+RELEASE="$ROOT/releases/pydnative-v4-sixteen-0911-r2"
 STATE="$ROOT/prospective/pydnative-v4-paper-sixteen-0911"
 REGISTRY="$ROOT/registry/wallet_registry.sqlite"
 SOURCE="$ROOT/prospective/v4-selected-sixteen-0911/paper-events.sqlite3"
