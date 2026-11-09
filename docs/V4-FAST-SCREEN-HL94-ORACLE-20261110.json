@@ -1,0 +1,11 @@
+{
+  "schema": "pm_v4_wallet_screen_job_v2",
+  "study_id": "hl94-90d-v4-oracle-missing-frozen-k",
+  "kind": "V4_HISTORICAL_WALLET_SCREEN",
+  "clock_basis": "HISTORICAL_ORACLE",
+  "start": "2026-08-05T00:00:00+00:00",
+  "end": "2026-11-03T00:00:00+00:00",
+  "source_collection_sha256": "1deefe08279936770e896f0521664cf0ee1976bc0eecec78d5c615cb8799117d",
+  "k_policy_path": "V4-FAST-SCREEN-EMPTY-K-EXAMPLE.json",
+  "k_policy_sha256": "59c648f4bf66589e88d45f1b2bade7fbf1153806b40c3348d27d4a533eb4ffa9"
+}
