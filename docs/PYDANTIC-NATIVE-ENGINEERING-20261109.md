@@ -498,3 +498,58 @@ Rollback keeps historical outputs immutable. New fields are diagnostic additions
 old readers can ignore them but must retain the existing retrospective caveats.
 Removing the strict summary guard must not be used to issue a positive verdict.
 Cross-family CF06/CF09 integration is also tracked in the final #228 matrix.
+
+## #225 — authentic monitoring health, ACK/delivery and CDP invalidation
+
+Families 13, 16 and 28 / CF08 are resolved through existing Grafana, notification
+and browser interfaces. No new operator UI or financial control was introduced.
+
+The production controller previously called three running containers healthy
+without checking the publisher or evidence freshness; a mocked public start
+test reproduced that false claim. Its read-only health command now separately
+reports four container states, authentic publication freshness and existing
+reader-validated source coverage. Synthetic/stale/missing evidence is DEGRADED.
+The command runs with standard Python directly from a release archive: actual
+installed layout has no project virtualenv. The existing evidence reader remains
+the source of truth. A future unit update treats diagnostic exit 3 as successful
+startup so degraded evidence cannot cause a systemd restart loop. No unit was
+installed, reloaded, started or restarted during this work.
+
+Notification records retain active incident truth independently from delivery
+status and operator acknowledgement. New ACKs preserve the last delivery result.
+Old ACK records with no recoverable delivery history report UNKNOWN rather than
+inventing success. The legacy status field remains compatible. Only a subsequent
+valid observation of the cleared source condition resolves an incident.
+
+Two CDP red tests showed timeout reuse and ignored target-detachment events.
+Failed/timed-out exchanges now close and invalidate the session. Target detach,
+destroy and crash invalidate before late replies can be reused. Cleanup failures
+cannot resurrect the session and do not replace the original failure.
+
+CF08 combines stale publication/dead publisher, failed delivery followed by ACK,
+target loss and failed cleanup. The incident stays active, delivery stays RETRY,
+observability is DEGRADED and the source HALT payload stays unchanged.
+Existing privacy, fixed reader routes and synthetic labels remain intact.
+
+Validation:
+
+- Final focused Grafana/notification/CDP/config tests: 63 passed, 1 skipped.
+- Final full suite: 1741 passed, 1 skipped (36.70 s).
+- Ruff check/format: 545 files. Wheel/sdist build, diff check, shell syntax and
+  systemd-analyze --user verify on the source unit passed.
+- Existing browser_phase2.py: 15 page/viewport cases passed at 1280x800, 390x844,
+  430x932 with no overflow.
+- Existing browser_acceptance.py: live and explicitly synthetic pages passed all
+  three viewports, including mobile diagnostic scrolling and synthetic timeline.
+  Six render observations: p50 4820 ms, nearest-rank p95 6066 ms. This measures
+  current installed UI rendering, not native source-to-paper scheduler latency.
+- Read-only actual stack inspection: four containers running, authentic
+  publication fresh, source evidence incomplete, overall DEGRADED. This is a
+  checkout diagnostic, not deployment of the new controller.
+- One harness correction used the actual fixture publisher API; one Ruff fixture
+  import/name collision was fixed. Final gates above passed.
+
+Direct diff review covered no-restart behavior for a running degraded stack,
+legacy notification files and bounded browser cleanup. Rollback preserves
+notification history; do not infer prior delivery success from an old ACK.
+No service, finance, roster, protected Guardian state or authorization changed.

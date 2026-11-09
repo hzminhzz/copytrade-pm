@@ -12,6 +12,8 @@ RemainAfterExit=yes
 WorkingDirectory=/home/quant/.local/share/copytrade-grafana/current
 ExecStart=/bin/bash /home/quant/.local/share/copytrade-grafana/current/ops/grafana-phase1/production.sh start
 ExecStop=/bin/bash /home/quant/.local/share/copytrade-grafana/current/ops/grafana-phase1/production.sh stop
+# Exit 3 reports degraded evidence; it must not restart a running stack.
+SuccessExitStatus=3
 Restart=on-failure
 RestartSec=10
 TimeoutStartSec=300
