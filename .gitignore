@@ -35,3 +35,4 @@ credentials/
 
 # Complete replay witness remains local after publication review
 /tests/fixtures/pydantic_legacy_opportunity.json
+.venv-ci-*/
