@@ -294,7 +294,18 @@ class ShadowRun:
                 or new_payload["risk_semantics_version"] != payload.get("risk_semantics_version", 1)
             ):
                 raise ValueError("CONFLICTING_EVENT_REVISION")
-            for derived in ("post_state_sha", "tool_trace", "risk_semantics_version"):
+            if "paper_semantics_version" in new_payload and (
+                type(new_payload["paper_semantics_version"]) is not int
+                or new_payload["paper_semantics_version"]
+                != payload.get("paper_semantics_version", 1)
+            ):
+                raise ValueError("CONFLICTING_EVENT_REVISION")
+            for derived in (
+                "post_state_sha",
+                "tool_trace",
+                "risk_semantics_version",
+                "paper_semantics_version",
+            ):
                 payload.pop(derived, None)
                 new_payload.pop(derived, None)
             if prior != claimed or payload != new_payload:
@@ -308,6 +319,13 @@ class ShadowRun:
         ):
             raise ValueError("LEGACY_RISK_SEMANTICS_READ_ONLY")
         event = replace(event, payload={**event.payload, "risk_semantics_version": 2})
+        if event.kind.startswith("PM04_PAPER_"):
+            if (
+                type(event.payload.get("paper_semantics_version", 2)) is not int
+                or event.payload.get("paper_semantics_version", 2) != 2
+            ):
+                raise ValueError("LEGACY_PAPER_SEMANTICS_READ_ONLY")
+            event = replace(event, payload={**event.payload, "paper_semantics_version": 2})
         staged = deepcopy(self.account)
         result = self._apply(staged, event)
         payload = dict(event.payload)

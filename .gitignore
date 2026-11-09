@@ -32,3 +32,6 @@ credentials/
 /docs/evidence/pydantic-native-source-baseline-20261109.json
 /docs/evidence/pydantic-runtime-baseline-20261109.txt
 /docs/evidence/pydantic-preservation-baseline-20261109.txt
+
+# Complete replay witness remains local after publication review
+/tests/fixtures/pydantic_legacy_opportunity.json
