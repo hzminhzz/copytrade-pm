@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from decimal import Decimal as D
 
-from .pm03_account import Account, Instrument, RiskState, clock, digest, number, ZERO
+from .pm03_account import Account, Instrument, clock, digest, number, ZERO
 
 BROKER_SCHEMA = "pm04_broker_observation_v1"
 ORDER_KINDS = {"ORDER_INTENT", "ACK", "PARTIAL_FILL", "FILL", "CANCEL", "REJECT"}
@@ -130,8 +130,7 @@ def _snapshot(account: Account, broker: dict, policy: dict, at: str) -> list[str
             "CANCEL_FILL_RACE_UNRESOLVED",
         )
     ) or (required and any(reason.startswith("STALE_") for reason in reasons)):
-        account.risk = RiskState.HALT
-        account.halt_reason = "BROKER_RECONCILIATION_DISCREPANCY"
+        account.latch_halt("BROKER_RECONCILIATION_DISCREPANCY")
         account.risk_reasons = tuple(sorted(set(account.risk_reasons) | set(reasons)))
     return broker["discrepancies"]
 

@@ -251,13 +251,11 @@ class PaperJournal:
         account._prepare_risk_semantics(event.get("risk_semantics_version", 1))
         kind = event.get("kind")
         if kind == "HALT":
-            account.risk = RiskState.HALT
-            account.halt_reason = event.get("reason") or "PAPER_OPERATOR_HALT"
+            account.latch_halt(event.get("reason") or "PAPER_OPERATOR_HALT")
             return {"status": "HALT_LATCHED"}
         if kind == "MARK":
             if not event.get("state_known", False):
-                account.risk = RiskState.HALT
-                account.halt_reason = "UNKNOWN_PAPER_MARK"
+                account.latch_halt("UNKNOWN_PAPER_MARK")
                 return {"status": "HALT_UNKNOWN_MARK"}
             from .pm03_account import Instrument
 
@@ -304,8 +302,7 @@ class PaperJournal:
             if margin["status"] == "UNKNOWN_LIQUIDATION":
                 account.block_readiness(margin["reasons"])
             elif margin["status"] == "MARGIN_BREACH_HALT":
-                account.risk = RiskState.HALT
-                account.halt_reason = "MODELED_MAINTENANCE_MARGIN_BREACH"
+                account.latch_halt("MODELED_MAINTENANCE_MARGIN_BREACH")
             account.verify()
             return {
                 "status": "FUNDING_POSTED",
@@ -379,9 +376,8 @@ class PaperJournal:
                 if q
             }
             if expected_keys - set(obs):
-                account.risk = RiskState.HALT
-                account.halt_reason = "MISSING_EXISTING_POSITION_MARK"
-                return {"status": "BLOCKED", "reason": account.halt_reason}
+                account.latch_halt("MISSING_EXISTING_POSITION_MARK")
+                return {"status": "BLOCKED", "reason": "MISSING_EXISTING_POSITION_MARK"}
             if any(not q.supported or q.volume_base is None for q in obs.values()):
                 account.block_readiness()
                 return {"status": "BLOCKED", "reason": "INCOMPLETE_MARKET"}
