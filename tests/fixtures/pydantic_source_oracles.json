@@ -1,0 +1,58 @@
+{
+  "schema": "pydantic_source_oracles_v1",
+  "classification": "SYNTHETIC_INDEPENDENT_ORACLE_NOT_NATIVE_EVIDENCE",
+  "baseline_commit": "175d54dec4fcda88ccf6bea885d172646aa63e4e",
+  "cases": [
+    {
+      "name": "format_only",
+      "quantities": [
+        "20",
+        "20.0"
+      ],
+      "baseline": [
+        "BASELINE",
+        "OBSERVED_STATE_CHANGE"
+      ],
+      "corrected": [
+        "BASELINE",
+        "UNCHANGED_STATE"
+      ]
+    },
+    {
+      "name": "real_increase",
+      "quantities": [
+        "20",
+        "21"
+      ],
+      "baseline": [
+        "BASELINE",
+        "OBSERVED_STATE_CHANGE"
+      ],
+      "corrected": [
+        "BASELINE",
+        "OBSERVED_STATE_CHANGE"
+      ]
+    },
+    {
+      "name": "distinct_reopen",
+      "quantities": [
+        "0",
+        "20",
+        "0",
+        "20"
+      ],
+      "baseline": [
+        "BASELINE",
+        "OBSERVED_STATE_CHANGE",
+        "OBSERVED_STATE_CHANGE",
+        "OBSERVED_STATE_CHANGE"
+      ],
+      "corrected": [
+        "BASELINE",
+        "OBSERVED_STATE_CHANGE",
+        "OBSERVED_STATE_CHANGE",
+        "OBSERVED_STATE_CHANGE"
+      ]
+    }
+  ]
+}
