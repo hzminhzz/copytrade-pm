@@ -1,0 +1,27 @@
+[Unit]
+Description=Copytrade Pydantic-native V4 16 isolated virtual-paper SHADOW accounts (NO BROKER)
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=/home/quant/.local/share/copytrade/releases/pydnative-v4-sixteen-0911
+ExecStart=/home/quant/.local/share/copytrade/releases/pydnative-v4-sixteen-0911/.venv/bin/python -m copytrade_pm.pm_v4_sixteen_paper --registry-db /home/quant/.local/share/copytrade/registry/wallet_registry.sqlite --source-db /home/quant/.local/share/copytrade/prospective/v4-selected-sixteen-0911/paper-events.sqlite3 --price-db /home/quant/.local/share/copytrade/prospective/v4-minute-0811/paper-events.sqlite3 --propr-catalog /home/quant/.local/share/copytrade/releases/pydnative-v4-sixteen-0911/docs/FORWARD-PAPER-PROPR-157-THREE-SOCKETS-20261105.json --campaign-manifest /home/quant/dev/copytrade-pm/data/private/gemini_phase3_phase4_eligibility_20261104.json --campaign-sha256 7c0b2a021a449c06f818cacf2f757a4d40b89e77669316107dc08ca659237e6f --state-root /home/quant/.local/share/copytrade/prospective/pydnative-v4-paper-sixteen-0911 --poll-seconds 2
+Restart=on-failure
+RestartSec=15
+TimeoutStopSec=60
+KillSignal=SIGTERM
+UMask=0077
+Environment=PYTHONDONTWRITEBYTECODE=1
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/quant/.local/share/copytrade/prospective/pydnative-v4-paper-sixteen-0911
+MemoryMax=2G
+CPUQuota=95%
+TasksMax=128
+
+[Install]
+WantedBy=default.target
