@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 
 ALLOWED_PATH = "/v1/account-risk"
 FIXTURE_PATH = "/v1/fixture-states"
+HEALTH_PATH = "/v1/wallet-health"
 MAX_BYTES = 131_072
 
 
@@ -150,6 +151,14 @@ def create_app(
             "127.0.0.1" if allowed_host == "localhost" else allowed_host,
         }:
             return JSONResponse({"error": "HOST_NOT_ALLOWED"}, status_code=403)
+        if request.url.path == HEALTH_PATH:
+            from copytrade_pm.wallet_health_projection import read as read_health
+
+            try:
+                result = read_health(snapshot_dir, now=datetime.now().astimezone())
+            except OSError, ValueError, KeyError, TypeError, UnicodeDecodeError:
+                return JSONResponse({"error": "HEALTH_EVIDENCE_UNAVAILABLE"}, status_code=503)
+            return JSONResponse(result, headers={"Cache-Control": "no-store"})
         name = "fixture-states.json" if request.url.path == FIXTURE_PATH else "account-risk.json"
         try:
             result = read_generation(snapshot_dir, name=name)
@@ -226,7 +235,10 @@ def create_app(
             },
         )
 
-    routes = [Route(ALLOWED_PATH, fixed_read, methods=["GET"])]
+    routes = [
+        Route(ALLOWED_PATH, fixed_read, methods=["GET"]),
+        Route(HEALTH_PATH, fixed_read, methods=["GET"]),
+    ]
     if allow_fixture:
         routes.append(Route(FIXTURE_PATH, fixed_read, methods=["GET"]))
     return Starlette(routes=routes)
