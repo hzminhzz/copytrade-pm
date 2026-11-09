@@ -1044,11 +1044,14 @@ class ObservedP1Paper:
         return canceled
 
     def _execute_pending(self, db: sqlite3.Connection, at: str) -> dict[str, str]:
+        from .pm_paper_contracts import PaperOpportunity
+
         state = self.run.account.pm04_state.get("paper_execution", {})
         outcome: dict[str, str] = {}
         for pod, intent_id in sorted(state.get("active", {}).items()):
             intent = state["history"][intent_id]
-            if intent["status"] != "PENDING_5M" or clock(at) < clock(intent["due_at"]):
+            eligibility = PaperOpportunity.model_validate(intent).eligibility(at)
+            if eligibility in ("TERMINAL", "WAIT"):
                 continue
             if self.native_contracts:
                 # A disconnect/reconnect invalidates a queued opportunity.
@@ -1075,7 +1078,7 @@ class ObservedP1Paper:
                     )
                     outcome[pod] = "CANCELED_SOURCE_GAP"
                     continue
-            if clock(at) > clock(intent["deadline_at"]):
+            if eligibility == "EXPIRED":
                 self.run.record(
                     _event(
                         self.run,
@@ -1154,6 +1157,26 @@ class ObservedP1Paper:
             ]
         return outcome
 
+    def _reconcile_flat_targets(self, at: str) -> None:
+        """Migrate proven flat legacy targets through a new durable local event."""
+        from .pm_forward_single_shot import follower_exit_decision
+
+        for pod, target in sorted(self.run.account.pm04_state["routed_targets"].items()):
+            if not any(number(qty) for qty in target.values()):
+                continue
+            if not follower_exit_decision(self.run.account, pod, at).clear_obsolete_target:
+                continue
+            self.run.record(
+                _event(
+                    self.run,
+                    "PM04_PAPER_RECONCILE_FLAT",
+                    "flat_" + digest([self.run_id, pod, target, self.run.last_event_id]),
+                    at,
+                    at,
+                    {"pod": pod},
+                )
+            )
+
     def step(self, at: str | None = None) -> dict:
         at = at or now_utc()
         clock(at)
@@ -1186,6 +1209,7 @@ class ObservedP1Paper:
                         if results[alias] == "RECORDED_PAPER_SOURCE":
                             self.prestart_seen[alias] = False
                 exit_results = self._execute_exits(db, at)
+                self._reconcile_flat_targets(at)
                 execution_results = self._execute_pending(db, at)
                 required = self._known_instruments()
                 if not required:

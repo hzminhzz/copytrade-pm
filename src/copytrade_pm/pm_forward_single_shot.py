@@ -15,8 +15,13 @@ from .pm03_account import Account, Instrument, ZERO, clock, digest, number
 from .pm03_memory import Event
 from .pm03_risk import RiskPolicy
 
-ENTRY_DELAY_SECONDS = 300
-ENTRY_GRACE_SECONDS = 30
+from .pm_paper_contracts import (
+    ENTRY_DELAY_SECONDS,
+    ENTRY_GRACE_SECONDS,
+    FollowerExitDecision,
+    PaperOpportunity,
+)
+
 POLICY_VERSION = "single_shot_market_paper_v3"
 ESTIMATED_POLICY_VERSION = "single_shot_vike_minute_estimated_v4"
 
@@ -187,15 +192,65 @@ class SingleShotMarketExecutionModel:
         }
 
 
+def _legacy_coalesce(active: dict, raw: dict, positions: dict, event: Event) -> None:
+    """Keep archived v1 dictionary serialization and replay hashes unchanged."""
+    active["source_seq"] = raw["source_seq"]
+    active["source_sha"] = raw["source_sha"]
+    active["source_event_at"] = event.source_event_at
+    active["positions"] = positions
+    active["updated_at"] = event.decision_at
+    active["updates"].append(
+        {"at": event.decision_at, "source_seq": raw["source_seq"], "source_sha": raw["source_sha"]}
+    )
+
+
+def follower_exit_decision(account: Account, pod: str, at: str) -> FollowerExitDecision:
+    from .pm04_broker import pending_quantities
+
+    state = account.pm04_state
+    broker = state["broker"]
+    return FollowerExitDecision(
+        pod_flat=not any(account.pm_quantities.get(pod, {}).values()),
+        unresolved_exposure=bool(state["paper_execution"]["unresolved_exposures"].get(pod)),
+        pending_order_quantity=bool(pending_quantities(account, at))
+        or any(order["status"] == "UNKNOWN" for order in broker["orders"].values()),
+        reconciliation_known=not broker["discrepancies"]
+        and (
+            broker["ready"]
+            or (not broker["observations"] and not state["policy"]["broker_required"])
+        ),
+    )
+
+
+def _clear_reconciled_target(account: Account, pod: str, at: str) -> None:
+    if follower_exit_decision(account, pod, at).clear_obsolete_target:
+        account.pm04_state["routed_targets"][pod] = {}
+
+
 def apply_paper_event(account: Account, event: Event, policy: RiskPolicy, mode: str) -> dict:
     """Replay-deterministic PM-04 PAPER path; never enters legacy PM04_TICK."""
     if mode != "RESEARCH_SYNTHETIC":
         raise ValueError("SINGLE_SHOT_RESEARCH_ONLY")
+    semantics = event.payload.get("paper_semantics_version", 1)
+    if type(semantics) is not int or semantics not in (1, 2):
+        raise ValueError("PAPER_SEMANTICS_VERSION_UNSUPPORTED")
     raw = event.payload["input"]
     state = _new_state(account)
     version = account.pm04_state["policy"].get("version", POLICY_VERSION)
     if version not in (POLICY_VERSION, ESTIMATED_POLICY_VERSION):
         raise ValueError("PAPER_EXECUTION_POLICY_UNRECOGNIZED")
+    if event.kind == "PM04_PAPER_RECONCILE_FLAT":
+        pod = raw["pod"]
+        if semantics != 2 or pod not in account.pm04_state["policy"]["pods"]:
+            raise ValueError("PAPER_FLAT_RECONCILIATION_SCOPE_INVALID")
+        if not follower_exit_decision(account, pod, event.decision_at).clear_obsolete_target:
+            raise ValueError("PAPER_FLAT_RECONCILIATION_UNPROVEN")
+        _clear_reconciled_target(account, pod, event.decision_at)
+        from .pm04_shadow import _exposure
+
+        _exposure(account, event.decision_at)
+        account.verify()
+        return {"status": "RECONCILED_FLAT", "pod": pod, "no_broker_orders": True}
     if event.kind == "PM04_PAPER_SOURCE":
         pod = raw["pod"]
         seq = raw["source_seq"]
@@ -275,14 +330,17 @@ def apply_paper_event(account: Account, event: Event, policy: RiskPolicy, mode: 
         if positions == prev:
             return {"status": "UNCHANGED_SOURCE", "source_seq": seq}
         if active is not None and active["status"] == "PENDING_5M":
-            active["source_seq"] = seq
-            active["source_sha"] = raw["source_sha"]
-            active["source_event_at"] = event.source_event_at
-            active["positions"] = positions
-            active["updated_at"] = event.decision_at
-            active["updates"].append(
-                {"at": event.decision_at, "source_seq": seq, "source_sha": raw["source_sha"]}
-            )
+            if semantics == 2:
+                revised = PaperOpportunity.model_validate(active).coalesce(
+                    source_seq=seq,
+                    source_sha=raw["source_sha"],
+                    source_event_at=event.source_event_at,
+                    positions=positions,
+                    decision_at=event.decision_at,
+                )
+                active.update(revised.model_dump(exclude_none=True))
+            else:
+                _legacy_coalesce(active, raw, positions, event)
             if not positions:
                 active["status"] = "CANCELED"
                 active["terminal_at"] = event.decision_at
@@ -331,6 +389,8 @@ def apply_paper_event(account: Account, event: Event, policy: RiskPolicy, mode: 
                 {"at": event.decision_at, "source_seq": seq, "source_sha": raw["source_sha"]}
             ],
         }
+        if semantics == 2:
+            PaperOpportunity.model_validate(intent)
         state["history"][intent_id] = intent
         state["active"][pod] = intent_id
         return {"status": "PENDING_5M", "intent_id": intent_id, "due_at": intent["due_at"]}
@@ -356,6 +416,12 @@ def apply_paper_event(account: Account, event: Event, policy: RiskPolicy, mode: 
             raise ValueError("PAPER_INTENT_NOT_PENDING")
         if clock(event.decision_at) <= clock(intent["deadline_at"]):
             raise ValueError("PREMATURE_PAPER_EXPIRATION")
+        if semantics == 2:
+            intent["timing"] = (
+                PaperOpportunity.model_validate(intent)
+                .terminal_timing(event.decision_at, attempted=False)
+                .model_dump()
+            )
         intent["status"] = "EXPIRED_NO_TRADE"
         intent["terminal_at"] = event.decision_at
         intent["reason"] = raw["reason"]
@@ -486,6 +552,8 @@ def apply_paper_event(account: Account, event: Event, policy: RiskPolicy, mode: 
             state["unresolved_exposures"][pod] = incomplete
         else:
             state["unresolved_exposures"].pop(pod, None)
+        if semantics == 2:
+            _clear_reconciled_target(account, pod, event.decision_at)
         _stats(
             account,
             (
@@ -520,6 +588,13 @@ def apply_paper_event(account: Account, event: Event, policy: RiskPolicy, mode: 
         raise ValueError("PAPER_INTENT_NOT_PENDING")
     if not clock(intent["due_at"]) <= clock(event.decision_at) <= clock(intent["deadline_at"]):
         raise ValueError("PAPER_ATTEMPT_OUTSIDE_WINDOW")
+    timing = None
+    if semantics == 2:
+        timing = (
+            PaperOpportunity.model_validate(intent)
+            .terminal_timing(event.decision_at, attempted=True)
+            .model_dump()
+        )
     if raw["source_seq"] != intent["source_seq"] or raw["source_sha"] != intent["source_sha"]:
         raise ValueError("PAPER_ATTEMPT_STALE_SOURCE")
     pod = intent["pod"]
@@ -642,6 +717,24 @@ def apply_paper_event(account: Account, event: Event, policy: RiskPolicy, mode: 
                 "requested": str(delta),
             }
     account.pm04_state["routed_targets"][pod] = {k.key: str(q) for k, q in destination.items()}
+    if semantics == 2:
+        broker = account.pm04_state["broker"]
+        if (
+            any(row["status"] == "FILLED" for row in attempts.values())
+            and not any(account.pm_quantities.get(pod, {}).values())
+            and not broker["observations"]
+            and not account.pm04_state["policy"]["broker_required"]
+        ):
+            # A committed modeled close proves this paper liability is flat.
+            # This never resolves externally observed/unknown order outcomes.
+            unresolved = state["unresolved_exposures"].pop(pod, None)
+            if unresolved:
+                prior_exit = state["exits"].get(pod)
+                if prior_exit is not None and prior_exit["status"] == "UNRESOLVED_EXPOSURE":
+                    prior_exit["status"] = "RECONCILED_FLAT"
+                    prior_exit["reconciled_at"] = event.decision_at
+                    prior_exit["resolution_event_id"] = event.event_id
+        _clear_reconciled_target(account, pod, event.decision_at)
     _stats(account, shocks)
     _exposure(account, event.decision_at)
     account.verify()
@@ -649,6 +742,8 @@ def apply_paper_event(account: Account, event: Event, policy: RiskPolicy, mode: 
     intent["status"] = (
         "FILLED" if statuses == {"FILLED"} else "PARTIAL" if "FILLED" in statuses else "REJECTED"
     )
+    if timing is not None:
+        intent["timing"] = timing
     intent["attempted_at"] = event.decision_at
     intent["terminal_at"] = event.decision_at
     intent["order_ids"] = {key: value["order_id"] for key, value in attempts.items()}

@@ -298,3 +298,62 @@ boundaries, strict-native proof requirements, replay and independent finances.
 Rollback is documentation/tests only. Neither receipt copies nor missed ACKs
 provide order authority. All positive fills are explicit offline synthetic
 models; no deployment, forward evidence or scientific qualification is claimed.
+
+## PYDN-07 / #220 and PYDN-08 / #221 — typed opportunities and reconciled exits
+
+The existing ShadowRun/PM-03/04 owner now applies paper semantics version 2.
+Frozen, strict PaperOpportunity, OpportunityTiming and FollowerExitDecision
+contracts validate original T0, exact T+300 eligibility, the inclusive 30-second
+grace interval, ordered revisions, terminal consumption and exit cleanup evidence.
+Coalescing preserves the original ID, first-known clock and deadline. Actual
+modeled attempts and expiry persist decision/due/attempt clocks and lateness
+relative to eligibility. This diagnostic is not a measured operating-system
+scheduler latency or live provider latency. Missing quotes remain explicitly
+blocked; an expired window records no modeled attempt.
+
+A completed modeled flat exit now clears obsolete routed targets within the
+same existing financial event. A proven flat legacy target is reconciled by a
+new PM04_PAPER_RECONCILE_FLAT event, never by changing old ledger bytes. Held pod
+exposure, unresolved liability, pending/unknown orders or unproven external
+reconciliation prevent cleanup. Independent risk budgets, cash, fees and HALT
+remain owned by the existing account. A cancel acknowledgement plus late partial
+fill and a stale provider snapshot retains the outstanding reservation and HALT.
+
+Adversarial reversal coverage found a second stale-state defect: an initial
+unpriceable exit could later be closed by a valid modeled reduction while the
+old unresolved marker survived. The versioned reducer now marks that paper-only
+liability RECONCILED_FLAT with the resolving event ID only after a committed fill
+proves zero pod inventory and no external broker observations/requirement exist.
+It never opens opposite exposure before the held book resolves, fabricates an
+external fill, or clears financial HALT. A blocked/unknown exit remains visible.
+
+Historical replay: a VPS-local witness captures seven synthetic v1 journal
+events from a11874797ccc00213ad411afebfcb67abfc40d08, including
+the old stale target. All original bytes and post-state hashes replay exactly.
+New writes cannot request legacy paper semantics; exact old retries remain valid.
+Automatic publication review rejected the complete journal fixture because of
+its full ledger metadata; it is preserved locally, excluded from Git, and never
+included in the public change. The archive test is an explicit required VPS gate
+and skips on other checkouts without that witness. All ordinary lifecycle,
+reversal, unknown-order and strict-boundary tests remain self-contained/public.
+New raw source receipts, original hashes and first-known clocks are unchanged.
+No additional ledger, inventory authority or broker RPC was introduced.
+
+Verification: three initial red tests reproduced missing timing evidence and the
+stale flat target. A subsequent reversal test reproduced the unresolved-marker
+defect. Final focused opportunity/replay/single-shot/broker-clock/protected-ops/
+continuity/HALT suite: 81 passed. Full suite: 1699 passed, 1 skipped (39.57 s).
+Ruff check and format (535 files), wheel/sdist build and diff checks passed.
+Strict negative cases cover boolean sequence, unknown field/hash, nonfinite and
+float quantities, changed due/deadline, naive clocks and consumed pending state.
+Existing public tests cover exact microsecond-before-due behavior, malformed
+frame during pending T+300, scope changes, immediate valid reductions, unresolved
+exits, independent portfolio finance and actual watchdog/process restart HALTs.
+One archive harness assertion was corrected to allow the original zero-valued
+position key; no historical finance representation was rewritten.
+
+Actual diff reviewed for historical marker handling, deterministic IDs, flat vs
+unknown inventory, pending order reservations, quote freshness and risk isolation.
+Rollback must retain a reader for paper semantics v2 once these events exist;
+do not rewind or truncate journals to run an older reducer. No deployment or
+Guardian financial-policy change was made.
