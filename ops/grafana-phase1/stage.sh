@@ -84,7 +84,7 @@ case "$MODE" in
     docker compose -f "$COMPOSE" config --quiet
     docker compose -f "$COMPOSE" up -d --build --wait
     docker exec copytrade-grafana-phase1-ingress-1 test -S /run/staging-ingress/serve.sock || { echo "BLOCKED: isolated Unix socket absent"; exit 3; }
-    echo "Isolated Grafana staging healthy, Unix socket available."
+    echo "Grafana staging containers started; Unix socket available. Authentic evidence health is separate."
     tailscale_root serve --https=8444 --bg "unix:$SOCKET"
     echo "Tailscale Serve 8444 set; 8443 route must remain unchanged."
     ;;

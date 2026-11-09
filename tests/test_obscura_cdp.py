@@ -134,3 +134,30 @@ def test_unavailable_obscura_reports_recovery_hint(monkeypatch):
     monkeypatch.setattr("urllib.request.urlopen", unavailable)
     with pytest.raises(RuntimeError, match="OBSCURA_CDP_UNAVAILABLE"):
         Browser(timeout=0.2)
+
+
+def test_timeout_invalidates_session_before_caller_can_reuse_it(fake_cdp):
+    browser = Browser(timeout=0.02)
+    fake_cdp.silent_methods.add("Runtime.evaluate")
+    with pytest.raises(TimeoutError):
+        browser.eval("1")
+    fake_cdp.silent_methods.clear()
+    try:
+        with pytest.raises(RuntimeError, match="CDP_CONNECTION_CLOSED"):
+            browser.eval("2")
+    finally:
+        browser.close()
+
+
+def test_target_detachment_invalidates_session_even_when_late_reply_follows(fake_cdp):
+    browser = Browser(timeout=0.1)
+    fake_cdp.replies.append(
+        json.dumps({"method": "Target.detachedFromTarget", "params": {"sessionId": "session-fake"}})
+    )
+    try:
+        with pytest.raises(RuntimeError, match="CDP_TARGET_DISCONNECTED"):
+            browser.eval("1")
+        with pytest.raises(RuntimeError, match="CDP_CONNECTION_CLOSED"):
+            browser.eval("2")
+    finally:
+        browser.close()

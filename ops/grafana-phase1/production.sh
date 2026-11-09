@@ -6,13 +6,12 @@ STAGE="$ROOT/ops/grafana-phase1/stage.sh"
 SOCKET="unix:/run/copytrade-grafana-phase1/serve.sock"
 case "${1:-}" in
   start)
-    # A live, already healthy release is idempotent.
+    # A running release is idempotent; authentic freshness is a separate check.
     if tailscale serve status 2>/dev/null | grep -Fq "$SOCKET" &&
       docker inspect copytrade-grafana-phase1-grafana-1 --format '{{.State.Running}}' 2>/dev/null | grep -qx true &&
       docker inspect copytrade-grafana-phase1-projection-1 --format '{{.State.Running}}' 2>/dev/null | grep -qx true &&
       docker inspect copytrade-grafana-phase1-ingress-1 --format '{{.State.Running}}' 2>/dev/null | grep -qx true; then
-      echo "Grafana already healthy; leaving running stack unchanged."
-      exit 0
+      exec python3 "$ROOT/src/copytrade_pm/dashboard/grafana_health.py"
     fi
     # Never remove a different operator's HTTPS 8444 route.
     if tailscale serve status 2>/dev/null | grep -q ':8444' &&
@@ -23,12 +22,13 @@ case "${1:-}" in
     # Recovery after reboot: only our known staging route, socket and containers.
     bash "$STAGE" stop
     bash "$STAGE" start
+    exec python3 "$ROOT/src/copytrade_pm/dashboard/grafana_health.py"
     ;;
   stop)
     bash "$STAGE" stop
     ;;
   status)
-    bash "$STAGE" status
+    exec python3 "$ROOT/src/copytrade_pm/dashboard/grafana_health.py"
     ;;
   *)
     echo "Usage: $0 start|stop|status" >&2

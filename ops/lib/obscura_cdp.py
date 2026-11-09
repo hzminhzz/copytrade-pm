@@ -76,9 +76,22 @@ class Browser:
         if self._session is not None:
             message["sessionId"] = self._session
         limit = min(self._timeout, timeout) if timeout is not None else self._timeout
-        return self._loop.run_until_complete(
-            asyncio.wait_for(self._exchange(message), timeout=limit)
-        )
+        try:
+            return self._loop.run_until_complete(
+                asyncio.wait_for(self._exchange(message), timeout=limit)
+            )
+        except BaseException:
+            if method != "Target.closeTarget":
+                self._invalidate()
+            raise
+
+    def _invalidate(self) -> None:
+        """A failed exchange cannot leave a reusable stale session."""
+        try:
+            self.close()
+        except Exception:
+            # Keep the primary timeout/protocol error, not the cleanup failure.
+            pass
 
     async def _exchange(self, message: dict[str, Any]) -> dict[str, Any]:
         await self._ws.send(json.dumps(message))
@@ -86,6 +99,24 @@ class Browser:
             reply = json.loads(await self._ws.recv())
             if not isinstance(reply, dict):
                 raise RuntimeError("CDP_INVALID_RESPONSE")
+            params = reply.get("params", {})
+            if message["method"] != "Target.closeTarget" and (
+                (
+                    reply.get("method") == "Target.detachedFromTarget"
+                    and isinstance(params, dict)
+                    and params.get("sessionId") == self._session
+                )
+                or (
+                    reply.get("method") in {"Target.targetDestroyed", "Target.targetCrashed"}
+                    and isinstance(params, dict)
+                    and params.get("targetId") == self._target_id
+                )
+                or (
+                    reply.get("method") == "Inspector.detached"
+                    and reply.get("sessionId") == self._session
+                )
+            ):
+                raise RuntimeError("CDP_TARGET_DISCONNECTED")
             if reply.get("id") != message["id"]:
                 # CDP events are asynchronous; one in-flight request per browser.
                 continue
@@ -121,6 +152,7 @@ class Browser:
             if self.eval("document.readyState") == "complete":
                 return
             time.sleep(0.2)
+        self._invalidate()
         raise AssertionError(f"PAGE_LOAD_TIMEOUT {url}")
 
     def body(self) -> str:
@@ -173,6 +205,7 @@ class Browser:
                     if error is None:
                         error = exc
             self._ws = None
+            self._session = None
             self._target_id = None
             self._loop.close()
         if error is not None:

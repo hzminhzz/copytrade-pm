@@ -121,6 +121,13 @@ def _validate(data: Any) -> dict[str, Any]:
             or not REASON.fullmatch(item["reason"])
         ):
             raise NotificationStateError("STATE_RECORD_INVALID")
+        if (
+            "acknowledged" in item
+            and type(item["acknowledged"]) is not bool
+            or item.get("delivery_status", "UNKNOWN")
+            not in {"UNKNOWN", "PENDING", "RETRY", "DRY_RUN_DELIVERED", "FAILED"}
+        ):
+            raise NotificationStateError("STATE_DELIVERY_OR_ACK_INVALID")
         _parse_utc(item.get("source_observed_at"))
     return data
 
@@ -173,6 +180,13 @@ def dashboard_status(path: Path | None, *, now: datetime | None = None) -> dict[
                         "next_attempt_at",
                         "last_error",
                     )
+                }
+                | {
+                    "acknowledged": item.get("acknowledged", item["status"] == "ACKNOWLEDGED"),
+                    "delivery_status": item.get(
+                        "delivery_status",
+                        item["status"] if item["status"] != "ACKNOWLEDGED" else "UNKNOWN",
+                    ),
                 }
                 for item in records
             ],
@@ -308,6 +322,8 @@ def process_once(
                         "source_observed_at": _utc(source_time),
                         "active": True,
                         "status": "PENDING",
+                        "delivery_status": "PENDING",
+                        "acknowledged": False,
                         "attempts": 0,
                         "next_attempt_at": clock,
                         "last_error": None,
@@ -346,6 +362,7 @@ def process_once(
                 record["attempts"] += 1
                 record["status"] = "DRY_RUN_DELIVERED"
                 record["next_attempt_at"] = None
+            record["delivery_status"] = record["status"]
         _save(state_path, state)
         return dashboard_status(state_path, now=now)
 
@@ -358,6 +375,11 @@ def acknowledge(state_path: Path, incident_id: str) -> bool:
         state = read_state(state_path)
         for record in state["incidents"]:
             if record["id"] == incident_id:
+                record.setdefault(
+                    "delivery_status",
+                    record["status"] if record["status"] != "ACKNOWLEDGED" else "UNKNOWN",
+                )
+                record["acknowledged"] = True
                 record["status"] = "ACKNOWLEDGED"
                 _save(state_path, state)
                 return True
