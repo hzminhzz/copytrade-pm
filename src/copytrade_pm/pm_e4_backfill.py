@@ -15,6 +15,12 @@ import json
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 
+from .pm_acquisition_contracts import (
+    LedgerPageReceipt,
+    begin_generation,
+    read_ledger_page,
+    verify_raw,
+)
 from .pm_e4_prospective import PODS, _canonical, _guarded_info, _safe_dir
 from .pm_hyperx_account_triage import _write_immutable_private
 from .pm_sources import load_cohort
@@ -58,10 +64,12 @@ async def collect_historical(
     if set(roster) != set(PODS):
         raise ValueError("E4_UNKNOWN_WALLET")
     _safe_dir(generation)
+    receipt = begin_generation(generation, "HL_LEDGER_BACKFILL", _write_immutable_private)
     start = int(START.timestamp() * 1000)
     end = int(END.timestamp() * 1000) - 1
     report = {
-        "schema": "e4_q3_hyperliquid_account_ledger_backfill_v1",
+        "schema": "e4_q3_hyperliquid_account_ledger_backfill_v2",
+        "generation_id": receipt.generation_id,
         "source": "OFFICIAL_HYPERLIQUID_INFO_HISTORICAL_NOT_PIT",
         "start_inclusive": START.isoformat(),
         "end_exclusive": END.isoformat(),
@@ -103,6 +111,7 @@ async def collect_historical(
                 try:
                     data, raw, signature = await asyncio.to_thread(_guarded_info, data_request)
                     received_at = datetime.now(UTC)
+                    verify_raw(data, raw, signature)
                     earliest, latest = _validate_rows(data, start=offset, end=end)
                 except (HTTPError, URLError, TimeoutError, ValueError, TypeError) as exc:
                     issue = "PROVIDER_OR_SCHEMA_" + type(exc).__name__
@@ -118,22 +127,29 @@ async def collect_historical(
                 _write_immutable_private(
                     generation / "metadata" / alias / tag / f"page-{pages:03d}.json",
                     _canonical(
-                        {
-                            "source": "OFFICIAL_HL_INFO",
-                            "kind": request_type,
-                            "query_window_start_ms": offset,
-                            "query_window_end_ms": end,
-                            "locally_requested_at": requested_at.isoformat(),
-                            "first_locally_received_at": received_at.isoformat(),
-                            "sha256": signature,
-                            "rows": len(data),
-                            "new_unique_rows": new,
-                            "first_row_ms": earliest,
-                            "last_row_ms": latest,
-                            "historical_first_known": False,
-                        }
+                        LedgerPageReceipt.model_validate(
+                            {
+                                "schema": "e4_historical_page_v2",
+                                "generation_id": receipt.generation_id,
+                                "alias": alias,
+                                "page": pages,
+                                "source": "OFFICIAL_HL_INFO",
+                                "kind": request_type,
+                                "query_window_start_ms": offset,
+                                "query_window_end_ms": end,
+                                "locally_requested_at": requested_at.isoformat(),
+                                "first_locally_received_at": received_at.isoformat(),
+                                "sha256": signature,
+                                "rows": len(data),
+                                "new_unique_rows": new,
+                                "first_row_ms": earliest,
+                                "last_row_ms": latest,
+                                "historical_first_known": False,
+                            }
+                        ).model_dump(by_alias=True)
                     ),
                 )
+                read_ledger_page(generation, alias, tag, pages)
                 pages += 1
                 last_page_count = len(data)
                 if earliest is not None and first_row_at is None:

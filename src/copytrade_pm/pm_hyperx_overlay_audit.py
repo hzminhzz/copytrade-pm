@@ -17,6 +17,7 @@ import json
 from pathlib import Path
 from urllib.parse import quote
 
+from .pm_acquisition_contracts import read_generation, read_hyperx_pages
 from .pm_fill_replay import CUT, STUDY_START, _coins, _source_fills, _same_position
 from .pm_sources import load_cohort
 from .pm_research import _write_private_evidence
@@ -25,30 +26,7 @@ SOURCE_PREFIX = Path("slow_pod_data_v1/hyperx_fills_cache_v1/pages")
 
 
 def _read_pages(directory: Path, alias: str, coin: str) -> list[dict]:
-    pages = []
-    for n in range(1, 5):
-        archive = directory / f"page-{n:05d}.json.gz"
-        meta = directory / f"page-{n:05d}.meta.json"
-        if not archive.exists() and not meta.exists():
-            break
-        if not archive.is_file() or not meta.is_file():
-            raise ValueError("PARTIAL_IMMUTABLE_SOURCE_PAIR")
-        raw = gzip.decompress(archive.read_bytes())
-        sidecar = json.loads(meta.read_text())
-        if (
-            sha256(raw).hexdigest() != sidecar.get("sha256")
-            or sidecar.get("alias") != alias
-            or sidecar.get("coin") != coin
-            or sidecar.get("page") != n
-        ):
-            raise ValueError("SOURCE_GENERATION_HASH_OR_IDENTITY_DRIFT")
-        obj = json.loads(raw)
-        if obj.get("page") != n or obj.get("page_size") != 2000:
-            raise ValueError("UNVERIFIED_SOURCE_PAGINATION")
-        pages.append(obj)
-    if (directory / "page-00005.json.gz").exists():
-        raise ValueError("UNBOUNDED_SOURCE_PAGES_NOT_SUPPORTED")
-    return pages
+    return read_hyperx_pages(directory, alias, coin)
 
 
 def _source_tuple(record: dict, alias: str, coin: str, address: str) -> tuple:
@@ -147,9 +125,20 @@ def examine(root: Path, generations: tuple[Path, ...]) -> tuple[dict, dict[str, 
         summary = path / "generation-summary.json"
         if not summary.is_file():
             raise ValueError("MISSING_AUTHENTICATED_GENERATION_SUMMARY")
+        generation = read_generation(path, "HYPERX_GAP")
+        if generation is not None:
+            doc = json.loads(summary.read_bytes())
+            if (
+                doc.get("schema") != "pm01_fresh_hyperx_gap_generation_v2"
+                or doc.get("generation_id") != generation.generation_id
+            ):
+                raise ValueError("SOURCE_GENERATION_SUMMARY_IDENTITY_DRIFT")
         source_generations.append(
             {
                 "basename": path.name,
+                "generation_binding": "VERIFIED_V2"
+                if generation
+                else "LEGACY_UNBOUND_HISTORICAL_ONLY",
                 "generation_summary_sha256": sha256(summary.read_bytes()).hexdigest(),
             }
         )
@@ -243,6 +232,8 @@ def examine(root: Path, generations: tuple[Path, ...]) -> tuple[dict, dict[str, 
     report = {
         "schema": "pm01_hyperx_verified_overlay_report_v1",
         "research_only": True,
+        "historical_first_known": False,
+        "point_in_time_follower_qualified": False,
         "input": "HYPERX_AUTHENTICATED_DATA_API_ONLY",
         "source_frozen_cutoff": CUT.isoformat(),
         "original_vendor_cache_intact": True,
