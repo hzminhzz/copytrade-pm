@@ -26,6 +26,7 @@ The Marimo operator dashboard was **retired early on 2026-11-08** at operator di
 | Source acquisition and retrospective recovery | [Data acquisition](DATA-ACQUISITION.md), [Vike contract](VIKE-DATA-RECOVERY-20261106.md) |
 | Persistent public observation | [Continuous observer](FORWARD-PAPER-CONTINUOUS-OBSERVER.md) |
 | Approved official position-first T+300 policy | [2026-11-08 position authority ADR](decisions/2026-11-08-position-first-t300.md) |
+| Approved fast-wallet Polars screening design (planning only; no changes to old oracle/V4) | [2026-11-09 1m three-scenario screening ADR](decisions/2026-11-09-v4-aligned-fast-wallet-screening.md) |
 | Position-first v4 isolated release and rollback | [V4 deployment runbook](V4-POSITION-FIRST-DEPLOY-20261108.md) |
 | Owner-requested 16-portfolio prospective virtual-paper campaign (not SQLite promotion) | [16-portfolio paper release and exclusions](V4-SIXTEEN-PAPER-20261109.md) |
 | Pydantic V4 16-portfolio SHADOW deployment and first authentic P1 T+300 evidence | [16-portfolio rollout](PYDNATIVE-V4-SIXTEEN-SHADOW-20261109.md), [real T+300 P1 trace](PYDNATIVE-V4-REAL-T300-TRACE-20261109.md) |
