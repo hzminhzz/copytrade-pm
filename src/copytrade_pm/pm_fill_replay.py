@@ -20,6 +20,7 @@ from urllib.parse import quote
 from .pm_sources import load_cohort
 from .pm_shadow import MarketDataBlocked, VerifiedHyperliquidMinuteSource, Scenario, _VirtualBook
 from .pm_research import _write_private_evidence
+from .pm_research_contracts import RetrospectiveEvidence
 
 ZERO = Decimal(0)
 CUT = datetime(2026, 10, 29, 17, 22, 16, 142000, tzinfo=UTC)
@@ -275,6 +276,7 @@ def replay_wallet(
         "scope": "FROZEN_VENDOR_REPORTED_INSTRUMENTS_ONLY_NOT_TOTAL_EXCHANGE_ACCOUNT",
         "oracle_hindsight": True,
         "blocked_reasons": issues,
+        "evidence_scope": RetrospectiveEvidence(source_gaps=tuple(issues)).as_wire(),
         "follower_actual_fills": 0,
     }
     # Genuine missing source pages / wrong wallet / invalid quantity cannot

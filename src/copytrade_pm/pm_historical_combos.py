@@ -28,6 +28,7 @@ from .pm_hyperx_overlay_audit import examine
 from .pm_portfolio_e0 import PORTFOLIOS
 from .pm_propr_scope import SCOPE_STRICT, SCOPE_TENTATIVE, classify_coin
 from .pm_research import _write_private_evidence
+from .pm_research_contracts import RetrospectiveEvidence
 from .pm_shadow import MarketDataBlocked, VerifiedHyperliquidMinuteSource
 from .pm_sources import load_cohort
 
@@ -61,6 +62,10 @@ class Episode:
     wallet: str
     coin: str
     events: tuple[tuple, ...]
+
+    @property
+    def evidence_scope(self) -> RetrospectiveEvidence:
+        return RetrospectiveEvidence()
 
     @property
     def start(self) -> datetime:
@@ -264,6 +269,7 @@ def _source_inputs(
             "vendor_instruments_first_observed_after_q3_start": q3_first_seen,
             "full_book_at_q3_start_proven": q3_first_seen == 0 and not issues,
             "source_gaps": issues,
+            "evidence_scope": RetrospectiveEvidence(source_gaps=tuple(issues)).as_wire(),
             "chain_counts": counts,
             "q3_completed_candidate_episodes": len(candidates),
             "accepted_episode_count": len(selected),

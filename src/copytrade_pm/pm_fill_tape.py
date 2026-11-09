@@ -26,6 +26,7 @@ from .pm_fill_replay import (
 )
 from .pm_portfolio import classify_transition
 from .pm_research import _write_private_evidence
+from .pm_research_contracts import RetrospectiveEvidence
 from .pm_shadow import MarketDataBlocked
 from .pm_sources import CohortEntry, load_cohort
 
@@ -84,6 +85,7 @@ def build_wallet_tape(
         "causal_follower_actions_allowed": False,
         "historical_oracle_only": True,
         "retrospective_source_errors": errors,
+        "evidence_scope": RetrospectiveEvidence(source_gaps=tuple(errors)).as_wire(),
         "observed_raw_fills": len(fills),
         "initial_signed_book": None,
         "anchor_source_event_at": None,

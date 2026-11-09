@@ -452,3 +452,49 @@ Rollback: preserve every generation, raw page, original sidecar and bucket seal.
 Old readers do not understand v2 generation binding; retain the new reader for
 v2 archives and use a new generation for future capture. Do not downgrade by
 editing receipt schemas or repairing corrupted cache objects in place.
+
+## #224 — retrospective, scientific and challenge-stage truth
+
+Families 17, 21, 22 and 23 retain their existing domain owners. Strict frozen
+Pydantic research projections now label fill-derived books and flat-to-flat
+episodes as retrospective estimates with partial vendor scope, no original
+first-known proof, no prospective account book and no trading/scientific grant.
+Source gaps and the existing null/blocked economic results remain visible.
+No raw archive, signed outcome, source hash or historical clock was rewritten.
+
+EvidenceReadiness keeps its existing dataclass/wire interface with strict
+Pydantic validation, a literal NOT_SCIENTIFICALLY_QUALIFIED status and nonnegative
+integer counts. Invalid counts and a claimed positive status cannot be created
+through that view. Three red tests established the previously unchecked inputs.
+The existing receipt/audit/outcome cryptographic validation remains independent;
+no new signer, issuer, economic threshold or financial state was introduced.
+
+The challenge simulator's existing funded latch deliberately means ever funded.
+Its old probability/math is unchanged. A typed lifecycle projection additionally
+reports ever-funded, currently-active, currently-funded and historical-payout
+counts, with explicit simulation-only and no-forward/no-authorization flags.
+CF10 combines a partial fill history and a closed contiguous episode with a
+deterministic path that pays out and later breaches: prior funding/payout remain
+true while current funded/active counts are zero. The initial test failed on the
+missing explicit retrospective episode scope.
+
+The scientific negative lifecycle test proceeds through missing audit, immature
+outcome, wrong signer, missing cost/funding/capacity/census/selection evidence,
+then a valid signed mature outcome. Only the last is counted; even then the
+public readiness audit retains separate missing independent economic truth,
+predeclared independent holdout and OOS/calibration gates. Existing registry
+negative-proof, campaign and historical consumer suites also pass. A signature
+or these synthetic tests cannot establish economic truth or alpha.
+
+Validation: 83 preliminary focused tests passed. Final full suite, including all
+five new tests: 1736 passed, 1 skipped (37.00 s). Commands:
+uv run --frozen --group dev pytest -q; uv run --frozen --group dev ruff check .;
+uv run --frozen --group dev ruff format --check . (543 files); uv build --offline;
+git diff --check. All passed. Direct production diff review confirmed additive
+research labels and summary validation only; challenge stage/KO/payout math,
+science thresholds, signed schemas and financial authority are unchanged.
+
+Rollback keeps historical outputs immutable. New fields are diagnostic additions;
+old readers can ignore them but must retain the existing retrospective caveats.
+Removing the strict summary guard must not be used to issue a positive verdict.
+Cross-family CF06/CF09 integration is also tracked in the final #228 matrix.

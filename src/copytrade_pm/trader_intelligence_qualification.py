@@ -7,30 +7,36 @@ A signature verifies a declaration, not independent truth of economic measuremen
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from datetime import timedelta
 from decimal import Decimal
+from typing import Literal
+
+from pydantic import ConfigDict
+from pydantic.dataclasses import dataclass
+
+from .pm_research_contracts import Count
 
 from .pm02_outcomes import CLAIM_FIELDS, DIGEST_FIELDS, SCHEMA as WHOLE_ACCOUNT_SCHEMA
 from .pm_prospective_ledger import ProspectiveLedger, digest, utc
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, config=ConfigDict(strict=True, extra="forbid"))
 class EvidenceReadiness:
-    schema: str
-    status: str
+    schema: Literal["ti_prospective_evidence_readiness_v1"]
+    status: Literal["NOT_SCIENTIFICALLY_QUALIFIED"]
     asof: str
     holdout_start: str
     holdout_end: str
     selection_plan_sha256: str
     ledger_head_asof_sha256: str
-    receipt_count: int
-    independent_receipt_audits: int
-    signed_matched_outcomes: int
-    eligible_whole_account_outcomes: int
-    distinct_wallets: int
-    distinct_source_events: int
-    matched_horizon_groups: int
+    receipt_count: Count
+    independent_receipt_audits: Count
+    signed_matched_outcomes: Count
+    eligible_whole_account_outcomes: Count
+    distinct_wallets: Count
+    distinct_source_events: Count
+    matched_horizon_groups: Count
     complete_group_incremental_mean_r: str | None
     complete_group_worst_incremental_r: str | None
     reasons: tuple[str, ...]

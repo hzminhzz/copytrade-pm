@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable
 
+from .pm_research_contracts import ChallengeLifecycleSummary
+
 if TYPE_CHECKING:
     import numpy as np
 
@@ -52,7 +54,7 @@ def simulate(
     payout_safety_buffer: float = 25.0,
     discount_rate_annual: float = 0.0,
     innovations: np.ndarray | Callable[[int, int], np.ndarray] | None = None,
-) -> dict[str, float | int | str]:
+) -> dict[str, object]:
     """Fixed-dollar PnL walk with intra-day monitoring and UTC daily resets.
 
     Underlying PnL increments are NORMAL with mean daily_mu - daily_cost
@@ -229,11 +231,21 @@ def simulate(
             active[idx] = False
         active[in_fund & (funded_age >= funded_days)] = False
 
+    # "funded" is deliberately an ever-funded latch, including inactive paths.
+    lifecycle = ChallengeLifecycleSummary(
+        paths=paths,
+        ever_funded_count=int(funded.sum()),
+        currently_active_count=int(active.sum()),
+        currently_funded_count=int((active & funded).sum()),
+        historical_payout_count=int((paid_count > 0).sum()),
+    )
     funded_probability = funded.mean()
     first_payout_probability = (paid_count > 0).mean()
     mean_payout = payouts.mean()
     return {
         "contract": contract.name,
+        "lifecycle": lifecycle.model_dump(),
+        "funded_probability_semantics": "EVER_FUNDED_IN_SIMULATION",
         "paths": paths,
         "seed": seed,
         "funded_probability": float(funded_probability),
