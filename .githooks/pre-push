@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Local CI gate: blocks a push whose tree fails scripts/ci.sh.
+# Deliberate bypass: SKIP_CI=1 git push
+set -euo pipefail
+
+if [[ "${SKIP_CI:-0}" == "1" ]]; then
+    printf 'pre-push: local CI skipped (SKIP_CI=1)\n' >&2
+    exit 0
+fi
+
+exec "$(git rev-parse --show-toplevel)/scripts/ci.sh" all

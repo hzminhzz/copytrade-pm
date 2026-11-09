@@ -62,7 +62,9 @@ and private archival replay checks are recorded separately in the program's
 portable-checkout skip is not acceptance evidence.
 
 GitHub Actions is optional for this program. Respect actual branch protections
-and record clean commit-bound local results. Cross-repository acceptance uses
+and record clean commit-bound local results. Run `scripts/ci.sh all` locally
+(core and `--extra market` legs); the committed `.githooks/pre-push` enforces it
+when `core.hooksPath` is `.githooks`. Cross-repository acceptance uses
 `bash scripts/verify-local.sh all` in prop-production with the pinned companion
 checkouts. Passing tests proves engineering behavior, not economic qualification.
 
