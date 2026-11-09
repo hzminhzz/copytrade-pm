@@ -1,0 +1,25 @@
+[project]
+name = "copytrade-wallet-health-eval"
+version = "0.1.0"
+description = "Isolated offline wallet diagnostic evaluation; no trading authority"
+requires-python = ">=3.14"
+dependencies = [
+  "copytrade-pm",
+  "pydantic-evals==2.66.0",
+  "pydantic==2.14.3",
+  "cryptography==50.0.2",
+]
+
+[dependency-groups]
+dev = ["pytest==9.2.0", "ruff==0.17.3"]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+copytrade-pm = { path = "../..", editable = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+filterwarnings = ["error"]
