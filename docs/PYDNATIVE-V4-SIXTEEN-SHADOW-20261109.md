@@ -157,6 +157,47 @@ were present.
 - **SCIENTIFICALLY QUALIFIED: NO.**
 - **TRADING AUTHORIZED: NO.**
 
+### Subsequent real ACT10 source change and safe gap cancellation (10:41–10:45 UTC)
+
+The original lines above describe the **earlier R2 rollout checkpoint**, not the
+full subsequent history. By 2026-11-09T10:49 UTC the existing official
+sixteen-source stream had accumulated **103** OBSERVATIONs, including a genuine
+post-R2-start `account:ACT10` change at
+`2026-11-09T10:41:46.538779+00:00` (source receipt seq `10501`;
+stream OBSERVATION seq `15688`, epoch
+`28f2db7f87b74640ae22081dc170a89e`).
+
+The new Pydantic R2 consumer recorded that authentic opportunity in **two
+independent, hash-verified PM03/04 paper journals**:
+
+| Portfolio | Original source SHA | First paper SOURCE | Terminal safety event |
+| --- | --- | --- | --- |
+| E10 | `6ea9e692258dfeb1e4e1ee98456acb16012c9cff4b906bb2d524728bd6050beb` | `10:41:48.735628Z` | `PM04_PAPER_SOURCE_GAP`, `10:45:14.252021Z` |
+| E11 | same original receipt | `10:41:48.897752Z` | `PM04_PAPER_SOURCE_GAP`, `10:45:14.475710Z` |
+
+The genuine T0 due would have been `10:46:46.538779Z`, but the
+original shared source stream disconnected/rebased **before** the due time.
+The read-only original source receipt integrity check still passed for
+`ACT10` seq `10501`; the current-position transition verifier returned
+`False` after the stream interruption, correctly fencing new risk.
+Each paper journal committed a `PM04_PAPER_SOURCE_GAP` instead of fabricating
+an entry attempt or using the invalidated epoch. The existing `Ledger.read()`
+verifier passed across all three actual events in each portfolio (configuration,
+source, gap), with distinct immutable financial journal heads:
+`cf33abae9d634f7f09d96f75b9a33526b4a84dd269c39200b80b71412593b62b`
+(E10) and
+`88117b488818fa3149249f781e77423f22da894416a0c8f61e45e61996741974`
+(E11).
+
+**This is a verified authentic source-event and fail-closed cancellation, not a
+T+300 terminal modeled fill or an exit.** The new supervisor still reported
+16/16 active, `quarantined={}`, `retrying_sqlite_busy=[]`, and no broker route
+at `2026-11-09T10:48:21.205002+00:00`. The original official sixteen-source
+unit had accumulated **18 automatic restarts**, making continuity a current
+operational limitation. The separately running original **P1 Pydantic canary**
+has already produced a genuine T+300 partial modeled entry; see
+[the independently verified P1 trace](PYDNATIVE-V4-REAL-T300-TRACE-20261109.md).
+
 The existing policy remains first-known T0 + 300 seconds, a 30-second
 eligibility grace, 2-second configured idle polling interval; actual
 operational decision times can be seconds late and must still fall in the
@@ -167,12 +208,15 @@ claim and no modified financial threshold.
 
 The old shared official sixteen-source service is **degraded by repeated SQLite
 journal-busy failures** and reconnect GAPs. Although stream integrity validates
-and price rows arrive, genuine source transitions after the new consumer's start
-have not yet appeared. Future source changes must be observed before asserting
-the requested real end-to-end trade lifecycle. Expanding from one to sixteen
+and price rows arrive, a new ACT10 source transition was captured after R2
+startup but was canceled safely following a subsequent GAP. A continuous
+source epoch through T+300, independent valid market evidence and a terminal
+modeled attempt remain necessary before asserting successful 16-campaign entry. Expanding from one to sixteen
 **portfolios** increases shared-wallet coverage to 14 unique accounts, not
 sixteen independent source wallets.
 
-**Issue decision:** leave #229 OPEN for genuine T+300 and exit proof.
+**Issue decision:** leave #229 OPEN for the still-missing authentic exit and
+complete sixteen-campaign T+300 entry/exit and restart acceptance. The original
+P1 canary's verified partial T+300 attempt is documented separately.
 No fleet financial promotion, optional #230 closure, parent #213 closure,
 protected Guardian mutation or funded/demo/live execution authorization.
