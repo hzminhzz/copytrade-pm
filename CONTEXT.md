@@ -17,6 +17,14 @@ Canonical domain meanings. This glossary does not specify implementation or stor
 - **Selected-perp completeness**: Complete, authentic official positions and DEX coverage for one explicitly selected account's perpetual market scope; not the same as all-wallet collateral or related subaccount finance.
 - **Whole-wallet financial completeness**: Evidence sufficient to characterize broader leader financial balances and collateral across relevant account types; not a universal requirement for fixed-k mirroring.
 
+## Historical screening and execution proxies
+
+- **Historical oracle clock**: A retrospective exchange/source-event timestamp available from recorded fills; not evidence of when the follower system first learned of that event.
+- **Historical execution-price proxy**: A causally selected 1-minute bar price used to approximate, not attest, a later market execution.
+- **Wallet robustness screen**: A rapid comparative estimate of potential follower economics across specified execution-price and cost assumptions, separate from complete portfolio-risk replay or scientific qualification.
+- **Capacity proxy**: Historical completed-bar trading volume used to screen whether modeled participation is plausible; not an executable order-book depth or guaranteed fill.
+- **Scenario sensitivity**: Variation in estimated wallet performance when delayed timing or adverse execution costs change; not a separate strategy or an authorization gate.
+
 ## Follower research and authority
 
 - **Desired source exposure**: The selected account's verified economic position vector; not an instruction or proof of follower holdings.
