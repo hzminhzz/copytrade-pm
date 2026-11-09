@@ -1,0 +1,121 @@
+{
+  "candidate": {
+    "accuracy": null,
+    "cost_usd": null,
+    "status": "NOT_OBSERVED"
+  },
+  "case_count": 32,
+  "case_labels": "PREDECLARED_ACCOUNTING_ORACLES_NOT_LLM_LABELS",
+  "corpus_sha": "32ebf3baef67db1e91c643bb60b4ee9d5c9743514119ef54dc2aa06b63503034",
+  "disposition": "DEFER_MODEL_COMPARISON",
+  "evidence_class": "SYNTHETIC_ENGINEERING",
+  "framework_disposition": "EXPERIMENT",
+  "independent_real_wallet_labels": false,
+  "limitations": [
+    "No real wallet/provider labels; shared templates limit holdout generalization",
+    "No LLM improvement claim without an independently trusted captured model run",
+    "All edge-decay labels require abstention; sensitivity to real edge decay is unmeasured",
+    "Observed equity changes alone cannot identify losses, liquidation or edge decay",
+    "A signature proves bytes and key binding; host ownership remains an external trust requirement",
+    "Recorded model cost/tokens remain unknown if absent; no estimated price is substituted",
+    "Leakage checks cover supplied inputs, citations and captured tool scope, not hidden model internals"
+  ],
+  "raw_receipts_unchanged": true,
+  "resources": {
+    "baseline_api_cost_usd": "0",
+    "baseline_model_tokens": 0,
+    "candidate_usage": null,
+    "cpu_seconds": 0.06533817599999991,
+    "network_attempts": 0,
+    "process_peak_rss_kib": 83580,
+    "provider_calls": 0,
+    "wall_seconds": 0.07642529695294797
+  },
+  "runs": {
+    "equity_activity": {
+      "development": {
+        "assertion_pass_rates": {
+          "abstention_appropriate": 0.75,
+          "claim_supported": 0.0625
+        },
+        "case_count": 16,
+        "scores": {
+          "abstained": 0.0625,
+          "citation_precision": 1.0,
+          "diagnosis_accuracy": 0.3125,
+          "false_confident_claim": 0.9375,
+          "pit_leakage": 0.0,
+          "tool_count": 0.0,
+          "tool_misuse": 0.0,
+          "unsupported_edge_decay": 0.0
+        },
+        "task_ms_p50": 0.35820738412439823,
+        "task_ms_p95": 1.558505930006504
+      },
+      "holdout": {
+        "assertion_pass_rates": {
+          "abstention_appropriate": 0.75,
+          "claim_supported": 0.0625
+        },
+        "case_count": 16,
+        "scores": {
+          "abstained": 0.0625,
+          "citation_precision": 1.0,
+          "diagnosis_accuracy": 0.3125,
+          "false_confident_claim": 0.9375,
+          "pit_leakage": 0.0,
+          "tool_count": 0.0,
+          "tool_misuse": 0.0,
+          "unsupported_edge_decay": 0.0
+        },
+        "task_ms_p50": 0.3770954208448529,
+        "task_ms_p95": 1.4666691422462463
+      }
+    },
+    "transaction_attribution": {
+      "development": {
+        "assertion_pass_rates": {
+          "abstention_appropriate": 1.0,
+          "claim_supported": 1.0
+        },
+        "case_count": 16,
+        "scores": {
+          "abstained": 0.3125,
+          "citation_precision": 1.0,
+          "diagnosis_accuracy": 1.0,
+          "false_confident_claim": 0.0,
+          "pit_leakage": 0.0,
+          "tool_count": 0.0,
+          "tool_misuse": 0.0,
+          "unsupported_edge_decay": 0.0
+        },
+        "task_ms_p50": 0.44850201811641455,
+        "task_ms_p95": 1.92946195602417
+      },
+      "holdout": {
+        "assertion_pass_rates": {
+          "abstention_appropriate": 1.0,
+          "claim_supported": 1.0
+        },
+        "case_count": 16,
+        "scores": {
+          "abstained": 0.3125,
+          "citation_precision": 1.0,
+          "diagnosis_accuracy": 1.0,
+          "false_confident_claim": 0.0,
+          "pit_leakage": 0.0,
+          "tool_count": 0.0,
+          "tool_misuse": 0.0,
+          "unsupported_edge_decay": 0.0
+        },
+        "task_ms_p50": 0.4855630686506629,
+        "task_ms_p95": 1.5171340201050043
+      }
+    }
+  },
+  "schema": "wallet_diagnostic_experiment_v1",
+  "scientifically_qualified": false,
+  "template_overlap_between_splits": true,
+  "trading_authorized": false,
+  "wallet_time_holdout": true
+}

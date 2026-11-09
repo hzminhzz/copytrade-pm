@@ -87,7 +87,7 @@ The baseline discrepancy follows directly from the controlled cases: the sign of
 
 The default run records **zero provider calls, zero model tokens and zero API cost for the baselines**, with actual network attempts zero. Candidate diagnosis accuracy, candidate tokens and candidate cost remain **UNKNOWN**. No synthetic candidate responses are substituted for a real agent run.
 
-The committed result receipt records the exact executable revision, command output and machine-readable run. It also records the initial review failures: unsupported confident answers were undercounted and decimal cancellation depended on ambient precision. Both were reproduced by failing behavioral tests before repair. Two further review regressions prevent fully offsetting fees/funding from becoming profit and prevent an empty inactive wallet from being called active. The final experiment has **26 passing tests**.
+The [committed result receipt](RESULTS-20261109.md) records the exact executable revision, command output and [machine-readable run](results-20261109.json). It also records the initial review failures: unsupported confident answers were undercounted and decimal cancellation depended on ambient precision. Both were reproduced by failing behavioral tests before repair. Two further review regressions prevent fully offsetting fees/funding from becoming profit and prevent an empty inactive wallet from being called active. The final experiment has **26 passing tests**.
 
 ## Supplying genuine captured model evidence later
 
