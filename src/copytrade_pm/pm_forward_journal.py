@@ -458,7 +458,13 @@ class PaperJournal:
                 costs,
                 decision_at=decision_at,
                 hypothetical_fill_at=event["hypothetical_fill_at"],
-                permitted=decision["approved_new_risk"],
+                permitted=decision["approved_new_risk"]
+                or (
+                    account._risk_semantics_version >= 3
+                    and account.risk == RiskState.HALT
+                    and not account.breached
+                    and set(decision["reason_codes"]) == {"PERSISTENT_HALT"}
+                ),
             )
             return {
                 "risk": decision["state"],
@@ -528,11 +534,11 @@ class PaperJournal:
                 raise ValueError("CONFLICTING_PAPER_EVENT")
             return False
         if (
-            type(event.get("risk_semantics_version", 2)) is not int
-            or event.get("risk_semantics_version", 2) != 2
+            type(event.get("risk_semantics_version", 3)) is not int
+            or event.get("risk_semantics_version", 3) != 3
         ):
             raise ValueError("LEGACY_RISK_SEMANTICS_READ_ONLY")
-        event = {**event, "risk_semantics_version": 2}
+        event = {**event, "risk_semantics_version": 3}
         input_sha = digest(event)
         row = db.execute(
             "SELECT manifest,snapshot,last_event_at,cursor,snapshot_sha FROM runs WHERE run_id=?",
@@ -612,8 +618,8 @@ class PaperJournal:
         """
         self._validate_event(event_id, event)
         ref = event.get("source_ref")
-        if event.get("risk_semantics_version", 2) != 2:
-            raise ValueError("LEGACY_RISK_SEMANTICS_READ_ONLY")
+        # _append_locked accepts exact historical retries before rejecting
+        # legacy semantics for any new event; do not block old ACK retries here.
         if event.get("kind") not in ("SIMULATED_DECISION", "PM04_SIGNAL") or not isinstance(
             ref, dict
         ):

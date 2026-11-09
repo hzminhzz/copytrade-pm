@@ -112,6 +112,7 @@ def test_busy_selection_cannot_hide_guardian_unavailable_state():
 
 @pytest.mark.parametrize("break_count", [4, 8])
 def test_downsampling_retains_local_extrema_or_explicitly_refuses(break_count):
+    pytest.importorskip("polars", reason="dashboard chart optional extra")
     from copytrade_pm.dashboard.chart_data import prepare_series
 
     points = []

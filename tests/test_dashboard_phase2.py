@@ -240,6 +240,7 @@ def test_research_missing_cache_and_bounded_filters():
 
 
 def test_chart_preserves_gaps_utc_reset_and_actual_extrema():
+    pytest.importorskip("polars", reason="dashboard chart optional extra")
     from copytrade_pm.dashboard.chart_data import prepare_series
 
     base = datetime(2026, 11, 1, tzinfo=UTC)
@@ -266,6 +267,7 @@ def test_chart_preserves_gaps_utc_reset_and_actual_extrema():
 
 
 def test_chart_rejects_contradictory_evidence_and_unbounded_data():
+    pytest.importorskip("polars", reason="dashboard chart optional extra")
     from copytrade_pm.dashboard.chart_data import prepare_series
 
     base = dict(

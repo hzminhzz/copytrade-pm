@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 import subprocess
 
-from test_obscura_cdp import fake_cdp  # noqa: F401
+import pytest
 
 
 def executable(path, text):
@@ -39,19 +39,20 @@ def test_live_grafana_with_dead_publisher_reports_degraded_without_restart(tmp_p
     assert "UNAUTHORIZED_RESTART" not in result.stdout
 
 
-def test_cf08_stale_publisher_ack_and_target_disconnect_remain_independent(tmp_path, request):
-    socket = request.getfixturevalue("fake_cdp")
+def test_cf08_stale_publisher_ack_and_target_disconnect_remain_independent(tmp_path, monkeypatch):
+    pytest.importorskip("websockets", reason="required all-extras CF08 gate")
+    pytest.importorskip("httpx", reason="required all-extras CF08 gate")
     from copy import deepcopy
     from datetime import timedelta
     import json
-    import pytest
     from copytrade_pm.dashboard import evidence_plane as ep
     from copytrade_pm.dashboard.grafana_health import assess
     from copytrade_pm.dashboard.notifications import acknowledge, process_once, dashboard_status
     from test_dashboard_final_audit import owner
     from test_grafana_projection import produce, T0
-    from test_obscura_cdp import Browser
+    from test_obscura_cdp import Browser, configure_fake_cdp
 
+    socket = configure_fake_cdp(monkeypatch)
     evidence = tmp_path / "evidence"
     produce(evidence)
     observed = owner(at=T0)
@@ -94,8 +95,9 @@ def test_cf08_stale_publisher_ack_and_target_disconnect_remain_independent(tmp_p
 def test_fresh_synthetic_fixture_cannot_pass_authentic_health(tmp_path):
     from copytrade_pm.dashboard.grafana_health import assess, COMPONENTS
     from copytrade_pm.dashboard import evidence_plane as ep
-    from test_grafana_projection import T0
+    from datetime import UTC, datetime
 
+    T0 = datetime(2026, 11, 7, 12, 0, tzinfo=UTC)
     ep.publish_atomic(
         tmp_path,
         ep.encode_generation(ep.fixture_projection(now=T0), now=T0),

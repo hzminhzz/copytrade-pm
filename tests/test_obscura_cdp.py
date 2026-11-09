@@ -11,6 +11,8 @@ import sys
 
 import pytest
 
+pytest.importorskip("websockets", reason="source optional extra for CDP tests")
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ops" / "lib"))
 from obscura_cdp import Browser  # noqa: E402
 
@@ -54,8 +56,7 @@ class FakeWebSocket:
         self.closed = True
 
 
-@pytest.fixture
-def fake_cdp(monkeypatch):
+def configure_fake_cdp(monkeypatch):
     ws = FakeWebSocket()
 
     def version(_url: str, *, timeout: float):
@@ -72,6 +73,11 @@ def fake_cdp(monkeypatch):
     monkeypatch.setattr("urllib.request.urlopen", version)
     monkeypatch.setattr("websockets.connect", connect)
     return ws
+
+
+@pytest.fixture
+def fake_cdp(monkeypatch):
+    return configure_fake_cdp(monkeypatch)
 
 
 def test_close_destroys_target_once_using_browser_level_cdp(fake_cdp):

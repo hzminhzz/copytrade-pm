@@ -209,22 +209,22 @@ class Account:
     pm04_state: dict[str, Any] = field(default_factory=dict)
 
     # Replay policy is event-local, never part of historical financial snapshots.
-    _risk_semantics_version: int = field(default=2, repr=False, compare=False)
+    _risk_semantics_version: int = field(default=3, repr=False, compare=False)
 
     def _prepare_risk_semantics(self, version: int) -> None:
-        if type(version) is not int or version not in (1, 2):
+        if type(version) is not int or version not in (1, 2, 3):
             raise ValueError("UNSUPPORTED_RISK_SEMANTICS")
         self._risk_semantics_version = version
         # A historical diagnostic may have overwritten the enum while retaining
         # its halt reason. New events must not inherit that unsafe permission.
-        if version == 2 and (self.halt_reason is not None or self.breached):
+        if version >= 2 and (self.halt_reason is not None or self.breached):
             self.risk = RiskState.HALT
 
     def block_readiness(self, reasons: tuple[str, ...] | list[str] | None = None) -> None:
         """Record operational failure without clearing the financial restriction.
 
         Version 1 is used only while verifying immutable archived event hashes.
-        Newly admitted events always use version 2.
+        Newly admitted events use version 3; versions 1/2 remain replayable.
         """
         if self._risk_semantics_version == 1 or self.risk != RiskState.HALT:
             self.risk = RiskState.RED

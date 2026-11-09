@@ -314,11 +314,11 @@ class ShadowRun:
         if clock(event.decision_at) < clock(self.last_event_time):
             raise ValueError("OUT_OF_ORDER_EVENT")
         if (
-            type(event.payload.get("risk_semantics_version", 2)) is not int
-            or event.payload.get("risk_semantics_version", 2) != 2
+            type(event.payload.get("risk_semantics_version", 3)) is not int
+            or event.payload.get("risk_semantics_version", 3) != 3
         ):
             raise ValueError("LEGACY_RISK_SEMANTICS_READ_ONLY")
-        event = replace(event, payload={**event.payload, "risk_semantics_version": 2})
+        event = replace(event, payload={**event.payload, "risk_semantics_version": 3})
         if event.kind.startswith("PM04_PAPER_"):
             if (
                 type(event.payload.get("paper_semantics_version", 2)) is not int

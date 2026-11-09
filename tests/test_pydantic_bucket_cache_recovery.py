@@ -26,7 +26,19 @@ def test_cf07_late_seal_crash_and_corrupt_cache(tmp_path, monkeypatch, after_man
     )
     sealed = journal.persist_observed_utc_bucket(original)
     content = json.dumps(original, sort_keys=True).encode()
-    deps = {"bucket": sha256(content).hexdigest()}
+    from test_pydantic_acquisition_generations import hyperx_provider
+    from copytrade_pm.pm_hyperx_overlay_audit import _read_pages
+
+    capture, source_root, raw = hyperx_provider(tmp_path, monkeypatch)
+    first, second = tmp_path / "generation_first", tmp_path / "generation_second"
+    accepted = capture.recover(source_root, first, aliases=("W001",))
+    replacement = capture.recover(source_root, second, aliases=("W001",))
+    assert accepted["generation_id"] != replacement["generation_id"]
+    deps = {
+        "bucket": sha256(content).hexdigest(),
+        "acquisition_generation": sha256(accepted["generation_id"].encode()).hexdigest(),
+        "raw_page": sha256(raw).hexdigest(),
+    }
     cache = ImmutableCache(tmp_path / "cache", min_free_bytes=0)
     publish = cache_module._publish_exclusive
 
@@ -47,6 +59,15 @@ def test_cf07_late_seal_crash_and_corrupt_cache(tmp_path, monkeypatch, after_man
     assert worker.exitcode == 74
     cache = ImmutableCache(tmp_path / "cache", min_free_bytes=0)
     assert cache.load("utc_bucket", deps, version="1") == (content if after_manifest else None)
+
+    # Swap an otherwise complete page pair while recovery is incomplete.
+    # The foreign generation cannot supply a replacement dependency or clock.
+    for path in (first / "W001" / "BTC").iterdir():
+        (second / "W001" / "BTC" / path.name).write_bytes(path.read_bytes())
+    with pytest.raises(ValueError, match="GENERATION_IDENTITY"):
+        _read_pages(second / "W001" / "BTC", "W001", "BTC")
+    assert _read_pages(first / "W001" / "BTC", "W001", "BTC")[0]["fills"]
+    assert accepted["historical_first_known"] is False
 
     class LateDateTime(datetime):
         @classmethod
