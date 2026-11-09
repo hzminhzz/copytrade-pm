@@ -177,3 +177,51 @@ invalidation; this slice does not claim those additional obligations complete.
 Rollback: retain the corrected version-2 observer for future source classification;
 an old writer would reintroduce formatting-only transitions. Immutable prior
 receipts remain readable. No deployment, forward lifecycle or alpha is claimed.
+
+## PYDN-04 / #217 — durable targeted continuity
+
+PersistentAccount now owns durable malformed-frame quarantine before returning a
+safe typed rejection. It preserves prior source positions, original supplied
+first-known clocks, original wire SHA and bounded original wire evidence. Rejected
+payload retention is capped at 64 KiB per frame and 16 consecutive rejected frames;
+larger inputs retain their original SHA and an explicit hash-only status. Further
+bad frames cannot cycle reconnects or add unbounded payloads. A valid complete
+recovery is a baseline, never a retroactive transition.
+
+The raw wire must match the parsed frame and claimed SHA; duplicate JSON keys
+fail closed. Same-clock position conflicts are checked per DEX. A shared transport
+with ambiguous identity fences every subscribed identity; identifiable bad frames
+fence only their account. Invalid local receipt clocks are diagnosed separately
+and use the actual quarantine receipt time, never a backdated admission clock.
+
+Account scope generations remain separate from observer metadata. An explicit
+native contract change fences that account. Empty unrelated DEX additions and
+metadata-only refreshes retain continuous account evidence; a newly discovered
+DEX with exposure is a baseline under a new scope generation. Subscription identity
+changes still create a real shared transport gap. Optional public-trade/fill
+reconciliation cannot heal an official gap or fabricate a complete position book.
+
+Public-interface evidence in tests/test_pydantic_continuity.py:
+- CF01 malformed pending entry at T+180, restart and same-position reconnect after
+  due: old intent stays canceled with original T0 and no modeled entry.
+- Held follower inventory plus independent financial HALT survives a malformed
+  official frame, stale quote and finance restart.
+- A scope change affects its dependent P14 pod; P16 and independently valid S035
+  opportunities continue. Full source/market subscriptions are simulated.
+- Original wire/hash, duplicate JSON, bounded rejection flood, per-DEX clock
+  conflict, optional public-trade GAP isolation and shared ambiguous identity.
+- Repeated observer metadata changes retain one account epoch/baseline and the
+  existing socket count; all transports close cleanly.
+
+Verification: focused new continuity suite 12 passed. Full all-extras suite:
+1662 passed, 1 skipped (30.67 s). Ruff, format check (380 files), package wheel
+and sdist build, and diff check passed. Initial new harness failures were missing
+existing run/rulebook metadata and a deliberately inconsistent fake clock; the
+harness was corrected to exercise the actual public contracts. The old assertion
+that malformed frames leave the entire checkpoint unchanged was replaced by the
+approved preserve-positions-and-persist-GAP invariant.
+
+Actual diff reviewed for journal atomicity, caller coverage, source fanout and
+financial isolation. No second event store or inventory authority was introduced.
+Rollback must preserve committed GAP/SCOPE/BASELINE history and corrected source
+semantics; never reconnect by resurrecting the old pending T0. No deployment.

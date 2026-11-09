@@ -162,8 +162,10 @@ class PersistentAccount:
         self.journal, self.alias, self.address = journal, alias, address.lower()
         self.dex_catalog, self.subaccounts = dex_catalog, subaccounts
         self.parent_alias, self.scope_sha = parent_alias, scope_sha
-        self.account_scope_sha = digest(["selected_perp_scope_v2", self.address])
         self.progress = StreamProgress(journal, "account:" + alias)
+        self.account_scope_sha = self.progress.checkpoint.get(
+            "account_scope_sha", digest(["selected_perp_scope_v2", self.address])
+        )
         self.epoch = None
 
     @property
@@ -213,7 +215,18 @@ class PersistentAccount:
             )
         )
 
-    def gap(self, known_at: str, reason: str) -> dict:
+    def gap(self, known_at: str, reason: str, *, frame=None, raw_sha=None, raw_text=None) -> dict:
+        if frame is not None or raw_text is not None:
+            from .pm_source_contracts import SourceObservationRejected
+
+            self._quarantine(
+                frame,
+                known_at,
+                raw_sha,
+                raw_text,
+                SourceObservationRejected(reason),
+            )
+            return {"status": "SOURCE_QUARANTINED", "order_route": "NONE"}
         state = {
             **self.checkpoint,
             "baseline_valid": False,
@@ -230,11 +243,109 @@ class PersistentAccount:
             )
         )
 
-    def observe(
-        self, frame: dict, known_at: str, *, raw_sha: str | None = None, raw_text: str | None = None
-    ) -> dict:
-        if self.epoch is None:
-            raise ValueError("SOURCE_EPOCH_NOT_STARTED")
+    def reconfigure(
+        self,
+        *,
+        dex_catalog: object,
+        observer_generation: str,
+        known_at: str,
+        contract_generation: str | None = None,
+    ) -> None:
+        """Metadata refresh does not itself reset an unchanged account.
+
+        An explicitly changed native contract fences this account only. Census
+        additions with positions are detected by the pure reducer on the first
+        complete replacement; empty unrelated DEX additions remain unchanged.
+        """
+        from .pm_e4_prospective import _dex_universe
+
+        _dex_universe(dex_catalog)
+        if contract_generation is not None:
+            if re.fullmatch(r"[0-9a-f]{64}", contract_generation) is None:
+                raise ValueError("SOURCE_SCOPE_GENERATION_INVALID")
+            if contract_generation != self.account_scope_sha:
+                state = {
+                    **self.checkpoint,
+                    "baseline_valid": False,
+                    "transport": "DEGRADED",
+                    "gap_reason": "SELECTED_ACCOUNT_SCOPE_CHANGED",
+                    "account_scope_sha": contract_generation,
+                }
+                self.progress.commit(
+                    self.progress.propose(
+                        epoch=self.epoch,
+                        kind="SCOPE",
+                        known_at=known_at,
+                        checkpoint=state,
+                        details={"reason": "SELECTED_ACCOUNT_SCOPE_CHANGED"},
+                    )
+                )
+                self.account_scope_sha = contract_generation
+        self.dex_catalog, self.scope_sha = dex_catalog, observer_generation
+
+    def _quarantine(self, frame, known_at, raw_sha, raw_text, rejected) -> None:
+        state = self.checkpoint
+        count = state.get("consecutive_rejections", 0)
+        if count >= 16:
+            # The durable fence already exists. Bound a hostile frame flood;
+            # no repeated reconnect or unbounded rejected payload writes.
+            return
+        from .pm_source_contracts import utc_clock
+
+        try:
+            stamp = utc_clock(known_at)
+            previous = self.progress.head["event"]
+            if stamp > datetime.now(UTC) or (
+                previous and stamp < clock(previous["first_known_at"])
+            ):
+                raise ValueError("SOURCE_INVALID_LOCAL_CLOCK")
+            gap_at = known_at
+        except TypeError, ValueError:
+            gap_at = datetime.now(UTC).isoformat(timespec="microseconds")
+        diagnostic = json.dumps(frame, sort_keys=True, default=lambda _: "<non-json-value>")
+        wire = raw_text if isinstance(raw_text, str) else None
+        fingerprint = (
+            sha256(wire.encode()).hexdigest()
+            if wire is not None
+            else raw_sha
+            if isinstance(raw_sha, str) and re.fullmatch(r"[0-9a-f]{64}", raw_sha)
+            else digest(diagnostic)
+        )
+        details = {
+            "reason": rejected.availability.reason,
+            "availability": rejected.availability.model_dump(mode="json"),
+            "provided_first_known_at": known_at if isinstance(known_at, str) else None,
+            "claimed_raw_sha": raw_sha if isinstance(raw_sha, str) and len(raw_sha) == 64 else None,
+            "native_wire": wire if wire is not None and len(wire.encode()) <= 65536 else None,
+            "diagnostic_frame_json": diagnostic[:65536] if wire is None else None,
+            "raw_evidence_status": (
+                "ORIGINAL_WIRE"
+                if wire is not None and len(wire.encode()) <= 65536
+                else "HASH_ONLY_OVERSIZED_QUARANTINE"
+                if wire is not None
+                else "DERIVED_DIAGNOSTIC"
+            ),
+        }
+        state = {
+            **state,
+            "baseline_valid": False,
+            "transport": "QUARANTINED",
+            "gap_reason": rejected.availability.reason,
+            "consecutive_rejections": count + 1,
+            "quarantine_budget_exhausted": count + 1 >= 16,
+        }
+        self.progress.commit(
+            self.progress.propose(
+                epoch=self.epoch,
+                kind="GAP",
+                known_at=gap_at,
+                checkpoint=state,
+                raw_sha=fingerprint,
+                details=details,
+            )
+        )
+
+    def _validated_observation(self, frame, known_at, raw_sha):
         body = frame.get("data") if isinstance(frame, dict) else None
         if (
             not isinstance(body, dict)
@@ -255,7 +366,6 @@ class PersistentAccount:
             )
         except (ArithmeticError, KeyError, TypeError) as exc:
             raise ValueError("SOURCE_NATIVE_CRITICAL_INVALID") from exc
-        book = receipt["source_book"]
         prior = self.checkpoint
         canonical = canonical_source_book(
             frame=frame,
@@ -263,7 +373,6 @@ class PersistentAccount:
             raw_sha=raw_sha or digest(frame),
             scope_generation=self.account_scope_sha,
         )
-        clocks = {item.dex: item.milliseconds for item in canonical.clocks}
         semantic_sha = digest({key: value for key, value in body.items() if key != "isSnapshot"})
         decision = decide_source_transition(
             canonical,
@@ -271,6 +380,48 @@ class PersistentAccount:
             snapshot=body.get("isSnapshot", False) or frame.get("isSnapshot", False),
             frame_semantic_sha=semantic_sha,
         )
+        return receipt, canonical, decision, semantic_sha
+
+    def observe(
+        self, frame: dict, known_at: str, *, raw_sha: str | None = None, raw_text: str | None = None
+    ) -> dict:
+        if self.epoch is None:
+            raise ValueError("SOURCE_EPOCH_NOT_STARTED")
+        from .pm_source_contracts import source_rejection, utc_clock
+
+        try:
+            if utc_clock(known_at) > datetime.now(UTC):
+                raise ValueError("SOURCE_RECEIPT_IN_FUTURE")
+            if raw_text is not None:
+                if not isinstance(raw_text, str):
+                    raise ValueError("SOURCE_NATIVE_WIRE_INVALID")
+
+                def unique_fields(pairs):
+                    result = {}
+                    for key, value in pairs:
+                        if key in result:
+                            raise ValueError("SOURCE_DUPLICATE_JSON_FIELD")
+                        result[key] = value
+                    return result
+
+                if digest(json.loads(raw_text, object_pairs_hook=unique_fields)) != digest(frame):
+                    raise ValueError("SOURCE_NATIVE_WIRE_FRAME_MISMATCH")
+                actual_sha = sha256(raw_text.encode()).hexdigest()
+                if raw_sha is not None and raw_sha != actual_sha:
+                    raise ValueError("SOURCE_NATIVE_WIRE_SHA_MISMATCH")
+                raw_sha = actual_sha
+            receipt, canonical, decision, semantic_sha = self._validated_observation(
+                frame,
+                known_at,
+                raw_sha,
+            )
+        except (ValueError, TypeError, KeyError, ArithmeticError) as exc:
+            rejected = source_rejection(exc)
+            self._quarantine(frame, known_at, raw_sha, raw_text, rejected)
+            raise rejected from None
+        canonical = decision.next_book
+        prior, book = self.checkpoint, receipt["source_book"]
+        clocks = {item.dex: item.milliseconds for item in canonical.clocks}
         classification = decision.observation.kind
         if classification == "DUPLICATE":
             return {
@@ -311,8 +462,11 @@ class PersistentAccount:
             "semantic_sha": semantic_sha,
             "source_semantics_version": 2,
             "economic_sha": canonical.economic_sha,
-            "account_scope_sha": self.account_scope_sha,
+            "account_scope_sha": canonical.scope.generation,
             "observer_generation": self.scope_sha,
+            "scope_changed": decision.observation.scope_changed,
+            "consecutive_rejections": 0,
+            "quarantine_budget_exhausted": False,
             "position_margin_diagnostics": book["position_margin_diagnostics"],
             "discovered_subaccounts": book["subaccounts"],
             "source_equity": None,
@@ -344,6 +498,7 @@ class PersistentAccount:
                 stream_event=progress,
             ),
         )
+        self.account_scope_sha = canonical.scope.generation
         return {
             **result,
             "classification": classification,
