@@ -1,0 +1,50 @@
+{
+  "baseline_commit": "175d54dec4fcda88ccf6bea885d172646aa63e4e",
+  "runs": [
+    [
+      "run_1",
+      "acct_1",
+      "{\"account_id\":\"acct_1\",\"evidence_class\":\"FORWARD_PAPER_SIMULATED_v1\",\"market_manifest_sha\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"order_route\":\"NONE\",\"policy_sha\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"portfolio_sha\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"release_sha\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"rulebook\":{\"account_terms_confirmed\":false,\"confirmed\":true,\"daily_loss\":null,\"daily_loss_rate\":\"0.03\",\"effective_at\":\"2026-07-27T00:00:00+00:00\",\"initial_balance\":\"10000\",\"max_gross_leverage\":null,\"observed_at\":\"2026-11-04T04:00:00+00:00\",\"permitted\":[\"hyperliquid/mainnet:perp:default/BTC\"],\"profit_target\":\"1000.00\",\"program\":\"classic_1step\",\"snapshot_sha\":\"fc650d40ec50ffd834167eaaffc412c4d56491bac081236886843c9931361fe1\",\"source\":\"https://www.propr.xyz/rules\",\"stage\":\"evaluation\",\"static_loss\":\"600.00\",\"timezone\":\"UTC\",\"trailing_cap\":null,\"trailing_loss\":null,\"version\":\"propr-public-v1.0.5-2026-07-27\"},\"run_id\":\"run_1\",\"schema\":\"paper_run_manifest_v1\",\"selected_at\":\"2026-11-04T04:00:00+00:00\",\"started_at\":\"2026-11-04T04:00:00+00:00\"}",
+      "c97ec1fd23f575f3debb615ee53e39fd14cea8e169491ecd02addb652eea6e70",
+      "{\"balance\":\"9999.97999320\",\"breached\":false,\"cash\":\"9899.94599320\",\"costs\":\"0.02000680\",\"daily_key\":\"2026-11-04\",\"daily_start_balance\":\"10000\",\"entries\":{\"hyperliquid/mainnet:perp:default/BTC\":\"100.03400000\"},\"equity\":\"9999.94599320\",\"funding\":\"0\",\"halt_reason\":\"OWNER_HALT\",\"high_water\":\"10000\",\"last_mark_at\":\"2026-11-04T04:00:00+00:00\",\"marks\":{\"hyperliquid/mainnet:perp:default/BTC\":\"100\"},\"pm_cash\":{\"PM_A\":\"-100.05400680\"},\"pm_costs\":{\"PM_A\":\"0.02000680\"},\"pm_funding\":{},\"pm_quantities\":{\"PM_A\":{\"hyperliquid/mainnet:perp:default/BTC\":\"1\"}},\"quantities\":{\"hyperliquid/mainnet:perp:default/BTC\":\"1\"},\"realized_pnl\":\"0\",\"revision\":1,\"risk\":\"RED\",\"risk_reasons\":[\"UNOBSERVED_FUNDING_INTERVAL\"],\"rulebook_sha\":\"74ad4401cbfa94b4b1f9a5bf22da1cfaf47ae88c5bfeeed96dfd23b52ab745f9\",\"schema\":\"pm03_account_v2\",\"stage_passed\":false}",
+      "095f598c0fdbf3b66cd3e06b953aafea3954fe1c1fc4997557d27bbae987e528",
+      "2026-11-04T04:05:00+00:00",
+      3
+    ]
+  ],
+  "events": [
+    [
+      "run_1",
+      1,
+      "fill",
+      "2026-11-04T04:00:00+00:00",
+      "{\"costs\":{\"fee_bps\":\"2\",\"full_spread_bps\":\"4\",\"impact_bps_at_full_participation\":\"4\",\"latency_seconds\":1,\"max_age_seconds\":300,\"max_participation\":\"0.1\",\"slippage_bps\":\"1\"},\"event_at\":\"2026-11-04T04:00:00+00:00\",\"evidence_class\":\"FORWARD_PAPER_SIMULATED_v1\",\"fixture_attested\":true,\"hypothetical_fill_at\":\"2026-11-04T04:00:02+00:00\",\"kind\":\"SIMULATED_DECISION\",\"market_contracts\":{\"hyperliquid/mainnet:perp:default/BTC\":{\"contract_sha\":\"3632ef142ff5b56be35ee73b98f64f07979e93e2b034a697b58d8da47dbcbcd0\",\"costs_sha\":\"ed0a72a607eaeb67a074d1f01dace70feb1fd51c9760d68f9f30838de34ea65c\",\"first_known_at\":\"2026-11-04T04:00:00+00:00\",\"instrument\":\"hyperliquid/mainnet:perp:default/BTC\",\"market_permitted\":true,\"minimum_quantity\":\"0.01\",\"quality\":\"SYNTHETIC\",\"quantity_step\":\"0.01\",\"schema\":\"paper_market_contract_v1\",\"session_open\":true}},\"observations\":[{\"first_known_at\":\"2026-11-04T04:00:00+00:00\",\"instrument\":\"hyperliquid/mainnet:perp:default/BTC\",\"mark\":\"100\",\"quality\":\"SYNTHETIC\",\"source_at\":\"2026-11-04T04:00:00+00:00\",\"supported\":true,\"volume_base\":\"100\"}],\"order_route\":\"NONE\",\"proposed\":{\"PM_A\":{\"hyperliquid/mainnet:perp:default/BTC\":\"1\"}},\"shocks\":[{\"hyperliquid/mainnet:perp:default/BTC\":\"-0.1\"}],\"source_book\":{\"account_id\":\"fixture_account\",\"account_scope_complete\":true,\"collateral_denominator\":\"account_equity\",\"collateral_value\":\"10000\",\"dex_census\":[\"mainnet:perp:default\"],\"first_known_at\":\"2026-11-04T04:00:00+00:00\",\"hedges_complete\":true,\"margin_mode\":\"CROSS\",\"observed_dexes\":[\"mainnet:perp:default\"],\"observed_subaccounts\":[],\"positions\":{\"hyperliquid/mainnet:perp:default/BTC\":\"2\"},\"schema\":\"paper_source_book_v1\",\"snapshot_kind\":\"ATOMIC_WHOLE_ACCOUNT\",\"snapshot_sha\":\"2c6eee3df3117efa36c92c9bf27d6d62988ccad505f4a44c6a8e04f477fb9e53\",\"source_equity\":\"20000\",\"source_event_at\":\"2026-11-04T04:00:00+00:00\",\"source_marks\":{\"hyperliquid/mainnet:perp:default/BTC\":\"100\"},\"spot_scope_known\":true,\"subaccounts\":[],\"synthetic_fixture\":true,\"vault_scope_known\":true,\"wallet_id\":\"fixture_wallet\"}}",
+      "ac926fc3b0633bbcd2552afe90bb901f78874d80f7e94117c47433445cea015f",
+      "3e6f10fa5b8df3264e32f11796f11c629d299e8dfc2c8bc8e54a7e99e3bb3b87",
+      "4953367f300d5093f271c69f230eb5b62bf7b384500ebdc430f654e0267eed4f",
+      "5510f542f74517022d4583db7a96986bdc720e0f5f60a838aed0c8aac29fa79d"
+    ],
+    [
+      "run_1",
+      2,
+      "halt",
+      "2026-11-04T04:02:00+00:00",
+      "{\"event_at\":\"2026-11-04T04:02:00+00:00\",\"kind\":\"HALT\",\"reason\":\"OWNER_HALT\"}",
+      "fde464793276181867ce9dc71d7c7bd1368a6f10c0947abdd9798432ee2406e0",
+      "4953367f300d5093f271c69f230eb5b62bf7b384500ebdc430f654e0267eed4f",
+      "89e1b169c7b389d36fce5bb30f60d925de40a4c7e1cf9d7d9ec8bf0409698e26",
+      "d53525c72d362014ef00c9a79e087dbe58774ee87702280d4a122440e70fb3ef"
+    ],
+    [
+      "run_1",
+      3,
+      "diagnostic",
+      "2026-11-04T04:05:00+00:00",
+      "{\"event_at\":\"2026-11-04T04:05:00+00:00\",\"kind\":\"FUNDING_UNKNOWN\"}",
+      "e1c3740f1d54e71d57a1d8c9c1bba6788a657f54691727bcefca945021788d4c",
+      "89e1b169c7b389d36fce5bb30f60d925de40a4c7e1cf9d7d9ec8bf0409698e26",
+      "095f598c0fdbf3b66cd3e06b953aafea3954fe1c1fc4997557d27bbae987e528",
+      "f7ba74029a60b2c06afd6bd6c8b49d6d9c12137fe41376794a6f7044c52c5522"
+    ]
+  ]
+}

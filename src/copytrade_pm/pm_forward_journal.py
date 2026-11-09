@@ -248,6 +248,7 @@ class PaperJournal:
 
     @staticmethod
     def _apply(account: Account, event: dict) -> dict:
+        account._prepare_risk_semantics(event.get("risk_semantics_version", 1))
         kind = event.get("kind")
         if kind == "HALT":
             account.risk = RiskState.HALT
@@ -267,8 +268,7 @@ class PaperJournal:
             account.verify()
             return {"status": "MARKED"}
         if kind == "FUNDING_UNKNOWN":
-            account.risk = RiskState.RED
-            account.risk_reasons = ("UNOBSERVED_FUNDING_INTERVAL",)
+            account.block_readiness(("UNOBSERVED_FUNDING_INTERVAL",))
             return {"status": "UNKNOWN_FUNDING", "cash_effect_assumed": False}
         if kind == "FUNDING":
             from .pm03_account import Instrument
@@ -302,8 +302,7 @@ class PaperJournal:
                 account, event.get("margin_contract"), as_of=event["event_at"]
             )
             if margin["status"] == "UNKNOWN_LIQUIDATION":
-                account.risk = RiskState.RED
-                account.risk_reasons = tuple(margin["reasons"])
+                account.block_readiness(margin["reasons"])
             elif margin["status"] == "MARGIN_BREACH_HALT":
                 account.risk = RiskState.HALT
                 account.halt_reason = "MODELED_MAINTENANCE_MARGIN_BREACH"
@@ -336,8 +335,7 @@ class PaperJournal:
                 allow_synthetic_fixture=event.get("fixture_attested") is True,
             )
             if not admission.admitted:
-                account.risk = RiskState.RED
-                account.risk_reasons = admission.reason_codes
+                account.block_readiness(admission.reason_codes)
                 return {
                     "status": "BLOCKED_SOURCE",
                     "reason_codes": list(admission.reason_codes),
@@ -385,7 +383,7 @@ class PaperJournal:
                 account.halt_reason = "MISSING_EXISTING_POSITION_MARK"
                 return {"status": "BLOCKED", "reason": account.halt_reason}
             if any(not q.supported or q.volume_base is None for q in obs.values()):
-                account.risk = RiskState.RED
+                account.block_readiness()
                 return {"status": "BLOCKED", "reason": "INCOMPLETE_MARKET"}
             from .pm_forward_market import market_contract_reasons
 
@@ -423,8 +421,7 @@ class PaperJournal:
                     )
                 )
             if market_reasons:
-                account.risk = RiskState.RED
-                account.risk_reasons = tuple(sorted(set(market_reasons)))
+                account.block_readiness(sorted(set(market_reasons)))
                 return {"status": "BLOCKED_MARKET", "reason_codes": list(account.risk_reasons)}
             account.mark({k: q.mark for k, q in obs.items()}, decision_at)
             evidence = RiskEvidence(
@@ -513,15 +510,30 @@ class PaperJournal:
     ) -> bool:
         """Append a PM-03 effect inside the CALLER'S transaction, never commit here."""
         self._verify(db, run_id)
-        input_sha = digest(event)
         old = db.execute(
-            "SELECT input_sha FROM events WHERE run_id=? AND event_id=?",
+            "SELECT input FROM events WHERE run_id=? AND event_id=?",
             (run_id, event_id),
         ).fetchone()
         if old:
-            if old[0] != input_sha:
+            prior = json.loads(old[0])
+            claimed = dict(event)
+            if "risk_semantics_version" in claimed and (
+                type(claimed["risk_semantics_version"]) is not int
+                or claimed["risk_semantics_version"] != prior.get("risk_semantics_version", 1)
+            ):
+                raise ValueError("CONFLICTING_PAPER_EVENT")
+            prior.pop("risk_semantics_version", None)
+            claimed.pop("risk_semantics_version", None)
+            if prior != claimed:
                 raise ValueError("CONFLICTING_PAPER_EVENT")
             return False
+        if (
+            type(event.get("risk_semantics_version", 2)) is not int
+            or event.get("risk_semantics_version", 2) != 2
+        ):
+            raise ValueError("LEGACY_RISK_SEMANTICS_READ_ONLY")
+        event = {**event, "risk_semantics_version": 2}
+        input_sha = digest(event)
         row = db.execute(
             "SELECT manifest,snapshot,last_event_at,cursor,snapshot_sha FROM runs WHERE run_id=?",
             (run_id,),
@@ -600,6 +612,8 @@ class PaperJournal:
         """
         self._validate_event(event_id, event)
         ref = event.get("source_ref")
+        if event.get("risk_semantics_version", 2) != 2:
+            raise ValueError("LEGACY_RISK_SEMANTICS_READ_ONLY")
         if event.get("kind") not in ("SIMULATED_DECISION", "PM04_SIGNAL") or not isinstance(
             ref, dict
         ):

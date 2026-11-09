@@ -7,7 +7,7 @@ recomputes the account from the manifest and ledger, even if a checkpoint exists
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import fields
+from dataclasses import fields, replace
 from decimal import Decimal as D
 from pathlib import Path
 import json
@@ -126,6 +126,7 @@ class ShadowRun:
         self.restore()
 
     def _apply(self, account: Account, event: Event) -> dict:
+        account._prepare_risk_semantics(event.payload.get("risk_semantics_version", 1))
         if event.payload.get("run_id") != self.manifest["run_id"]:
             raise ValueError("CROSS_RUN_EVENT")
         if clock(event.decision_at) < clock(self.manifest["started_at"]):
@@ -288,7 +289,12 @@ class ShadowRun:
             payload = dict(prior.pop("payload"))
             claimed = dict(event.to_dict())
             new_payload = dict(claimed.pop("payload"))
-            for derived in ("post_state_sha", "tool_trace"):
+            if "risk_semantics_version" in new_payload and (
+                type(new_payload["risk_semantics_version"]) is not int
+                or new_payload["risk_semantics_version"] != payload.get("risk_semantics_version", 1)
+            ):
+                raise ValueError("CONFLICTING_EVENT_REVISION")
+            for derived in ("post_state_sha", "tool_trace", "risk_semantics_version"):
                 payload.pop(derived, None)
                 new_payload.pop(derived, None)
             if prior != claimed or payload != new_payload:
@@ -296,6 +302,12 @@ class ShadowRun:
             return self.restore()
         if clock(event.decision_at) < clock(self.last_event_time):
             raise ValueError("OUT_OF_ORDER_EVENT")
+        if (
+            type(event.payload.get("risk_semantics_version", 2)) is not int
+            or event.payload.get("risk_semantics_version", 2) != 2
+        ):
+            raise ValueError("LEGACY_RISK_SEMANTICS_READ_ONLY")
+        event = replace(event, payload={**event.payload, "risk_semantics_version": 2})
         staged = deepcopy(self.account)
         result = self._apply(staged, event)
         payload = dict(event.payload)
