@@ -383,6 +383,13 @@ def _model_fill(
     }
 
 
+def _risk_frozen(account: Account, meta: dict, semantics_version: int) -> bool:
+    legacy = meta["total_frozen"] or meta["frozen_daily_key"] is not None or account.breached
+    return legacy or (
+        semantics_version >= 2 and (meta["status"] == "FROZEN" or account.risk.value == "HALT")
+    )
+
+
 def _run_rebalance(
     account: Account,
     meta: dict,
@@ -390,6 +397,8 @@ def _run_rebalance(
     now: str,
     policy: PaperPolicy,
     hashes: dict[str, str],
+    *,
+    semantics_version: int = 2,
 ) -> dict:
     due = {key: at for key, at in meta["pending"].items() if _utc(now) >= _utc(at)}
     if not due:
@@ -478,7 +487,7 @@ def _run_rebalance(
         for inst, qty in list(book.items()):
             book[inst] = _round_zero(qty, quotes[inst]["lot"])
 
-    frozen = meta["total_frozen"] or meta["frozen_daily_key"] is not None or account.breached
+    frozen = _risk_frozen(account, meta, semantics_version)
     if frozen:
         existing_books = _reduce_book(account, existing_books)
     else:
@@ -574,9 +583,7 @@ def _run_rebalance(
             closing = -prior
             legs.append((closing, pending))
             opening = delta - closing
-            if not (
-                meta["total_frozen"] or meta["frozen_daily_key"] is not None or account.breached
-            ):
+            if not _risk_frozen(account, meta, semantics_version):
                 legs.append((opening, pending))
         else:
             legs.append((delta, pending))
@@ -593,9 +600,7 @@ def _run_rebalance(
                     {"kind": "REJECTED", "instrument": inst.key, "reason": "CONTRACTUAL_BREACH"}
                 )
                 break
-            if (meta["total_frozen"] or meta["frozen_daily_key"] is not None) and (
-                abs(prior + leg) > abs(prior)
-            ):
+            if _risk_frozen(account, meta, semantics_version) and (abs(prior + leg) > abs(prior)):
                 results.append(
                     {
                         "kind": "REJECTED",
@@ -712,6 +717,9 @@ class Combo2PaperTracker:
 
     def _apply(self, account: Account, meta: dict, event: Event) -> dict:
         data = event.payload["input"]
+        version = event.payload.get("combo2_semantics_version", 1)
+        if type(version) is not int or version not in (1, 2):
+            raise ValueError("UNKNOWN_COMBO2_SEMANTICS")
         kind = event.kind
         if kind == "SOURCE_RECEIPT":
             manager, inst_key = data["manager"], data["instrument"]
@@ -736,6 +744,7 @@ class Combo2PaperTracker:
                 event.decision_at,
                 self.policy,
                 self.manifest["source_subject_hashes"],
+                semantics_version=version,
             )
         if kind == "PAPER_MARK":
             rows = data.get("markets")
@@ -812,7 +821,11 @@ class Combo2PaperTracker:
         live_head = old_rows[-1]["sha"] if old_rows else "0" * 64
         if live_head != self.head:
             raise ValueError("STALE_PAPER_WRITER_RESTORE_FIRST")
-        payload = {"input": data, "manifest_sha": digest(self.manifest)}
+        payload = {
+            "input": data,
+            "manifest_sha": digest(self.manifest),
+            "combo2_semantics_version": 2,
+        }
         proposal = Event(
             event_id=event_id,
             kind=kind,
@@ -829,9 +842,11 @@ class Combo2PaperTracker:
         for row in old_rows:
             previous = dict(row["event"])
             if previous["event_id"] == event_id:
-                for k in ("post_state_sha",):
+                for k in ("post_state_sha", "combo2_semantics_version"):
                     previous["payload"].pop(k, None)
-                if previous != proposal.to_dict():
+                candidate = proposal.to_dict()
+                candidate["payload"].pop("combo2_semantics_version", None)
+                if previous != candidate:
                     raise ValueError("PAPER_DUPLICATE_EVENT_CONFLICT")
                 return self.state()
         staged_account, staged_meta = deepcopy(self.account), deepcopy(self.meta)

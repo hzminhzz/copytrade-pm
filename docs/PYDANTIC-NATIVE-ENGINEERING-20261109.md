@@ -553,3 +553,50 @@ Direct diff review covered no-restart behavior for a running degraded stack,
 legacy notification files and bounded browser cleanup. Rollback preserves
 notification history; do not infer prior delivery success from an old ACK.
 No service, finance, roster, protected Guardian state or authorization changed.
+
+## #226 — retained lifecycle reachability and two admission repairs
+
+All four families remain available. Source call graphs, console scripts, installed
+unit ExecStart paths, release locations and historical readers were inspected.
+Private runtime inventory remains on the VPS; no installed service was removed.
+
+| Family | Disposition | Reachability and verified behavior |
+| --- | --- | --- |
+| 08 CCXT | EXPLICIT-AND-VERIFIED | Active quote-feed service and current observed-paper market adapter use it. Continuous/public-trade collectors and PaperJournal also consume it. Reconnect requires baseline, stale/crossed/spoofed books reject, retrospective initial trade caches never become prospective position authority. |
+| 19 Combo2 | FIXED | Public combo2-paper CLI and verified-paper archive projector remain consumers. FROZEN now blocks all new risk/reversal opening legs after restart; existing valid reductions remain governed by account/quote checks. |
+| 20 ForwardBatch | FIXED | No production caller beyond its module was found in source/scripts/ops, but its public planner and historic test contract are retained. Rejected source admission revokes DUE, clears the pending clock and requires a recovery baseline. |
+| 27 PM-02 | EXPLICIT-AND-VERIFIED | Public rank CLI, campaign utilities, audit and prospective journal readers remain consumers. Historical profit or unqualified evidence produces zero qualified managers, empty seats and no trading authorization. This is the NO_TRADE outcome; no new status field or qualification threshold was invented. |
+
+The initial regression run reproduced four failures. ForwardBatch could dispatch
+a stale pending source after rejection and assign a fresh T0 to the recovery
+snapshot. Recovery now leaves no due time; unchanged snapshots stay baseline
+only. A subsequent actual position transition gets its own exact T+300 deadline.
+Backdated rejected input also fails before mutating the planner.
+
+Combo2 could display FROZEN after a stress rejection but later acquire exposure.
+New journal events now carry combo2_semantics_version=2. One admission predicate
+applies the frozen state and financial HALT to the existing sizing/reversal/leg
+checks. No stress threshold, financial policy or automatic unfreeze was added.
+Absent version means exact v1 replay; unknown versions reject. Exact duplicate
+legacy commands remain valid without rewriting old events.
+
+A private prechange four-event Combo2 archive was captured before editing.
+Its original bytes, ledger head and post-state digest replay unchanged; new
+appends use v2 and cannot add risk while frozen. The archive remains local and
+its test is a required VPS acceptance gate; other checkouts explicitly skip that
+one witness if absent. Public tests create their own synthetic events.
+
+CF11 combines frozen/flat routed-target cleanup, an expired quote rejected
+atomically and a rejected-source DUE planner. No new entry occurs; a proven flat
+target can clear without inventing a quote or clearing HALT. CF06 is also included
+in the final cross-family acceptance suite, beyond the retained CCXT/PM02 gates.
+
+Verification: initial 4 failed/1 passed; final lifecycle/Combo2/public-trade/batch
+subset 49 passed, retained CCXT/PM02 subset 58 passed. Full suite 1746 passed,
+1 skipped (35.48 s). Ruff check, format (546 files), wheel/sdist build and diff
+checks passed. Direct diff review covered old-event semantics, duplicate command
+comparison, frozen reversal legs, monotonic clocks and source-gap rebaselining.
+
+Rollback must retain a reader for Combo2 v2 after any new events are written;
+do not truncate journals. No current installed release changed. No path was
+declared retired based solely on absence of imports.
