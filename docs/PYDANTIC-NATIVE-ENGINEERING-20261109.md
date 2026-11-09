@@ -600,3 +600,29 @@ comparison, frozen reversal legs, monotonic clocks and source-gap rebaselining.
 Rollback must retain a reader for Combo2 v2 after any new events are written;
 do not truncate journals. No current installed release changed. No path was
 declared retired based solely on absence of imports.
+
+## PYDN-14 / #227 and PYDN-15 / #228 — integrated acceptance
+
+The [cross-repository compatibility receipt](PYDANTIC-CROSS-REPOSITORY-COMPATIBILITY-20261109.md)
+records the actual separate consumers and pinned local gates. The
+[final acceptance receipt](PYDANTIC-NATIVE-ACCEPTANCE-RESULTS-20261109.md)
+binds all 28 family dispositions, CF01–CF13, public artifact SHA-256 values,
+private replay requirements, exact commands, failures and rollback constraints to
+code a9c4de264ba6f2b929f169b64393df59ed5d4983.
+
+Final integration found and repaired additional HALT reduction/reason paths.
+New writes use risk semantics v3; versions 1/2 retain exact historical replay.
+The existing account now owns one version-aware halt latch. Valid non-breached
+reductions remain separate from new-risk admission; contractual breach and
+unknown inventory remain unresolved. No thresholds or protected Guardian policy
+changed. The UTC rollover/diagnostic regression initially failed twice and passes
+after the versioned repair.
+
+Final clean core: 1570 passed / 34 explicit optional or environment skips.
+Final all-extras with the reviewed companion source: 1781 passed / zero skips.
+Separate actual V4 companion: 47 passed. Ruff, format (554 files), wheel/sdist,
+capabilities (113, errors=[]), preserved design hashes and diff checks passed.
+The receipt records the strict-core dependency failures and their repair; all
+required skipped core cases execute in the all-extras gate. #229 remains pending
+separate deployment authorization. No new-program forward or scientific claim
+is made by engineering acceptance.

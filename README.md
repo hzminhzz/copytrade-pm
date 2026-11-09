@@ -58,7 +58,8 @@ Explicit sync removes previously installed optional packages from the core gate.
 Optional chart, dashboard and source tests skip only when their dependencies are
 absent; they are mandatory in the all-extras gate. Required companion-consumer
 and private archival replay checks are recorded separately in the program's
-acceptance receipt, and a portable-checkout skip is not acceptance evidence.
+[acceptance receipt](docs/PYDANTIC-NATIVE-ACCEPTANCE-RESULTS-20261109.md), and a
+portable-checkout skip is not acceptance evidence.
 
 GitHub Actions is optional for this program. Respect actual branch protections
 and record clean commit-bound local results. Cross-repository acceptance uses
