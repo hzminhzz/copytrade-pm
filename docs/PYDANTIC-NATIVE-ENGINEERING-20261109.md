@@ -225,3 +225,44 @@ Actual diff reviewed for journal atomicity, caller coverage, source fanout and
 financial isolation. No second event store or inventory authority was introduced.
 Rollback must preserve committed GAP/SCOPE/BASELINE history and corrected source
 semantics; never reconnect by resurrecting the old pending T0. No deployment.
+
+## PYDN-05 / #218 — crash-safe publication and writer completion
+
+Two failures were reproduced against the preceding merged code: final packet
+visibility before file fsync, and repeated caller cancellation returning before
+an admitted write completed. Both now pass.
+
+Signed exports stage privately under a non-packet temporary name, flush/fsync,
+atomically publish with a no-clobber link (or cursor replace), and fsync the
+directory before the producer cursor advances. Failures after publication never
+delete the published packet. Payload bytes, signatures and v1 wire schemas are
+unchanged. Cancellation before admission has no effect; repeated cancellation
+after admission and during writer shutdown drains the owned operation before
+control returns.
+
+Bootstrap recovery is deliberately narrow: only the single original empty
+publication, its valid pinned signature, selected identity, original cutoff,
+canonical bytes and filename digest can restore a missing initial cursor.
+Missing later cursor history, nonempty initial packets, changed pins or tampering
+remain blocked; no recovery guesses the latest source head. Unpublished private
+staging files never count as consumer packets.
+
+tests/test_pydantic_publication.py executes real child-process crashes at seven
+boundaries: before/after file fsync, before/after atomic final publication, after
+directory fsync, before cursor write and after cursor advance. Every visible
+final packet remains complete and signed; retry loses no durable event. Additional
+initial-publication crashes preserve the signed cutoff without historical replay.
+Repeated delivery retains the same signed event identity; no global exactly-once
+transport claim is made. A canceled real observer commit verifies source receipt
+and stream checkpoint together with no orphan.
+
+Verification: red phase 2 failed; focused publication/export/spool/stream/writer
+suite 42 passed; full all-extras 1676 passed, 1 skipped (38.56 s). Ruff, format
+(381 files), wheel/sdist and diff checks passed. Actual diff reviewed for publication
+ordering, private permissions, no-clobber behavior, old-wire reading and failure
+recovery. No installed process or protected signer was used or changed.
+
+Rollback keeps already published packets and committed cursors. Private orphaned
+staging files are non-authoritative; do not delete or rewind final history. The
+old publisher reintroduces partial-final visibility and should not be used for
+future publication. Financial consumer idempotency is independently gated by #219.

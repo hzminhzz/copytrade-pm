@@ -12,6 +12,23 @@ from time import monotonic
 from .pm_e4_prospective import MAX_BODY, WS_URL
 
 
+async def _complete_admitted(future):
+    """Repeated cancellation cannot release an admitted write/close early."""
+    try:
+        return await asyncio.shield(future)
+    except asyncio.CancelledError:
+        while not future.done():
+            try:
+                await asyncio.shield(future)
+            except asyncio.CancelledError:
+                continue
+            except Exception:
+                break
+        if not future.cancelled():
+            future.exception()  # Observe a failure even when cancellation wins.
+        raise
+
+
 class SerialWriter:
     """One bounded serialization point; cancellation cannot undo a committed job."""
 
@@ -70,21 +87,15 @@ class SerialWriter:
         except asyncio.QueueFull as exc:
             raise ValueError("STREAM_WRITER_QUEUE_OVERFLOW") from exc
         self.high_water = max(self.high_water, self.queue.qsize())
-        try:
-            return await asyncio.shield(future)
-        except asyncio.CancelledError:
-            # A replacement processor must not read an old head while this
-            # cancelled submitter still owns an in-flight commit.
-            try:
-                await asyncio.shield(future)
-            except Exception:
-                pass  # The fatal writer state is checked by the supervisor.
-            raise
+        return await _complete_admitted(future)
 
     async def __aexit__(self, *_):
-        await self.queue.join()
-        await self.queue.put(None)
-        await self.task
+        async def close():
+            await self.queue.join()
+            await self.queue.put(None)
+            await self.task
+
+        await _complete_admitted(asyncio.create_task(close()))
 
 
 class ConnectionBudget:
