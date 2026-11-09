@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Black-box wallet PM research and shadow-only prop-firm portfolio risk"
 readme = "README.md"
 requires-python = ">=3.14"
-dependencies = ["cryptography>=46.0"]
+dependencies = ["cryptography>=46.0", "pydantic==2.14.3"]
 
 [project.optional-dependencies]
 market = ["polars>=2.0,<3", "pandas>=2.3"]

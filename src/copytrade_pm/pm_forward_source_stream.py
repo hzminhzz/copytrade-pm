@@ -29,6 +29,7 @@ from .pm03_account import clock, digest
 from .pm_forward_stream_journal import StreamProgress
 from .pm_forward_journal import PaperJournal
 from .pm_forward_source_observation import append_public_scope, read_public_all_dex_scope
+from .pm_source_contracts import canonical_source_book, decide_source_transition
 
 
 ADDRESS = re.compile(r"0x[0-9a-fA-F]{40}\Z")
@@ -161,6 +162,7 @@ class PersistentAccount:
         self.journal, self.alias, self.address = journal, alias, address.lower()
         self.dex_catalog, self.subaccounts = dex_catalog, subaccounts
         self.parent_alias, self.scope_sha = parent_alias, scope_sha
+        self.account_scope_sha = digest(["selected_perp_scope_v2", self.address])
         self.progress = StreamProgress(journal, "account:" + alias)
         self.epoch = None
 
@@ -242,26 +244,35 @@ class PersistentAccount:
             or set(body) - {"user", "clearinghouseStates", "isSnapshot"}
         ):
             raise ValueError("SOURCE_FRAME_REPLACEMENT_SEMANTICS_UNKNOWN")
-        receipt = read_public_all_dex_scope(
-            alias=self.parent_alias,
-            address=self.address,
-            frame=frame,
-            dex_catalog=self.dex_catalog,
-            discovered_subaccounts=self.subaccounts,
-            first_known_at=known_at,
-        )
+        try:
+            receipt = read_public_all_dex_scope(
+                alias=self.parent_alias,
+                address=self.address,
+                frame=frame,
+                dex_catalog=self.dex_catalog,
+                discovered_subaccounts=self.subaccounts,
+                first_known_at=known_at,
+            )
+        except (ArithmeticError, KeyError, TypeError) as exc:
+            raise ValueError("SOURCE_NATIVE_CRITICAL_INVALID") from exc
         book = receipt["source_book"]
         prior = self.checkpoint
-        clocks = {row["dex"]: row["state_at"] for row in book["per_dex_margin_diagnostics"]}
-        if any(at < prior.get("dex_clocks", {}).get(dex, 0) for dex, at in clocks.items()):
-            raise ValueError("SOURCE_NATIVE_CLOCK_REGRESSION")
-        semantic_sha = digest({key: value for key, value in body.items() if key != "isSnapshot"})
-        baseline = (
-            not prior.get("baseline_valid", False)
-            or body.get("isSnapshot", False)
-            or frame.get("isSnapshot", False)
+        canonical = canonical_source_book(
+            frame=frame,
+            receipt=receipt,
+            raw_sha=raw_sha or digest(frame),
+            scope_generation=self.account_scope_sha,
         )
-        if not baseline and semantic_sha == prior.get("semantic_sha"):
+        clocks = {item.dex: item.milliseconds for item in canonical.clocks}
+        semantic_sha = digest({key: value for key, value in body.items() if key != "isSnapshot"})
+        decision = decide_source_transition(
+            canonical,
+            previous=prior,
+            snapshot=body.get("isSnapshot", False) or frame.get("isSnapshot", False),
+            frame_semantic_sha=semantic_sha,
+        )
+        classification = decision.observation.kind
+        if classification == "DUPLICATE":
             return {
                 "classification": "DUPLICATE",
                 "signal_eligible": False,
@@ -270,24 +281,14 @@ class PersistentAccount:
             }
         positions = book["positions"]
         before = prior.get("positions", {})
-        changes = (
-            {}
-            if baseline
-            else {
-                key: {
-                    "previous": before.get(key),
-                    "current": positions.get(key),
-                    "trade_verified": False,
-                }
-                for key in sorted(before.keys() | positions.keys())
-                if before.get(key) != positions.get(key)
+        changes = {
+            key: {
+                "previous": before.get(key),
+                "current": positions.get(key),
+                "trade_verified": False,
             }
-        )
-        if not baseline and changes and clocks == prior.get("dex_clocks"):
-            raise ValueError("SOURCE_SAME_CLOCK_CONFLICTING_POSITIONS")
-        classification = (
-            "BASELINE" if baseline else ("OBSERVED_STATE_CHANGE" if changes else "UNCHANGED_STATE")
-        )
+            for key in decision.observation.changed_instruments
+        }
         receipt = {
             **receipt,
             "observation_kind": classification,
@@ -308,6 +309,10 @@ class PersistentAccount:
             "positions": positions,
             "dex_clocks": clocks,
             "semantic_sha": semantic_sha,
+            "source_semantics_version": 2,
+            "economic_sha": canonical.economic_sha,
+            "account_scope_sha": self.account_scope_sha,
+            "observer_generation": self.scope_sha,
             "position_margin_diagnostics": book["position_margin_diagnostics"],
             "discovered_subaccounts": book["subaccounts"],
             "source_equity": None,
@@ -317,7 +322,7 @@ class PersistentAccount:
         }
         event = self.progress.propose(
             epoch=self.epoch,
-            kind="BASELINE" if baseline else ("OBSERVATION" if changes else "UNCHANGED"),
+            kind=decision.journal_kind,
             known_at=known_at,
             source_at=receipt["source_event_at"],
             checkpoint=state,

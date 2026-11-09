@@ -137,3 +137,43 @@ no Git changes. The detailed witnesses were retained locally and explicitly
 ignored. Only sanitized findings, synthetic fixtures, a read-only verifier and
 the preserved architecture documents are published. Original source evidence,
 financial journals and installed services remain unchanged.
+
+## PYDN-03 / #216 — canonical prospective source contract
+
+The existing PersistentAccount/PaperJournal path now uses frozen strict version-2
+Pydantic contracts and a pure source-transition reducer. Pydantic Validation is
+pinned to 2.14.3 (core 2.50.4) after checking official package metadata. The lock
+also removes obsolete dependencies no longer referenced by pyproject; no optional
+Pydantic ecosystem package or installed service was added.
+
+Original native bytes, canonical source SHA, receipt schema, first-known clocks
+and source journal identities remain under the original owners/canonicalizers.
+Economic equality uses exact finite Decimal values, not source hash or numeric
+text. 20/20.0 is unchanged; 20/21 changes once; repeated genuine reopenings retain
+different committed identities. Known optional diagnostic fields cannot establish
+whole-wallet NAV or financial admission. Unknown critical fields, ambiguous
+envelopes, malformed numeric types and source clocks fail closed.
+
+Validation uses the 14 authentic S0 frames read-only without publishing private
+payloads; all validate under the new contract. Synthetic public-interface tests
+cover equality, raw-wire preservation, distinct reopenings, scope/duplicates,
+unknown critical fields, naive/future clocks and strict types. Two initial
+negative cases exposed legacy Decimal exceptions; the boundary now normalizes
+them to explicit validation rejection. No historical parser was rewritten.
+
+Verification before final commit:
+- Full all-extras suite: 1647 passed, 1 skipped (33.83 s).
+- Ruff, format check (379 files), wheel/sdist build and diff check passed.
+- Same 100-frame source harness: median 1.371 ms, p95 1.790 ms, 696.86 frames/s,
+  0.14329 CPU seconds and 57256 KiB peak RSS. Timing/effect IDs unchanged.
+- Three additional malformed textual numeric cases pass in the final focused gate.
+
+Direct review: new schema validity cannot confer a paper or protected permit.
+The optional diagnostic allowlist is explicit; source positions and clocks remain
+strict. Read-only historical receipts retain their original SHA algorithm.
+#217 owns durable malformed-frame quarantine, scope changes and pending-intent
+invalidation; this slice does not claim those additional obligations complete.
+
+Rollback: retain the corrected version-2 observer for future source classification;
+an old writer would reintroduce formatting-only transitions. Immutable prior
+receipts remain readable. No deployment, forward lifecycle or alpha is claimed.
