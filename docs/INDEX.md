@@ -5,6 +5,8 @@
 
 The [7 November reconciliation record](RECONCILIATION-20261107.md) explains PR and preserved-work dispositions. The [follow-up preservation and SHADOW verification](RECONCILIATION-FOLLOWUP-20261107.md) corrects the untracked-stash-parent audit and records the pending privileged deployment and degraded legacy observer. The [selected-observer P0 execution audit](SELECTED-OBSERVER-P0-EXECUTION-20261107.md) records the actual shared-IP capacity and selected-provenance blockers; it does not authorize deployment. Refresh live state before using dated evidence.
 
+**V4-aligned fast wallet screening (#255):** [opt-in v2 Polars retrospective screen, frozen-k inputs, engineering evidence and explicit PM03 shortlist handoff](V4-FAST-POLARS-SCREENING-20261110.md). This is not a prospective first-known wallet qualification or trading signal.
+
 Use live GitHub, private SQLite, original source evidence, financial journals and
 verified deployment metadata for current facts. OptMem and dated studies provide
 context. [AGENTS.md](../AGENTS.md) defines the execution workflow.

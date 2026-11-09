@@ -99,7 +99,19 @@ def run_offline_job(
     if jobfile.stat().st_size > 1024 * 1024:
         raise ManifestInvalid("OVERSIZED_RESEARCH_JOB")
     try:
-        job = _inspect(json.loads(jobfile.read_bytes()))
+        raw_job = json.loads(jobfile.read_bytes())
+        if isinstance(raw_job, dict) and raw_job.get("schema") == "pm_v4_wallet_screen_job_v2":
+            from .pm_v4_fast_screen import _job as inspect_v4, run_from_manifest
+
+            return run_from_manifest(
+                inspect_v4(raw_job),
+                input_root=root,
+                source_root=source_root,
+                market_root=market_root,
+                cache_root=cache_root,
+                workers=workers,
+            )
+        job = _inspect(raw_job)
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         if isinstance(exc, (ManifestBlocked, ManifestInvalid)):
             raise
