@@ -349,9 +349,8 @@ def on_account_event(account: Account, kind: str, raw: dict, at: str) -> None:
     if kind == "STAGE" and (
         account.rulebook.sha != account.pm04_state["budget_funding"]["rulebook_sha"]
     ):
-        account.risk = RiskState.HALT
         reason = "PM04_POLICY_RULEBOOK_CHANGED_REAUTH_REQUIRED"
-        account.halt_reason = reason
+        account.latch_halt(reason)
         account.risk_reasons = tuple(sorted(set(account.risk_reasons) | {reason}))
 
 
@@ -936,8 +935,7 @@ def apply_pm04(account: Account, event: Event, policy: RiskPolicy, mode: str) ->
     if blocked:
         # Record the fail-closed decision in the durable PM-03 event chain.
         # Never mark a stale price or pretend an absent account is flat.
-        account.risk = RiskState.HALT
-        account.halt_reason = ";".join(sorted(blocked))
+        account.latch_halt(";".join(sorted(blocked)))
         account.risk_reasons = tuple(sorted(set(account.risk_reasons) | set(blocked)))
         state["blocked_observations"].append(
             {

@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+# Optional-dependency guards must precede imports of the HTTP gateway.
+# ruff: noqa: E402
+
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 import json
 from pathlib import Path
 
-import httpx
 import pytest
+
+httpx = pytest.importorskip("httpx", reason="dashboard optional extra")
+pytest.importorskip("starlette", reason="dashboard optional extra")
 
 from copytrade_pm.dashboard import evidence_plane as ep
 from copytrade_pm.dashboard.grafana_projection import (

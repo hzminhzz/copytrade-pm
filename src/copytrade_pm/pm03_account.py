@@ -209,22 +209,32 @@ class Account:
     pm04_state: dict[str, Any] = field(default_factory=dict)
 
     # Replay policy is event-local, never part of historical financial snapshots.
-    _risk_semantics_version: int = field(default=2, repr=False, compare=False)
+    _risk_semantics_version: int = field(default=3, repr=False, compare=False)
 
     def _prepare_risk_semantics(self, version: int) -> None:
-        if type(version) is not int or version not in (1, 2):
+        if type(version) is not int or version not in (1, 2, 3):
             raise ValueError("UNSUPPORTED_RISK_SEMANTICS")
         self._risk_semantics_version = version
         # A historical diagnostic may have overwritten the enum while retaining
         # its halt reason. New events must not inherit that unsafe permission.
-        if version == 2 and (self.halt_reason is not None or self.breached):
+        if version >= 2 and (self.halt_reason is not None or self.breached):
             self.risk = RiskState.HALT
+
+    def latch_halt(self, reason: str) -> None:
+        """Retain the first restriction until the existing authorized reset.
+
+        Historical reducers keep their original overwrite behavior; v3 preserves
+        the initial cause while event results and risk_reasons carry diagnostics.
+        """
+        self.risk = RiskState.HALT
+        if self._risk_semantics_version < 3 or self.halt_reason is None:
+            self.halt_reason = reason
 
     def block_readiness(self, reasons: tuple[str, ...] | list[str] | None = None) -> None:
         """Record operational failure without clearing the financial restriction.
 
         Version 1 is used only while verifying immutable archived event hashes.
-        Newly admitted events always use version 2.
+        Newly admitted events use version 3; versions 1/2 remain replayable.
         """
         if self._risk_semantics_version == 1 or self.risk != RiskState.HALT:
             self.risk = RiskState.RED
@@ -268,8 +278,7 @@ class Account:
         floor, _ = self.floor()
         if floor is not None and self.equity <= floor:
             self.breached = True
-            self.risk = RiskState.HALT
-            self.halt_reason = "CONTRACTUAL_EQUITY_FLOOR"
+            self.latch_halt("CONTRACTUAL_EQUITY_FLOOR")
         if not self.breached and self.rulebook.profit_target is not None:
             self.stage_passed = self.stage_passed or self.equity >= (
                 self.rulebook.initial_balance + self.rulebook.profit_target
@@ -488,8 +497,7 @@ class Account:
                 reasons.append("GROSS_LEVERAGE_EXCEEDED")
         if reasons:
             if "INSUFFICIENT_STRESS_HEADROOM" in reasons or self.breached:
-                self.risk = RiskState.HALT
-                self.halt_reason = "RISK_HEADROOM_OR_BREACH"
+                self.latch_halt("RISK_HEADROOM_OR_BREACH")
             elif self.risk not in (RiskState.HALT,):
                 self.risk = RiskState.RED
             self.risk_reasons = tuple(sorted(reasons))

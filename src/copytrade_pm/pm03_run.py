@@ -13,7 +13,7 @@ from pathlib import Path
 import json
 from zoneinfo import ZoneInfo
 
-from .pm03_account import Account, Instrument, RiskState, Rulebook, clock, digest, number
+from .pm03_account import Account, Instrument, Rulebook, clock, digest, number
 from .pm03_execution import CostModel, MarketObservation, execute_targets
 from .pm03_memory import Event, Ledger, _atomic_private
 from .pm03_risk import RiskEvidence, RiskPolicy, classify
@@ -144,8 +144,7 @@ class ShadowRun:
             result = apply_pm04(account, event, self.policy, self.manifest["mode"])
         elif kind == "MARK":
             if not input_row.get("state_known", False):
-                account.risk = RiskState.HALT
-                account.halt_reason = "UNKNOWN_ACCOUNT_OBSERVATION"
+                account.latch_halt("UNKNOWN_ACCOUNT_OBSERVATION")
                 result = {"status": "HALT_UNKNOWN"}
             else:
                 account.mark(_prices(input_row["prices"]), event.decision_at)
@@ -169,13 +168,11 @@ class ShadowRun:
                 k for book in account.pm_quantities.values() for k, q in book.items() if q
             }
             if tracked - set(obs):
-                account.risk = RiskState.HALT
-                account.halt_reason = "MISSING_EXISTING_POSITION_MARK"
+                account.latch_halt("MISSING_EXISTING_POSITION_MARK")
             elif evidence.account_state_known and evidence.market_state_known:
                 account.mark({k: q.mark for k, q in obs.items()}, event.decision_at)
             else:
-                account.risk = RiskState.HALT
-                account.halt_reason = "UNKNOWN_AUTHORITATIVE_ACCOUNT_OR_MARKET"
+                account.latch_halt("UNKNOWN_AUTHORITATIVE_ACCOUNT_OR_MARKET")
             decision = classify(
                 account,
                 candidates,
@@ -239,8 +236,7 @@ class ShadowRun:
             account.advance_stage(next_book, as_of=event.decision_at)
             result = {"status": "SIMULATED_STAGE_TRANSITION"}
         elif kind == "HALT":
-            account.risk = RiskState.HALT
-            account.halt_reason = input_row.get("reason") or "MANUAL_SHADOW_HALT"
+            account.latch_halt(input_row.get("reason") or "MANUAL_SHADOW_HALT")
             result = {"status": "HALT_LATCHED"}
         else:
             raise ValueError("UNKNOWN_EVENT_KIND")
@@ -314,11 +310,11 @@ class ShadowRun:
         if clock(event.decision_at) < clock(self.last_event_time):
             raise ValueError("OUT_OF_ORDER_EVENT")
         if (
-            type(event.payload.get("risk_semantics_version", 2)) is not int
-            or event.payload.get("risk_semantics_version", 2) != 2
+            type(event.payload.get("risk_semantics_version", 3)) is not int
+            or event.payload.get("risk_semantics_version", 3) != 3
         ):
             raise ValueError("LEGACY_RISK_SEMANTICS_READ_ONLY")
-        event = replace(event, payload={**event.payload, "risk_semantics_version": 2})
+        event = replace(event, payload={**event.payload, "risk_semantics_version": 3})
         if event.kind.startswith("PM04_PAPER_"):
             if (
                 type(event.payload.get("paper_semantics_version", 2)) is not int

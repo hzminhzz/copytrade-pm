@@ -140,8 +140,7 @@ def classify(
     order = list(RiskState)
     tier = max(account.risk, tier, key=order.index)
     if tier == RiskState.HALT:
-        account.risk = RiskState.HALT
-        account.halt_reason = ";".join(sorted(set(reasons))) or "RISK_POLICY_HALT"
+        account.latch_halt(";".join(sorted(set(reasons))) or "RISK_POLICY_HALT")
     else:
         account.risk = tier
     account.risk_reasons = tuple(sorted(set(reasons)))

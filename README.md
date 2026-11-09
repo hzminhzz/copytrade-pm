@@ -44,13 +44,22 @@ executable follower economics or trading permission.
 Requires Python 3.14 and uv. Commands below use synthetic/offline test inputs.
 
 ```bash
-uv run --frozen --group dev pytest -q tests
-uv run --frozen --all-extras --group dev pytest -q tests
-uv run --frozen --all-extras --group dev ruff check src tests
-uv run --frozen --all-extras --group dev ruff format --check src tests
+uv sync --frozen --group dev
+uv run --no-sync pytest -q -rs tests
+uv sync --frozen --all-extras --group dev
+uv run --no-sync pytest -q -rs tests
+uv run --no-sync ruff check .
+uv run --no-sync ruff format --check .
 uv build --no-sources
-uv run --frozen --all-extras --group dev copytrade-pm capabilities validate
+uv run --no-sync copytrade-pm capabilities validate
 ```
+
+Explicit sync removes previously installed optional packages from the core gate.
+Optional chart, dashboard and source tests skip only when their dependencies are
+absent; they are mandatory in the all-extras gate. Required companion-consumer
+and private archival replay checks are recorded separately in the program's
+[acceptance receipt](docs/PYDANTIC-NATIVE-ACCEPTANCE-RESULTS-20261109.md), and a
+portable-checkout skip is not acceptance evidence.
 
 GitHub Actions is optional for this program. Respect actual branch protections
 and record clean commit-bound local results. Cross-repository acceptance uses

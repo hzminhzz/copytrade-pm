@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from decimal import Decimal as D
 from math import ceil
 
-from .pm03_account import Account, Instrument, RiskState, Rulebook, ZERO, clock, digest
+from .pm03_account import Account, Instrument, Rulebook, ZERO, clock, digest
 from .pm03_attribution import IntendedVirtualBooks, explain_economics
 from .pm03_execution import CostModel, MarketObservation, execute_targets
 from .pm03_risk import RiskEvidence, RiskPolicy, classify, loss_under_shock
@@ -179,8 +179,7 @@ def compare_policies(
                 k for book in a.pm_quantities.values() for k, q in book.items() if q
             }
             if tracked - set(quote_prices):
-                a.risk = RiskState.HALT
-                a.halt_reason = "MISSING_REQUIRED_MARK"
+                a.latch_halt("MISSING_REQUIRED_MARK")
                 missing.append(step.as_of)
                 path.append(a.equity)
                 continue

@@ -5,11 +5,16 @@ These exercise publisher -> immutable generation -> gateway, not private helpers
 
 from __future__ import annotations
 
+# Optional-dependency guards must precede imports of the HTTP gateway.
+# ruff: noqa: E402
+
 import asyncio
 from datetime import timedelta
 
-import httpx
 import pytest
+
+httpx = pytest.importorskip("httpx", reason="dashboard optional extra")
+pytest.importorskip("starlette", reason="dashboard optional extra")
 
 from copytrade_pm.dashboard import evidence_plane as ep
 from copytrade_pm.dashboard.grafana_capabilities import build_capabilities, validate_capabilities
