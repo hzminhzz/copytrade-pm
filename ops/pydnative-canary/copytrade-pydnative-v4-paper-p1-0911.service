@@ -1,0 +1,27 @@
+[Unit]
+Description=Pydantic-native V4 isolated P1 SHADOW canary (NO BROKER)
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=/home/quant/.local/share/copytrade/releases/pydnative-v4-canary-0911
+ExecStart=/home/quant/.local/share/copytrade/releases/pydnative-v4-canary-0911/.venv/bin/python -m copytrade_pm.pm_forward_observed_paper --source-db /home/quant/.local/share/copytrade/prospective/v4-selected-positions-0811/paper-events.sqlite3 --price-db /home/quant/.local/share/copytrade/prospective/v4-minute-0811/paper-events.sqlite3 --registry-db /home/quant/.local/share/copytrade/registry/wallet_registry.sqlite --price-mode vike_minute --propr-catalog /home/quant/.local/share/copytrade/releases/pydnative-v4-canary-0911/docs/FORWARD-PAPER-PROPR-157-THREE-SOCKETS-20261105.json --paper-min-notional 10 --state-root /home/quant/.local/share/copytrade/prospective/pydnative-v4-paper-p1-0911 --run-id pydnative_p1_shadow_0911 --portfolio P1 --watch --poll-seconds 2
+Restart=on-failure
+RestartSec=15
+TimeoutStopSec=35
+KillSignal=SIGTERM
+UMask=0077
+Environment=PYTHONDONTWRITEBYTECODE=1
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/quant/.local/share/copytrade/prospective/pydnative-v4-paper-p1-0911
+MemoryMax=384M
+CPUQuota=35%
+TasksMax=128
+
+[Install]
+WantedBy=default.target
