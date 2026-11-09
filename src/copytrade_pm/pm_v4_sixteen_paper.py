@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import sqlite3
 import time
 
 from .pm03_account import clock
@@ -45,6 +46,81 @@ def _sleep_to_deadline(runs: dict[str, ObservedP1Paper], poll_seconds: float) ->
                 if dt > 0:
                     remaining.append(dt)
     return max(0.05, min(poll_seconds, min(remaining, default=poll_seconds)))
+
+
+def _is_retryable_sqlite_busy(exc: Exception) -> bool:
+    """Retry only SQLite contention; corrupt or unavailable journals still quarantine."""
+    if not isinstance(exc, sqlite3.OperationalError):
+        return False
+    code = getattr(exc, "sqlite_errorcode", None)
+    if isinstance(code, int) and (code & 0xFF) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):
+        return True
+    return (
+        str(exc)
+        .lower()
+        .startswith(("database is locked", "database is busy", "database table is locked"))
+    )
+
+
+def _tick_runs(
+    runs: dict[str, ObservedP1Paper],
+    prior: dict[str, tuple],
+    quarantined: dict[str, str],
+    retrying_busy: set[str],
+) -> dict[str, dict]:
+    """A transient database reader lock must not permanently retire a virtual ledger.
+
+    Preserve its previous durable state and retry on the next tick. A different
+    exception still quarantines this run without changing another portfolio.
+    """
+    changed: dict[str, dict] = {}
+    for pid, paper in runs.items():
+        if pid in quarantined:
+            continue
+        try:
+            result = paper.step()
+        except Exception as exc:
+            if _is_retryable_sqlite_busy(exc):
+                if pid not in retrying_busy:
+                    changed[pid] = {
+                        "tick": "WAIT_SQLITE_BUSY_RETRY",
+                        "reason": "TRANSIENT_SQLITE_BUSY",
+                        "order_route": "NONE",
+                    }
+                retrying_busy.add(pid)
+                continue
+            retrying_busy.discard(pid)
+            quarantined[pid] = type(exc).__name__ + ":" + str(exc)[:160]
+            changed[pid] = {
+                "tick": "BLOCKED_PAPER_LEDGER",
+                "reason": quarantined[pid],
+                "order_route": "NONE",
+            }
+            continue
+        recovered = pid in retrying_busy
+        retrying_busy.discard(pid)
+        state = (
+            result["tick"],
+            result["net_pnl"],
+            tuple(sorted(result["source_results"].items())),
+            tuple(sorted(result["execution_results"].items())),
+            result["risk"],
+            tuple(sorted(result["execution_outcomes"])),
+        )
+        if prior.get(pid) != state or recovered:
+            changed[pid] = {
+                "run_id": result["run_id"],
+                "tick": result["tick"],
+                "source_results": result["source_results"],
+                "execution_results": result["execution_results"],
+                "exit_results": result["exit_results"],
+                "net_pnl": result["net_pnl"],
+                "risk": result["risk"],
+                "real_broker_fills": 0,
+                "recovered_from_sqlite_busy": recovered,
+            }
+            prior[pid] = state
+    return changed
 
 
 def main() -> int:
@@ -151,42 +227,9 @@ def main() -> int:
         prior: dict[str, tuple] = {}
         last_log = 0.0
         quarantined: dict[str, str] = {}
+        retrying_busy: set[str] = set()
         while not stopped:
-            changed: dict[str, dict] = {}
-            for pid, paper in runs.items():
-                if pid in quarantined:
-                    continue
-                try:
-                    result = paper.step()
-                    state = (
-                        result["tick"],
-                        result["net_pnl"],
-                        tuple(sorted(result["source_results"].items())),
-                        tuple(sorted(result["execution_results"].items())),
-                        result["risk"],
-                        tuple(sorted(result["execution_outcomes"])),
-                    )
-                    if prior.get(pid) != state:
-                        changed[pid] = {
-                            "run_id": result["run_id"],
-                            "tick": result["tick"],
-                            "source_results": result["source_results"],
-                            "execution_results": result["execution_results"],
-                            "exit_results": result["exit_results"],
-                            "net_pnl": result["net_pnl"],
-                            "risk": result["risk"],
-                            "real_broker_fills": 0,
-                        }
-                        prior[pid] = state
-                except Exception as exc:
-                    # One corrupt virtual ledger must never poison another.
-                    # Its financial accounting stops; no synthetic close/permit.
-                    quarantined[pid] = type(exc).__name__ + ":" + str(exc)[:160]
-                    changed[pid] = {
-                        "tick": "BLOCKED_PAPER_LEDGER",
-                        "reason": quarantined[pid],
-                        "order_route": "NONE",
-                    }
+            changed = _tick_runs(runs, prior, quarantined, retrying_busy)
             if changed or time.monotonic() - last_log > 60 or args.once:
                 print(
                     json.dumps(
@@ -195,6 +238,7 @@ def main() -> int:
                             "at": datetime.now(timezone.utc).isoformat(),
                             "active_ledgers": len(runs) - len(quarantined),
                             "quarantined": quarantined,
+                            "retrying_sqlite_busy": sorted(retrying_busy),
                             "changes": changed,
                             "order_route": "NONE",
                             "trading_authorized": False,
@@ -205,7 +249,7 @@ def main() -> int:
                 )
                 last_log = time.monotonic()
             if args.once:
-                return 0 if not quarantined else 2
+                return 0 if not quarantined and not retrying_busy else 2
             if len(quarantined) == len(runs):
                 return 2
             time.sleep(
