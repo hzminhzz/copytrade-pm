@@ -87,6 +87,10 @@ def test_independent_backup_restore_preserves_original_v1_proof(tmp_path):
     result = backup_and_verify(journal.path, destination, quiescence_verified=True)
     assert result["status"] == "RESTORED_VERIFIED_SOURCE_ONLY"
     assert result["stream_head_sha"] == verify_streams(journal.path)["head_sha"]
+    assert (
+        verify_streams(destination / "independent-restore" / journal.path.name)["head_sha"]
+        == result["stream_head_sha"]
+    )
     assert result["financial_ledger_verified"] is False
     with pytest.raises(FileExistsError, match="DESTINATION_EXISTS"):
         backup_and_verify(journal.path, destination, quiescence_verified=True)

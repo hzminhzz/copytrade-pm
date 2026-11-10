@@ -111,6 +111,14 @@ def backup_and_verify(source: Path, backup_dir: Path, *, quiescence_verified: bo
         raise FileExistsError("V4_RECOVERY_BACKUP_DESTINATION_EXISTS")
     if backup_dir.resolve().is_relative_to(source.parent.resolve()):
         raise ValueError("V4_RECOVERY_BACKUP_MUST_BE_ISOLATED")
+    # Reserve capacity for BOTH independent copies before starting. The live
+    # WAL is not counted as reclaimable until a verified checkpoint succeeds.
+    disk = os.statvfs(backup_dir.parent)
+    free_bytes = disk.f_bavail * disk.f_frsize
+    reserved_bytes = max(1024**3, min(8 * 1024**3, source.stat().st_size))
+    minimum_required = 2 * source.stat().st_size + reserved_bytes
+    if free_bytes < minimum_required:
+        raise ValueError("V4_RECOVERY_INSUFFICIENT_BACKUP_RESTORE_CAPACITY")
     # A dedicated writer lease ensures that another journal writer cannot
     # enter between the FD check and backup. This cannot block non-cooperating
     # readers; we recheck their FDs before and after the backup.
@@ -132,22 +140,35 @@ def backup_and_verify(source: Path, backup_dir: Path, *, quiescence_verified: bo
             if evidence.exists():
                 _check_evidence_tree(evidence)
                 shutil.copytree(evidence, backup_dir / evidence.name, symlinks=True)
-            with closing(sqlite3.connect(f"file:{backup_db.resolve()}?mode=ro", uri=True)) as db:
-                if db.execute("PRAGMA integrity_check").fetchone() != ("ok",):
-                    raise ValueError("V4_RECOVERY_SQLITE_INTEGRITY_FAILED")
-                if db.execute("PRAGMA foreign_key_check").fetchone() is not None:
-                    raise ValueError("V4_RECOVERY_FOREIGN_KEYS_FAILED")
-            restored = verify_streams(backup_db)
-            sidecars = _check_evidence_tree(backup_dir / "source-evidence-v2")
+            backup_audit = verify_streams(backup_db)
+            if backup_audit["head_sha"] != before["head_sha"]:
+                raise ValueError("V4_RECOVERY_BACKUP_STREAM_HEAD_MISMATCH")
+            # Prove physical restore independently of the original backup DB.
+            restore_dir = backup_dir / "independent-restore"
+            restore_dir.mkdir(mode=0o700)
+            restore_db = restore_dir / source.name
+            with closing(sqlite3.connect(f"file:{backup_db.resolve()}?mode=ro", uri=True)) as saved:
+                with closing(sqlite3.connect(restore_db)) as target:
+                    saved.backup(target, pages=2048, sleep=0.02)
+            if (backup_dir / "source-evidence-v2").exists():
+                shutil.copytree(
+                    backup_dir / "source-evidence-v2",
+                    restore_dir / "source-evidence-v2",
+                    symlinks=False,
+                )
+            restored = verify_streams(restore_db)
+            sidecars = _check_evidence_tree(restore_dir / "source-evidence-v2")
             _verify_no_handles(source)
             if before["head_sha"] != restored["head_sha"]:
                 raise ValueError("V4_RECOVERY_STREAM_HEAD_MISMATCH")
             return {
                 "status": "RESTORED_VERIFIED_SOURCE_ONLY",
                 "backup_db": str(backup_db),
+                "independent_restore_db": str(restore_db),
                 "stream_head_sha": restored["head_sha"],
                 "original_db_bytes": source.stat().st_size,
-                "restored_db_bytes": backup_db.stat().st_size,
+                "backup_db_bytes": backup_db.stat().st_size,
+                "restored_db_bytes": restore_db.stat().st_size,
                 "sidecars": sidecars,
                 "financial_ledger_verified": False,
                 "source_service_cutover_authorized": False,
