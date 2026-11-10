@@ -1,0 +1,137 @@
+{
+  "uid": "copytrade-wallet-health-v1",
+  "title": "Wallet Health | Research Only",
+  "tags": [
+    "copytrade",
+    "read-only",
+    "wallet-health",
+    "evidence-plane"
+  ],
+  "schemaVersion": 41,
+  "version": 1,
+  "timezone": "utc",
+  "refresh": "5m",
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "editable": false,
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "Research-only evidence",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 3
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**NO TRADE / NO GUARDIAN COMMAND AUTHORITY**. Daily as-of wallet health is an evidence-bound diagnostic. Missing flow, continuity, follower-net performance and statistical qualification remain UNKNOWN. A warning only proposes review; it cannot adjust k or exclude a registered wallet."
+      }
+    },
+    {
+      "id": 2,
+      "type": "table",
+      "title": "Registered wallet health — redacted",
+      "datasource": {
+        "uid": "risk-projection-v1",
+        "type": "yesoreyeram-infinity-datasource"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 3,
+        "w": 24,
+        "h": 12
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "risk-projection-v1",
+            "type": "yesoreyeram-infinity-datasource"
+          },
+          "type": "json",
+          "source": "url",
+          "url": "http://projection:17800/v1/wallet-health",
+          "parser": "backend",
+          "format": "table",
+          "root_selector": "wallets",
+          "columns": [
+            {
+              "selector": "wallet_ref",
+              "text": "Wallet ref",
+              "type": "string"
+            },
+            {
+              "selector": "eligibility",
+              "text": "Eligibility",
+              "type": "string"
+            },
+            {
+              "selector": "source",
+              "text": "Source continuity",
+              "type": "string"
+            },
+            {
+              "selector": "capital",
+              "text": "Capital attribution",
+              "type": "string"
+            },
+            {
+              "selector": "activity",
+              "text": "Activity",
+              "type": "string"
+            },
+            {
+              "selector": "edge",
+              "text": "Edge diagnostic",
+              "type": "string"
+            },
+            {
+              "selector": "copyability",
+              "text": "Follower copyability",
+              "type": "string"
+            },
+            {
+              "selector": "portfolio_contribution",
+              "text": "Marginal portfolio value",
+              "type": "string"
+            },
+            {
+              "selector": "recommendation",
+              "text": "Review recommendation",
+              "type": "string"
+            },
+            {
+              "selector": "evidence_count",
+              "text": "Evidence items",
+              "type": "number"
+            }
+          ],
+          "url_options": {
+            "method": "GET"
+          },
+          "filters": [],
+          "computed_columns": []
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "UNKNOWN"
+        },
+        "overrides": []
+      },
+      "transformations": []
+    }
+  ]
+}
