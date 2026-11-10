@@ -12,9 +12,89 @@ import json
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
 from .pm03_account import clock, digest, number
 from .pm_k_recalibration import KReleaseCandidate
 from .pm_offline_cache import ImmutableCache
+from .pm_paper_contracts import PaperOpportunity
+
+
+def audit_pending_original_k(
+    *,
+    history: dict[str, Any],
+    active: dict[str, Any],
+    current_policy: dict[str, Any],
+) -> dict[str, Any]:
+    """Audit real PM04 v2 opportunities without modifying pending T0 or exposure.
+
+    A matching policy SHA is original frozen research-policy provenance, NOT an
+    independently signed new-k release. Legacy intents are readable but cannot
+    cross a k release. Valid pending intents remain protected even on a future
+    cutover; this method intentionally grants no cutover authority.
+    """
+    blockers: set[str] = set()
+    total = pinned = legacy = 0
+    frozen = current_policy.get("fixed_k_by_pod", {})
+    if not isinstance(history, dict) or not isinstance(active, dict):
+        return {
+            "status": "BLOCKED",
+            "pending": 0,
+            "pinned": 0,
+            "legacy": 0,
+            "blockers": ["INVALID_PAPER_OPPORTUNITY_HISTORY"],
+            "original_policy_sha256": digest(current_policy),
+            "release_eligible": False,
+        }
+    if not isinstance(frozen, dict):
+        frozen = {}
+        blockers.add("ORIGINAL_POD_K_MISSING")
+    original_policy_sha = digest(current_policy)
+    for intent_id, row in sorted(history.items()):
+        if not isinstance(row, dict):
+            blockers.add("INVALID_PAPER_OPPORTUNITY_HISTORY")
+            continue
+        if row.get("status") != "PENDING_5M":
+            continue
+        total += 1
+        pod = row.get("pod")
+        if (
+            not isinstance(pod, str)
+            or row.get("intent_id") != intent_id
+            or active.get(pod) != intent_id
+        ):
+            blockers.add("PENDING_T300_ACTIVE_IDENTITY_MISMATCH")
+        if row.get("frozen_k") is None or row.get("release_sha256") is None:
+            legacy += 1
+            blockers.add("PENDING_T300_ORIGINAL_K_NOT_PINNED")
+            continue
+        try:
+            opportunity = PaperOpportunity.model_validate(row)
+        except ValidationError, ValueError, TypeError:
+            blockers.add("PENDING_T300_ORIGINAL_K_INTEGRITY_INVALID")
+            continue
+        if (
+            pod not in frozen
+            or number(opportunity.frozen_k) != number(frozen[pod])
+            or opportunity.release_sha256 != original_policy_sha
+        ):
+            blockers.add("PENDING_T300_ORIGINAL_K_RELEASE_DRIFT")
+            continue
+        pinned += 1
+    for pod, intent_id in active.items():
+        if not isinstance(pod, str) or intent_id not in history:
+            blockers.add("PENDING_T300_ACTIVE_IDENTITY_MISMATCH")
+    return {
+        "schema": "track_c_pending_t300_k_audit_v1",
+        "status": "BOUND_ORIGINAL_K_RESEARCH_ONLY" if not blockers else "BLOCKED",
+        "pending": total,
+        "pinned": pinned,
+        "legacy": legacy,
+        "blockers": sorted(blockers),
+        "original_policy_sha256": original_policy_sha,
+        "release_eligible": False,
+        "order_route": "NONE",
+    }
 
 
 def verify_cutover(
@@ -65,10 +145,12 @@ def verify_cutover(
     if not isinstance(history, dict):
         blockers.add("INVALID_PAPER_OPPORTUNITY_HISTORY")
         history = {}
-    if any(
-        isinstance(item, dict) and item.get("status") == "PENDING_5M" for item in history.values()
-    ):
-        blockers.add("PENDING_T300_ORIGINAL_K_NOT_PINNED")
+    pending_audit = audit_pending_original_k(
+        history=history,
+        active=execution.get("active", {}),
+        current_policy=current_policy,
+    )
+    blockers.update(pending_audit["blockers"])
     exits = execution.get("exits", {})
     if not isinstance(exits, dict):
         blockers.add("INVALID_PROTECTIVE_EXIT_HISTORY")
@@ -102,6 +184,7 @@ def verify_cutover(
         "candidate_sha256": candidate.identity_sha256,
         "paper_snapshot_sha256": paper_snapshot_sha256,
         "observed_release_sha256": observed_release_sha256,
+        "pending_original_k_audit": pending_audit,
         "status": "BLOCKED_NONACTIVATING",
         "blockers": sorted(blockers),
         "future_only": True,

@@ -7,8 +7,9 @@ import pytest
 
 from copytrade_pm.pm_forward_journal import PaperJournal
 from copytrade_pm.pm_forward_ccxt_market import parse_ccxt_book, parse_ccxt_market
-from copytrade_pm.pm_forward_observed_paper import ObservedP1Paper, _exclusive_runner
-from copytrade_pm.pm_forward_single_shot import SingleShotMarketExecutionModel
+from copytrade_pm.pm_forward_observed_paper import ObservedP1Paper, _event, _exclusive_runner
+from copytrade_pm.pm_forward_single_shot import SingleShotMarketExecutionModel, apply_paper_event
+from copytrade_pm.pm_paper_contracts import PaperOpportunity
 from test_pm_forward_observed_paper import (
     BTC,
     RAW_MARKET,
@@ -63,6 +64,106 @@ def test_first_known_waits_exactly_300_seconds_and_attempts_once(tmp_path):
     again = paper.step(at(318))
     assert D(again["positions"][BTC.key]) == D("0.564")
     assert len(entry_attempts(paper)) == 1
+
+
+def test_t300_original_k_and_release_survive_coalesce_restart_and_attempt(tmp_path):
+    tape = PaperJournal(tmp_path / "source")
+    add_quote(tape, 10, size=200)
+    paper = new_paper(tmp_path, tape)
+    add_source(tape, 1, 12, {BTC.key: "20"})
+    pending = paper.step(at(14))["execution_intents"]["S035"]
+    original_k = paper.profile.k["S035"]
+    original_release = paper.policy_sha
+    assert pending["frozen_k"] == original_k
+    assert pending["release_sha256"] == original_release
+    assert pending["due_at"] == at(313)
+    assert PaperOpportunity.model_validate(pending).frozen_k == original_k
+
+    with pytest.raises(ValueError, match="PAPER_OPPORTUNITY_K_RELEASE_INCOMPLETE"):
+        PaperOpportunity.model_validate({**pending, "release_sha256": None})
+    with pytest.raises(ValueError, match="PAPER_OPPORTUNITY_FROZEN_K_INVALID"):
+        PaperOpportunity.model_validate({**pending, "frozen_k": "0"})
+
+    add_source(tape, 2, 199, {BTC.key: "10"})
+    revised = paper.step(at(201))["execution_intents"]["S035"]
+    assert revised["frozen_k"] == original_k
+    assert revised["release_sha256"] == original_release
+    assert revised["due_at"] == pending["due_at"]
+
+    restarted = ObservedP1Paper(
+        source_db=tape.path,
+        state_root=tmp_path / "private",
+        run_id="single_attempt",
+        registry_db=tmp_path / "registry.sqlite",
+        catalog={RAW_MARKET["symbol"]: RAW_MARKET},
+    )
+    replayed = restarted.run.account.pm04_state["paper_execution"]["history"][revised["intent_id"]]
+    assert replayed["frozen_k"] == original_k
+    assert replayed["release_sha256"] == original_release
+    add_quote(tape, 312, size=200)
+    due = restarted.step(at(313))
+    assert due["execution_intents"]["S035"]["status"] == "FILLED"
+    attempt = entry_attempts(restarted)[0]["payload"]["input"]
+    assert attempt["frozen_k"] == original_k
+    assert attempt["release_sha256"] == original_release
+    assert len(entry_attempts(restarted)) == 1
+
+
+def test_t300_rejects_tampered_source_release_before_cursor_mutation(tmp_path):
+    tape = PaperJournal(tmp_path / "source")
+    add_quote(tape, 10)
+    paper = new_paper(tmp_path, tape)
+    add_source(tape, 1, 12, {BTC.key: "20"})
+    paper.step(at(14))
+    bad = _event(
+        paper.run,
+        "PM04_PAPER_SOURCE",
+        "tampered_source_release",
+        at(101),
+        at(99),
+        {
+            "pod": "S035",
+            "source_seq": 2,
+            "source_sha": "f" * 64,
+            "positions": {BTC.key: "10"},
+            "first_known_at": at(100),
+            "frozen_k": paper.profile.k["S035"],
+            "release_sha256": "0" * 64,
+        },
+        first_known_at=at(100),
+    )
+    before = paper.run.account.snapshot()
+    with pytest.raises(ValueError, match="PAPER_SOURCE_K_RELEASE_DRIFT"):
+        apply_paper_event(paper.run.account, bad, None, "RESEARCH_SYNTHETIC")
+    assert paper.run.account.snapshot() == before
+
+
+def test_t300_rejects_rebased_k_attempt_without_mutating_account(tmp_path):
+    tape = PaperJournal(tmp_path / "source")
+    add_quote(tape, 10)
+    paper = new_paper(tmp_path, tape)
+    add_source(tape, 1, 12, {BTC.key: "20"})
+    intent = paper.step(at(14))["execution_intents"]["S035"]
+    bad = _event(
+        paper.run,
+        "PM04_PAPER_EXECUTE",
+        "tampered_attempt_" + intent["intent_id"],
+        at(313),
+        at(12),
+        {
+            "intent_id": intent["intent_id"],
+            "source_seq": intent["source_seq"],
+            "source_sha": intent["source_sha"],
+            "frozen_k": "999",
+            "release_sha256": intent["release_sha256"],
+        },
+        first_known_at=intent["first_known_at"],
+    )
+    before = paper.run.account.snapshot()
+    with pytest.raises(ValueError, match="PAPER_ATTEMPT_K_RELEASE_DRIFT"):
+        apply_paper_event(paper.run.account, bad, None, "RESEARCH_SYNTHETIC")
+    assert paper.run.account.snapshot() == before
+    assert entry_attempts(paper) == []
 
 
 def test_updates_during_wait_preserve_clock_and_use_latest_complete_book(tmp_path):

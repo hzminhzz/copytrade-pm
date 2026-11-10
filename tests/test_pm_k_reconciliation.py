@@ -15,7 +15,11 @@ from copytrade_pm.pm03_account import Account, Instrument, Rulebook, digest
 from copytrade_pm.pm_forward_observed_paper import _policy
 from copytrade_pm.pm_k_finance import PM03FinanceFrame, assess_finance
 from copytrade_pm.pm_k_recalibration import evaluate_k, make_candidate
-from copytrade_pm.pm_k_release import publish_k_candidate, verify_cutover
+from copytrade_pm.pm_k_release import (
+    audit_pending_original_k,
+    publish_k_candidate,
+    verify_cutover,
+)
 from test_pm_k_recalibration import AFTER, KEY, NOW, P, U, _input
 
 BEFORE = "2026-11-01T00:00:00+00:00"
@@ -219,6 +223,97 @@ def test_actual_paper_formats_pending_t180_and_inventory_block(tmp_path):
     assert second["cache_status"] == "CACHE_HIT"
     assert first["package_sha256"] == second["package_sha256"]
     assert not second["signature_verified"] and not second["shadow_deployed"]
+
+
+def _authentic_v2_pending(policy):
+    known = "2026-11-10T00:57:00+00:00"
+    source_sha = "f" * 64
+    return {
+        "intent_id": "e" * 64,
+        "pod": "S035",
+        "source_seq": 1,
+        "source_sha": source_sha,
+        "source_event_at": "2026-11-10T00:56:00+00:00",
+        "first_known_at": known,
+        "due_at": "2026-11-10T01:02:00+00:00",
+        "deadline_at": "2026-11-10T01:02:30+00:00",
+        "created_at": known,
+        "updated_at": known,
+        "status": "PENDING_5M",
+        "positions": {KEY: "2"},
+        "updates": [{"at": known, "source_seq": 1, "source_sha": source_sha}],
+        "frozen_k": str(policy["fixed_k_by_pod"]["S035"]),
+        "release_sha256": digest(policy),
+    }
+
+
+def test_version_pinned_t300_receipt_is_recognized_but_never_promoted():
+    candidate, account, policy = _candidate()
+    pending = _authentic_v2_pending(policy)
+    execution = account.pm04_state["paper_execution"]
+    execution["history"] = {pending["intent_id"]: pending}
+    execution["active"] = {"S035": pending["intent_id"]}
+    original = digest(account.snapshot())
+    audit = audit_pending_original_k(
+        history=execution["history"], active=execution["active"], current_policy=policy
+    )
+    assert audit["status"] == "BOUND_ORIGINAL_K_RESEARCH_ONLY"
+    assert audit["pending"] == 1 and audit["pinned"] == 1 and audit["legacy"] == 0
+    receipt = verify_cutover(
+        candidate,
+        paper_snapshot=account.snapshot(),
+        paper_snapshot_sha256=original,
+        current_policy=policy,
+        checked_at="2026-11-10T02:00:00+00:00",
+        observed_release_sha256=U,
+    )
+    assert receipt["pending_original_k_audit"] == audit
+    assert "PENDING_T300_ORIGINAL_K_NOT_PINNED" not in receipt["blockers"]
+    assert "INDEPENDENT_ORIGINAL_FINANCE_REPORT_PROOF_REQUIRED" in receipt["blockers"]
+    assert "RUNTIME_RELEASE_CONSUMER_NOT_VERSION_AWARE" in receipt["blockers"]
+    assert receipt["status"] == "BLOCKED_NONACTIVATING"
+    assert not receipt["paper_journal_mutated"] and not receipt["active_policy_changed"]
+    assert digest(account.snapshot()) == original
+
+
+@pytest.mark.parametrize(
+    ("tamper", "expected"),
+    [
+        ({"frozen_k": "0.08"}, "PENDING_T300_ORIGINAL_K_RELEASE_DRIFT"),
+        ({"release_sha256": "0" * 64}, "PENDING_T300_ORIGINAL_K_RELEASE_DRIFT"),
+        ({"frozen_k": None}, "PENDING_T300_ORIGINAL_K_NOT_PINNED"),
+        ({"due_at": "2026-11-10T01:01:00+00:00"}, "PENDING_T300_ORIGINAL_K_INTEGRITY_INVALID"),
+        ({"source_seq": 2}, "PENDING_T300_ORIGINAL_K_INTEGRITY_INVALID"),
+        ({"intent_id": "c" * 64}, "PENDING_T300_ACTIVE_IDENTITY_MISMATCH"),
+    ],
+)
+def test_pinned_t300_tampering_fails_without_mutating_finance(tamper, expected):
+    account, policy = _base_state()
+    pending = {**_authentic_v2_pending(policy), **tamper}
+    execution = account.pm04_state["paper_execution"]
+    original_id = "e" * 64
+    execution["history"] = {original_id: pending}
+    execution["active"] = {"S035": original_id}
+    before = digest(account.snapshot())
+    receipt = audit_pending_original_k(
+        history=execution["history"], active=execution["active"], current_policy=policy
+    )
+    assert expected in receipt["blockers"]
+    assert receipt["status"] == "BLOCKED"
+    assert digest(account.snapshot()) == before
+
+
+def test_malformed_active_pointer_or_non_dict_history_fail_closed():
+    account, policy = _base_state()
+    pending = _authentic_v2_pending(policy)
+    row = {pending["intent_id"]: pending}
+    for active in ({"S035": "0" * 64}, {"S035": pending["intent_id"], "OTHER": "f" * 64}):
+        result = audit_pending_original_k(history=row, active=active, current_policy=policy)
+        assert "PENDING_T300_ACTIVE_IDENTITY_MISMATCH" in result["blockers"]
+    assert (
+        "INVALID_PAPER_OPPORTUNITY_HISTORY"
+        in audit_pending_original_k(history=[], active={}, current_policy=policy)["blockers"]
+    )
 
 
 def test_unmatched_policy_hash_and_wrong_release_are_blocked():

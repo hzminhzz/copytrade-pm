@@ -903,6 +903,8 @@ class ObservedP1Paper:
             "source_book_sha": book["snapshot_sha"],
             "sizing_policy": "FIXED_K_NATIVE_QUANTITY",
             "policy_version": self.policy["version"],
+            "frozen_k": self.policy["fixed_k_by_pod"][alias],
+            "release_sha256": self.policy_sha,
         }
         self.run.record(
             _event(
@@ -1101,7 +1103,7 @@ class ObservedP1Paper:
                 amounts = {key: quote["mid_quote"] for key, quote in quotes.items()}
                 sized = target_from_fixed_k(
                     source_quantities=intent["positions"],
-                    k=Decimal(self.profile.k[pod]),
+                    k=Decimal(intent.get("frozen_k", self.profile.k[pod])),
                     source_marks=amounts,
                     follower_marks=amounts,
                     follower_equity_usd=self.run.account.equity,
@@ -1141,6 +1143,9 @@ class ObservedP1Paper:
                 "sizing_policy": "FIXED_K_NATIVE_QUANTITY",
                 "source_nav_required": False,
             }
+            if intent.get("frozen_k") is not None:
+                payload["frozen_k"] = intent["frozen_k"]
+                payload["release_sha256"] = intent["release_sha256"]
             if self.native_contracts:
                 # Final fresh-source fence after slow PM03/04 calculations.
                 # The source and paper journals remain separate SQLite DBs;
