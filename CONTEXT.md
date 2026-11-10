@@ -45,6 +45,7 @@ Canonical domain meanings. This glossary does not specify implementation or stor
 - **Wallet eligibility**: The current deterministic evidence that a wallet meets configured participation requirements, distinct from evidence that its strategy is economically profitable.
 - **Financial authority**: The system that owns financial state transitions and risk admission for its context; PM-03/04 own simulated research finance, while Guardian independently owns protected production finance.
 - **Scientific qualification**: A separately evidenced result of a specified prospective economic evaluation; not synonymous with valid input, passing engineering tests or a paper run.
+- **Assessment run**: An idempotent transformation of exactly pinned private source/research inputs into an immutable health report. Orchestration retry or completion does not certify the underlying economic evidence or authorize an action.
 - **Agent diagnostic evaluation**: A controlled assessment of whether a research agent correctly interprets available evidence and abstains when it cannot; it is not a test of executable follower profitability.
 - **Quarantined observation**: Received evidence that cannot support current prospective continuity until its affected scope and cause are resolved; quarantine is not proof of a position close or a financial HALT.
 - **Intentional semantic correction**: A declared, independently justified change to previously incorrect future behavior; not permission to rewrite earlier signed historical records.

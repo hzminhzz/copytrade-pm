@@ -12,6 +12,7 @@ actuary = ["numpy>=2.0,<3"]
 source = ["websockets==15.0.1"]
 dashboard = ["polars>=2.0,<3", "starlette>=1.6,<2", "uvicorn>=0.52,<0.53", "httpx>=0.28,<0.30", "httpx2>=2.13,<3"]
 market-stream = ["ccxt==4.5.91"]
+prefect = ["prefect==3.9.2"]  # Opt-in Track B orchestration; never core/source/Guardian
 
 [dependency-groups]
 dev = ["pytest>=8.3", "ruff>=0.8"]
@@ -57,6 +58,7 @@ copytrade-pm-public-observer-unit = "copytrade_pm.pm_forward_public_unit:main"
 copytrade-pm-production-export = "copytrade_pm.production_export:main"
 copytrade-pm-production-manifest = "copytrade_pm.production_manifest:main"
 copytrade-pm-production-economics = "copytrade_pm.production_economics:main"
+copytrade-pm-track-b-prefect = "copytrade_pm.strategy_health_prefect:main"
 
 [build-system]
 requires = ["hatchling"]

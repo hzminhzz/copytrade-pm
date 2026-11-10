@@ -27,6 +27,7 @@ GROUPS = {
         "PROTECTED_MUTATION",
     ),
     "copytrade-pm-production-economics": ("production.economics.cli", "research", "READ_ONLY"),
+    "copytrade-pm-track-b-prefect": ("research.track_b_prefect", "research", "LOCAL_MUTATION"),
     "copytrade-pm-replay": ("historical.replay", "historical", "LOCAL_MUTATION"),
     "copytrade-pm-rank": ("manager.rank", "qualification", "LOCAL_MUTATION"),
     "copytrade-pm-handoff": ("portfolio.handoff", "portfolio", "LOCAL_MUTATION"),
@@ -506,7 +507,11 @@ def inventory(root: Path = ROOT) -> list[dict]:
                 "dependencies": [],
                 "required_arguments": _required_cli_args(module, root),
                 "preflight": [],
-                "documentation": DOCS[family],
+                "documentation": (
+                    "docs/TRACK-B-PREFECT-ORCHESTRATION-20261110.md"
+                    if capability == "research.track_b_prefect"
+                    else DOCS[family]
+                ),
                 "available": _module_available(module, root)
                 and (name not in installed or installed[name] == invocation),
                 "limitations": [

@@ -209,6 +209,19 @@ pinned installed runtime. Browser acceptance runs on the local obscura CDP
 server; verify actual CSS viewport dimensions, because an outer window size can
 silently clamp phone tests.
 
+## Optional Prefect Track B orchestration (owner decision 2026-11-10)
+
+Prefect 3 is opt-in (`--extra prefect`) solely for research-only, bounded
+private Track B health assessment jobs. It must not enter source hot loops,
+producer SQLite, PM03/PM04 finance, Guardian/broker, k release or live Grafana.
+Pin 0600 private original input bytes by SHA, keep no-clobber 0600 reports in
+operator-owned 0700 *nonproduction* staging, and send only sanitized receipt
+identities to the task runner. Prefect retries do not create first-known source
+observations, independent follower economics or scientific qualification.
+No persistent scheduler/server or external Prefect API unless separately
+approved with protected retention, credentials and rollback. See
+[Track B Prefect runbook](docs/TRACK-B-PREFECT-ORCHESTRATION-20261110.md).
+
 ## Engineering merge is not runtime promotion (owner decision 2026-11-10)
 
 Treat Git integration and operational authorization as independent decisions.
