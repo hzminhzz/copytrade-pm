@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily opt-in SHA-pinned Track B Prefect private research batch
+
+[Timer]
+OnCalendar=*-*-* 04:20:00 UTC
+RandomizedDelaySec=10m
+Persistent=true
+Unit=copytrade-track-b-prefect.service
+
+[Install]
+WantedBy=timers.target

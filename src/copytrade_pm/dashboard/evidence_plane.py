@@ -498,6 +498,37 @@ def publish_health_bridge(directory: Path, source: Path, *, now: datetime) -> bo
     return True
 
 
+def publish_strategy_health_bridge(directory: Path, source: Path, *, now: datetime) -> bool:
+    """Read and revalidate only a redacted, time-bounded strategy snapshot.
+
+    Never import the original assessment, keys, source journal or PM03 finance.
+    The separately signed original publication binding remains an offline
+    release prerequisite; this bridge cannot authenticate original economics.
+    """
+    from copytrade_pm.strategy_health_projection import MAX_SIZE as STRATEGY_MAX
+    from copytrade_pm.strategy_health_projection import read as verify_strategy
+
+    path = source / "strategy-health.json"
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        return False
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= STRATEGY_MAX:
+            raise EvidenceInvalid("INVALID_STRATEGY_SOURCE_FILE")
+        raw = os.read(fd, STRATEGY_MAX + 1)
+        if len(raw) != info.st_size:
+            raise EvidenceInvalid("CHANGED_STRATEGY_SOURCE_FILE")
+    finally:
+        os.close(fd)
+    verified = verify_strategy(source, now=now)
+    if json.loads(raw).get("generation_sha256") != verified["generation_sha256"]:
+        raise EvidenceInvalid("STRATEGY_SOURCE_CHANGED_BETWEEN_READS")
+    publish_atomic(directory, raw, name="strategy-health.json")
+    return True
+
+
 def main() -> None:
     import argparse
 
@@ -525,6 +556,11 @@ def main() -> None:
             except Exception as exc:
                 # A bad health file must not affect the existing risk publisher.
                 print(f"WALLET_HEALTH_PUBLICATION_FAILED:{type(exc).__name__}", flush=True)
+        if args.health_source is not None:
+            try:
+                publish_strategy_health_bridge(args.dir, args.health_source, now=_utc_now())
+            except Exception as exc:
+                print(f"STRATEGY_HEALTH_PUBLICATION_FAILED:{type(exc).__name__}", flush=True)
         if args.once:
             break
         time.sleep(args.interval)
