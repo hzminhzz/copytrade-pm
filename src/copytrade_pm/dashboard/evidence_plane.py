@@ -270,7 +270,7 @@ def encode_generation(projection: dict, *, now: datetime | None = None) -> bytes
 
 def publish_atomic(directory: Path, payload: bytes, *, name: str = "account-risk.json") -> None:
     """Only the publisher has a writable mount; committed snapshots replace atomically."""
-    if name not in {"account-risk.json", "fixture-states.json"}:
+    if name not in {"account-risk.json", "fixture-states.json", "wallet-health.json"}:
         raise EvidenceInvalid("UNAPPROVED_OUTPUT_NAME")
     if len(payload) > MAX_SIZE:
         raise EvidenceInvalid("PUBLISHED_EVIDENCE_TOO_LARGE")

@@ -37,6 +37,8 @@ from .pm_vike_minute import EstimatedMinuteExecutionModel
 
 SCHEMA = "pm_v4_wallet_screen_job_v2"
 REPORT = "pm_v4_wallet_screen_report_v2"
+RETRO_SCHEMA = "pm_v4_retrospective_k_job_v3"
+RETRO_REPORT = "pm_v4_retrospective_k_screen_report_v3"
 POLICY = "V4_HISTORICAL_ORACLE_FIXED_K_NATIVE_1M_PROXY_V1"
 SCENARIOS = ("BASE", "DELAYED", "ADVERSE")
 MINUTE = 60_000
@@ -115,11 +117,10 @@ def _job(job: dict) -> dict:
     }
     if not isinstance(job, dict) or set(job) != required:
         raise ManifestInvalid("INVALID_V4_SCREEN_MANIFEST")
-    if (
-        job["schema"] != SCHEMA
-        or job["kind"] != "V4_HISTORICAL_WALLET_SCREEN"
-        or job["clock_basis"] != "HISTORICAL_ORACLE"
-    ):
+    if (job["schema"], job["kind"]) not in {
+        (SCHEMA, "V4_HISTORICAL_WALLET_SCREEN"),
+        (RETRO_SCHEMA, "V4_RETROSPECTIVE_TRAINED_K_SCREEN"),
+    } or job["clock_basis"] != "HISTORICAL_ORACLE":
         raise ManifestInvalid("INVALID_V4_SCREEN_POLICY")
     if (
         not isinstance(job["study_id"], str)
@@ -145,6 +146,113 @@ def _job(job: dict) -> dict:
     return job
 
 
+RETRO_MODEL = {
+    "risk_budget_usd": "200",
+    "stress_move_fraction": "0.2",
+    "max_k": "1",
+    "min_observation_days": 7,
+    "min_snapshots": 24,
+}
+
+
+def _validate_market_rules(markets: object) -> None:
+    if not isinstance(markets, dict):
+        raise ManifestInvalid("INVALID_V4_MARKET_RULES")
+    for market, rule in markets.items():
+        try:
+            if native_instrument(":".join(market.split(":")[3:])) != market:
+                raise ValueError
+        except (AttributeError, ValueError, ManifestInvalid) as exc:
+            raise ManifestInvalid("INVALID_V4_MARKET_IDENTITY") from exc
+        if not isinstance(rule, dict) or set(rule) != {"step", "minimum_notional", "max_notional"}:
+            raise ManifestInvalid("INVALID_V4_MARKET_RULE")
+        if any(_num(rule[key]) is None or _num(rule[key]) <= 0 for key in rule):
+            raise ManifestInvalid("INVALID_V4_MARKET_RULE")
+
+
+def _retro_policy(doc: object, job: dict) -> dict:
+    """A post-window computed training policy, never an August signed release."""
+    if (
+        not isinstance(doc, dict)
+        or set(doc)
+        != {
+            "schema",
+            "training_start",
+            "training_end",
+            "generated_at",
+            "model",
+            "vike_training_aggregates_sha256",
+            "wallets",
+            "markets",
+        }
+        or doc["schema"] != "v4_screen_retrospective_k_policy_v1"
+    ):
+        raise ManifestInvalid("INVALID_V4_RETROSPECTIVE_POLICY")
+    begin, cutoff, created = (
+        _clock(doc[key]) for key in ("training_start", "training_end", "generated_at")
+    )
+    if not begin < cutoff <= _clock(job["start"]):
+        raise ManifestBlocked("RETRO_TRAINING_OVERLAPS_EVALUATION")
+    if created <= _clock(job["start"]) or created < cutoff:
+        raise ManifestBlocked("RETRO_CALIBRATION_CREATION_MISLABELED")
+    if doc["model"] != RETRO_MODEL:
+        raise ManifestInvalid("INVALID_V4_RETROSPECTIVE_RISK_MODEL")
+    if (
+        not isinstance(doc["vike_training_aggregates_sha256"], str)
+        or len(doc["vike_training_aggregates_sha256"]) != 64
+        or any(c not in SHA for c in doc["vike_training_aggregates_sha256"])
+    ):
+        raise ManifestInvalid("INVALID_V4_RETROSPECTIVE_SOURCE_SHA")
+    wallets = doc["wallets"]
+    if not isinstance(wallets, dict):
+        raise ManifestInvalid("INVALID_V4_RETROSPECTIVE_WALLETS")
+    for account, record in wallets.items():
+        if not isinstance(account, str) or len(account) != 64 or any(c not in SHA for c in account):
+            raise ManifestInvalid("INVALID_V4_RETROSPECTIVE_ACCOUNT")
+        if not isinstance(record, dict) or set(record) != {
+            "k",
+            "max_observed_gross_usd",
+            "observation_days",
+            "snapshots",
+            "first_observed_at",
+            "last_observed_at",
+            "evidence_sha256",
+        }:
+            raise ManifestInvalid("INVALID_V4_RETROSPECTIVE_WALLET_PROOF")
+        if (
+            type(record["observation_days"]) is not int
+            or record["observation_days"] < RETRO_MODEL["min_observation_days"]
+            or type(record["snapshots"]) is not int
+            or record["snapshots"] < RETRO_MODEL["min_snapshots"]
+            or len(record["evidence_sha256"]) != 64
+            or any(c not in SHA for c in record["evidence_sha256"])
+        ):
+            raise ManifestBlocked("RETRO_TRAINING_EVIDENCE_INSUFFICIENT")
+        if not (
+            begin
+            <= _clock(record["first_observed_at"])
+            <= _clock(record["last_observed_at"])
+            < cutoff
+        ):
+            raise ManifestBlocked("RETRO_TRAINING_TIMESTAMP_LEAKAGE")
+        try:
+            gross = Decimal(str(record["max_observed_gross_usd"]))
+            k = Decimal(str(record["k"]))
+        except (ValueError, TypeError, InvalidOperation) as exc:
+            raise ManifestInvalid("INVALID_V4_RETROSPECTIVE_NUMERIC") from exc
+        if not gross.is_finite() or gross <= 0 or not k.is_finite() or k <= 0:
+            raise ManifestInvalid("INVALID_V4_RETROSPECTIVE_NUMERIC")
+        expected = min(
+            Decimal(RETRO_MODEL["max_k"]),
+            Decimal(RETRO_MODEL["risk_budget_usd"])
+            / (Decimal(RETRO_MODEL["stress_move_fraction"]) * gross),
+        )
+        if abs(k - expected) > Decimal("0.000000000001"):
+            raise ManifestBlocked("RETRO_K_NOT_PRESPECIFIED_RISK_FUNCTION")
+    _validate_market_rules(doc["markets"])
+    return doc
+
+
 def _policy(root: Path, job: dict) -> tuple[dict, str]:
     path = _safe_file(root, job["k_policy_path"])
     raw = path.read_bytes()
@@ -154,6 +262,8 @@ def _policy(root: Path, job: dict) -> tuple[dict, str]:
         doc = json.loads(raw)
     except ValueError as exc:
         raise ManifestInvalid("INVALID_V4_FROZEN_K_POLICY") from exc
+    if job["schema"] == RETRO_SCHEMA:
+        return _retro_policy(doc, job), _sha(raw)
     if (
         not isinstance(doc, dict)
         or set(doc) != {"schema", "asof", "wallets", "markets"}
@@ -736,7 +846,7 @@ def run_v4_screen(
         )
     )
     results = {
-        "schema": REPORT,
+        "schema": RETRO_REPORT if job["schema"] == RETRO_SCHEMA else REPORT,
         "job_kind": job["kind"],
         "job_id": job["study_id"],
         "clock_basis": "HISTORICAL_ORACLE_PROXY_NOT_FIRST_KNOWN",
@@ -800,6 +910,19 @@ def run_v4_screen(
             and r["scenarios"]["BASE"]["estimated_complete_episodes"] > 0
         ],
     }
+    if job["schema"] == RETRO_SCHEMA:
+        results.update(
+            {
+                "status": "RETROSPECTIVE_OOS_RESEARCH_ONLY_NOT_HISTORICAL_RELEASE",
+                "k_provenance_class": "COMPUTED_AFTER_OOS_FROM_PREWINDOW_VIKE_DATA",
+                "training_window_start": policy["training_start"],
+                "training_window_end_exclusive": policy["training_end"],
+                "calibrated_at": policy["generated_at"],
+                "policy_method": policy["model"],
+                "historical_signed_k_release_claimed": False,
+                "market_rules": "RESEARCH_PROXY_NOT_ASOF_EXCHANGE_PRECISION",
+            }
+        )
     encoded = _json_bytes(results)
     software_sha = _sha(
         b"".join(
@@ -819,7 +942,7 @@ def run_v4_screen(
     published = ImmutableCache(
         cache_root, max_object_bytes=64 * 1024 * 1024, min_free_bytes=1024 * 1024 * 1024
     ).publish(
-        "v4_screen_report",
+        "v4_retro_screen_report" if job["schema"] == RETRO_SCHEMA else "v4_screen_report",
         {
             "source": source_sha,
             "policy": policy_sha,
@@ -828,7 +951,7 @@ def run_v4_screen(
             "job": _sha(_json_bytes(job)),
             "scenarios": _sha(_json_bytes({"items": scenarios})),
         },
-        version=REPORT,
+        version=RETRO_REPORT if job["schema"] == RETRO_SCHEMA else REPORT,
         content=encoded,
     )
     return {

@@ -100,7 +100,10 @@ def run_offline_job(
         raise ManifestInvalid("OVERSIZED_RESEARCH_JOB")
     try:
         raw_job = json.loads(jobfile.read_bytes())
-        if isinstance(raw_job, dict) and raw_job.get("schema") == "pm_v4_wallet_screen_job_v2":
+        if isinstance(raw_job, dict) and raw_job.get("schema") in {
+            "pm_v4_wallet_screen_job_v2",
+            "pm_v4_retrospective_k_job_v3",
+        }:
             from .pm_v4_fast_screen import _job as inspect_v4, run_from_manifest
 
             return run_from_manifest(

@@ -38,6 +38,10 @@ class SerialWriter:
         self.queue = asyncio.Queue(max_pending)
         self.failed = None
         self.high_water = 0
+        self.write_count = 0
+        self.write_failures = 0
+        self.write_max_ms = 0.0
+        self.write_total_ms = 0.0
         self.task = None
 
     async def __aenter__(self):
@@ -54,9 +58,11 @@ class SerialWriter:
                 if self.failed is not None:
                     future.set_exception(self.failed)
                     continue
+                started = monotonic()
                 try:
                     result = await asyncio.to_thread(function)
                 except Exception as exc:
+                    self.write_failures += 1
                     if isinstance(exc, (OSError, sqlite3.Error)) or (
                         isinstance(exc, ValueError)
                         and any(
@@ -72,6 +78,11 @@ class SerialWriter:
                     future.set_exception(exc)
                 else:
                     future.set_result(result)
+                finally:
+                    elapsed_ms = (monotonic() - started) * 1000
+                    self.write_count += 1
+                    self.write_total_ms += elapsed_ms
+                    self.write_max_ms = max(self.write_max_ms, elapsed_ms)
             finally:
                 self.queue.task_done()
 

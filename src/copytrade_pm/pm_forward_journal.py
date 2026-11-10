@@ -15,6 +15,7 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+from time import monotonic, sleep
 from typing import Iterator
 
 from .pm03_account import Account, RiskState, Rulebook, clock, digest, number
@@ -40,6 +41,10 @@ class PaperJournal:
         if self.path.is_symlink():
             raise ValueError("PAPER_JOURNAL_SYMLINK")
         self._lock_path = self.root / "paper-events.lock"
+        # WAL is persistent database configuration. Negotiate it once during
+        # initialization, never on each receipt while independent readers hold
+        # snapshots. Repeated journal_mode=WAL requests need exclusive locks.
+        self._configure_wal = True
         with self._writer() as db:
             db.executescript(
                 """
@@ -210,27 +215,59 @@ class PaperJournal:
                 """
             )
             db.executescript(STREAM_SCHEMA)
+        self._configure_wal = False
         os.chmod(self.path, 0o600)
 
     @contextmanager
     def _writer(self) -> Iterator[sqlite3.Connection]:
         fd = os.open(self._lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+        db = None
         try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            # The exclusive writer lease remains nonblocking. A short SQLite
-            # wait tolerates WAL open/close transitions caused by independent
-            # read-only verifiers; it does not permit a second lease owner.
-            db = sqlite3.connect(self.path, timeout=1, isolation_level=None)
+            # A second process is never allowed to become a journal writer.
+            # Do not retry the filesystem lease: this is an ownership conflict.
             try:
-                db.execute("PRAGMA journal_mode=WAL")
-                db.execute("PRAGMA synchronous=FULL")
-                db.execute("PRAGMA foreign_keys=ON")
-                yield db
-            finally:
-                db.close()
-        except (BlockingIOError, sqlite3.OperationalError) as exc:
-            raise ValueError("PAPER_JOURNAL_BUSY_OR_UNAVAILABLE") from exc
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as exc:
+                raise ValueError("PAPER_JOURNAL_BUSY_OR_UNAVAILABLE:LEASE_HELD") from exc
+
+            # Retry only connection setup and busy/locked PRAGMA acquisition.
+            # No application transaction or source receipt exists yet, so
+            # retrying cannot duplicate a committed financial/source effect.
+            deadline = monotonic() + 2.0
+            while True:
+                try:
+                    db = sqlite3.connect(self.path, timeout=0.25, isolation_level=None)
+                    mode = db.execute("PRAGMA journal_mode").fetchone()
+                    if mode != ("wal",):
+                        if self._configure_wal:
+                            if db.execute("PRAGMA journal_mode=WAL").fetchone() != ("wal",):
+                                raise ValueError("PAPER_JOURNAL_WAL_NOT_CONFIGURED")
+                        else:
+                            raise ValueError("PAPER_JOURNAL_WAL_NOT_CONFIGURED")
+                    db.execute("PRAGMA synchronous=FULL")
+                    db.execute("PRAGMA foreign_keys=ON")
+                    break
+                except sqlite3.OperationalError as exc:
+                    if db is not None:
+                        db.close()
+                        db = None
+                    code = getattr(exc, "sqlite_errorcode", None)
+                    transient = code is not None and (code & 0xFF) in (
+                        sqlite3.SQLITE_BUSY,
+                        sqlite3.SQLITE_LOCKED,
+                    )
+                    if not transient:
+                        raise ValueError("PAPER_JOURNAL_SQLITE_PERMANENT") from exc
+                    if monotonic() >= deadline:
+                        raise ValueError("PAPER_JOURNAL_SQLITE_CONTENTION_EXHAUSTED") from exc
+                    sleep(min(0.05, max(0.0, deadline - monotonic())))
+            # Errors after entering the caller's transaction must propagate
+            # unchanged. A failed COMMIT is ambiguous until durable replay;
+            # blindly repeating the callback could create a duplicate T0.
+            yield db
         finally:
+            if db is not None:
+                db.close()
             fcntl.flock(fd, fcntl.LOCK_UN)
             os.close(fd)
 
