@@ -38,16 +38,17 @@ def test_formatting_change_has_distinct_raw_evidence_but_no_transition(tmp_path)
     assert observe(source, 1, "20.0")["classification"] == "UNCHANGED_STATE"
     assert source.checkpoint["economic_sha"] == before["economic_sha"]
     assert source.checkpoint["semantic_sha"] != before["semantic_sha"]
-    assert journal.source_status("test")["cursor"] == 2
+    assert journal.source_status("test")["cursor"] == 1
     assert verify_streams(journal.path)["streams"]["account:test"]["observation_count"] == 0
     assert observe(source, 2, "21")["classification"] == "OBSERVED_STATE_CHANGE"
+    assert journal.source_status("test")["cursor"] == 2
 
 
 def test_same_clock_format_change_is_not_a_conflicting_position(tmp_path):
     source, journal = account(tmp_path)
     observe(source, 0, "20")
     assert observe(source, 0, "20.000")["classification"] == "UNCHANGED_STATE"
-    assert journal.source_status("test")["cursor"] == 2
+    assert journal.source_status("test")["cursor"] == 1
 
 
 def test_equal_reopened_state_has_distinct_committed_identity(tmp_path):

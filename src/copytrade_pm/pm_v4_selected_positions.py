@@ -109,6 +109,7 @@ def official_accounts(
             subaccounts=None,
             parent_alias=alias,
             scope_sha=scope_sha,
+            compact_evidence=True,
         )
         for alias, address in parents.items()
     }

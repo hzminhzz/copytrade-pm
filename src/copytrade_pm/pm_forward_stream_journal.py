@@ -35,6 +35,33 @@ CREATE TABLE IF NOT EXISTS observer_stream_events (
     PRIMARY KEY(stream_id, seq),
     UNIQUE(stream_id, event_sha)
 );
+CREATE INDEX IF NOT EXISTS observer_stream_interruptions_idx
+ON observer_stream_events(stream_id, seq)
+WHERE json_extract(payload, '$.kind') IN ('GAP','BASELINE','SCOPE');
+CREATE TABLE IF NOT EXISTS observer_source_locator_coverage (
+    stream_id TEXT PRIMARY KEY,
+    verified_through INTEGER NOT NULL CHECK (verified_through >= 0)
+);
+CREATE TABLE IF NOT EXISTS observer_source_health (
+    stream_id TEXT PRIMARY KEY,
+    epoch TEXT NOT NULL,
+    validated_at TEXT NOT NULL,
+    source_event_at TEXT NOT NULL,
+    dex_clocks TEXT NOT NULL,
+    position_sha TEXT NOT NULL,
+    transport TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS observer_source_locators (
+    source_id TEXT NOT NULL,
+    receipt_id TEXT NOT NULL,
+    receipt_sha TEXT NOT NULL,
+    stream_id TEXT NOT NULL,
+    event_seq INTEGER NOT NULL,
+    PRIMARY KEY(source_id, receipt_id, receipt_sha),
+    UNIQUE(stream_id, event_seq, source_id, receipt_id),
+    FOREIGN KEY(stream_id, event_seq)
+        REFERENCES observer_stream_events(stream_id, seq)
+);
 """
 KINDS = frozenset(
     {
@@ -68,9 +95,12 @@ def stream_event(
     source_at: str | None = None,
     raw_sha: str | None = None,
     details: dict | None = None,
+    compact_v2: bool = False,
 ) -> dict:
     result = {
-        "schema": "paper_observer_stream_event_v1",
+        "schema": "paper_observer_stream_event_v2"
+        if compact_v2
+        else "paper_observer_stream_event_v1",
         "stream_id": stream_id,
         "epoch": epoch,
         "kind": kind,
@@ -91,7 +121,8 @@ def stream_event(
 def validate_event(event: dict) -> None:
     if (
         not isinstance(event, dict)
-        or event.get("schema") != "paper_observer_stream_event_v1"
+        or event.get("schema")
+        not in ("paper_observer_stream_event_v1", "paper_observer_stream_event_v2")
         or event.get("kind") not in KINDS
         or not isinstance(event.get("stream_id"), str)
         or re.fullmatch(r"[A-Za-z0-9_:./-]{1,256}", event["stream_id"]) is None
@@ -117,6 +148,17 @@ def validate_event(event: dict) -> None:
         or re.fullmatch(r"[0-9a-f]{64}", event["raw_sha"]) is None
     ):
         raise ValueError("STREAM_RAW_SHA_INVALID")
+    if event["schema"] == "paper_observer_stream_event_v2":
+        details = event["details"]
+        if (
+            event["kind"] not in ("BASELINE", "OBSERVATION")
+            or details.get("native_wire_ref") != event.get("raw_sha")
+            or not isinstance(details.get("native_frame_sha"), str)
+            or re.fullmatch(r"[0-9a-f]{64}", details["native_frame_sha"]) is None
+            or details.get("native_wire") is not None
+            or details.get("native_frame") is not None
+        ):
+            raise ValueError("STREAM_V2_EVIDENCE_REFERENCE_INVALID")
     wire = event["details"].get("native_wire")
     if wire is not None:
         from hashlib import sha256
@@ -242,7 +284,85 @@ def append_checkpoint(db: sqlite3.Connection, event: dict | None, refs: list[dic
         "INSERT INTO observer_stream_events VALUES (?,?,?,?,?,?,?,?)",
         (sid, seq, event_sha, _json(event), _json(refs), previous, chain, committed_at),
     )
+    for ref in refs:
+        if ref["kind"] == "source":
+            db.execute(
+                "INSERT INTO observer_source_locators VALUES (?,?,?,?,?)",
+                (ref["key"][0], ref["key"][1], ref["sha"], sid, seq),
+            )
+    # A legacy stream has no coverage marker until a separately verified
+    # migration. Never declare its old receipts indexed from one new append.
+    if head["cursor"] == 0:
+        db.execute("INSERT OR IGNORE INTO observer_source_locator_coverage VALUES (?,0)", (sid,))
+    db.execute(
+        "UPDATE observer_source_locator_coverage SET verified_through=? "
+        "WHERE stream_id=? AND verified_through=?",
+        (seq, sid, head["cursor"]),
+    )
     return {"cursor": seq, "chain_sha": chain, "status": "STREAM_COMMITTED"}
+
+
+def backfill_verified_source_locators(path: Path, *, quiescence_verified: bool = False) -> dict:
+    """Offline, additive v1 index migration; preserves every original hash.
+
+    Requires operator-verified quiescence and a restored, independently verified
+    backup. Never call on an active source journal. A full-chain audit precedes
+    and follows the transaction; a failed row check rolls back all locators.
+    """
+    if not quiescence_verified:
+        raise ValueError("STREAM_LOCATOR_BACKFILL_REQUIRES_QUIESCENCE")
+    before = verify_streams(path)
+    written = 0
+    with closing(sqlite3.connect(path, timeout=1.0)) as db:
+        db.execute("PRAGMA foreign_keys=ON")
+        # Upgrade previously created v1 journals without rewriting any old
+        # source/stream evidence. Metadata DDL is safe to retry after failure.
+        db.executescript(SCHEMA)
+        db.execute("BEGIN IMMEDIATE")
+        try:
+            # This migration is additive on previously initialized journals.
+            for sid, stream in sorted(before["streams"].items()):
+                for seq, raw_refs in db.execute(
+                    "SELECT seq,receipt_refs FROM observer_stream_events "
+                    "WHERE stream_id=? ORDER BY seq",
+                    (sid,),
+                ):
+                    refs = json.loads(raw_refs)
+                    for ref in refs:
+                        if ref["kind"] != "source":
+                            continue
+                        _receipt(db, ref)
+                        values = (ref["key"][0], ref["key"][1], ref["sha"], sid, seq)
+                        existing = db.execute(
+                            "SELECT source_id,receipt_id,receipt_sha,stream_id,event_seq "
+                            "FROM observer_source_locators "
+                            "WHERE source_id=? AND receipt_id=? AND receipt_sha=?",
+                            values[:3],
+                        ).fetchone()
+                        if existing is not None and tuple(existing) != values:
+                            raise ValueError("STREAM_LOCATOR_BACKFILL_CONFLICT")
+                        if existing is None:
+                            db.execute(
+                                "INSERT INTO observer_source_locators VALUES (?,?,?,?,?)", values
+                            )
+                            written += 1
+                db.execute(
+                    "INSERT INTO observer_source_locator_coverage VALUES (?,?) "
+                    "ON CONFLICT(stream_id) DO UPDATE SET verified_through=excluded.verified_through",
+                    (sid, stream["cursor"]),
+                )
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+    after = verify_streams(path)
+    if before["head_sha"] != after["head_sha"]:
+        raise ValueError("STREAM_LOCATOR_BACKFILL_CHANGED_EVIDENCE")
+    return {
+        "status": "VERIFIED_ADDITIVE_ONLY",
+        "indexed_receipts": written,
+        "original_stream_head_sha": before["head_sha"],
+    }
 
 
 def read_stream_head(path: Path, stream_id: str) -> dict:
@@ -250,6 +370,34 @@ def read_stream_head(path: Path, stream_id: str) -> dict:
         db.execute("PRAGMA query_only=ON")
         db.execute("BEGIN")
         return _head(db, stream_id)
+
+
+def _verified_frame_sha(db: sqlite3.Connection, event: dict) -> str:
+    """Resolve raw original proof without trusting an index or hash-only claim."""
+    if event.get("schema") != "paper_observer_stream_event_v2":
+        return digest(event.get("details", {}).get("native_frame"))
+    from .pm_v4_evidence import read_wire
+
+    db_file = db.execute("PRAGMA database_list").fetchone()[2]
+    if not db_file:
+        raise ValueError("V4_EVIDENCE_DATABASE_PATH_MISSING")
+    raw_sha = event.get("raw_sha")
+    details = event["details"]
+    raw = read_wire(Path(db_file), raw_sha)
+
+    def reject_duplicates(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("V4_EVIDENCE_DUPLICATE_JSON_FIELD")
+            result[key] = value
+        return result
+
+    parsed = json.loads(raw, object_pairs_hook=reject_duplicates)
+    verified = digest(parsed)
+    if verified != details.get("native_frame_sha"):
+        raise ValueError("V4_EVIDENCE_NATIVE_FRAME_HASH_MISMATCH")
+    return verified
 
 
 def verify_official_position_transition(
@@ -276,21 +424,63 @@ def verify_official_position_transition(
         return False
     sid = "account:" + alias
     try:
-        matches = db.execute(
-            "SELECT e.seq,e.event_sha,e.payload,e.receipt_refs,e.prior_sha,"
-            "e.chain_sha,e.committed_at FROM observer_stream_events e "
-            "WHERE e.stream_id=? AND EXISTS ("
-            "SELECT 1 FROM json_each(e.receipt_refs) r WHERE "
-            "json_extract(r.value,'$.kind')='source' AND "
-            "json_extract(r.value,'$.key[0]')=? AND "
-            "json_extract(r.value,'$.key[1]')=? AND "
-            "json_extract(r.value,'$.sha')=?)",
-            (sid, alias, receipt_id, receipt_sha),
-        ).fetchall()
+        indexed = db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='observer_source_locators'"
+        ).fetchone()
+        coverage = (
+            db.execute(
+                "SELECT verified_through FROM observer_source_locator_coverage WHERE stream_id=?",
+                (sid,),
+            ).fetchone()
+            if indexed
+            and db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' "
+                "AND name='observer_source_locator_coverage'"
+            ).fetchone()
+            else None
+        )
+        head_cursor = db.execute(
+            "SELECT cursor FROM observer_stream_heads WHERE stream_id=?", (sid,)
+        ).fetchone()
+        if (
+            indexed
+            and coverage is not None
+            and head_cursor is not None
+            and coverage[0] == head_cursor[0]
+        ):
+            matches = db.execute(
+                "SELECT e.seq,e.event_sha,e.payload,e.receipt_refs,e.prior_sha,"
+                "e.chain_sha,e.committed_at FROM observer_source_locators l "
+                "JOIN observer_stream_events e "
+                "ON e.stream_id=l.stream_id AND e.seq=l.event_seq "
+                "WHERE l.stream_id=? AND l.source_id=? AND l.receipt_id=? "
+                "AND l.receipt_sha=?",
+                (sid, alias, receipt_id, receipt_sha),
+            ).fetchall()
+        else:
+            # Historical read-only v1 journals have not been indexed yet.
+            matches = db.execute(
+                "SELECT e.seq,e.event_sha,e.payload,e.receipt_refs,e.prior_sha,"
+                "e.chain_sha,e.committed_at FROM observer_stream_events e "
+                "WHERE e.stream_id=? AND EXISTS ("
+                "SELECT 1 FROM json_each(e.receipt_refs) r WHERE "
+                "json_extract(r.value,'$.kind')='source' AND "
+                "json_extract(r.value,'$.key[0]')=? AND "
+                "json_extract(r.value,'$.key[1]')=? AND "
+                "json_extract(r.value,'$.sha')=?)",
+                (sid, alias, receipt_id, receipt_sha),
+            ).fetchall()
         if len(matches) != 1:
             return False
         seq, event_sha, payload, refs, prior, chain, committed_at = matches[0]
         event, receipt_refs = json.loads(payload), json.loads(refs)
+        if not any(
+            ref.get("kind") == "source"
+            and ref.get("key") == [alias, receipt_id]
+            and ref.get("sha") == receipt_sha
+            for ref in receipt_refs
+        ):
+            return False
         if (
             digest(event) != event_sha
             or chain != digest([sid, seq, event_sha, prior, committed_at, receipt_refs])
@@ -298,9 +488,10 @@ def verify_official_position_transition(
             or event.get("epoch") != receipt["stream_epoch"]
             or event.get("first_known_at") != receipt.get("first_known_at")
             or event.get("source_event_at") != receipt.get("source_event_at")
-            or digest(event.get("details", {}).get("native_frame")) != receipt.get("source_sha")
+            or _verified_frame_sha(db, event) != receipt.get("source_sha")
             or (
-                event.get("details", {}).get("native_wire") is None
+                event.get("schema") == "paper_observer_stream_event_v1"
+                and event.get("details", {}).get("native_wire") is None
                 and event.get("raw_sha") != receipt.get("source_sha")
             )
             or event.get("details", {}).get("classification") != "OBSERVED_STATE_CHANGE"
@@ -357,6 +548,7 @@ class StreamProgress:
         source_at: str | None = None,
         raw_sha: str | None = None,
         details: dict | None = None,
+        compact_v2: bool = False,
     ) -> dict:
         return stream_event(
             stream_id=self.stream_id,
@@ -368,6 +560,7 @@ class StreamProgress:
             source_at=source_at,
             raw_sha=raw_sha,
             details=details,
+            compact_v2=compact_v2,
         )
 
     def commit(self, event: dict, append=None) -> dict:
@@ -405,6 +598,8 @@ def verify_streams(path: Path) -> dict:
                 ordinal, sha, raw, raw_refs, prior, chain, at = row
                 event, refs = json.loads(raw), json.loads(raw_refs)
                 validate_event(event)
+                if event["schema"] == "paper_observer_stream_event_v2":
+                    _verified_frame_sha(db, event)
                 known, committed = clock(event["first_known_at"]), clock(at)
                 seq += 1
                 if (

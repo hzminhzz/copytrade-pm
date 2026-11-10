@@ -1141,6 +1141,37 @@ class ObservedP1Paper:
                 "sizing_policy": "FIXED_K_NATIVE_QUANTITY",
                 "source_nav_required": False,
             }
+            if self.native_contracts:
+                # Final fresh-source fence after slow PM03/04 calculations.
+                # The source and paper journals remain separate SQLite DBs;
+                # this cannot provide a cross-database atomic commit.
+                with closing(_readonly(self.source_db)) as final_db:
+                    current_source = _read_source(final_db, pod, intent["source_seq"])
+                    still_valid = (
+                        current_source is not None
+                        and verify_official_position_transition(
+                            final_db,
+                            alias=pod,
+                            receipt_id=current_source["receipt_id"],
+                            receipt_sha=current_source["sha"],
+                            receipt=current_source["receipt"],
+                            require_current_positions=True,
+                        )
+                    )
+                if not still_valid:
+                    self.run.record(
+                        _event(
+                            self.run,
+                            "PM04_PAPER_SOURCE_GAP",
+                            "gap_" + intent_id,
+                            at,
+                            intent["first_known_at"],
+                            {"pod": pod, "intent_id": intent_id},
+                            first_known_at=intent["first_known_at"],
+                        )
+                    )
+                    outcome[pod] = "CANCELED_SOURCE_GAP"
+                    continue
             self.run.record(
                 _event(
                     self.run,
@@ -1183,7 +1214,9 @@ class ObservedP1Paper:
         prior_positions = {key.key: qty for key, qty in self.run.account.quantities.items() if qty}
         results: dict[str, str] = {}
         with closing(_readonly(self.source_db)) as db:
-            db.execute("BEGIN")
+            # Avoid pinning the source WAL while PM03/04 appends to its own
+            # financial ledger. Every SELECT completes its own short read;
+            # terminal attempts separately revalidate against a fresh view.
             try:
                 source_gap_results = self._cancel_disconnected_entries(db, at)
                 for alias in self.members:
@@ -1265,7 +1298,8 @@ class ObservedP1Paper:
                     except ValueError as exc:
                         tick_status = "BLOCKED_PAPER_MARK:" + str(exc)
             finally:
-                db.execute("ROLLBACK")
+                if db.in_transaction:
+                    db.execute("ROLLBACK")
         acct = self.run.account
         current_positions = {key.key: qty for key, qty in acct.quantities.items() if qty}
         position_deltas = {

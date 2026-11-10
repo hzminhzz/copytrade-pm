@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from contextlib import closing
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 import json
 from pathlib import Path
 import re
+import sqlite3
 from time import monotonic
 from typing import Any, Callable
 
@@ -156,21 +158,32 @@ class PersistentAccount:
         subaccounts: object,
         parent_alias: str,
         scope_sha: str,
+        compact_evidence: bool = False,
     ):
         if ADDRESS.fullmatch(address) is None:
             raise ValueError("SOURCE_PUBLIC_WALLET_ADDRESS_INVALID")
         self.journal, self.alias, self.address = journal, alias, address.lower()
         self.dex_catalog, self.subaccounts = dex_catalog, subaccounts
         self.parent_alias, self.scope_sha = parent_alias, scope_sha
+        self.compact_evidence = compact_evidence
         self.progress = StreamProgress(journal, "account:" + alias)
         self.account_scope_sha = self.progress.checkpoint.get(
             "account_scope_sha", digest(["selected_perp_scope_v2", self.address])
         )
         self.epoch = None
+        # Validated but economically unchanged observations must not advance
+        # immutable source receipts or stream hash heads. This projection is
+        # intentionally lost on restart/reconnect, which requires a baseline.
+        self._volatile_checkpoint: dict | None = None
+        self._next_health_write = monotonic() + 30.0
 
     @property
     def checkpoint(self) -> dict:
-        state = self.progress.checkpoint
+        state = (
+            dict(self._volatile_checkpoint)
+            if self._volatile_checkpoint is not None
+            else self.progress.checkpoint
+        )
         if self.epoch is None:
             state["baseline_valid"] = False
         return state
@@ -179,6 +192,7 @@ class PersistentAccount:
         from uuid import uuid4
 
         epoch = uuid4().hex
+        self._volatile_checkpoint = None
         state = {
             **self.checkpoint,
             "baseline_valid": False,
@@ -227,6 +241,7 @@ class PersistentAccount:
                 SourceObservationRejected(reason),
             )
             return {"status": "SOURCE_QUARANTINED", "order_route": "NONE"}
+        self._volatile_checkpoint = None
         state = {
             **self.checkpoint,
             "baseline_valid": False,
@@ -264,6 +279,7 @@ class PersistentAccount:
             if re.fullmatch(r"[0-9a-f]{64}", contract_generation) is None:
                 raise ValueError("SOURCE_SCOPE_GENERATION_INVALID")
             if contract_generation != self.account_scope_sha:
+                self._volatile_checkpoint = None
                 state = {
                     **self.checkpoint,
                     "baseline_valid": False,
@@ -284,6 +300,8 @@ class PersistentAccount:
         self.dex_catalog, self.scope_sha = dex_catalog, observer_generation
 
     def _quarantine(self, frame, known_at, raw_sha, raw_text, rejected) -> None:
+        # Any rejected frame fences previously accepted volatile continuity.
+        self._volatile_checkpoint = None
         state = self.checkpoint
         count = state.get("consecutive_rejections", 0)
         if count >= 16:
@@ -382,6 +400,42 @@ class PersistentAccount:
         )
         return receipt, canonical, decision, semantic_sha
 
+    def _persist_bounded_health(
+        self, *, known_at: str, source_at: str, clocks: dict, position_sha: str
+    ) -> None:
+        """Non-economic liveness only; never changes stream or receipt heads."""
+        now = monotonic()
+        if now < self._next_health_write:
+            return
+        # A busy health writer is diagnostic loss, not an invented source GAP.
+        # Retry no faster than the normal bounded interval.
+        self._next_health_write = now + 30.0
+        try:
+            with closing(sqlite3.connect(self.journal.path, timeout=0.2)) as db, db:
+                db.execute("PRAGMA synchronous=FULL")
+                db.execute(
+                    "INSERT INTO observer_source_health VALUES (?,?,?,?,?,?,?) "
+                    "ON CONFLICT(stream_id) DO UPDATE SET "
+                    "epoch=excluded.epoch,validated_at=excluded.validated_at,"
+                    "source_event_at=excluded.source_event_at,dex_clocks=excluded.dex_clocks,"
+                    "position_sha=excluded.position_sha,transport=excluded.transport",
+                    (
+                        "account:" + self.alias,
+                        self.epoch,
+                        known_at,
+                        source_at,
+                        json.dumps(clocks, sort_keys=True),
+                        position_sha,
+                        "CONNECTED",
+                    ),
+                )
+        except sqlite3.OperationalError as exc:
+            if getattr(exc, "sqlite_errorcode", None) not in (
+                sqlite3.SQLITE_BUSY,
+                sqlite3.SQLITE_LOCKED,
+            ):
+                raise
+
     def observe(
         self, frame: dict, known_at: str, *, raw_sha: str | None = None, raw_text: str | None = None
     ) -> dict:
@@ -423,11 +477,31 @@ class PersistentAccount:
         prior, book = self.checkpoint, receipt["source_book"]
         clocks = {item.dex: item.milliseconds for item in canonical.clocks}
         classification = decision.observation.kind
-        if classification == "DUPLICATE":
+        if classification in ("UNCHANGED_STATE", "DUPLICATE"):
+            # The validated native clocks and semantic fingerprint still move
+            # forward for subsequent regression/conflict detection, but no
+            # journal event, receipt, T+300 signal or committed head is made.
+            self._volatile_checkpoint = {
+                **prior,
+                "last_transport_at": known_at,
+                "last_validated_at": known_at,
+                "source_event_at": receipt["source_event_at"],
+                "dex_clocks": clocks,
+                "semantic_sha": semantic_sha,
+                "economic_sha": canonical.economic_sha,
+                "account_scope_sha": canonical.scope.generation,
+            }
+            self._persist_bounded_health(
+                known_at=known_at,
+                source_at=receipt["source_event_at"],
+                clocks=clocks,
+                position_sha=canonical.economic_sha,
+            )
             return {
-                "classification": "DUPLICATE",
+                "classification": classification,
                 "signal_eligible": False,
                 "position_changes": {},
+                "status": "VALIDATED_VOLATILE_NO_SOURCE_WRITE",
                 "order_route": "NONE",
             }
         positions = book["positions"]
@@ -474,6 +548,25 @@ class PersistentAccount:
             "parent_alias": self.parent_alias,
             "last_receipt_sha": digest(receipt),
         }
+        compact_v2 = self.compact_evidence and raw_text is not None
+        if compact_v2:
+            from .pm_v4_evidence import publish_wire
+
+            # fsync and atomically publish the original bytes before any
+            # SQLite receipt can reference them. A crash may leave an orphan,
+            # but cannot leave a committed event referencing unflushed bytes.
+            publish_wire(self.journal.path, raw_text, raw_sha)
+        details = {
+            "classification": classification,
+            "position_changes": changes,
+        }
+        if compact_v2:
+            details.update(
+                native_frame_sha=receipt["source_sha"],
+                native_wire_ref=raw_sha,
+            )
+        else:
+            details.update(native_frame=frame, native_wire=raw_text)
         event = self.progress.propose(
             epoch=self.epoch,
             kind=decision.journal_kind,
@@ -481,12 +574,8 @@ class PersistentAccount:
             source_at=receipt["source_event_at"],
             checkpoint=state,
             raw_sha=raw_sha or digest(frame),
-            details={
-                "classification": classification,
-                "position_changes": changes,
-                "native_frame": frame,
-                "native_wire": raw_text,
-            },
+            details=details,
+            compact_v2=compact_v2,
         )
         result = self.progress.commit(
             event,
@@ -499,6 +588,7 @@ class PersistentAccount:
             ),
         )
         self.account_scope_sha = canonical.scope.generation
+        self._volatile_checkpoint = None
         return {
             **result,
             "classification": classification,
