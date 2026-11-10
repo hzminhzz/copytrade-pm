@@ -84,6 +84,10 @@ class PaperOpportunity(PaperContract):
     ]
     positions: dict[NativeKey, str]
     updates: list[OpportunityUpdate]
+    # Optional only for replay of pre-versioned historical journals. New
+    # prospective T+300 sources pin both values in their original PM03 event.
+    frozen_k: str | None = None
+    release_sha256: Sha | None = None
     terminal_at: str | None = None
     attempted_at: str | None = None
     reason: str | None = None
@@ -111,6 +115,12 @@ class PaperOpportunity(PaperContract):
             raise ValueError("PAPER_OPPORTUNITY_CLOCK_INVALID")
         if any(not exact_decimal(qty) for qty in self.positions.values()):
             raise ValueError("PAPER_OPPORTUNITY_ZERO_POSITION")
+        if (self.frozen_k is None) != (self.release_sha256 is None):
+            raise ValueError("PAPER_OPPORTUNITY_K_RELEASE_INCOMPLETE")
+        if self.frozen_k is not None:
+            k = exact_decimal(self.frozen_k)
+            if not k.is_finite() or k <= 0:
+                raise ValueError("PAPER_OPPORTUNITY_FROZEN_K_INVALID")
         if (
             not self.updates
             or self.updates[-1].source_seq != self.source_seq
