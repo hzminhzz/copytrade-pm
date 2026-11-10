@@ -258,6 +258,19 @@ def apply_paper_event(account: Account, event: Event, policy: RiskPolicy, mode: 
             raise ValueError("UNSELECTED_PAPER_POD")
         if type(seq) is not int or seq <= state["last_source_seq"].get(pod, 0):
             raise ValueError("REPEATED_OR_REGRESSED_SOURCE_RECEIPT")
+        # Fail before mutating any in-memory paper cursor or inventory state.
+        k = number(account.pm04_state["policy"]["fixed_k_by_pod"][pod])
+        frozen_k = raw.get("frozen_k")
+        release_sha = raw.get("release_sha256")
+        if (frozen_k is None) != (release_sha is None):
+            raise ValueError("PAPER_SOURCE_K_RELEASE_INCOMPLETE")
+        if frozen_k is not None and (
+            not isinstance(frozen_k, str)
+            or number(frozen_k) != k
+            or k <= ZERO
+            or release_sha != digest(account.pm04_state["policy"])
+        ):
+            raise ValueError("PAPER_SOURCE_K_RELEASE_DRIFT")
         positions = {key: str(number(qty)) for key, qty in raw["positions"].items() if number(qty)}
         for key in positions:
             if Instrument.parse(key) not in account.rulebook.permitted:
@@ -266,7 +279,6 @@ def apply_paper_event(account: Account, event: Event, policy: RiskPolicy, mode: 
         state["last_source_seq"][pod] = seq
         state["last_source_positions"][pod] = positions
         held = account.pm_quantities.get(pod, {})
-        k = number(account.pm04_state["policy"]["fixed_k_by_pod"][pod])
         # An EXIT is authorized by a *new reduction in the leader's book*,
         # never by a residual difference from a previously failed paper exit.
         leader_reduced = any(
@@ -389,6 +401,9 @@ def apply_paper_event(account: Account, event: Event, policy: RiskPolicy, mode: 
                 {"at": event.decision_at, "source_seq": seq, "source_sha": raw["source_sha"]}
             ],
         }
+        if frozen_k is not None:
+            intent["frozen_k"] = frozen_k
+            intent["release_sha256"] = release_sha
         if semantics == 2:
             PaperOpportunity.model_validate(intent)
         state["history"][intent_id] = intent
@@ -597,6 +612,14 @@ def apply_paper_event(account: Account, event: Event, policy: RiskPolicy, mode: 
         )
     if raw["source_seq"] != intent["source_seq"] or raw["source_sha"] != intent["source_sha"]:
         raise ValueError("PAPER_ATTEMPT_STALE_SOURCE")
+    if intent.get("frozen_k") is not None:
+        if (
+            raw.get("frozen_k") != intent["frozen_k"]
+            or raw.get("release_sha256") != intent["release_sha256"]
+        ):
+            raise ValueError("PAPER_ATTEMPT_K_RELEASE_DRIFT")
+    elif "frozen_k" in raw or "release_sha256" in raw:
+        raise ValueError("PAPER_LEGACY_ATTEMPT_CANNOT_ADOPT_NEW_K")
     pod = intent["pod"]
     targets = {Instrument.parse(key): number(qty) for key, qty in raw["targets"].items()}
     if set(targets) != {Instrument.parse(k) for k in intent["positions"]}:
