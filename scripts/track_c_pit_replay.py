@@ -64,6 +64,7 @@ def load_supplemental_july(
     root: Path | None,
     policy: dict,
     account_hashes: dict[str, dict[str, str]],
+    filename_prefix: str = "trackc-july",
 ) -> tuple[dict[str, dict], dict[str, dict]]:
     """Recover missing prewindow risk observations; never overwrite frozen evidence.
 
@@ -75,13 +76,15 @@ def load_supplemental_july(
     receipts: dict[str, dict] = {}
     if root is None:
         return original, receipts
+    if filename_prefix not in {"trackc-july", "trackc-late"}:
+        raise ValueError("UNKNOWN_SUPPLEMENTAL_EVIDENCE_FAMILY")
     directory = Path(root)
     if directory.is_symlink() or not directory.is_dir():
         raise ValueError("UNSAFE_SUPPLEMENTAL_CALIBRATION_DIRECTORY")
     expected = {
         pod: account for mapping in account_hashes.values() for pod, account in mapping.items()
     }
-    files = sorted(directory.glob("trackc-july-*-hourly.json"))
+    files = sorted(directory.glob(f"{filename_prefix}-*-hourly.json"))
     if not files or len(files) > 32:
         raise ValueError("MISSING_OR_EXCESSIVE_SUPPLEMENTAL_RECEIPTS")
     seen: set[str] = set()
@@ -96,7 +99,7 @@ def load_supplemental_july(
             doc.get("schema") != "vike_precalibration_hourly_receipt_v1"
             or alias not in expected
             or expected[alias] != account
-            or path.name != f"trackc-july-{alias}-hourly.json"
+            or path.name != f"{filename_prefix}-{alias}-hourly.json"
             or account in seen
             or account in original
             or doc.get("source") != "Vike Hyperliquid positions historic 1h via connector"
@@ -284,6 +287,7 @@ def build_report(
     input_root: Path,
     as_of: str,
     supplemental_root: Path | None = None,
+    late_supplemental_root: Path | None = None,
 ) -> dict:
     import polars as pl
 
@@ -314,6 +318,22 @@ def build_report(
         policy=policy,
         account_hashes=campaign.account_hashes,
     )
+    late_receipts: dict[str, dict] = {}
+    if late_supplemental_root is not None:
+        if not _clock(policy["training_end"]) < _clock(job["start"]):
+            raise ValueError("NO_SEPARATE_PRE_EVALUATION_LATE_TRAINING_WINDOW")
+        # An exact later training interval may fill *only* previously missing
+        # wallets; it never competes with an original July k or tunes on OOS.
+        calibration, late_receipts = load_supplemental_july(
+            root=late_supplemental_root,
+            policy={
+                "wallets": calibration,
+                "training_start": policy["training_end"],
+                "training_end": job["start"],
+            },
+            account_hashes=campaign.account_hashes,
+            filename_prefix="trackc-late",
+        )
     source_sha = _v2_source_digest(source_root)
     if source_sha != job["source_collection_sha256"]:
         raise ValueError("SOURCE_COLLECTION_DRIFT")
@@ -340,7 +360,7 @@ def build_report(
     for budget in risk_budgets:
         rates = {}
         for sha, record in calibration.items():
-            rates[sha] = risk_k(record, budget, cutoff=policy["training_end"])
+            rates[sha] = risk_k(record, budget, cutoff=job["start"])
         budget_key = str(budget)
         budget_k[budget_key] = rates
         selected = set(rates)
@@ -372,7 +392,11 @@ def build_report(
                     "source_account_sha256": addr_sha,
                     "current_paper_k": old,
                     "asof_risk_k": None,
-                    "pit_status": "BLOCKED_NO_JULY_CALIBRATION",
+                    "pit_status": (
+                        "BLOCKED_NO_PRE_EVALUATION_CALIBRATION"
+                        if late_supplemental_root is not None
+                        else "BLOCKED_NO_JULY_CALIBRATION"
+                    ),
                     "track_c": None,
                     "scenarios": {},
                 }
@@ -385,6 +409,22 @@ def build_report(
                 "pit_status": "COUNTERFACTUAL_PREWINDOW_K_ESTIMABLE",
                 "training_observation_days": record["observation_days"],
                 "calibration_last_observed_at": record["last_observed_at"],
+                **(
+                    {
+                        "calibration_vintage": (
+                            "AUGUST_TO_OCTOBER_LATE_MISSING_ONLY"
+                            if addr_sha
+                            in {
+                                r["wallet_sha256"]
+                                for r in late_receipts.values()
+                                if r["status"] == "PREWINDOW_COMPLETE_PAGE_PROXY_ONLY"
+                            }
+                            else "ORIGINAL_JULY_TRAINING"
+                        )
+                    }
+                    if late_supplemental_root is not None
+                    else {}
+                ),
                 "track_c": track_c_abstention(
                     portfolio_id=pid,
                     portfolio_sha=campaign.seals[pid]["definition_sha256"],
@@ -428,6 +468,15 @@ def build_report(
         "source_collection_sha256": source_sha,
         "k_policy_sha256": job["k_policy_sha256"],
         "supplemental_receipts": supplemental_receipts,
+        **(
+            {
+                "late_supplemental_receipts": late_receipts,
+                "late_training_start": policy["training_end"],
+                "late_training_end_exclusive": job["start"],
+            }
+            if late_supplemental_root is not None
+            else {}
+        ),
         "supplemental_pages_are_retrospective_vendor_assertions": True,
         "calibrated_wallets_original": len(policy["wallets"]),
         "calibrated_wallets_with_supplement": len(calibration),
@@ -477,6 +526,7 @@ def main() -> None:
     p.add_argument("--market-root", type=Path, required=True)
     p.add_argument("--output-root", type=Path, required=True)
     p.add_argument("--supplemental-root", type=Path, default=None)
+    p.add_argument("--late-supplemental-root", type=Path, default=None)
     p.add_argument("--as-of", required=True)
     args = p.parse_args()
     report = build_report(

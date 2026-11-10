@@ -215,6 +215,72 @@ def test_missing_july_rows_stay_unqualified(tmp_path):
     assert evidence["ACT04"]["status"] == "NO_ELIGIBLE_PREWINDOW_POSITION_OBSERVATIONS"
 
 
+def test_later_causal_training_supplements_missing_wallet_only(tmp_path):
+    import json
+    from datetime import UTC, datetime, timedelta
+
+    loader, original, target, july, identity, key = _supplement(tmp_path)
+    late_hours = [
+        {
+            "ts": (datetime(2026, 9, 22, tzinfo=UTC) + timedelta(days=d, hours=h)).isoformat(),
+            "gross_usd": 2000,
+            "positions": 1,
+        }
+        for d in range(7)
+        for h in range(4)
+    ]
+    late = {
+        **original,
+        "start": "2026-08-05T00:00:00+00:00",
+        "end_exclusive": "2026-10-05T00:00:00+00:00",
+        "hours": late_hours,
+        "max_observed_gross_usd": 2000,
+    }
+    target.unlink()
+    target = tmp_path / "trackc-late-ACT04-hourly.json"
+    target.write_text(json.dumps(late))
+    later_window = {
+        "wallets": {},
+        "training_start": "2026-08-05T00:00:00+00:00",
+        "training_end": "2026-10-05T00:00:00+00:00",
+    }
+    merged, provenance = loader(
+        root=tmp_path,
+        policy=later_window,
+        account_hashes=identity,
+        filename_prefix="trackc-late",
+    )
+    assert merged[key]["max_observed_gross_usd"] == "2000"
+    assert provenance["ACT04"]["observation_days"] == 7
+    assert risk_k(merged[key], D("200"), cutoff=later_window["training_end"]) == D("0.500000000000")
+    assert july["wallets"] == {}
+    late["hours"][-1]["ts"] = "2026-10-05T00:00:00+00:00"
+    target.write_text(json.dumps(late))
+    with pytest.raises(ValueError, match="SUPPLEMENTAL_FUTURE_OR_OUTSIDE_WINDOW"):
+        loader(
+            root=tmp_path,
+            policy=later_window,
+            account_hashes=identity,
+            filename_prefix="trackc-late",
+        )
+    late["hours"][-1]["ts"] = late_hours[-1]["ts"]
+    target.write_text(json.dumps(late))
+    later_window["wallets"][key] = {"max_observed_gross_usd": "4000"}
+    with pytest.raises(ValueError, match="SUPPLEMENTAL_WALLET_OR_ORIGINAL_K_IDENTITY_MISMATCH"):
+        loader(
+            root=tmp_path,
+            policy=later_window,
+            account_hashes=identity,
+            filename_prefix="trackc-late",
+        )
+
+
+def test_unknown_supplemental_family_fails_closed(tmp_path):
+    loader, _, _, policy, identity, _ = _supplement(tmp_path)
+    with pytest.raises(ValueError, match="UNKNOWN_SUPPLEMENTAL_EVIDENCE_FAMILY"):
+        loader(root=tmp_path, policy=policy, account_hashes=identity, filename_prefix="arbitrary")
+
+
 def test_historical_episode_blockers_are_never_counted_as_zero_pnl():
     pl = pytest.importorskip("polars")
     rows = pl.DataFrame(
