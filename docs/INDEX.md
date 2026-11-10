@@ -13,6 +13,11 @@ The [7 November reconciliation record](RECONCILIATION-20261107.md) explains PR a
 
 **Vike post-window research-k follow-up (2026-11-10):** [94-wallet July-training / August–November OOS v3 experiment, research-only rankings, SQLite exclusions, and immutable receipt](research/2026-11-10-vike-retrospective-k-oos.md). Retrospectively calculated k is not a historical signed release or trading qualification.
 
+**Engineering merge versus runtime promotion (owner decision 2026-11-10):**
+[Gate requested actions, not source-code existence](decisions/2026-11-10-merge-vs-runtime-promotion.md).
+Nonactivating code may merge after engineering verification without prospective
+alpha, deployment or trading authorization; execution gates remain fail closed.
+
 Use live GitHub, private SQLite, original source evidence, financial journals and
 verified deployment metadata for current facts. OptMem and dated studies provide
 context. [AGENTS.md](../AGENTS.md) defines the execution workflow.
