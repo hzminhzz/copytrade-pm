@@ -162,6 +162,14 @@ def test_reject_forged_source_incomplete_time_and_invalid_budget(tmp_path):
         is None
     )
     assert o._book_equity(_state("NaN"), "default", NOW) is None
+    assert (
+        o._book_equity(
+            {**_state(), "time": int((NOW - timedelta(hours=1)).timestamp() * 1000)},
+            "default",
+            NOW,
+        )
+        is None
+    )
     with pytest.raises(ValueError, match="UNSAFE_SHARED_IP_WEIGHT_BUDGET"):
         o.WeightBudget(1201)
     with pytest.raises(ValueError, match="INVALID_HEALTH_CAPTURE_BOUNDS"):

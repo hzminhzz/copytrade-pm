@@ -70,7 +70,9 @@ def _book_equity(body: object, mode: object, received_at: datetime) -> Decimal |
         not isinstance(summary, dict)
         or not isinstance(body.get("assetPositions"), list)
         or type(body.get("time")) is not int
-        or body["time"] > int(received_at.timestamp() * 1000) + 1000
+        or not int((received_at - timedelta(minutes=15)).timestamp() * 1000)
+        <= body["time"]
+        <= int(received_at.timestamp() * 1000) + 1000
     ):
         return None
     equity = _number(summary.get("accountValue"))

@@ -90,6 +90,8 @@ def read(directory: Path, *, now: datetime) -> dict:
     finally:
         os.close(fd)
     data = json.loads(raw)
+    if not isinstance(data, dict):
+        raise ValueError("INVALID_HEALTH_PUBLICATION_TYPE")
     digest = data.pop("generation_sha256", None)
     if set(data) != {
         "schema",
@@ -188,15 +190,17 @@ def read(directory: Path, *, now: datetime) -> dict:
     data["stale"] = now - as_of > timedelta(days=2)
     if data["stale"]:
         data["alert_counts"] = {"STALE_ASSESSMENT": data["wallet_count"]}
+    unknown_count = sum(row["eligibility"] == "UNKNOWN" for row in data["wallets"])
     data["monitoring"] = {
         "health_evidence_fault": int(
             data["stale"]
+            or unknown_count > 0
             or any(
                 row["recommendation"] in {"CAPITAL_FLOOR_BREACH", "EDGE_WARNING", "REVIEW_REQUIRED"}
                 for row in data["wallets"]
             )
         ),
-        "health_unknown_count": sum(row["eligibility"] == "UNKNOWN" for row in data["wallets"]),
+        "health_unknown_count": unknown_count,
     }
     data["generation_sha256"] = digest
     return data

@@ -26,6 +26,7 @@ def test_bridge_copies_only_validated_redacted_snapshot(tmp_path):
     assert data["wallet_count"] == 1
     assert data["trading_authorized"] is False
     assert data["monitoring"]["health_unknown_count"] == 1
+    assert data["monitoring"]["health_evidence_fault"] == 1
 
 
 def test_missing_stale_and_tampered_bridge_fail_closed(tmp_path):
@@ -42,6 +43,9 @@ def test_missing_stale_and_tampered_bridge_fail_closed(tmp_path):
     payload["wallet_count"] = 999
     (source / "wallet-health.json").write_text(json.dumps(payload))
     with pytest.raises((ValueError, EvidenceInvalid), match="HASH"):
+        publish_health_bridge(output, source, now=NOW)
+    (source / "wallet-health.json").write_text("[]")
+    with pytest.raises(ValueError, match="TYPE"):
         publish_health_bridge(output, source, now=NOW)
     # Invalid private source cannot overwrite the last valid published generation.
     assert (output / "wallet-health.json").read_bytes() == raw
