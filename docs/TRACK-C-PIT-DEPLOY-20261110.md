@@ -23,6 +23,14 @@ reconfiguration of the 16 virtual paper accounts, risk-off action, or broker ord
   is reused directly. No duplicate simulator.
 - Source raw 94-wallet file SHA, native market SHA, calibration policy SHA and
   campaign SHA are recorded in an immutable private output receipt.
+- Optional SHA-recorded Vike hourly-snapshot supplements are **retrospective
+  vendor assertions** and cannot rewrite the original policy SHA. All pages must
+  finish, all timestamps must precede the training cutoff, and the selected
+  wallet identity must match the SQLite-campaign source. Overlapping original
+  policy wallet identities, truncated pages, duplicated rows, nonfinite figures
+  or timestamp drift fail closed. An hourly union of nonaligned snapshot minutes
+  is conservatively summed for stress peak k; missing July rows remain blocked.
+  These supplements do **not** independently authenticate source raw pages.
 - Historical independent *completed episodic* follower estimates are not full
   PM03/PM04 account time series. PnL of unobserved/blocked episodes is null,
   not zero. Funding, correlated portfolio drawdown, real execution, and
@@ -48,8 +56,9 @@ uv run --frozen --extra market --group dev python -m scripts.track_c_pit_replay 
   --input-root /home/quant/.local/share/copytrade/research/track-c-pit-1011 \
   --source-root /home/quant/dev/copytrade-pm/data \
   --market-root /home/quant/dev/quant/ml4t-data/.data/store \
+  --supplemental-root /home/quant/.local/share/copytrade/research/track-c-pit-1011/supplemental \
   --output-root /home/quant/.local/share/copytrade/research/track-c-pit-1011/results \
-  --as-of 2026-11-10T11:00:00+00:00
+  --as-of 2026-11-10T12:31:32+00:00
 ```
 
 The separately deployed unit is
@@ -71,8 +80,17 @@ additive unit**, leaving its research receipts and all current workers intact.
 - No live/deployed k change. Active 16-paper `PM04_CONFIG` retains old frozen k.
 - Track C issue #268 (pending T+300 immutable k identity and version-aware
   cutover) is separate, with no automatic activation.
-- The retrospective July source summary may be incomplete for a portfolio
-  member; missing k cannot be imputed from a favorable OOS result.
+- First replay: 2/16 portfolios had complete July k coverage. After independently
+  requested, fully paged Vike hourly positions for ACT04, W004, Whale_0x5f94,
+  CM-002, coverage is 11/16; E5/E9/E10/E11/E12 remain missing ACT08, W028 or
+  VS005. These three wallets had zero position observations July 1–August 4;
+  no zero-risk k can be imputed. The 94-wallet historical fills cohort also
+  omits some supplemental wallets, so k availability is **not** a portfolio PnL
+  receipt. The seven private supplements include three zero-evidence receipts,
+  whose SHA identities and exclusion statuses must be retained.
+- ACT04 observed July peak gross is above $25m and its counterfactual stress k
+  is far below E2/E6 active paper k. This does not imply actual broker loss,
+  and the source-position aggregation is not intraday portfolio MTM.
 - No full account mark-to-market, authenticated period funding, capacity,
   independent controls, or authentic first-known receipt proof. These are
   required for real risk/return and challenge qualification.

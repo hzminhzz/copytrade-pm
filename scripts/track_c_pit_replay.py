@@ -12,7 +12,7 @@ from __future__ import annotations
 import argparse
 from collections import Counter, defaultdict
 from datetime import timedelta
-from decimal import Decimal, ROUND_DOWN
+from decimal import Decimal, ROUND_DOWN, InvalidOperation
 from hashlib import sha256
 import json
 from pathlib import Path
@@ -57,6 +57,128 @@ def risk_k(record: dict, pod_budget: Decimal, *, cutoff: str) -> Decimal:
         raise ValueError("INVALID_PIT_TRAINING_GROSS")
     expected = min(D("1"), pod_budget / (D("0.20") * gross))
     return expected.quantize(D("0.000000000001"), rounding=ROUND_DOWN)
+
+
+def load_supplemental_july(
+    *,
+    root: Path | None,
+    policy: dict,
+    account_hashes: dict[str, dict[str, str]],
+) -> tuple[dict[str, dict], dict[str, dict]]:
+    """Recover missing prewindow risk observations; never overwrite frozen evidence.
+
+    Source is a retrospectively acquired Vike hourly snapshot aggregation.
+    These assertions do not independently authenticate the original vendor
+    pages and can never promote a k change or historical portfolio economics.
+    """
+    original = dict(policy["wallets"])
+    receipts: dict[str, dict] = {}
+    if root is None:
+        return original, receipts
+    directory = Path(root)
+    if directory.is_symlink() or not directory.is_dir():
+        raise ValueError("UNSAFE_SUPPLEMENTAL_CALIBRATION_DIRECTORY")
+    expected = {
+        pod: account for mapping in account_hashes.values() for pod, account in mapping.items()
+    }
+    files = sorted(directory.glob("trackc-july-*-hourly.json"))
+    if not files or len(files) > 32:
+        raise ValueError("MISSING_OR_EXCESSIVE_SUPPLEMENTAL_RECEIPTS")
+    seen: set[str] = set()
+    for path in files:
+        if path.is_symlink() or not path.is_file() or path.stat().st_size > 256 * 1024:
+            raise ValueError("UNSAFE_SUPPLEMENTAL_RECEIPT")
+        raw = path.read_bytes()
+        doc = json.loads(raw)
+        alias = doc.get("wallet_alias")
+        account = sha256(str(doc.get("wallet_address", "")).lower().encode()).hexdigest()
+        if (
+            doc.get("schema") != "vike_precalibration_hourly_receipt_v1"
+            or alias not in expected
+            or expected[alias] != account
+            or path.name != f"trackc-july-{alias}-hourly.json"
+            or account in seen
+            or account in original
+            or doc.get("source") != "Vike Hyperliquid positions historic 1h via connector"
+            or doc.get("resolution") is not None  # old v1 source envelope has no resolution
+        ):
+            raise ValueError("SUPPLEMENTAL_WALLET_OR_ORIGINAL_K_IDENTITY_MISMATCH")
+        seen.add(account)
+        if _clock(doc["start"]) != _clock(policy["training_start"]) or _clock(
+            doc["end_exclusive"]
+        ) != _clock(policy["training_end"]):
+            raise ValueError("SUPPLEMENTAL_TRAINING_WINDOW_CHANGED")
+        pages = doc.get("pages")
+        hours = doc.get("hours")
+        if (
+            not isinstance(pages, list)
+            or not pages
+            or not isinstance(hours, list)
+            or not doc.get("complete_pages")
+            or doc.get("failed_validation")
+            or doc.get("invalid") != 0
+            or doc.get("duplicates") != 0
+            or any(page.get("remaining") != (i < len(pages) - 1) for i, page in enumerate(pages))
+            or sum(page["position_rows"] for page in pages) != doc.get("total_position_rows")
+            or len(hours) != doc.get("total_observed_hours")
+            or sum(hour["positions"] for hour in hours) != doc["total_position_rows"]
+        ):
+            raise ValueError("SUPPLEMENTAL_PAGINATION_OR_VALIDATION_INCOMPLETE")
+        previous = None
+        observed = []
+        hourly_gross: dict[str, Decimal] = defaultdict(lambda: Decimal(0))
+        for hour in hours:
+            ts = _clock(hour["ts"])
+            if not (_clock(policy["training_start"]) <= ts < _clock(policy["training_end"])):
+                raise ValueError("SUPPLEMENTAL_FUTURE_OR_OUTSIDE_WINDOW")
+            if previous is not None and ts <= previous:
+                raise ValueError("SUPPLEMENTAL_DUPLICATE_OR_UNORDERED_HOUR")
+            previous = ts
+            try:
+                gross = Decimal(str(hour["gross_usd"]))
+            except (InvalidOperation, TypeError, ValueError) as exc:
+                raise ValueError("SUPPLEMENTAL_NONFINITE_GROSS") from exc
+            if (
+                not gross.is_finite()
+                or gross < 0
+                or type(hour["positions"]) is not int
+                or hour["positions"] < 1
+            ):
+                raise ValueError("SUPPLEMENTAL_INVALID_HOURLY_POSITION")
+            observed.append(gross)
+            hourly_gross[ts.isoformat()[:13]] += gross
+        measured = max(observed, default=Decimal(0))
+        if abs(measured - Decimal(str(doc["max_observed_gross_usd"]))) > Decimal("0.000001"):
+            raise ValueError("SUPPLEMENTAL_MAX_GROSS_MISMATCH")
+        # Distinct market/DEX rows can have slightly different snapshot minute
+        # within the same UTC hour. Summing such groups is conservative: it
+        # can overstate exposure, never credit a missed leg as diversification.
+        conservative = max(hourly_gross.values(), default=Decimal(0))
+        days = len({hour["ts"][:10] for hour in hours})
+        status = "PREWINDOW_COMPLETE_PAGE_PROXY_ONLY"
+        if not measured or days < 7 or len(hours) < 24:
+            status = "NO_ELIGIBLE_PREWINDOW_POSITION_OBSERVATIONS"
+        receipts[alias] = {
+            "wallet_sha256": account,
+            "file_sha256": sha256(raw).hexdigest(),
+            "position_rows": doc["total_position_rows"],
+            "observation_days": days,
+            "snapshots": len(hours),
+            "max_observed_gross_usd": str(measured),
+            "conservative_hourly_gross_usd": str(conservative),
+            "status": status,
+        }
+        if status != "PREWINDOW_COMPLETE_PAGE_PROXY_ONLY":
+            continue
+        original[account] = {
+            "max_observed_gross_usd": str(conservative),
+            "observation_days": days,
+            "snapshots": len(hours),
+            "first_observed_at": hours[0]["ts"],
+            "last_observed_at": hours[-1]["ts"],
+            "evidence_sha256": sha256(raw).hexdigest(),
+        }
+    return original, receipts
 
 
 def track_c_abstention(
@@ -161,6 +283,7 @@ def build_report(
     market_root: Path,
     input_root: Path,
     as_of: str,
+    supplemental_root: Path | None = None,
 ) -> dict:
     import polars as pl
 
@@ -186,6 +309,11 @@ def build_report(
     if now < _clock(policy["generated_at"]):
         raise ValueError("CANNOT_PRETEND_RESEARCH_POLICY_ALREADY_EXISTED")
     campaign = load_campaign(manifest=manifest, registry_db=registry_db, at=as_of)
+    calibration, supplemental_receipts = load_supplemental_july(
+        root=supplemental_root,
+        policy=policy,
+        account_hashes=campaign.account_hashes,
+    )
     source_sha = _v2_source_digest(source_root)
     if source_sha != job["source_collection_sha256"]:
         raise ValueError("SOURCE_COLLECTION_DRIFT")
@@ -211,7 +339,7 @@ def build_report(
     budget_k: dict[str, dict[str, D]] = {}
     for budget in risk_budgets:
         rates = {}
-        for sha, record in policy["wallets"].items():
+        for sha, record in calibration.items():
             rates[sha] = risk_k(record, budget, cutoff=policy["training_end"])
         budget_key = str(budget)
         budget_k[budget_key] = rates
@@ -237,7 +365,7 @@ def build_report(
             addr_sha = sha_by_pod[pod]
             b = D(budget)
             bucket = str(b)
-            record = policy["wallets"].get(addr_sha)
+            record = calibration.get(addr_sha)
             historic = by_budget[bucket].get(addr_sha, {})
             if record is None:
                 pods[pod] = {
@@ -299,6 +427,10 @@ def build_report(
         "policy_created_at": policy["generated_at"],
         "source_collection_sha256": source_sha,
         "k_policy_sha256": job["k_policy_sha256"],
+        "supplemental_receipts": supplemental_receipts,
+        "supplemental_pages_are_retrospective_vendor_assertions": True,
+        "calibrated_wallets_original": len(policy["wallets"]),
+        "calibrated_wallets_with_supplement": len(calibration),
         "market_fingerprint_sha256": market_sha,
         "campaign_sha256": campaign.manifest_sha256,
         "risk_method": {
@@ -329,6 +461,7 @@ def build_report(
             "Historical venue lot sizes are unverified research proxies",
             "No complete joint PM03/PM04 portfolio MTM, funding, leverage or challenge-breach tape",
             "Track C evaluator must abstain without authentic PM03 finance; never auto-activate k",
+            "Supplemental Vike hourly aggregates are fully paged but raw original response bytes/signatures are not independently authenticated",
         ],
         "portfolios": portfolios,
     }
@@ -343,6 +476,7 @@ def main() -> None:
     p.add_argument("--source-root", type=Path, required=True)
     p.add_argument("--market-root", type=Path, required=True)
     p.add_argument("--output-root", type=Path, required=True)
+    p.add_argument("--supplemental-root", type=Path, default=None)
     p.add_argument("--as-of", required=True)
     args = p.parse_args()
     report = build_report(
