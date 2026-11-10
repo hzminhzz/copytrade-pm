@@ -1,0 +1,133 @@
+{
+  "uid": "copytrade-strategy-health-v2",
+  "title": "Strategy Health | SHADOW Only",
+  "tags": [
+    "copytrade",
+    "read-only",
+    "strategy-health",
+    "shadow",
+    "evidence-plane"
+  ],
+  "schemaVersion": 41,
+  "version": 1,
+  "timezone": "utc",
+  "refresh": "5m",
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "editable": false,
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "SHADOW diagnostics — not trading authority",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**READ-ONLY / NO TRADE.** Track B v2 reports only signed, independently captured source evidence. Missing or stale report returns HTTP 503 and must never be interpreted as healthy. Historical calibration does not establish prospective follower finance. Warning thresholds are provisional. Prefect schedules research only; no automatic k or broker activation."
+      }
+    },
+    {
+      "id": 2,
+      "type": "table",
+      "title": "Sealed strategy-health evidence (only when available)",
+      "datasource": {
+        "uid": "risk-projection-v1",
+        "type": "yesoreyeram-infinity-datasource"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 24,
+        "h": 12
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "risk-projection-v1",
+            "type": "yesoreyeram-infinity-datasource"
+          },
+          "type": "json",
+          "source": "url",
+          "url": "http://projection:17800/v1/strategy-health",
+          "parser": "backend",
+          "format": "table",
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "source_availability",
+              "text": "Source",
+              "type": "string"
+            },
+            {
+              "selector": "opportunity_count",
+              "text": "Observed opportunities",
+              "type": "number"
+            },
+            {
+              "selector": "unknown_gap_intervals",
+              "text": "Unknown gap intervals",
+              "type": "number"
+            },
+            {
+              "selector": "evidence_class",
+              "text": "Economic evidence class",
+              "type": "string"
+            },
+            {
+              "selector": "assessability",
+              "text": "Assessability",
+              "type": "string"
+            },
+            {
+              "selector": "economic_advisory_status",
+              "text": "Advisory",
+              "type": "string"
+            },
+            {
+              "selector": "portfolio_contribution_status",
+              "text": "Contribution",
+              "type": "string"
+            },
+            {
+              "selector": "operational_priority",
+              "text": "Operational priority",
+              "type": "string"
+            },
+            {
+              "selector": "published_at",
+              "text": "Published UTC",
+              "type": "string"
+            }
+          ],
+          "url_options": {
+            "method": "GET"
+          },
+          "filters": [],
+          "computed_columns": []
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "UNKNOWN"
+        },
+        "overrides": []
+      },
+      "transformations": []
+    }
+  ]
+}

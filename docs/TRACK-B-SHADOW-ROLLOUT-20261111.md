@@ -21,6 +21,14 @@ successful monitoring of a live campaign.
 - Abort and restore the pinned v1 images if v1 SHA/GET, 403/405/400, 503-on-missing,
   or any original service invariants regress.
 
+## Operator presentation
+
+The v2 Grafana dashboard is versioned at
+`ops/grafana-phase1/dashboards/strategy-health.json`. The existing mounted
+Grafana dashboard release remains pinned until a separately verified dashboard
+bundle cutover. The new read-only gateway may run safely in HTTP 503 mode
+without activating the dashboard or publishing unauthenticated assessments.
+
 ## Evidence prerequisites before publishing a live strategy-health value
 
 1. Read-only producer creates `strategy_health_assessment_v1` from original signed
