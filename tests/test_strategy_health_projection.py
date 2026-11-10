@@ -4,8 +4,6 @@ from datetime import UTC, datetime, timedelta
 import json
 
 import pytest
-from starlette.testclient import TestClient
-
 from copytrade_pm.dashboard.grafana_projection import create_app
 from copytrade_pm.strategy_health_projection import (
     project,
@@ -16,6 +14,8 @@ from copytrade_pm.strategy_health_projection import (
 )
 from test_strategy_health_v2 import NOW, assessment
 from copytrade_pm.strategy_health import seal
+
+TestClient = pytest.importorskip("starlette.testclient").TestClient
 
 
 TOKEN = "x" * 40

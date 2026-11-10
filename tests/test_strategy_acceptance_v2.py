@@ -13,7 +13,6 @@ import json
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from starlette.testclient import TestClient
 
 from copytrade_pm.dashboard.grafana_projection import create_app
 from copytrade_pm.pm_forward_journal import PaperJournal
@@ -356,6 +355,7 @@ def test_independent_q32(case, tmp_path):
         assert report.advisory.status == "INSUFFICIENT_EVIDENCE"
         assert not report.scientifically_qualified
     elif case == "I16":
+        TestClient = pytest.importorskip("starlette.testclient").TestClient
         now = datetime.now(UTC)
         base = assessment().model_copy(update={"as_of": now, "created_at": now})
         projection = project(seal(base), published_at=now)
@@ -504,6 +504,7 @@ def test_combined_q32(case, tmp_path):
         assert D(with_account["account_pnl_usd"]) < D(without["account_pnl_usd"])
         assert not matched["authentic_prospective_marginal_value"]
     elif case == "C08":
+        TestClient = pytest.importorskip("starlette.testclient").TestClient
         # Original v1 wallet dashboard + stale v2 + open-risk incident.
         original = _original_open(tmp_path / "finance")
         report = _gap_report()
