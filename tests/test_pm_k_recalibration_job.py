@@ -34,7 +34,7 @@ def test_manifest_to_immutable_report_and_replay(tmp_path):
     assert first["report_sha256"] == second["report_sha256"]
     assert first["cache_status"] == "CACHE_CREATED"
     assert second["cache_status"] == "CACHE_HIT"
-    assert first["proposal"]["decision"] == "INCREASE"
+    assert first["proposal"]["decision"] == "INSUFFICIENT_EVIDENCE"
     assert first["release_eligible"] is False
     assert first["finance_report_authenticity_independently_verified"] is False
     assert first["order_route"] == "NONE"

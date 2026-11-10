@@ -7,6 +7,8 @@ financial simulator, risk permit, paper-journal writer or active policy loader.
 from __future__ import annotations
 
 from decimal import Decimal
+from math import sqrt
+from statistics import NormalDist
 from pathlib import Path
 import sqlite3
 from typing import Annotated, Literal
@@ -16,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .pm03_account import Instrument, clock, digest, number
 from .pm03_risk import loss_under_shock
 from .pm_exposure_sizing import target_from_fixed_k
+from .pm_k_finance import PM03FinanceFrame, assess_finance
 
 SHA = Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
 Positive = Annotated[Decimal, Field(gt=0)]
@@ -23,7 +26,9 @@ Nonnegative = Annotated[Decimal, Field(ge=0)]
 
 
 class Frozen(BaseModel):
-    model_config = ConfigDict(strict=True, frozen=True, extra="forbid", serialize_by_alias=True)
+    model_config = ConfigDict(
+        strict=True, frozen=True, extra="forbid", serialize_by_alias=True, allow_inf_nan=False
+    )
 
 
 class Trial(Frozen):
@@ -50,6 +55,7 @@ class FinanceWindow(Frozen):
     report_sha256: SHA
     known_at: str
     period_end: str
+    period_start: str | None = None
     independent_episodes: int = Field(ge=0)
     follower_realized_net_usd: Decimal
     follower_mtm_net_usd: Decimal
@@ -72,6 +78,36 @@ class FinanceWindow(Frozen):
     def clocks(self):
         if clock(self.known_at) < clock(self.period_end):
             raise ValueError("FINANCE_WINDOW_NOT_KNOWN")
+        if self.period_start is not None and clock(self.period_start) >= clock(self.period_end):
+            raise ValueError("FINANCE_WINDOW_PERIOD_INVALID")
+        return self
+
+
+class PairedControlBlock(Frozen):
+    """One predeclared, separately accounted follower/net comparison block."""
+
+    trial_id: str = Field(min_length=1)
+    block_id: str = Field(min_length=1)
+    scenario: Literal["BASE", "DELAYED", "ADVERSE", "V4_PAPER"]
+    split: Literal["OOS", "FORWARD"]
+    started_at: str
+    ended_at: str
+    known_at: str
+    follower_report_sha256: SHA
+    candidate_follower_net_usd: Decimal
+    current_k_follower_net_usd: Decimal
+    cash_net_usd: Decimal
+    matched_wallet_net_usd: Decimal | None
+    market_net_usd: Decimal | None
+    fees_usd: Nonnegative
+    slippage_usd: Nonnegative
+    funding_usd: Decimal | None
+    capacity_verified: bool
+
+    @model_validator(mode="after")
+    def causal(self):
+        if not clock(self.started_at) < clock(self.ended_at) <= clock(self.known_at):
+            raise ValueError("PAIRED_BLOCK_NONCAUSAL")
         return self
 
 
@@ -97,6 +133,7 @@ class KResearchInput(Frozen):
     trial_roster_sha256: SHA
     trials: tuple[Trial, ...]
     windows: tuple[FinanceWindow, ...]
+    paired_control_blocks: tuple[PairedControlBlock, ...] = ()
     pod_loss_budget_usd: Positive
     follower_equity_usd: Positive
     max_gross_notional_usd: Positive
@@ -113,6 +150,7 @@ class KResearchInput(Frozen):
     unresolved_financial_effects: bool
     portfolio_correlation_checked: bool
     evidence_expired: bool
+    finance_frame: PM03FinanceFrame | None = None
     coverage_missing: tuple[str, ...] = ()
 
     @model_validator(mode="after")
@@ -121,8 +159,29 @@ class KResearchInput(Frozen):
             raise ValueError("TRIAL_FROM_FUTURE")
         if any(clock(f.known_at) > clock(self.as_of) for f in self.windows):
             raise ValueError("FINANCE_REPORT_FROM_FUTURE")
+        if any(clock(b.known_at) > clock(self.as_of) for b in self.paired_control_blocks):
+            raise ValueError("PAIRED_BLOCK_FROM_FUTURE")
+        if len(self.trials) > 1000 or len(self.paired_control_blocks) > 10000:
+            raise ValueError("UNBOUNDED_RESEARCH_TRIAL_INPUT")
         if not self.trials or len({t.trial_id for t in self.trials}) != len(self.trials):
             raise ValueError("TRIAL_REGISTRY_INCOMPLETE")
+        if any(
+            w.period_start is not None and clock(t.selection_as_of) >= clock(w.period_start)
+            for t in self.trials
+            for w in self.windows
+            if w.label in ("OOS", "FORWARD")
+        ):
+            raise ValueError("TRIAL_SELECTION_NOT_FROZEN_BEFORE_OOS")
+        roster = {t.trial_id: t for t in self.trials}
+        if any(b.trial_id not in roster for b in self.paired_control_blocks):
+            raise ValueError("PAIRED_BLOCK_UNKNOWN_TRIAL")
+        if any(
+            roster[b.trial_id].variant_k != self.candidate_k
+            or roster[b.trial_id].status != "ACCEPTED"
+            or clock(roster[b.trial_id].selection_as_of) >= clock(b.started_at)
+            for b in self.paired_control_blocks
+        ):
+            raise ValueError("PAIRED_BLOCK_FUTURE_OR_UNSELECTED_TRIAL")
         if (self.screen_report_sha256 is None) != (self.screen_cost_policy_version is None):
             raise ValueError("HISTORICAL_SCREEN_LINEAGE_INCOMPLETE")
         if self.screen_cost_policy_version == self.cost_policy_version:
@@ -157,10 +216,13 @@ class KProposal(Frozen):
     rejected_trials: int
     effective_independent_episodes: int
     follower_net_oos_usd: Decimal | None
+    finance_check: dict | None
+    paired_economics: dict
     evidence_class: Literal["HISTORICAL_ONLY", "AUTHENTIC_PROSPECTIVE_PRESENT"]
     reasons: tuple[str, ...]
     confidence: Literal["LOW", "CONDITIONAL"]
     research_only: Literal[True] = True
+    original_prospective_proof_verified: Literal[False] = False
     authorized_for_trading: Literal[False] = False
     release_activated: Literal[False] = False
     order_route: Literal["NONE"] = "NONE"
@@ -171,7 +233,8 @@ class KProposal(Frozen):
         if digest(body) != self.identity_sha256:
             raise ValueError("K_PROPOSAL_SHA_MISMATCH")
         if self.decision == "INCREASE" and (
-            self.candidate_k <= self.current_frozen_k
+            not self.original_prospective_proof_verified
+            or self.candidate_k <= self.current_frozen_k
             or self.confidence != "CONDITIONAL"
             or self.evidence_class != "AUTHENTIC_PROSPECTIVE_PRESENT"
         ):
@@ -179,9 +242,103 @@ class KProposal(Frozen):
         return self
 
 
+def _paired_economic_check(study: KResearchInput) -> dict:
+    """Multiplicity-aware diagnostic on supplied *paired* PM03 net blocks.
+
+    It cannot independently certify their source, independence, or forward status.
+    Bonferroni-normal confidence is illustrative pending approved block policy.
+    """
+    reasons: set[str] = set()
+    blocks = study.paired_control_blocks
+    if not blocks:
+        return {
+            "independent_blocks": 0,
+            "calendar_days": 0,
+            "trials_in_denominator": len(study.trials),
+            "lower_incremental_usd": None,
+            "reasons": ["PAIRED_CONTROL_BLOCKS_NOT_SUPPLIED"],
+            "original_reports_verified": False,
+        }
+    grouped: dict[str, list[PairedControlBlock]] = {}
+    for block in blocks:
+        grouped.setdefault(block.scenario, []).append(block)
+        if (
+            block.funding_usd is None
+            or not block.capacity_verified
+            or block.matched_wallet_net_usd is None
+            or block.market_net_usd is None
+        ):
+            reasons.add("PAIRED_FINANCING_CAPACITY_OR_CONTROL_MISSING")
+    base = grouped.get("BASE", [])
+    unique = {b.block_id: b for b in base}
+    if len(unique) != len(base):
+        reasons.add("DUPLICATE_PAIRED_BASE_BLOCK")
+    dates = {clock(b.ended_at).date() for b in unique.values()}
+    if len(unique) < 7 or len(dates) < 7:
+        reasons.add("INSUFFICIENT_INDEPENDENT_PAIRED_DAYS")
+    base_ids = set(unique)
+    for scenario in ("DELAYED", "ADVERSE"):
+        relevant = grouped.get(scenario, [])
+        if base_ids != {b.block_id for b in relevant} or len(relevant) != len(base_ids):
+            reasons.add("PAIRED_SCENARIO_ALIGNMENT_MISSING:" + scenario)
+        elif (
+            sum(
+                (b.candidate_follower_net_usd - b.current_k_follower_net_usd for b in relevant),
+                Decimal("0"),
+            )
+            <= 0
+        ):
+            reasons.add("PAIRED_TIMING_OR_COST_STRESS_NOT_SURVIVED:" + scenario)
+    if not any(b.split == "FORWARD" for b in base):
+        reasons.add("PAIRED_FORWARD_WINDOW_MISSING")
+    deltas = [
+        b.candidate_follower_net_usd
+        - max(
+            b.current_k_follower_net_usd,
+            b.cash_net_usd,
+            b.matched_wallet_net_usd
+            if b.matched_wallet_net_usd is not None
+            else Decimal("Infinity"),
+            b.market_net_usd if b.market_net_usd is not None else Decimal("Infinity"),
+        )
+        for b in unique.values()
+    ]
+    lower = None
+    if len(deltas) > 1 and all(v.is_finite() for v in deltas):
+        avg = sum(deltas, Decimal("0")) / len(deltas)
+        variance = sum(((v - avg) ** 2 for v in deltas), Decimal("0")) / (len(deltas) - 1)
+        z = Decimal(str(NormalDist().inv_cdf(1 - 0.05 / len(study.trials))))
+        lower = avg - z * Decimal(str(sqrt(float(variance) / len(deltas))))
+        if lower <= 0:
+            reasons.add("PAIRED_MULTIPLICITY_ADJUSTED_BOUND_NONPOSITIVE")
+    else:
+        reasons.add("PAIRED_UNCERTAINTY_NOT_ESTIMABLE")
+    return {
+        "independent_blocks": len(unique),
+        "calendar_days": len(dates),
+        "trials_in_denominator": len(study.trials),
+        "lower_incremental_usd": str(lower) if lower is not None else None,
+        "reasons": sorted(reasons),
+        "original_reports_verified": False,
+    }
+
+
 def evaluate_k(input: KResearchInput) -> KProposal:
     """Conservative read-only proposal; all realized economics are external PM03/04 facts."""
     reasons: set[str] = set(input.coverage_missing)
+    finance_check = None
+    paired_economics = _paired_economic_check(input)
+    if input.candidate_k > input.current_frozen_k:
+        reasons.update(paired_economics["reasons"])
+    if input.finance_frame is None:
+        reasons.add("PM03_ACCOUNT_SNAPSHOT_REQUIRED")
+    else:
+        finance_check = assess_finance(input, input.finance_frame)
+        reasons.update(finance_check["blockers"])
+    if input.candidate_k > input.current_frozen_k:
+        # A JSON label or Pydantic flag cannot attest original prospective fills.
+        # An independent original-PM03/04 proof adapter is not yet implemented.
+        reasons.add("INDEPENDENT_PROSPECTIVE_PROOF_ADAPTER_NOT_INSTALLED")
     if input.evidence_expired:
         reasons.add("EXPIRED_EVIDENCE")
     if input.unresolved_financial_effects:
@@ -240,6 +397,8 @@ def evaluate_k(input: KResearchInput) -> KProposal:
     prospective = [w for w in oos if w.class_of_evidence == "PM03_PROSPECTIVE_SHADOW"]
     if not oos or sum(w.independent_episodes for w in oos) < 30:
         reasons.add("INSUFFICIENT_INDEPENDENT_OOS_EPISODES")
+    if any(w.period_start is None for w in oos):
+        reasons.add("INDEPENDENT_OOS_START_CLOCK_MISSING")
     if not prospective:
         reasons.add("NO_AUTHENTIC_PROSPECTIVE_FINANCE")
     if not any(w.label == "TRAIN" for w in input.windows):
@@ -273,7 +432,8 @@ def evaluate_k(input: KResearchInput) -> KProposal:
     if input.candidate_k < input.current_frozen_k:
         decision = (
             "DECREASE"
-            if not {"EXPIRED_EVIDENCE", "UNRESOLVED_EXECUTIONS_OR_INVENTORY"} & reasons
+            if input.finance_frame is not None
+            and not {"EXPIRED_EVIDENCE", "UNRESOLVED_EXECUTIONS_OR_INVENTORY"} & reasons
             else "INSUFFICIENT_EVIDENCE"
         )
     elif input.candidate_k == input.current_frozen_k:
@@ -303,10 +463,13 @@ def evaluate_k(input: KResearchInput) -> KProposal:
         "follower_net_oos_usd": sum((w.follower_mtm_net_usd for w in oos), Decimal("0"))
         if oos
         else None,
+        "finance_check": finance_check,
+        "paired_economics": paired_economics,
         "evidence_class": "AUTHENTIC_PROSPECTIVE_PRESENT" if prospective else "HISTORICAL_ONLY",
         "reasons": tuple(sorted(reasons)),
         "confidence": "CONDITIONAL" if not reasons and prospective else "LOW",
         "research_only": True,
+        "original_prospective_proof_verified": False,
         "authorized_for_trading": False,
         "release_activated": False,
         "order_route": "NONE",
@@ -336,6 +499,7 @@ class KReleaseCandidate(Frozen):
     proposed_at: str
     rollback_release_sha256: SHA
     proposals: tuple[KProposal, ...]
+    current_policy_sha256: SHA | None = None
     operator_signature: None = None
     activated: Literal[False] = False
     shadow_only: Literal[True] = True
@@ -344,6 +508,10 @@ class KReleaseCandidate(Frozen):
 
     @model_validator(mode="after")
     def verify(self):
+        # Frozen models have mutable nested mappings. Recheck every nested
+        # proposal content identity at the trust/publication boundary.
+        for proposal in self.proposals:
+            KProposal.model_validate_json(proposal.model_dump_json(by_alias=True))
         if clock(self.effective_at) <= clock(self.proposed_at):
             raise ValueError("RELEASE_EFFECTIVE_TIME_NOT_FUTURE")
         if len(set(self.pod_membership)) != len(self.pod_membership) or not self.pod_membership:
@@ -357,7 +525,7 @@ class KReleaseCandidate(Frozen):
             or p.cost_policy_version != self.cost_policy_version
             or p.risk_policy_version != self.risk_policy_version
             or clock(p.as_of) > clock(self.proposed_at)
-            or p.decision == "INSUFFICIENT_EVIDENCE"
+            or p.decision in {"INSUFFICIENT_EVIDENCE", "INCREASE"}
             for p in self.proposals
         ):
             raise ValueError("RELEASE_PROPOSAL_SCOPE_OR_EVIDENCE_INVALID")
@@ -380,7 +548,10 @@ def make_candidate(
     proposed_at: str,
     rollback_release_sha256: str,
     proposals: tuple[KProposal, ...],
+    current_policy_sha256: str | None = None,
 ) -> KReleaseCandidate:
+    for proposal in proposals:
+        KProposal.model_validate_json(proposal.model_dump_json(by_alias=True))
     body = dict(
         schema="track_c_k_release_candidate_v1",
         portfolio_version=portfolio_version,
@@ -393,6 +564,7 @@ def make_candidate(
         proposed_at=proposed_at,
         rollback_release_sha256=rollback_release_sha256,
         proposals=proposals,
+        current_policy_sha256=current_policy_sha256,
         operator_signature=None,
         activated=False,
         shadow_only=True,
@@ -444,6 +616,7 @@ def offline_preflight(
     registry_version: int | None = None,
 ) -> dict:
     """An offline verification receipt, intentionally no activation method."""
+    KReleaseCandidate.model_validate_json(candidate.model_dump_json(by_alias=True))
     blockers = []
     verified_registry = False
     if registry_path is not None:

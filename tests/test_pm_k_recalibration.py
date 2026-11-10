@@ -116,7 +116,9 @@ def _input(*, k="0.02", current="0.01", windows=None, **kwargs):
 
 def test_positive_incremental_candidate_research_only_and_deterministic():
     result = evaluate_k(_input())
-    assert result.decision == "INCREASE"
+    assert result.decision == "INSUFFICIENT_EVIDENCE"
+    assert "INDEPENDENT_PROSPECTIVE_PROOF_ADAPTER_NOT_INSTALLED" in result.reasons
+    assert "PM03_ACCOUNT_SNAPSHOT_REQUIRED" in result.reasons
     assert result.research_only and result.authorized_for_trading is False
     assert result.order_route == "NONE" and result.release_activated is False
     assert result.identity_sha256 == evaluate_k(_input()).identity_sha256
@@ -208,7 +210,8 @@ def test_no_research_model_can_claim_order_or_release_authority():
 
 
 def test_releases_are_nonactivating_and_future_only():
-    p = evaluate_k(_input())
+    p = evaluate_k(_input(k="0.01"))
+    assert p.decision == "HOLD"
     release = make_candidate(
         portfolio_version=p.portfolio_version,
         portfolio_definition_sha256=P,
@@ -287,4 +290,4 @@ def test_no_increase_in_historical_only_and_no_automatic_inventory_change():
     p = evaluate_k(_input(windows=(_window("TRAIN"), _window("OOS"))))
     assert p.decision == "INSUFFICIENT_EVIDENCE"
     assert p.evidence_class == "HISTORICAL_ONLY"
-    assert evaluate_k(_input(k="0.005")).decision == "DECREASE"
+    assert evaluate_k(_input(k="0.005")).decision == "INSUFFICIENT_EVIDENCE"
