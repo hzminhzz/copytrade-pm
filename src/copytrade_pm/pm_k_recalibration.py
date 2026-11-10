@@ -430,9 +430,12 @@ def evaluate_k(input: KResearchInput) -> KProposal:
     if not all(t.status in ("ACCEPTED", "REJECTED", "BLOCKED") for t in input.trials):
         reasons.add("TRIAL_STATUS_UNKNOWN")
     if input.candidate_k < input.current_frozen_k:
+        # A proposed reduction is still a financial state change. Merely
+        # supplying a PM03 frame is not sufficient if PM03/PM04 rejected it.
         decision = (
             "DECREASE"
-            if input.finance_frame is not None
+            if finance_check is not None
+            and finance_check["ok"]
             and not {"EXPIRED_EVIDENCE", "UNRESOLVED_EXECUTIONS_OR_INVENTORY"} & reasons
             else "INSUFFICIENT_EVIDENCE"
         )

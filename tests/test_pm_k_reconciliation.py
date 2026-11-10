@@ -135,6 +135,7 @@ def test_real_finance_frame_missing_evidence_blocks(alter, expected):
     proposal = evaluate_k(_finance_study(finance_overrides=alter))
     assert expected in proposal.reasons
     assert proposal.finance_check["ok"] is False
+    assert proposal.decision == "INSUFFICIENT_EVIDENCE"
 
 
 def test_risk_halt_and_pending_entry_noninterference():
@@ -151,6 +152,7 @@ def test_risk_halt_and_pending_entry_noninterference():
             assert proposal.finance_check["order_route"] == "NONE"
         else:
             assert expected in proposal.reasons
+        assert proposal.decision == "INSUFFICIENT_EVIDENCE"
         assert digest(account.snapshot()) == old_sha
 
 

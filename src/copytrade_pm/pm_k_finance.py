@@ -89,6 +89,10 @@ def assess_finance(study: KResearchInput, frame: PM03FinanceFrame) -> dict:
             reasons.add("ACCOUNT_SOURCE_OR_QUOTE_STALE")
     if frame.pending_unknown_orders or frame.unresolved_exposures:
         reasons.add("UNRESOLVED_FINANCIAL_EFFECTS")
+    if any(book for book in account.pm_quantities.values()):
+        # A change in frozen k must never resize existing modeled inventory.
+        # A future release needs explicit grandfathered position identities.
+        reasons.add("OPEN_INVENTORY_RELEASE_NOT_SAFE")
     paper = account.pm04_state.get("paper_execution", {})
     if paper.get("unresolved_exposures") or any(
         entry.get("status") == "PENDING_5M" for entry in paper.get("history", {}).values()
