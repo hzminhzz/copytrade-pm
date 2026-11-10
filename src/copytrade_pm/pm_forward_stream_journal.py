@@ -612,6 +612,106 @@ class StreamProgress:
         return result
 
 
+def verify_stream_heads_fast(path: Path) -> dict:
+    """Bounded startup verification of current immutable proof heads only.
+
+    This does NOT certify the complete historical journal. Full
+    :func:`verify_streams` remains the separate operator/auditor step, and
+    the producer MUST start a new GAP/BASELINE epoch before risk admission.
+    Runtime restart must not deserialize 200k-400k historical native frames.
+    """
+    path = Path(path)
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("STREAM_JOURNAL_FILE_INVALID")
+    heads: list[tuple[str, int, str]] = []
+    with closing(sqlite3.connect("file:" + str(path.resolve()) + "?mode=ro", uri=True)) as db:
+        db.execute("PRAGMA query_only=ON")
+        db.execute("BEGIN")
+        for sid, cursor, chain in db.execute(
+            "SELECT stream_id,cursor,chain_sha FROM observer_stream_heads ORDER BY stream_id"
+        ):
+            if type(cursor) is not int or cursor < 1:
+                raise ValueError("STREAM_HEAD_CURSOR_INVALID")
+            head = _head(db, sid)
+            if head["cursor"] != cursor or head["chain_sha"] != chain:
+                raise ValueError("STREAM_HEAD_DIVERGENCE")
+            row = db.execute(
+                "SELECT event_sha,payload,receipt_refs,prior_sha,chain_sha,committed_at "
+                "FROM observer_stream_events WHERE stream_id=? AND seq=?",
+                (sid, cursor),
+            ).fetchone()
+            if row is None:
+                raise ValueError("STREAM_HEAD_DIVERGENCE")
+            event_sha, raw, refs_raw, prior, saved_chain, committed_at = row
+            event, refs = json.loads(raw), json.loads(refs_raw)
+            validate_event(event)
+            if (
+                event["expected_cursor"] != cursor - 1
+                or event["stream_id"] != sid
+                or digest(event) != event_sha
+                or saved_chain != chain
+                or clock(event["first_known_at"]) > clock(committed_at)
+            ):
+                raise ValueError("STREAM_TAIL_DIVERGENCE")
+            if cursor == 1:
+                if prior != ZERO:
+                    raise ValueError("STREAM_TAIL_PREDECESSOR_DIVERGENCE")
+            else:
+                predecessor = db.execute(
+                    "SELECT chain_sha FROM observer_stream_events WHERE stream_id=? AND seq=?",
+                    (sid, cursor - 1),
+                ).fetchone()
+                if predecessor is None or prior != predecessor[0]:
+                    raise ValueError("STREAM_TAIL_PREDECESSOR_DIVERGENCE")
+            if event.get("schema") == "paper_observer_stream_event_v2" and event["kind"] in (
+                "BASELINE",
+                "OBSERVATION",
+            ):
+                _verified_frame_sha(db, event)
+            for ref in refs:
+                _receipt(db, ref)
+            if sid.startswith("account:"):
+                alias = sid.removeprefix("account:")
+                latest = db.execute(
+                    "SELECT seq,receipt_id,payload,receipt_sha,prior_sha,chain_sha "
+                    "FROM source_receipts WHERE source_id=? ORDER BY seq DESC LIMIT 1",
+                    (alias,),
+                ).fetchone()
+                if latest is not None:
+                    seq, rid, payload, receipt_sha, receipt_prior, receipt_chain = latest
+                    original = json.loads(payload)
+                    if (
+                        original.get("source_id") != alias
+                        or digest(original) != receipt_sha
+                        or receipt_chain != digest([alias, seq, rid, receipt_prior, receipt_sha])
+                    ):
+                        raise ValueError("STREAM_SOURCE_TAIL_DIVERGENCE")
+                    if seq == 1:
+                        if receipt_prior != ZERO:
+                            raise ValueError("STREAM_SOURCE_PREDECESSOR_DIVERGENCE")
+                    else:
+                        prior_receipt = db.execute(
+                            "SELECT chain_sha FROM source_receipts WHERE source_id=? AND seq=?",
+                            (alias, seq - 1),
+                        ).fetchone()
+                        if prior_receipt is None or receipt_prior != prior_receipt[0]:
+                            raise ValueError("STREAM_SOURCE_PREDECESSOR_DIVERGENCE")
+                    expected_receipt_sha = head["checkpoint"].get("last_receipt_sha")
+                    if expected_receipt_sha is not None and expected_receipt_sha != receipt_sha:
+                        raise ValueError("STREAM_SOURCE_CHECKPOINT_DIVERGENCE")
+            heads.append((sid, cursor, chain))
+        db.execute("ROLLBACK")
+    return {
+        "schema": "paper_observer_stream_head_preflight_v1",
+        "status": "TAILS_VERIFIED_HISTORICAL_AUDIT_PENDING",
+        "stream_count": len(heads),
+        "stream_head_sha": digest(heads),
+        "complete_historical_integrity_verified": False,
+        "paper_admitted": False,
+        "order_route": "NONE",
+    }
+
+
 def verify_streams(path: Path) -> dict:
     """Separate read-only full-chain verifier, suitable for a watchdog process."""
     if path.is_symlink() or not path.is_file():

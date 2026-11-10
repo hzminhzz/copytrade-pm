@@ -29,7 +29,7 @@ from .pm_forward_observed_paper import (
     _verify_portfolio_selection,
 )
 from .pm_forward_source_stream import PersistentAccount
-from .pm_forward_stream_journal import verify_streams
+from .pm_forward_stream_journal import verify_stream_heads_fast
 
 
 def selected_parents(
@@ -213,7 +213,10 @@ def main() -> int:
             raise ValueError("V4_CAMPAIGN_REQUIRES_PRIVATE_MANIFEST")
         parents = selected_parents(args.registry_db, portfolios=ids, as_of=now)
     journal = PaperJournal(args.state_root)
-    verify_streams(journal.path)
+    # A full 200k+ event v1 audit can monopolize CPU and prevent any
+    # first-known source baseline from arriving after a restart.
+    # Verify the bounded immutable tail here; run full history offline.
+    verify_stream_heads_fast(journal.path)
     accounts = official_accounts(journal, parents, compact_evidence=args.compact_evidence)
 
     async def session():

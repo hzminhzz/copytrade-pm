@@ -24,7 +24,7 @@ from .pm_forward_observed_paper import (
     _exclusive_runner,
     now_utc,
 )
-from .pm_forward_stream_journal import verify_streams
+from .pm_forward_stream_journal import verify_stream_heads_fast
 from .pm_v4_sixteen_scenarios import IDENTITIES, MANIFEST_SHA256, load_campaign
 from .pm_vike_market_catalog import load_propr_catalog, official_paper_contracts
 
@@ -159,8 +159,10 @@ def main() -> int:
 
     if not args.source_db.is_file() or not args.price_db.is_file():
         raise ValueError("V4_SIXTEEN_SHARED_SOURCE_OR_PRICE_MISSING")
-    # Full source-stream integrity precedes every ledger's admission.
-    verify_streams(args.source_db)
+    # Strict tail attestation is bounded at startup even after 400k events.
+    # Historical full-chain integrity remains an independent offline audit;
+    # paper still requires fresh per-opportunity original source proofs.
+    verify_stream_heads_fast(args.source_db)
     catalog = load_propr_catalog(args.propr_catalog)
     contracts = official_paper_contracts(
         catalog.native_symbols,
