@@ -209,6 +209,25 @@ pinned installed runtime. Browser acceptance runs on the local obscura CDP
 server; verify actual CSS viewport dimensions, because an outer window size can
 silently clamp phone tests.
 
+## Engineering merge is not runtime promotion (owner decision 2026-11-10)
+
+Treat Git integration and operational authorization as independent decisions.
+For additive, nonactivating research/read-only changes, merging requires verified
+exact-head engineering, no protected side effects, compatible contracts and actual
+GitHub branch/review rules. Missing future follower PnL, calibration, deployed
+canary, k-release activation or trading approval **do not block that merge**.
+Track them in separate open issues and never claim their status improved.
+
+Every attempted operation still requires its own action-specific proof. Read-only
+SHADOW publication needs controlled ingress/redaction and reversible release;
+risk-off changes need authentic state and the risk owner; risk increases, active
+k changes and real orders need original economic, financial and independent
+operational approval at their actual authority seam. Git history never grants
+Guardian/broker or PM03/PM04 permission. See
+[the decision record](docs/decisions/2026-11-10-merge-vs-runtime-promotion.md).
+Never remove a fail-closed
+runtime guard merely to make a PR mergeable.
+
 ## Review, verification and continuation
 
 Routine authorized engineering proceeds without per-turn judge calls.
