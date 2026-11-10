@@ -58,3 +58,35 @@ The local independent branch `feat/track-c-k-256-20261110` at `1e12e40` was insp
 - Trading authorized: **NO**; Guardian and broker interfaces untouched.
 
 Use this documentation with the versioned release candidate, not as an operator cutover instruction or authorization.
+
+## Follow-up #268: original T+300 k freeze (engineering only)
+
+An independently isolated follow-up branch adds nonactivating opportunity-level
+`frozen_k` and `release_sha256` to the original `PM04_PAPER_SOURCE` event and
+`pm04_single_shot_intents_v2` opportunity history. At genuine first-known T0,
+the original frozen PM04 policy and its SHA are bound to the immutable pending
+opportunity. Coalesced source changes preserve this k and release identity;
+restarts replay the same original event. An eventual T+300 attempt sizes from
+the persisted original k instead of re-reading the mutable profile reference.
+The PM04 reducer rejects mismatched execution k/release receipts before any
+modeled fills. Older journals remain readable as legacy unversioned intent
+records; they **must not** be promoted into a new k release and the separate
+cutover verifier remains `BLOCKED_NONACTIVATING` for such exposures.
+
+The merged-policy independent read-only cutover auditor now distinguishes
+strictly validated `frozen_k` and `release_sha256` pending intents from legacy,
+corrupt, source-sequence-drifted, wrong-pod or wrongly scheduled T+300 intents.
+`track_c_pending_t300_k_audit_v1` returns exact pending/pinned/legacy counts,
+original policy SHA, and blockers without mutating PM03/PM04. A valid original
+pending intent is *preserved*, not converted into a new-k release. Original
+policy hash provenance is NOT a signed risk-release attestation.
+
+This fixes only the missing original opportunity k identity and improves
+read-only cutover auditing. A signed and independently approved future-effective
+SHADOW release loader, grandfathered held-inventory identity, authentic
+original FinanceWindow verification, rollback/crash/restart release cutover
+and a live verified canary remain blocked. In all cases
+`verify_cutover.status=BLOCKED_NONACTIVATING`; neither positive Pydantic
+validation nor a commit grants release or trading authority.
+Do not claim #268 completed, financial qualification, k activation or broker
+permission from this engineering subset.
