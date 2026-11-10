@@ -90,6 +90,15 @@ SCIENTIFICALLY QUALIFIED: NO. Thresholds 8/7/80, 20/14/90 and 10% intended false
 DEPLOYED: NO. TRADING AUTHORIZED: NO. Owner paging: NO.
 Unknown/missing inputs stay UNKNOWN or INSUFFICIENT_EVIDENCE. No k activation, no second financial ledger, no broker/Guardian commands.
 
+## Post-merge optional orchestration follow-up
+
+On 2026-11-10, Prefect 3 was adopted as an **optional research-only adapter**
+for content-addressed private assessment jobs. This does not change the status
+or original proofs of #274–#288; see
+[the separate Prefect runbook](TRACK-B-PREFECT-ORCHESTRATION-20261110.md).
+No persistent Prefect service, live V4/PM03 worker mutation or scientific
+promotion is included in this follow-up.
+
 ## Pending operational/scientific gates
 
 - Independently prove real source and PM03/market/fee/funding/selected SQLite original evidence for each prospective campaign. Do not reuse historical retrospective k or self-authenticated report hash as proof.
