@@ -463,6 +463,36 @@ def publish_once(
     return payload
 
 
+def publish_health_bridge(directory: Path, source: Path, *, now: datetime) -> bool:
+    """Copy only a SHA-validated redacted source snapshot through our sole writer.
+
+    The provider capture and private registry stay on the host. This process
+    never imports either one and cannot write financial or source journals.
+    """
+    from copytrade_pm.wallet_health_projection import MAX_SIZE as HEALTH_MAX
+    from copytrade_pm.wallet_health_projection import read as verify_health
+
+    path = source / "wallet-health.json"
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        return False
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= HEALTH_MAX:
+            raise EvidenceInvalid("INVALID_HEALTH_SOURCE_FILE")
+        raw = os.read(fd, HEALTH_MAX + 1)
+        if len(raw) != info.st_size:
+            raise EvidenceInvalid("CHANGED_HEALTH_SOURCE_FILE")
+    finally:
+        os.close(fd)
+    validated = verify_health(source, now=now)
+    if json.loads(raw).get("generation_sha256") != validated["generation_sha256"]:
+        raise EvidenceInvalid("HEALTH_SOURCE_CHANGED_BETWEEN_READS")
+    publish_atomic(directory, raw, name="wallet-health.json")
+    return True
+
+
 def main() -> None:
     import argparse
 
@@ -472,6 +502,7 @@ def main() -> None:
     parser.add_argument("--dir", required=True, type=Path)
     parser.add_argument("--interval", type=int, default=15)
     parser.add_argument("--once", action="store_true")
+    parser.add_argument("--health-source", type=Path)
     args = parser.parse_args()
     if not 5 <= args.interval <= 60:
         parser.error("interval must be 5..60 seconds")
@@ -483,6 +514,12 @@ def main() -> None:
         except Exception as exc:
             # A failed publisher leaves the prior generation visibly STALE.
             print(f"EVIDENCE_PUBLICATION_FAILED:{type(exc).__name__}", flush=True)
+        if args.health_source is not None:
+            try:
+                publish_health_bridge(args.dir, args.health_source, now=_utc_now())
+            except Exception as exc:
+                # A bad health file must not affect the existing risk publisher.
+                print(f"WALLET_HEALTH_PUBLICATION_FAILED:{type(exc).__name__}", flush=True)
         if args.once:
             break
         time.sleep(args.interval)

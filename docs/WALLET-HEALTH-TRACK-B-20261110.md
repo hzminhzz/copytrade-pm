@@ -47,6 +47,25 @@ With explicit `--publish-dir /path/to/publisher-writable-evidence`, a separate r
 
 Published hashes prove integrity of local publication, not source authenticity. Stale assessments are explicitly downgraded. Do not display these rows as protected-account finance.
 
+## Official field capture and read-only rollout (2026-11-10)
+
+The additional `copytrade_pm.wallet_health_official` reader queries the **current private SQLite as-of registry**, deduplicates the 283 eligible HL account identities observed in the first field canary, and uses only the already approved official Hyperliquid public `/info` HTTPS API. The current eligible count is not hardcoded; rerun the registry doctor. The collector does not subscribe new accounts to the official position WebSocket or connect a broker.
+
+Each original response is stored byte-for-byte under a new `g...` owner-private, create-once generation alongside a timestamped, request-SHA- and response-SHA-bound receipt. A bounded rolling weighted rate reserve (default 240/min, maximum 600/min against the venue's documented shared-IP 1,200/min limit), one local process lock, three read-only retries and explicit provider-error abstention prevent unlimited acquisition. It cannot coordinate with unrelated processes using the same public IP; keep the reserve conservative. The default full-roster pass requests the selected *main perp DEX* state and independent account abstraction mode for every identity. Optional `--deep-wallets N` adds bounded 90-day original nonfunding ledger, funding and fills evidence to the first N accounts. The deep retrospective pages are **not** prospective first-known sources, nor are saturated historical pages complete.
+
+```bash
+uv run --frozen --group dev python -m copytrade_pm.wallet_health_official \
+  --generation /home/quant/.local/share/copytrade/health-research/g20261110example000001 \
+  --max-wallets 512 --deep-wallets 12 --weight-per-minute 240 \
+  --publish-dir /home/quant/.local/share/copytrade-grafana-health
+```
+
+The generation path must be new and cannot be reused. The CLI reports sampled-account and provider coverage, original raw receipt counts, and missingness; it never prints private addresses or source balances. The `wallet_health` engine still abstains on absent or late follower episodes. This collector deliberately sets `source_continuity_verified=false`, `complete_pnl=false` and `complete_flows=false`: one REST state plus an historical ledger does not prove continuous observation, complete account-wide money flow or follower PnL. `default`/`disabled` source modes can verify a **main-perp account value only**; unified/portfolio-margin/dex-abstraction cannot promote per-DEX account value to a whole-wallet denominator. A main-perp capital observation is not authority for other HIP-3 DEX balances or unrelated subaccounts. No health report auto-excludes a wallet.
+
+The redacted-only host directory is a separate publication boundary from the private raw generation. `wallet_health_projection` validates the immutable private report SHA and publishes only redacted statuses to this directory. Grafana's read-only publisher container mounts it as input and atomically copies a validated snapshot to the existing evidence volume; projection and Grafana have no registry/private wallet mounts, no source sockets, and no write interface. The producer bridges only one SHA-valid file and retains stale assessment clocks. A missing or corrupted source makes the viewer return 503 or preserves the last stale evidence, never a green signal. The operator can disable the read-only daily timer without deleting private captures, modifying other Grafana dashboards or touching Guardian.
+
+The initial bounded live canary queried 4 real registered accounts and persisted 11 official public provider receipts without errors. Exactly one main-perp capital observation and one recent activity window were supported; **0 full economic attributions, 0 authenticated follower PnL observations, 0 real false-positive-rate qualifications**. This validates transport and conservative abstention on a small real sample, not yet all-wallet scientific performance. The full-roster result and actual installed-service SHA must be reverified against service/evidence records, not inferred from unit tests or this dated note.
+
 ## Boundaries and gaps
 
 - No autonomous provider acquisition, retry or external quota coordination is implemented. Any provider response must first be captured into independently authenticated, timestamped evidence.

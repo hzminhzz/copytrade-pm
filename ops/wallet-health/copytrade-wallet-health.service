@@ -1,0 +1,17 @@
+[Unit]
+Description=Copytrade Track B official read-only daily wallet health research (NO TRADE)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/.local/share/copytrade-wallet-health/current
+ExecStart=/bin/bash %h/.local/share/copytrade-wallet-health/current/ops/wallet-health/daily.sh
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+MemoryMax=384M
+CPUQuota=50%
+TimeoutStartSec=1800
+Restart=no

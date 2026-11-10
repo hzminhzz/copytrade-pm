@@ -22,6 +22,8 @@ SOURCES = (
     "ops/grafana-phase1/provisioning/dashboards/account-risk.yaml",
     "ops/grafana-phase1/provisioning/datasources/account-risk.yaml",
     "ops/grafana-phase1/provisioning/alerting/operational.json",
+    "ops/grafana-phase1/provisioning/alerting/wallet-health.json",
+    "ops/grafana-phase1/dashboards/wallet-health.json",
     "ops/grafana-phase1/dashboards/risk-command.json",
     "ops/grafana-phase1/dashboards/portfolios.json",
     "ops/grafana-phase1/dashboards/execution.json",
@@ -30,6 +32,9 @@ SOURCES = (
     "src/copytrade_pm/dashboard/evidence_plane.py",
     "src/copytrade_pm/dashboard/grafana_projection.py",
     "src/copytrade_pm/dashboard/grafana_capabilities.py",
+    "src/copytrade_pm/wallet_health_projection.py",
+    "src/copytrade_pm/wallet_health.py",
+    "src/copytrade_pm/wallet_health_official.py",
 )
 EXPECTED_UIDS = {
     "risk-command": "copytrade-risk-command-v1",
@@ -37,6 +42,7 @@ EXPECTED_UIDS = {
     "execution": "copytrade-execution-v1",
     "health": "copytrade-health-incidents-v1",
     "wallets": "copytrade-wallet-explorer-v1",
+    "wallet-health": "copytrade-wallet-health-v1",
 }
 
 
@@ -56,6 +62,15 @@ def verify(root: Path = ROOT) -> dict:
     )
     if len(alerts["groups"][0]["rules"]) != 3:
         raise ValueError("INCOMPATIBLE_ALERT_RELEASE")
+    health_alerts = json.loads(
+        (root / "ops/grafana-phase1/provisioning/alerting/wallet-health.json").read_text()
+    )
+    if (
+        len(health_alerts.get("groups", [])) != 1
+        or len(health_alerts["groups"][0].get("rules", [])) != 1
+        or health_alerts["groups"][0]["rules"][0].get("uid") != "ct-trackb-health-evidence-fault"
+    ):
+        raise ValueError("INCOMPATIBLE_WALLET_HEALTH_ALERT_RELEASE")
     compose = (root / "ops/grafana-phase1/compose.yaml").read_text()
     if "network_mode: none" not in compose or "internal: true" not in compose:
         raise ValueError("UNSAFE_DOCKER_RELEASE")

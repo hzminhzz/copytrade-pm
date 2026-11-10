@@ -5,4 +5,4 @@ COPY src /app/src/
 RUN pip install --no-cache-dir 'starlette==1.10.0' 'cryptography==50.0.2' && pip install --no-cache-dir --no-deps .
 RUN useradd --uid 10002 --create-home publisher
 USER publisher
-CMD ["python","-m","copytrade_pm.dashboard.evidence_plane","--dir","/evidence","--interval","15"]
+CMD ["python","-m","copytrade_pm.dashboard.evidence_plane","--dir","/evidence","--interval","15","--health-source","/health-source"]
