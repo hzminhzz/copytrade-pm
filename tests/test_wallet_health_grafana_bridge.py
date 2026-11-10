@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 import json
+import os
 
 import pytest
 
@@ -19,7 +20,12 @@ def test_bridge_copies_only_validated_redacted_snapshot(tmp_path):
     source = tmp_path / "redacted"
     output = tmp_path / "evidence"
     raw = project(report, published_at=NOW)
-    publish(source, raw)
+    old_mask = os.umask(0o077)
+    try:
+        publish(source, raw)
+    finally:
+        os.umask(old_mask)
+    assert (source / "wallet-health.json").stat().st_mode & 0o777 == 0o644
     assert publish_health_bridge(output, source, now=NOW)
     assert (output / "wallet-health.json").read_bytes() == raw
     data = read(output, now=NOW)
