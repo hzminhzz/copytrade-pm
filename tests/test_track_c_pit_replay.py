@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from decimal import Decimal as D
 
-import polars as pl
 import pytest
 
 from scripts.track_c_pit_replay import risk_k, summarize_outcomes, track_c_abstention
@@ -96,6 +95,7 @@ def test_track_c_evaluator_does_not_authorize_increase_even_with_sample():
 
 
 def test_historical_episode_blockers_are_never_counted_as_zero_pnl():
+    pl = pytest.importorskip("polars")
     rows = pl.DataFrame(
         [
             {
