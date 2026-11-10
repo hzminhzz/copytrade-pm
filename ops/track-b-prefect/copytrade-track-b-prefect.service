@@ -1,0 +1,24 @@
+[Unit]
+Description=Track B optional SHA-pinned private Prefect research batch (NO TRADE)
+After=local-fs.target
+ConditionPathExists=%h/.config/copytrade/track-b-prefect.env
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/.local/share/copytrade-track-b/current
+EnvironmentFile=%h/.config/copytrade/track-b-prefect.env
+ExecStart=%h/.local/share/copytrade-track-b/current/.venv/bin/copytrade-pm-track-b-prefect --manifest ${TRACK_B_PREFECT_MANIFEST_PATH} --sha256 ${TRACK_B_PREFECT_MANIFEST_SHA256}
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.local/share/copytrade-track-b/track-b-prefect-staging
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=800M
+CPUQuota=50%
+TasksMax=96
+TimeoutStartSec=900
+Restart=no

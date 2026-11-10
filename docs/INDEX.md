@@ -53,6 +53,7 @@ The Marimo operator dashboard was **retired early on 2026-11-08** at operator di
 | Protected standby/watchdog staging | [Protected operations](FORWARD-PAPER-PROTECTED-OPS-STAGING-20261105.md) |
 | Native capability discovery and operator commands | [Agent operations](AGENT-NATIVE-OPERATIONS.md), [Runbook](RUNBOOK.md) |
 | Scientific evidence and signoff | [Qualification](QUALIFICATION.md), [Governance](GOVERNANCE-GATES.md) |
+| Track B v2 read-only rollout, Prefect and rollback | [Track B SHADOW rollout](TRACK-B-SHADOW-ROLLOUT-20261111.md), [Prefect research adapter](TRACK-B-PREFECT-ORCHESTRATION-20261110.md) |
 | Portfolio/prop-challenge comparisons | [Native contract EV tool](CONTRACT-PORTFOLIO-EV-TOOL-20261105.md) |
 | Recover and resume blocked work | [Blocker recovery](BLOCKER-RECOVERY.md) |
 
