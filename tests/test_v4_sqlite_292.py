@@ -29,10 +29,18 @@ def test_ten_thousand_valid_unchanged_frames_do_not_append_economic_evidence(tmp
     committed_cursor = journal.source_status("test")["cursor"]
     committed_head = source.progress.head["chain_sha"]
     for index in range(1, 10001):
-        result = source.observe(shifted(index, "20.0"), (T + timedelta(seconds=index)).isoformat())
+        frame = shifted(index, "20.0")
+        native = frame["data"]["clearinghouseStates"][0][1]
+        native["marginSummary"]["accountValue"] = str(100 + index / 10)
+        native["assetPositions"][0]["position"]["cumFunding"] = {"sinceOpen": str(index)}
+        result = source.observe(frame, (T + timedelta(seconds=index)).isoformat())
         assert result["classification"] in ("UNCHANGED_STATE", "DUPLICATE")
     assert journal.source_status("test")["cursor"] == committed_cursor
     assert source.progress.head["chain_sha"] == committed_head
+    with closing(sqlite3.connect(journal.path)) as health:
+        assert health.execute(
+            "SELECT COUNT(*) FROM observer_source_health WHERE stream_id='account:test'"
+        ).fetchone() == (1,)
     assert source.checkpoint["dex_clocks"] != source.progress.checkpoint["dex_clocks"]
     assert (
         source.observe(shifted(10001, "21"), (T + timedelta(seconds=10001)).isoformat())[
@@ -167,7 +175,7 @@ def test_compact_v2_original_evidence_and_missing_sidecar_fail_closed(tmp_path):
         raw = json.dumps(catalog, sort_keys=True).encode()
         return catalog, raw, sha256(raw).hexdigest()
 
-    source = official_accounts(journal, {"S035": address}, info=info)["S035"]
+    source = official_accounts(journal, {"S035": address}, info=info, compact_evidence=True)["S035"]
     source.begin(at(0))
     for seconds, quantity in ((1, 0), (12, 20)):
         frame = official_frame(seconds, quantity)
@@ -190,6 +198,11 @@ def test_compact_v2_original_evidence_and_missing_sidecar_fail_closed(tmp_path):
             ("account:S035",),
         ).fetchone()[0]
     event = json.loads(raw_event)
+    assert latest["receipt"]["schema"] == "paper_first_known_source_v2"
+    assert latest["book"]["schema"] == "paper_source_book_v2"
+    assert "position_margin_diagnostics" not in latest["book"]
+    assert "per_dex_margin_diagnostics" not in latest["book"]
+    assert latest["book"]["diagnostics_in_raw_wire"] is True
     assert event["schema"] == "paper_observer_stream_event_v2"
     assert "native_wire" not in event["details"]
     assert "native_frame" not in event["details"]

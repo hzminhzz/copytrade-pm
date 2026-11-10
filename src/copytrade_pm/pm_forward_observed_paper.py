@@ -263,7 +263,7 @@ def _read_source(conn: sqlite3.Connection, alias: str, seq: int | None = None) -
     receipt = json.loads(raw)
     book = receipt.get("source_book")
     if (
-        receipt.get("schema") != "paper_first_known_source_v1"
+        receipt.get("schema") not in ("paper_first_known_source_v1", "paper_first_known_source_v2")
         or receipt.get("source_id") != alias
         or receipt.get("payload_sha") != (book or {}).get("snapshot_sha")
         or not isinstance(book, dict)

@@ -13,8 +13,53 @@ import re
 import tempfile
 import zlib
 
+from .pm03_account import digest
+
 MAX_ORIGINAL_WIRE = 2_000_000
 SHA = re.compile(r"[0-9a-f]{64}\Z")
+
+
+def compact_official_receipt(receipt: dict, *, raw_sha: str) -> dict:
+    """Bounded V4 receipt projection; original diagnostic data remains in raw sidecar.
+
+    This runs only AFTER native full-account parsing/validation, and only with
+    an independently SHA-verified original wire already durably published.
+    The V2 source book retains every position, DEX, identity, causal clock,
+    child census, fixed-k and as-of field used by the paper consumer.
+    """
+    book = receipt.get("source_book")
+    if (
+        receipt.get("schema") != "paper_first_known_source_v1"
+        or not isinstance(book, dict)
+        or book.get("schema") != "paper_source_book_v1"
+        or not isinstance(book.get("per_dex_margin_diagnostics"), list)
+        or not isinstance(book.get("position_margin_diagnostics"), dict)
+        or book.get("snapshot_sha")
+        != digest({k: v for k, v in book.items() if k != "snapshot_sha"})
+        or SHA.fullmatch(raw_sha) is None
+    ):
+        raise ValueError("V4_COMPACT_RECEIPT_UNVERIFIED_ORIGINAL")
+    minimum = {
+        key: value
+        for key, value in book.items()
+        if key not in ("per_dex_margin_diagnostics", "position_margin_diagnostics", "snapshot_sha")
+    }
+    minimum["schema"] = "paper_source_book_v2"
+    minimum["diagnostics_in_raw_wire"] = True
+    minimum["diagnostics_sha"] = digest(
+        [book["per_dex_margin_diagnostics"], book["position_margin_diagnostics"]]
+    )
+    minimum["original_snapshot_sha"] = book["snapshot_sha"]
+    minimum["wire_raw_sha"] = raw_sha
+    minimum["snapshot_sha"] = digest(minimum)
+    return {
+        **receipt,
+        "schema": "paper_first_known_source_v2",
+        "payload_sha": minimum["snapshot_sha"],
+        "source_book": minimum,
+        "original_source_book_sha": book["snapshot_sha"],
+        "wire_raw_sha": raw_sha,
+    }
 
 
 def evidence_path(db_path: Path, raw_sha: str) -> Path:

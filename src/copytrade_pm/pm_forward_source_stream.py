@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from contextlib import closing
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from hashlib import sha256
@@ -206,7 +205,12 @@ class PersistentAccount:
             "gap_reason": reason,
         }
         event = self.progress.propose(
-            epoch=epoch, kind="GAP", known_at=known_at, checkpoint=state, details={"reason": reason}
+            epoch=epoch,
+            kind="GAP",
+            known_at=known_at,
+            checkpoint=state,
+            details={"reason": reason},
+            compact_v2=self.compact_evidence,
         )
         result = self.progress.commit(event)
         self.epoch = epoch
@@ -226,6 +230,7 @@ class PersistentAccount:
                 kind="TRANSPORT",
                 known_at=known_at,
                 checkpoint=state,
+                compact_v2=self.compact_evidence,
             )
         )
 
@@ -255,6 +260,7 @@ class PersistentAccount:
                 known_at=known_at,
                 checkpoint=state,
                 details={"reason": reason},
+                compact_v2=self.compact_evidence,
             )
         )
 
@@ -294,6 +300,7 @@ class PersistentAccount:
                         known_at=known_at,
                         checkpoint=state,
                         details={"reason": "SELECTED_ACCOUNT_SCOPE_CHANGED"},
+                        compact_v2=self.compact_evidence,
                     )
                 )
                 self.account_scope_sha = contract_generation
@@ -411,28 +418,42 @@ class PersistentAccount:
         # Retry no faster than the normal bounded interval.
         self._next_health_write = now + 30.0
         try:
-            with closing(sqlite3.connect(self.journal.path, timeout=0.2)) as db, db:
-                db.execute("PRAGMA synchronous=FULL")
-                db.execute(
-                    "INSERT INTO observer_source_health VALUES (?,?,?,?,?,?,?) "
-                    "ON CONFLICT(stream_id) DO UPDATE SET "
-                    "epoch=excluded.epoch,validated_at=excluded.validated_at,"
-                    "source_event_at=excluded.source_event_at,dex_clocks=excluded.dex_clocks,"
-                    "position_sha=excluded.position_sha,transport=excluded.transport",
-                    (
-                        "account:" + self.alias,
-                        self.epoch,
-                        known_at,
-                        source_at,
-                        json.dumps(clocks, sort_keys=True),
-                        position_sha,
-                        "CONNECTED",
-                    ),
-                )
-        except sqlite3.OperationalError as exc:
-            if getattr(exc, "sqlite_errorcode", None) not in (
-                sqlite3.SQLITE_BUSY,
-                sqlite3.SQLITE_LOCKED,
+            # Reuse the existing process/file lease and bounded setup retry.
+            # There is still only one writer authority for the source DB.
+            with self.journal._writer() as db:
+                db.execute("BEGIN IMMEDIATE")
+                try:
+                    db.execute(
+                        "INSERT INTO observer_source_health VALUES (?,?,?,?,?,?,?,?,?) "
+                        "ON CONFLICT(stream_id) DO UPDATE SET "
+                        "epoch=excluded.epoch,account_sha=excluded.account_sha,"
+                        "validated_at=excluded.validated_at,"
+                        "source_event_at=excluded.source_event_at,dex_clocks=excluded.dex_clocks,"
+                        "position_sha=excluded.position_sha,transport=excluded.transport,"
+                        "freshness_status=excluded.freshness_status",
+                        (
+                            "account:" + self.alias,
+                            self.epoch,
+                            sha256(self.address.encode()).hexdigest(),
+                            known_at,
+                            source_at,
+                            json.dumps(clocks, sort_keys=True),
+                            position_sha,
+                            "CONNECTED",
+                            "VALID",
+                        ),
+                    )
+                    db.execute("COMMIT")
+                except Exception:
+                    db.execute("ROLLBACK")
+                    raise
+        except (sqlite3.OperationalError, ValueError) as exc:
+            if not (
+                isinstance(exc, sqlite3.OperationalError)
+                and getattr(exc, "sqlite_errorcode", None) is not None
+                and (exc.sqlite_errorcode & 0xFF) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
+                or isinstance(exc, ValueError)
+                and str(exc).startswith("PAPER_JOURNAL_BUSY_OR_UNAVAILABLE:LEASE_HELD")
             ):
                 raise
 
@@ -556,6 +577,14 @@ class PersistentAccount:
             # SQLite receipt can reference them. A crash may leave an orphan,
             # but cannot leave a committed event referencing unflushed bytes.
             publish_wire(self.journal.path, raw_text, raw_sha)
+            from .pm_v4_evidence import compact_official_receipt
+
+            receipt = compact_official_receipt(receipt, raw_sha=raw_sha)
+            state["last_receipt_sha"] = digest(receipt)
+            # Unneeded per-position margin metadata remains in the original
+            # wire sidecar. The persisted checkpoint keeps only the selected
+            # native quantities, identity, scope, and DEX clocks.
+            state.pop("position_margin_diagnostics", None)
         details = {
             "classification": classification,
             "position_changes": changes,

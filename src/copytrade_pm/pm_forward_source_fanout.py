@@ -41,7 +41,8 @@ def _verified_source_rows(db: sqlite3.Connection, source_id: str) -> list[tuple]
         receipt = json.loads(raw)
         if (
             seq != expected
-            or receipt.get("schema") != "paper_first_known_source_v1"
+            or receipt.get("schema")
+            not in ("paper_first_known_source_v1", "paper_first_known_source_v2")
             or receipt.get("source_id") != source_id
             or digest(receipt) != sha
             or prior != previous

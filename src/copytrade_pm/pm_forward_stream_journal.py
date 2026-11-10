@@ -35,9 +35,6 @@ CREATE TABLE IF NOT EXISTS observer_stream_events (
     PRIMARY KEY(stream_id, seq),
     UNIQUE(stream_id, event_sha)
 );
-CREATE INDEX IF NOT EXISTS observer_stream_interruptions_idx
-ON observer_stream_events(stream_id, seq)
-WHERE json_extract(payload, '$.kind') IN ('GAP','BASELINE','SCOPE');
 CREATE TABLE IF NOT EXISTS observer_source_locator_coverage (
     stream_id TEXT PRIMARY KEY,
     verified_through INTEGER NOT NULL CHECK (verified_through >= 0)
@@ -45,11 +42,13 @@ CREATE TABLE IF NOT EXISTS observer_source_locator_coverage (
 CREATE TABLE IF NOT EXISTS observer_source_health (
     stream_id TEXT PRIMARY KEY,
     epoch TEXT NOT NULL,
+    account_sha TEXT NOT NULL,
     validated_at TEXT NOT NULL,
-    source_event_at TEXT NOT NULL,
+    source_event_at TEXT,
     dex_clocks TEXT NOT NULL,
     position_sha TEXT NOT NULL,
-    transport TEXT NOT NULL
+    transport TEXT NOT NULL,
+    freshness_status TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS observer_source_locators (
     source_id TEXT NOT NULL,
@@ -62,6 +61,13 @@ CREATE TABLE IF NOT EXISTS observer_source_locators (
     FOREIGN KEY(stream_id, event_seq)
         REFERENCES observer_stream_events(stream_id, seq)
 );
+"""
+# This scans historical payloads. Build ONLY during an operator-quiesced
+# additive migration, never during PaperJournal startup on a live multi-GB DB.
+INTERRUPTION_INDEX_SCHEMA = """
+CREATE INDEX IF NOT EXISTS observer_stream_interruptions_idx
+ON observer_stream_events(stream_id, seq)
+WHERE json_extract(payload, '$.kind') IN ('GAP','BASELINE','SCOPE');
 """
 KINDS = frozenset(
     {
@@ -150,15 +156,22 @@ def validate_event(event: dict) -> None:
         raise ValueError("STREAM_RAW_SHA_INVALID")
     if event["schema"] == "paper_observer_stream_event_v2":
         details = event["details"]
-        if (
-            event["kind"] not in ("BASELINE", "OBSERVATION")
-            or details.get("native_wire_ref") != event.get("raw_sha")
-            or not isinstance(details.get("native_frame_sha"), str)
-            or re.fullmatch(r"[0-9a-f]{64}", details["native_frame_sha"]) is None
-            or details.get("native_wire") is not None
+        if event["kind"] in ("BASELINE", "OBSERVATION"):
+            if (
+                details.get("native_wire_ref") != event.get("raw_sha")
+                or not isinstance(details.get("native_frame_sha"), str)
+                or re.fullmatch(r"[0-9a-f]{64}", details["native_frame_sha"]) is None
+                or details.get("native_wire") is not None
+                or details.get("native_frame") is not None
+            ):
+                raise ValueError("STREAM_V2_EVIDENCE_REFERENCE_INVALID")
+        elif (
+            event["kind"] not in ("GAP", "SCOPE", "TRANSPORT", "STOP")
+            or event.get("raw_sha") is not None
+            or details.get("native_wire_ref") is not None
             or details.get("native_frame") is not None
         ):
-            raise ValueError("STREAM_V2_EVIDENCE_REFERENCE_INVALID")
+            raise ValueError("STREAM_V2_NON_ECONOMIC_INVALID")
     wire = event["details"].get("native_wire")
     if wire is not None:
         from hashlib import sha256
@@ -284,6 +297,27 @@ def append_checkpoint(db: sqlite3.Connection, event: dict | None, refs: list[dic
         "INSERT INTO observer_stream_events VALUES (?,?,?,?,?,?,?,?)",
         (sid, seq, event_sha, _json(event), _json(refs), previous, chain, committed_at),
     )
+    if sid.startswith("account:"):
+        checkpoint = event["checkpoint"]
+        db.execute(
+            "INSERT INTO observer_source_health VALUES (?,?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(stream_id) DO UPDATE SET epoch=excluded.epoch,"
+            "account_sha=excluded.account_sha,validated_at=excluded.validated_at,"
+            "source_event_at=excluded.source_event_at,dex_clocks=excluded.dex_clocks,"
+            "position_sha=excluded.position_sha,transport=excluded.transport,"
+            "freshness_status=excluded.freshness_status",
+            (
+                sid,
+                event["epoch"],
+                checkpoint.get("account_sha", ""),
+                event["first_known_at"],
+                checkpoint.get("source_event_at"),
+                _json(checkpoint.get("dex_clocks", {})),
+                checkpoint.get("economic_sha", ""),
+                checkpoint.get("transport", "UNKNOWN"),
+                "VALID" if checkpoint.get("baseline_valid") else "BASELINE_REQUIRED",
+            ),
+        )
     for ref in refs:
         if ref["kind"] == "source":
             db.execute(
@@ -318,6 +352,7 @@ def backfill_verified_source_locators(path: Path, *, quiescence_verified: bool =
         # Upgrade previously created v1 journals without rewriting any old
         # source/stream evidence. Metadata DDL is safe to retry after failure.
         db.executescript(SCHEMA)
+        db.executescript(INTERRUPTION_INDEX_SCHEMA)
         db.execute("BEGIN IMMEDIATE")
         try:
             # This migration is additive on previously initialized journals.
@@ -381,6 +416,8 @@ def _verified_frame_sha(db: sqlite3.Connection, event: dict) -> str:
     db_file = db.execute("PRAGMA database_list").fetchone()[2]
     if not db_file:
         raise ValueError("V4_EVIDENCE_DATABASE_PATH_MISSING")
+    if event.get("kind") not in ("BASELINE", "OBSERVATION"):
+        return ""
     raw_sha = event.get("raw_sha")
     details = event["details"]
     raw = read_wire(Path(db_file), raw_sha)
@@ -439,16 +476,8 @@ def verify_official_position_transition(
             ).fetchone()
             else None
         )
-        head_cursor = db.execute(
-            "SELECT cursor FROM observer_stream_heads WHERE stream_id=?", (sid,)
-        ).fetchone()
-        if (
-            indexed
-            and coverage is not None
-            and head_cursor is not None
-            and coverage[0] == head_cursor[0]
-        ):
-            matches = db.execute(
+        indexed_matches = (
+            db.execute(
                 "SELECT e.seq,e.event_sha,e.payload,e.receipt_refs,e.prior_sha,"
                 "e.chain_sha,e.committed_at FROM observer_source_locators l "
                 "JOIN observer_stream_events e "
@@ -457,8 +486,22 @@ def verify_official_position_transition(
                 "AND l.receipt_sha=?",
                 (sid, alias, receipt_id, receipt_sha),
             ).fetchall()
+            if indexed
+            else []
+        )
+        if indexed_matches:
+            # New receipts use indexed proof immediately even on a legacy
+            # stream whose old rows have not been backfilled. The actual
+            # referenced original event and chain are still independently
+            # validated below; the locator alone never grants eligibility.
+            matches = indexed_matches
         else:
-            # Historical read-only v1 journals have not been indexed yet.
+            head_cursor = db.execute(
+                "SELECT cursor FROM observer_stream_heads WHERE stream_id=?", (sid,)
+            ).fetchone()
+            if coverage is not None and head_cursor is not None and coverage[0] == head_cursor[0]:
+                return False
+            # Old v1 receipts remain readable until verified offline backfill.
             matches = db.execute(
                 "SELECT e.seq,e.event_sha,e.payload,e.receipt_refs,e.prior_sha,"
                 "e.chain_sha,e.committed_at FROM observer_stream_events e "
@@ -598,7 +641,10 @@ def verify_streams(path: Path) -> dict:
                 ordinal, sha, raw, raw_refs, prior, chain, at = row
                 event, refs = json.loads(raw), json.loads(raw_refs)
                 validate_event(event)
-                if event["schema"] == "paper_observer_stream_event_v2":
+                if event["schema"] == "paper_observer_stream_event_v2" and event["kind"] in (
+                    "BASELINE",
+                    "OBSERVATION",
+                ):
                     _verified_frame_sha(db, event)
                 known, committed = clock(event["first_known_at"]), clock(at)
                 seq += 1
