@@ -11,8 +11,17 @@ import json
 from pathlib import Path
 import os
 import stat
+from typing import TYPE_CHECKING
 
-from .wallet_health import HealthReport, canonical
+if TYPE_CHECKING:
+    from .wallet_health import HealthReport
+
+
+def canonical(value: object) -> bytes:
+    # Keep the Docker projection process stdlib-only, independent of the
+    # private registry, Pydantic models, providers and financial sources.
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+
 
 SCHEMA = "wallet_health_grafana_v1"
 MAX_SIZE = 131072
@@ -191,3 +200,40 @@ def read(directory: Path, *, now: datetime) -> dict:
     }
     data["generation_sha256"] = digest
     return data
+
+
+def main(argv: list[str] | None = None) -> None:
+    """Publish an existing content-addressed private report to the redacted bridge."""
+    import argparse
+    from .wallet_health import HealthReport
+
+    parser = argparse.ArgumentParser(description="Publish verified research-only health evidence")
+    parser.add_argument("--report", required=True, type=Path)
+    parser.add_argument("--publish-dir", required=True, type=Path)
+    args = parser.parse_args(argv)
+    if args.report.is_symlink() or not args.report.is_file():
+        raise ValueError("PRIVATE_HEALTH_REPORT_NOT_REGULAR")
+    raw = args.report.read_bytes()
+    if len(raw) > 4 * 1024 * 1024 or args.report.name != (
+        "wallet-health-" + sha256(raw).hexdigest() + ".json"
+    ):
+        raise ValueError("PRIVATE_HEALTH_REPORT_SHA_INVALID")
+    report = HealthReport.model_validate_json(raw)
+    payload = project(report, published_at=datetime.now(UTC))
+    publish(args.publish_dir, payload)
+    print(
+        json.dumps(
+            {
+                "schema": SCHEMA,
+                "wallet_count": len(report.findings),
+                "source_sha256": sha256(raw).hexdigest(),
+                "redacted_projection_sha256": sha256(payload).hexdigest(),
+                "trading_authorized": False,
+            },
+            sort_keys=True,
+        )
+    )
+
+
+if __name__ == "__main__":
+    main()

@@ -33,6 +33,12 @@ From this branch, use:
 
 The stage script uses pinned Docker images and a minimal root-equivalent Docker helper to configure only the staging Unix-socket Tailscale Serve route. It does not need a sudo password. It must refuse to replace a preexisting 8444 route or untrusted socket directory. Teardown removes only the matching staging route, containers, evidence volume, socket directory and generated staging secrets.
 
+## Track B read-only health projection (additive)
+
+The wallet-health dashboard is an isolated **research-only** surface provisioned from `dashboards/wallet-health.json`. Before starting an upgraded Grafana release, create an owner-writable `/home/quant/.local/share/copytrade-grafana-health` directory (mode 0755 is acceptable *only* because this directory contains redacted data, never raw private wallet evidence) and publish an independently SHA-checked `wallet-health.json` using `python -m copytrade_pm.wallet_health_projection --report PRIVATE_IMMUTABLE_REPORT --publish-dir /home/quant/.local/share/copytrade-grafana-health`. Never bind-mount the private capture generation or SQLite.
+
+The existing no-network publisher is the **sole evidence volume writer**. It gets a new read-only bind mount of the redacted file, SHA- and clock-verifies it before copying it into the existing evidence volume, and retains earlier stale files on invalid input. The projection image is stdlib-only for this fixed route. No Grafana alert or dashboard value writes back to roster, k, PM03/PM04, Guardian, provider or broker. Because the health route and dashboard are new, rollout requires an exact source-bundle verification, pinned release+backup, container rebuild and read-only HTTP, token, freshness, redaction, rollback and owner-ingress checks; a code merge alone does not install it. The existing 8444 ingress and private auth proxy rules must remain unchanged.
+
 ## Verification
 
 - Unit/HTTP tests: tests/test_grafana_projection.py and existing dashboard tests.

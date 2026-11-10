@@ -8,6 +8,7 @@ services:
     network_mode: none
     volumes:
       - evidence:/evidence:rw
+      - ${HOME}/.local/share/copytrade-grafana-health:/health-source:ro
     read_only: true
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
