@@ -74,6 +74,22 @@ def publish(directory: Path, payload: bytes) -> None:
 
     # This name is deliberately a separate publisher-authorized projection.
     publish_atomic(directory, payload, name="wallet-health.json")
+    # Host capture runs with umask 077, which masks a 0644 creation to 0600.
+    # Explicitly enable read access ONLY to this redacted, hash-checked file;
+    # its private raw source and immutable financial research report stay 0600.
+    path = directory / "wallet-health.json"
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        info = os.fstat(fd)
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_size != len(payload)
+            or sha256(os.read(fd, MAX_SIZE + 1)).digest() != sha256(payload).digest()
+        ):
+            raise ValueError("HEALTH_PUBLISH_SHA_DRIFT")
+        os.fchmod(fd, 0o644)
+    finally:
+        os.close(fd)
 
 
 def read(directory: Path, *, now: datetime) -> dict:
