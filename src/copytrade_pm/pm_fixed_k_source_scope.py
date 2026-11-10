@@ -27,9 +27,9 @@ def assess_selected_parent_perp_scope(
             "source_nav_required": False,
             "position_scope_observed": False,
         }
-    if book.get("schema") != "paper_source_book_v1" or book.get("snapshot_sha") != digest(
-        {key: value for key, value in book.items() if key != "snapshot_sha"}
-    ):
+    if book.get("schema") not in ("paper_source_book_v1", "paper_source_book_v2") or book.get(
+        "snapshot_sha"
+    ) != digest({key: value for key, value in book.items() if key != "snapshot_sha"}):
         reasons.append("SELECTED_SOURCE_SHA_OR_SCHEMA_INVALID")
     if (
         not isinstance(book.get("wallet_id"), str)

@@ -85,6 +85,7 @@ def official_accounts(
     parents: dict[str, str],
     *,
     info: Callable = _guarded_info,
+    compact_evidence: bool = False,
 ) -> dict[str, PersistentAccount]:
     """Verify a real official DEX census; only explicitly selected parents."""
     if not parents:
@@ -109,6 +110,7 @@ def official_accounts(
             subaccounts=None,
             parent_alias=alias,
             scope_sha=scope_sha,
+            compact_evidence=compact_evidence,
         )
         for alias, address in parents.items()
     }
@@ -179,6 +181,11 @@ def main() -> int:
     )
     parser.add_argument("--campaign-sha256")
     parser.add_argument("--duration-seconds", type=float, default=0)
+    parser.add_argument(
+        "--compact-evidence",
+        action="store_true",
+        help="V2 raw sidecars and source receipts: requires all readers to be V2-compatible",
+    )
     args = parser.parse_args()
     if not 0 <= args.duration_seconds <= 86400:
         parser.error("--duration-seconds must be 0..86400")
@@ -207,7 +214,7 @@ def main() -> int:
         parents = selected_parents(args.registry_db, portfolios=ids, as_of=now)
     journal = PaperJournal(args.state_root)
     verify_streams(journal.path)
-    accounts = official_accounts(journal, parents)
+    accounts = official_accounts(journal, parents, compact_evidence=args.compact_evidence)
 
     async def session():
         stop = asyncio.Event()

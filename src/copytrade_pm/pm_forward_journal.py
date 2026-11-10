@@ -860,8 +860,18 @@ class PaperJournal:
             or len(receipt_id) > 128
         ):
             raise ValueError("INVALID_SOURCE_RECEIPT_IDENTITY")
-        if receipt.get("schema") != "paper_first_known_source_v1":
+        if receipt.get("schema") not in (
+            "paper_first_known_source_v1",
+            "paper_first_known_source_v2",
+        ):
             raise ValueError("UNKNOWN_SOURCE_RECEIPT_SCHEMA")
+        if receipt["schema"] == "paper_first_known_source_v2" and (
+            stream_event is None
+            or stream_event.get("schema") != "paper_observer_stream_event_v2"
+            or receipt.get("wire_raw_sha") != stream_event.get("raw_sha")
+            or receipt.get("source_book", {}).get("schema") != "paper_source_book_v2"
+        ):
+            raise ValueError("V4_COMPACT_SOURCE_WIRE_PROOF_REQUIRED")
         if receipt.get("source_id") != source_id:
             raise ValueError("SOURCE_RECEIPT_ID_MISMATCH")
         try:

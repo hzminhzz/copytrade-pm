@@ -132,6 +132,14 @@ def append_public_scope(
     receipt: dict,
     stream_event: dict | None = None,
 ) -> dict:
+    if receipt.get("schema") not in ("paper_first_known_source_v1", "paper_first_known_source_v2"):
+        raise ValueError("SOURCE_UNVERIFIED_RECEIPT_VERSION")
+    if receipt.get("schema") == "paper_first_known_source_v2" and (
+        receipt.get("source_book", {}).get("schema") != "paper_source_book_v2"
+        or receipt.get("wire_raw_sha") != (stream_event or {}).get("raw_sha")
+        or (stream_event or {}).get("schema") != "paper_observer_stream_event_v2"
+    ):
+        raise ValueError("SOURCE_COMPACT_PROOF_MISSING")
     if receipt.get("source_id") != alias or receipt.get("status") != (
         "BLOCKED_INCOMPLETE_WHOLE_WALLET"
     ):
