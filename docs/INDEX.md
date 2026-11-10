@@ -7,6 +7,8 @@ The [7 November reconciliation record](RECONCILIATION-20261107.md) explains PR a
 
 **Read-only Track B wallet health (#256):** [versioned daily as-of registry assessment, private immutable report, and redacted Grafana projection](WALLET-HEALTH-TRACK-B-20261110.md). The health research layer has no wallet or financial command authority; current field diagnosis depends on authentic, independently supplied provider evidence.
 
+**Track C risk-budgeted k research (#256):** [strict trial-aware proposals, immutable read-only research reports, nonactivating SHADOW release preflight and rollback](TRACK-C-K-RECALIBRATION-20261110.md). Proposal-level evidence is not verified follower alpha, signed release or activation.
+
 **V4-aligned fast wallet screening (#255):** [opt-in v2 Polars retrospective screen, frozen-k inputs, engineering evidence and explicit PM03 shortlist handoff](V4-FAST-POLARS-SCREENING-20261110.md). This is not a prospective first-known wallet qualification or trading signal.
 
 **Vike post-window research-k follow-up (2026-11-10):** [94-wallet July-training / August–November OOS v3 experiment, research-only rankings, SQLite exclusions, and immutable receipt](research/2026-11-10-vike-retrospective-k-oos.md). Retrospectively calculated k is not a historical signed release or trading qualification.
