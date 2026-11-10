@@ -1,0 +1,26 @@
+[Unit]
+Description=Copytrade Track C point-in-time retrospective research, one-shot NO_TRADE
+Documentation=https://github.com/hzminhzz/copytrade-pm/blob/main/docs/TRACK-C-K-RECALIBRATION-20261110.md
+After=local-fs.target
+ConditionPathExists=/home/quant/.local/share/copytrade/research/track-c-pit-1011/retro-vike-screen-job-a06fe947219c0cea.json
+ConditionPathExists=/home/quant/.local/share/copytrade/research/track-c-pit-1011/supplemental/trackc-july-ACT04-hourly.json
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/quant/.local/share/copytrade/releases/track-c-pit-1011-r2
+ExecStart=/home/quant/.local/share/copytrade/releases/track-c-pit-1011-r2/.venv/bin/python -m scripts.track_c_pit_replay --manifest /home/quant/dev/copytrade-pm/data/private/gemini_phase3_phase4_eligibility_20261104.json --registry-db /home/quant/.local/share/copytrade/registry/wallet_registry.sqlite --jobfile /home/quant/.local/share/copytrade/research/track-c-pit-1011/retro-vike-screen-job-a06fe947219c0cea.json --input-root /home/quant/.local/share/copytrade/research/track-c-pit-1011 --source-root /home/quant/dev/copytrade-pm/data --market-root /home/quant/dev/quant/ml4t-data/.data/store --supplemental-root /home/quant/.local/share/copytrade/research/track-c-pit-1011/supplemental --output-root /home/quant/.local/share/copytrade/research/track-c-pit-1011/results --as-of 2026-11-10T12:31:32+00:00
+Restart=no
+TimeoutStartSec=240
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/quant/.local/share/copytrade/research/track-c-pit-1011/results
+MemoryMax=2G
+CPUQuota=60%
+TasksMax=64
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONHASHSEED=0
+
+[Install]
+WantedBy=default.target
