@@ -154,6 +154,14 @@ async def observe(
     return {
         "status": "STOPPED_READ_ONLY",
         "accounts": len(accounts),
+        "writer_health": {
+            "write_count": writer.write_count,
+            "write_failures": writer.write_failures,
+            "max_write_ms": round(writer.write_max_ms, 3),
+            "total_write_ms": round(writer.write_total_ms, 3),
+            "queue_high_water": writer.high_water,
+            "recovery_policy": "PRE_TRANSACTION_ONLY",
+        },
         "order_route": "NONE",
         "source_nav_required": False,
     }
