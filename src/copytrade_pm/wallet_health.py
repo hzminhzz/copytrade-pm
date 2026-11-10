@@ -53,6 +53,9 @@ class FinancialEvidence(Strict):
 
     @model_validator(mode="after")
     def validate_evidence(self):
+        for stamp in (self.known_at, self.observed_at, self.last_trade_at):
+            if stamp is not None:
+                _utc(stamp)
         if self.known_at < self.observed_at:
             raise ValueError("KNOWLEDGE_PRECEDES_OBSERVATION")
         if self.account_scope.strip() == "":
@@ -101,6 +104,8 @@ class FollowerEpisode(Strict):
 
     @model_validator(mode="after")
     def causal(self):
+        _utc(self.known_at)
+        _utc(self.completed_at)
         if self.known_at < self.completed_at:
             raise ValueError("FUTURE_EPISODE")
         return self
@@ -342,7 +347,11 @@ def assess(
             eligibility = (
                 "ELIGIBLE" if f.closing_equity >= Decimal("1000") else "CAPITAL_FLOOR_BREACH"
             )
-        provided_scopes = {e.account_scope for e in episodes.get(wallet_id, [])}
+        provided_scopes = {
+            e.account_scope
+            for e in episodes.get(wallet_id, [])
+            if allowed and e.known_at <= as_of and e.completed_at <= as_of
+        }
         unambiguous_scope = (
             f.account_scope
             if usable
@@ -401,9 +410,17 @@ def assess(
             if windows["30"]["status"] == "DIAGNOSTIC"
             else "INSUFFICIENT_EVIDENCE"
         )
+        # A retrospective majority must not be promoted to a prospective
+        # diagnosis by mixing in one asserted prospective episode.
+        prospect = [e for e in es if e.kind == "AUTHENTIC_PROSPECTIVE"]
+        prospect_days = {
+            e.completed_at.date() for e in prospect if e.costs_complete and e.coverage_complete
+        }
         copy = (
             "PROSPECTIVE_OBSERVED"
-            if "AUTHENTIC_PROSPECTIVE" in qualified_kinds
+            if len({e.episode_id for e in prospect if e.costs_complete and e.coverage_complete})
+            >= 5
+            and len(prospect_days) >= 5
             else "RETROSPECTIVE_ONLY"
             if qualified_kinds
             else "INSUFFICIENT_EVIDENCE"

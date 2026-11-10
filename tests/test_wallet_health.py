@@ -132,6 +132,40 @@ def test_late_evidence_cannot_rewrite_earlier_asof(tmp_path):
     assert got.windows["7"]["independent_episodes"] == 0
 
 
+def test_future_episode_does_not_change_historical_account_scope(tmp_path):
+    db = seeded(tmp_path)
+    future = h.FollowerEpisode(
+        account_scope="future-scope",
+        known_at=NOW + timedelta(days=2),
+        completed_at=NOW + timedelta(days=1),
+        episode_id="future-1",
+        source_sha256=HASH,
+        net_follower_pnl_usd=Decimal("200"),
+        costs_complete=True,
+        coverage_complete=True,
+        kind="RETROSPECTIVE_ESTIMATE",
+    )
+    result = h.assess(db, as_of=NOW, episodes={1: [future]}).findings[0]
+    assert result.account_scope == "UNKNOWN"
+    assert result.activity == "UNKNOWN"
+    assert result.windows["7"]["independent_episodes"] == 0
+
+
+def test_mixed_retrospective_and_one_prospective_not_promoted(tmp_path):
+    db = seeded(tmp_path)
+    es = [episode(i, days=i) for i in range(5)]
+    es.append(episode(6, days=6, kind="AUTHENTIC_PROSPECTIVE"))
+    finding = h.assess(db, as_of=NOW, episodes={1: es}).findings[0]
+    assert finding.copyability == "RETROSPECTIVE_ONLY"
+
+
+def test_naive_evidence_timestamps_are_rejected():
+    with pytest.raises(ValueError, match="UTC_AS_OF_REQUIRED"):
+        finance(known_at=NOW.replace(tzinfo=None))
+    with pytest.raises(ValueError, match="UTC_AS_OF_REQUIRED"):
+        episode(0, known_at=NOW.replace(tzinfo=None))
+
+
 def test_copyability_retrospective_and_prospective_are_distinct(tmp_path):
     db = seeded(tmp_path)
     es = [episode(i, pnl="-2", days=i) for i in range(5)]
