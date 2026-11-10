@@ -1,0 +1,27 @@
+[Unit]
+Description=Publish a redacted copytrade-pm SQLite registry snapshot to the private Sites dashboard
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/quant/dev/copytrade-pm
+EnvironmentFile=/home/quant/.config/copytrade/site-registry-sync.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PATH=/home/quant/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/quant/.local/bin/uv run --frozen --no-sync --group dev python scripts/site_registry_sync.py
+TimeoutStartSec=180
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=512M
+CPUQuota=50%
+
+[Install]
+WantedBy=default.target
