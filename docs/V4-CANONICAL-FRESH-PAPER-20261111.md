@@ -1,5 +1,7 @@
 # V4 canonical 16-portfolio fresh paper campaign — 2026-11-11
 
+**Transport distinction:** [Vike-first wallet ingestion](decisions/2026-11-11-vike-first-wallet-source.md) is an approved future design, not an installed replacement for the current official complete-position source. Keep this campaign's selected-account official proof, T+300, frozen k, PM03/PM04 and immutable financial journal requirements unchanged until separate engineering, reconciliation and runtime admission. The 7-of-14 source coverage in this document is a dated deployment snapshot; verify current GAP/coverage from original journals and OS evidence.
+
 ## Scope and outcome
 
 This work restores one **research-only** 16-portfolio paper consumer on a single immutable Git release. The original 0811 P1/P14/P16 and two 0911 sixteen-portfolio journals are historical evidence. Never overwrite them, reuse their state roots, migrate old paper positions or retroactively reprice outcomes.

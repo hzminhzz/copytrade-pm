@@ -4,8 +4,7 @@ Research, public observation and deterministic shadow accounting for wallet
 copytrading. This package does not hold broker credentials, submit real orders
 or authorize trading.
 
-Start with [the handbook](docs/INDEX.md), then the owning source module and its
-behavioral tests. [AGENTS.md](AGENTS.md) defines the direct execution workflow.
+Start with [AGENTS.md](AGENTS.md), then [the canonical navigation directory](docs/INDEX.md), the owning source module, and behavioral tests. For new wallet ingestion, [Vike-first is the approved future transport](docs/decisions/2026-11-11-vike-first-wallet-source.md); current V4 complete-position authority is still [official Hyperliquid](docs/decisions/2026-11-08-position-first-t300.md) until a replacement qualifies. The 14-wallet continuity gap is not fixed by documentation.
 Dated studies retain their original assumptions and evidence; inspect live Git,
 SQLite and deployments before claiming current state.
 

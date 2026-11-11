@@ -1,5 +1,20 @@
 # Architecture: evidence, manager governance, shadow account
 
+## Canonical ingestion-to-finance boundary (2026-11-11)
+
+**Target transport:** [Vike-first wallet source ADR](decisions/2026-11-11-vike-first-wallet-source.md). **Current position authority:** [official selected all-DEX complete-position ADR](decisions/2026-11-08-position-first-t300.md). Do not confuse transport preference with approval to derive trading signals from Vike `hl.fills` or `hl.positions`. Current 0911 direct official WebSocket source is bounded by its shared-IP budget; the [dated 7-of-14 recovery](V4-0911-WS-SUBSCRIPTION-RECOVERY-292.md) is not simultaneous 14/14 continuity. The 2026-11-11 canonical 16-portfolio virtual-paper run is [described separately](V4-CANONICAL-FRESH-PAPER-20261111.md); verify deployed release and source GAPs live.
+
+```text
+Vike wallet-filtered transport (future) + independent official complete-book baseline
+→ immutable raw/provider observations, local first-known receipt and gap epochs
+→ reconciled selected-account signed native position vector
+→ versioned observed state-change proof / source journal
+→ frozen-k T+300 new-risk policy + immediate risk-reducing exits
+→ PM03/PM04 virtual finance → separate Guardian protected execution authority
+```
+
+Keep signed immutable journals and exact first-known clocks. A baseline, reconnect, fill, retrospective catch-up, vendor timestamp, stale source or incomplete book is not a new opportunity. The only established existing downstream contract is the official complete-position change. Fail closed on mismatch and preserve held follower inventory. SQLite governs wallet/portfolio *metadata*, not orders, source completeness or profit. Provider adapter ownership belongs in `trading-connector` where reusable; this repository owns its immutable source/projection and research consumers. Separate research-only Prefect Track B orchestration has no source, accounting or execution authority.
+
 ## Default sizing boundary (owner decision, 2026-11-06)
 
 New copytrading work uses [NAV-free selected-account fixed-k sizing](RISK-BUDGETED-K-SIZING-20261106.md): `k * native source position quantity * source mark` as target notional, converted at the independent follower quote and bounded against actual **follower** equity, market capacity, pod loss, drawdown, pending orders and Guardian finance. Source whole-wallet NAV and unrelated subaccounts are optional diagnostics, not blockers. Historical equity-normalized E0/fidelity contracts remain strict opt-in and unchanged; do not falsely claim source-equity replication for fixed-k. Source/market first-known, selected account identity, full position scope and independent broker admission remain required.

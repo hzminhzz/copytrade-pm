@@ -1,5 +1,7 @@
 # Wallet data acquisition and provenance
 
+**New wallet-ingestion design decision (2026-11-11):** [Vike-first transport ADR](decisions/2026-11-11-vike-first-wallet-source.md) is the approved **target** for scalable prospective wallet event transport. It does not replace currently deployed official selected-account position authority. Follow provider → original observation → fully reconciled position book → causal proof → T+300 consumers. A Vike position event is not a full account snapshot; historical cursor/REST recovery does not create first-known live opportunities. The sections below describe earlier research and current official-source implementation, not a standing preference to scale direct user-specific WebSockets.
+
 **Superseding owner decision, 2026-11-06:** [Fixed-k source-NAV-optional sizing](RISK-BUDGETED-K-SIZING-20261106.md) is the default for new copytrading work. The copied **selected perp position scope** and causal receipt integrity are mandatory; leader whole-account equity, unified collateral and unrelated subaccount NAV are **not** required for fixed-k. The official feed remains the positional source; collateral diagnostics remain useful but do not veto fixed-k. Existing equity-relative fidelity studies stay strict and opt-in.
 
 ## Persistent prospective acquisition

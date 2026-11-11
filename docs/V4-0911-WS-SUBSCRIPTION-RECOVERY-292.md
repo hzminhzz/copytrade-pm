@@ -1,5 +1,7 @@
 # 0911 official-source WebSocket budget recovery (#292)
 
+**2026-11-11 supersession boundary:** This remains the accurate **existing official transport recovery and original GAP evidence**, not the preferred future scaling architecture. For new wallet-source transport use the [Vike-first ADR](decisions/2026-11-11-vike-first-wallet-source.md); it does not implement a replacement or remove the official complete-position source authority. This 7-at-a-time rotation cannot qualify simultaneous 14/14 continuous coverage and must not be described as such.
+
 **2026-11-11 decision:** Recover the existing 16-portfolio SHADOW 0911 campaign without new broker permissions, campaign identity changes, journal reset or k/T+300 changes.
 
 ## Provider boundary
