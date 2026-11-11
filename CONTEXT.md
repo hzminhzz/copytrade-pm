@@ -17,6 +17,37 @@ Canonical domain meanings. This glossary does not specify implementation or stor
 - **Selected-perp completeness**: Complete, authentic official positions and DEX coverage for one explicitly selected account's perpetual market scope; not the same as all-wallet collateral or related subaccount finance.
 - **Whole-wallet financial completeness**: Evidence sufficient to characterize broader leader financial balances and collateral across relevant account types; not a universal requirement for fixed-k mirroring.
 
+- **Canonical five-minute checkpoint**: A globally identified UTC five-minute sampling boundary for one selected source scope and policy version, distinct from an observed trade's first-known time.
+- **Sampled position-state change**: A verified difference between admitted complete position snapshots at consecutive eligible checkpoints; intrawindow changes that revert before sampling do not produce a sampled change.
+- **Canonical target-state signal**: A durable, provenance-bound desired leader exposure at a valid checkpoint, shared by independent financial consumers; it is neither a broker order nor trading authorization.
+- **Checkpoint unavailability**: A scheduled source sample that cannot establish a complete, fresh, authentic state for its declared scope; it is not a flat position or a signal.
+- **Checkpoint observation time**: The moment the source state was actually known and verified, separately recorded from the scheduled checkpoint boundary and the provider's earlier underlying state instant.
+- **Target-state reconciliation**: A financial consumer's comparison of one verified desired leader exposure with that consumer's independently reconciled holdings and unresolved effects; target identity is not a buy/sell order.
+- **Grid-timed source exit**: A verified leader reduction or close that enters the source target at an admitted periodic checkpoint, distinct from immediate independent follower-risk protection.
+- **Canonical checkpoint outcome**: One durable, stable disposition for a source-account, scope, policy epoch and scheduled boundary; it exists for changed, unchanged, unavailable and baseline observations without implying a trade.
+- **Recovery baseline**: The first independently verified complete source book after a continuity gap; it reestablishes a reference but cannot itself authorize new source-driven exposure.
+- **Recovery reduction-only reconciliation**: An independently verified decrease of existing follower risk toward a restored complete source target, without admitting new exposure from a rebaseline.
+- **Target-change signal**: A source-authoritative proof of an actual economic difference between successive eligible complete checkpoints in continuous scope, distinct from the checkpoint outcome and consumer execution attempt.
+- **Single new-risk opportunity**: At most one independently guarded opening attempt per admissible target-change and per financial consumer, not an instruction to retry unchanged targets.
+- **Copy mandate**: A frozen, signed relationship binding a selected leader source and scope to an explicitly identified follower pod/account, sizing and risk policy, and activation/exit behavior; not a second signal authority.
+- **Activation baseline**: An authenticated complete initial source state when a copy relationship becomes effective, not an invitation to copy pre-existing leader exposure.
+- **Full-target follow-on increase**: A new risk-eligible source increase that may target the leader's full currently verified exposure after a prior missed follower opening, distinct from a retry of the prior signal.
+- **Pre-dispatch re-evaluation**: Rechecking a still-valid financial opportunity against fresh evidence while no broker order could yet have been sent; not an execution retry.
+- **Mandate pause**: A prohibition on new follower exposure under one copy relationship while pre-existing financial exposure, risk and uncertain orders remain independently owned.
+- **Netted follower order**: One broker order representing the net eligible change across individually risk-accounted follower pods, without erasing per-pod ownership or attribution.
+- **Verified empty scope**: An explicit authenticated native position response for one declared selected market/DEX scope showing no positions; not an inference from omitted data.
+- **Explicit domain transition**: A legal, independently verifiable move between typed states under one owning authority, with an original triggering event, predecessor, guard, journal effect and replay interpretation; not a status inferred from unrelated fields.
+- **Source continuity state**: The independently durable per-selected-source-scope condition that determines whether successive complete checkpoint comparisons can produce genuine target changes, distinct from the outcome of any single checkpoint.
+- **Mandate generation**: One immutable signed effective interval for a specific follower relationship and frozen policy; separate from CWSA's shared source-scope generation even when both refer to the same leader.
+- **Unknown broker obligation**: Possibly dispatched, not-yet-terminal financial effects that retain reservations and require independent broker reconciliation, not a failed or rejected opportunity.
+- **Scoped source fault**: A loss of verified complete state within one selected source scope, preventing that source's new risk but not independently valid sources unless shared dependencies/risk are affected.
+- **Capability-specific qualification**: Independent engineering, operational-source, prospective economic and protected trading evidence; no single mutable readiness flag grants every capability.
+- **Old-mandate residual exposure**: Existing follower financial positions or obligations still attributed to a superseded copy mandate; they remain risk-managed and cannot be silently reassigned or omitted from account exposure.
+- **Opportunity expiry**: Immutable latest admissible opening time for one checkpoint-derived new-risk opportunity, no later than the next checkpoint or its earlier signed freshness deadline.
+- **Cross-zero reversal**: A follower adjustment changing the sign of a position through flat; admission of the opening side requires distinct native execution and protected-risk proof, unlike a reduce-only close.
+- **One effective opening policy**: Exactly one signed mandate policy generation permitted to create new exposure for a specific destination account/pod at a time, despite simultaneous read-only comparisons.
+- **Forward-only cutover**: A signed future-effective change in authoritative financial policy that preserves historical journal and signer versions, outstanding broker effects, HALT and financial reservations through rollback.
+
 ## Historical screening and execution proxies
 
 - **Historical oracle clock**: A retrospective exchange/source-event timestamp available from recorded fills; not evidence of when the follower system first learned of that event.
