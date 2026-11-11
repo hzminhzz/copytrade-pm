@@ -12,6 +12,7 @@ from copytrade_pm.pm_vike_official_parity import (
     check_single_vike_event_against_official,
     independent_official_census,
     archive_independent_census,
+    verify_archived_official_census,
     audit_selected_campaign,
 )
 
@@ -106,6 +107,24 @@ def test_original_rest_responses_archived_with_private_manifest_last(tmp_path):
         assert stat.S_IMODE(original.stat().st_mode) == 0o600
         assert sha256(original.read_bytes()).hexdigest() == item["sha256"]
     assert sha256((target / "manifest.json").read_bytes()).hexdigest() == result["manifest_sha256"]
+    independent = verify_archived_official_census(
+        ADDRESS, directory=target, manifest_sha256=result["manifest_sha256"]
+    )
+    assert independent["positions"] == report["census"]["positions"]
+    assert independent["original_bytes_independently_verified"] is True
+    assert independent["new_risk_eligible"] is False
+    with pytest.raises(ValueError, match="ACCOUNT_MISMATCH"):
+        verify_archived_official_census(
+            "0x" + "b" * 40,
+            directory=target,
+            manifest_sha256=result["manifest_sha256"],
+        )
+    native_path = target / "raw-default.json"
+    native_path.write_bytes(native_path.read_bytes() + b" ")
+    with pytest.raises(ValueError, match="FILE_HASH_MISMATCH"):
+        verify_archived_official_census(
+            ADDRESS, directory=target, manifest_sha256=result["manifest_sha256"]
+        )
     (tmp_path / "private-link").symlink_to(root, target_is_directory=True)
     with pytest.raises(ValueError, match="ARCHIVE_SYMLINK"):
         archive_independent_census(ADDRESS, root=tmp_path / "private-link", info=provider())

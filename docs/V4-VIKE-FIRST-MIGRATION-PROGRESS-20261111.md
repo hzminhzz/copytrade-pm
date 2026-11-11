@@ -29,6 +29,12 @@ uv run --frozen --group dev python -m copytrade_pm.pm_vike_official_parity \
 
 The second command performs fresh bounded *read-only* official network requests and archives private original evidence. It must not be used as a source of actionable positions, from a cron job without explicit budget, or to silently clear source gaps. `--positions` on `pm_vike_selected_fills` is a live collector option that must use a dedicated key and a separately scoped private state root; avoid running two clients using the same Vike API key on `/stream/hl`.
 
+## Independently replayed original-source proof and pure candidate reducer (follow-up)
+
+An additive nonactivating engineering increment adds `pm_vike_official_parity.verify_archived_official_census`: the consumer must know the expected wallet and SHA of the archived manifest, re-hash **every original official response**, reconstruct the complete per-DEX state from the original bytes through the existing parser and compare all market quantities, times and DEX hashes with the recorded report. A re-derived report alone is not acceptable proof. On the original private 2026-11-11 campaign archive, all **14/14** parents independently verified, with **127** nonzero native position rows across their complete selected-parent DEX scopes (sum of positions across parents, not necessarily unique instruments).
+
+`pm_vike_reconciled_positions` is a strict, pure Pydantic **candidate** position-state reducer: verified initial REST census is always non-actionable; monotonic Vike event cursor and source time, explicit native quantities, position prestate and action, selected account/DEX and locally known event clocks are checked. Provider GAP, retrospective event, mismatch or epoch change fail closed. An independently verified later census can mark a matching candidate `RECONCILED_CANDIDATE_NOT_PAPER_PROOF`, **not** produce a V4 `OBSERVED_STATE_CHANGE`. This is testable deterministic logic, not a durable account-source event journal or a replacement for the existing official stream proof. The existing Pydantic/PM03/04 contracts and paper service remain unchanged.
+
 ## Remaining release-critical work
 
 1. Create a versioned official-baseline-plus-Vike observation reconciler with independent complete-book parity, parent/child/DEX identity, bounded source lag, event ordering, durable GAP epochs and provider cursor recovery. Original vendor frames and REST bytes must be individually verifiable. Initial/rejoin baseline is never an entry. No silent flat or exit on gap.
