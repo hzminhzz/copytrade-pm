@@ -50,3 +50,13 @@ Canonical domain meanings. This glossary does not specify implementation or stor
 - **Quarantined observation**: Received evidence that cannot support current prospective continuity until its affected scope and cause are resolved; quarantine is not proof of a position close or a financial HALT.
 - **Intentional semantic correction**: A declared, independently justified change to previously incorrect future behavior; not permission to rewrite earlier signed historical records.
 - **Trading authorization**: Permission from the protected execution authority, not created by research selection, source observation, an AI evaluation or Pydantic validation.
+
+## Invariant and source-effect vocabulary
+
+- **Domain-owned transition**: A state change whose preconditions, permissible successor and postconditions are checked by the existing authority that owns the state; transport delivery alone does not make it valid.
+- **Source-notional fixed-k**: Signed selected native source quantity valued using an independently observed source mark, multiplied by frozen k, then converted to follower native quantity using an independent follower quote; not an automatic native-unit multiplier or source-equity weight.
+- **Source mark**: Authenticated and time-bounded leader-contract valuation evidence, separate from any follower execution quote even when numerically equal.
+- **Follower quote**: Independently observed destination-market price evidence used to translate target notional into native follower quantity; not proof of leader position or source mark.
+- **Source packet**: Authenticated transport envelope of individually verifiable source events; not an atomic transaction across all downstream financial consumers.
+- **Packet completion**: Proof that every event in a transport envelope reached an accepted terminal processing state; a durable accepted prefix is incomplete delivery.
+- **Per-event source effect**: An accepted provenance-bound source occurrence whose owning consumer atomically persists its progress and corresponding local effect; other consumers may be at different stream positions.
