@@ -20,7 +20,7 @@ No new persistent service or source/finance/trading authority.
 
 **Proof-bound Track B evidence reconciliation (2026-11-11, isolated experiment):**
 [Read-only original-source assessment assembly and acceptance limits](TRACK-B-PROOF-BOUND-RECONCILER-EXPERIMENT-20261111.md).
-This does not enable Prefect scheduling, original market/fee/funding qualification, signed Grafana publication or trading.
+It includes a separate opt-in, bounded local Prefect proof-bound adapter; it does **not** enable persistent scheduling, original market/fee/funding qualification, signed Grafana publication or trading.
 
 **Engineering merge versus runtime promotion (owner decision 2026-11-10):**
 [Gate requested actions, not source-code existence](decisions/2026-11-10-merge-vs-runtime-promotion.md).

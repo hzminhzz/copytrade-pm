@@ -73,7 +73,7 @@ The old full-history path still refuses journals larger than 64 MiB. This does *
 
 1. Independently establish suitable 0811/0911 offline backups, owner-private audit signer/key policy and read-through retention before obtaining real anchors. Resolve issue #292 WAL/reader pressure and benchmark original snapshot verification and read latency without sacrificing write availability. No full audit against large active SQLite.
 2. Bind independently selected registry, original market/fees/funding and PM03/04 completeness. Add explicit failure classifications and batch orchestration semantics; research-synthetic follower finance stays UNKNOWN for scientific comparability.
-3. Optional Prefect adapter accepting the new immutable manifest and out-of-band audit and source key pins. Preserve old Prefect jobs and zero remote API by default. No persistent scheduler without separately approved runtime promotion.
+3. Optional local one-job Prefect adapter is implemented as `copytrade-pm-track-b-evidence-prefect`: exact immutable manifest and out-of-band auditor/source key pins; preflight rejects unanchored requests; idempotent original proof is reverified on task retry. The prior batch adapter stays unchanged; no persistent scheduling, remote API or live activation is approved.
 4. Owner-controlled **independently signed** private-to-redacted release, with unchanged v1 wallet-health rollback and read-only Grafana canary/503 behavior; no publication without the real owner key and original proofs.
 5. Independently observed acceptance for actual prospective economics, source freshness, rollback and capacity; science and trading authorization remain separate.
 

@@ -28,6 +28,11 @@ GROUPS = {
     ),
     "copytrade-pm-production-economics": ("production.economics.cli", "research", "READ_ONLY"),
     "copytrade-pm-track-b-prefect": ("research.track_b_prefect", "research", "LOCAL_MUTATION"),
+    "copytrade-pm-track-b-evidence-prefect": (
+        "research.track_b_evidence_prefect",
+        "research",
+        "LOCAL_MUTATION",
+    ),
     "copytrade-pm-replay": ("historical.replay", "historical", "LOCAL_MUTATION"),
     "copytrade-pm-rank": ("manager.rank", "qualification", "LOCAL_MUTATION"),
     "copytrade-pm-handoff": ("portfolio.handoff", "portfolio", "LOCAL_MUTATION"),
@@ -509,7 +514,8 @@ def inventory(root: Path = ROOT) -> list[dict]:
                 "preflight": [],
                 "documentation": (
                     "docs/TRACK-B-PREFECT-ORCHESTRATION-20261110.md"
-                    if capability == "research.track_b_prefect"
+                    if capability
+                    in {"research.track_b_prefect", "research.track_b_evidence_prefect"}
                     else DOCS[family]
                 ),
                 "available": _module_available(module, root)
