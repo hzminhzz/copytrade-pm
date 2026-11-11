@@ -25,7 +25,10 @@ from typing import Iterator, Mapping
 from .pm03_account import Instrument, Rulebook, clock, digest, number
 from .pm03_memory import Event
 from .pm03_run import ShadowRun
-from .pm_fixed_k_source_scope import assess_selected_parent_perp_scope
+from .pm_fixed_k_source_scope import (
+    assess_selected_parent_perp_scope,
+    verified_source_native_marks,
+)
 from .pm_exposure_sizing import target_from_fixed_k
 from .pm_forward_ccxt_market import NativeMarket, parse_ccxt_market
 from .pm_forward_journal import PaperJournal
@@ -44,6 +47,8 @@ P1_REGISTRY_ALIASES = {"S035": "S035-ENA", "S051": "S051-BTC", "S053": "S053-HYP
 DEFAULT_REGISTRY = Path("/home/quant/.local/share/copytrade/registry/wallet_registry.sqlite")
 SCHEMA = "observed_fixed_k_p1_single_shot_v3"
 VIKE_PAPER_SCHEMA = "observed_fixed_k_vike_minute_estimated_v4"
+SOURCE_NATIVE_MARK_SCHEMA = "observed_fixed_k_native_mark_v1"
+SOURCE_NATIVE_MARK_POLICY = "future_fixed_k_independent_native_mark_v1"
 CAPACITY_BASIS = "DISPLAYED_L2_TOP_LEVEL"
 MAX_SOURCE_AGE = 180
 MAX_QUOTE_AGE = 30
@@ -289,7 +294,14 @@ def _read_source(conn: sqlite3.Connection, alias: str, seq: int | None = None) -
     )
     if predecessor is None or prior != predecessor[0]:
         raise ValueError("OBSERVED_SOURCE_RECEIPT_PREDECESSOR_MISMATCH")
-    return {"seq": seq, "receipt_id": rid, "sha": sha, "receipt": receipt, "book": book}
+    return {
+        "seq": seq,
+        "receipt_id": rid,
+        "sha": sha,
+        "chain_sha": head,
+        "receipt": receipt,
+        "book": book,
+    }
 
 
 def _read_quote(conn: sqlite3.Connection, inst: str) -> dict | None:
@@ -545,7 +557,9 @@ def _event(
             "input": payload,
             "order_route": "NONE",
             "evidence_class": (
-                "PUBLIC_FIRST_KNOWN_ESTIMATED_VIKE_MINUTE_ONLY"
+                "OFFICIAL_NATIVE_SOURCE_MARK_MODELED_FOLLOWER_ONLY"
+                if run.account.rulebook.version == SOURCE_NATIVE_MARK_SCHEMA
+                else "PUBLIC_FIRST_KNOWN_ESTIMATED_VIKE_MINUTE_ONLY"
                 if run.account.rulebook.version == VIKE_PAPER_SCHEMA
                 else "PUBLIC_FIRST_KNOWN_MODELED_L2_ONLY"
             ),
@@ -596,6 +610,7 @@ class ObservedP1Paper:
         study_profile: PaperPortfolioSpec | None = None,
         study_seal: Mapping[str, object] | None = None,
         study_accounts: Mapping[str, str] | None = None,
+        source_mark_age_seconds: int | None = None,
     ) -> None:
         # Existing three registry-sealed profiles remain the default. Other
         # scenarios require an explicit, independently checked private campaign.
@@ -634,7 +649,20 @@ class ObservedP1Paper:
         if price_mode not in ("l2", "vike_minute"):
             raise ValueError("PAPER_PRICE_MODE_UNSUPPORTED")
         self.price_mode = price_mode
-        self.schema = VIKE_PAPER_SCHEMA if price_mode == "vike_minute" else SCHEMA
+        if source_mark_age_seconds is not None and (
+            type(source_mark_age_seconds) is not int or source_mark_age_seconds <= 0
+        ):
+            raise ValueError("SOURCE_MARK_AGE_POLICY_UNVERIFIED")
+        # Future-only semantic version: historic run manifests keep their
+        # midpoint pricing and exact SHA; there is no silent restatement.
+        self.source_mark_age_seconds = source_mark_age_seconds
+        self.schema = (
+            SOURCE_NATIVE_MARK_SCHEMA
+            if source_mark_age_seconds is not None
+            else VIKE_PAPER_SCHEMA
+            if price_mode == "vike_minute"
+            else SCHEMA
+        )
         self.source_db = Path(source_db)
         self.price_db = Path(price_db) if price_db is not None else self.source_db
         if price_mode == "vike_minute" and price_db is None:
@@ -754,6 +782,12 @@ class ObservedP1Paper:
             **_policy(self.profile, price_mode=self.price_mode),
             "selected_account_hashes": self.selected_accounts,
         }
+        if source_mark_age_seconds is not None:
+            self.policy.update(
+                source_price_policy=SOURCE_NATIVE_MARK_POLICY,
+                source_mark_age_seconds=source_mark_age_seconds,
+                source_mark_fallback="NONE",
+            )
         if portfolio_id not in PAPER_PROFILES:
             self.policy.update(
                 {
@@ -1099,12 +1133,56 @@ class ObservedP1Paper:
                 continue
             required = set(intent["positions"]) | self._known_instruments()
             try:
+                source_fence = _read_source(db, pod, intent["source_seq"])
+                if source_fence is None or source_fence["sha"] != intent["source_sha"]:
+                    raise ValueError("PAPER_EFFECT_SOURCE_FENCE_MISMATCH")
+                latest_fence = _read_source(db, pod)
+                if latest_fence is None or latest_fence["seq"] != intent["source_seq"]:
+                    raise ValueError("PAPER_EFFECT_SOURCE_HEAD_ADVANCED")
                 _, quotes, markets = self._observations(db, required, at)
                 amounts = {key: quote["mid_quote"] for key, quote in quotes.items()}
+                if self.source_mark_age_seconds is None:
+                    # Legacy paper run semantics, preserved only for old
+                    # policy versions; never infer this is source pricing.
+                    native_marks = amounts
+                    native_price_proof = None
+                else:
+                    latest = _read_source(db, pod)
+                    if latest is None or latest["book"]["positions"] != intent["positions"]:
+                        raise ValueError("PAPER_SOURCE_MARK_BOOK_CHANGED_OR_MISSING")
+                    if not verify_official_position_transition(
+                        db,
+                        alias=pod,
+                        receipt_id=latest["receipt_id"],
+                        receipt_sha=latest["sha"],
+                        receipt=latest["receipt"],
+                        require_current_positions=True,
+                    ):
+                        # A self-consistent source_book SHA is not official
+                        # stream provenance, even in a research-only run.
+                        raise ValueError("PAPER_NATIVE_PRICE_SOURCE_PROOF_INVALID")
+                    native_marks = verified_source_native_marks(
+                        latest["book"],
+                        instruments=set(intent["positions"]),
+                        decision_at=at,
+                        max_age_seconds=self.source_mark_age_seconds,
+                    )
+                    native_price_proof = {
+                        "source_seq": latest["seq"],
+                        "source_sha": latest["sha"],
+                        "book_sha": latest["book"]["snapshot_sha"],
+                        "marks": native_marks,
+                        "mark_evidence": {
+                            key: latest["book"]["source_mark_evidence"][key]
+                            for key in sorted(native_marks)
+                        },
+                        "decision_cutoff": at,
+                        "policy": SOURCE_NATIVE_MARK_POLICY,
+                    }
                 sized = target_from_fixed_k(
                     source_quantities=intent["positions"],
                     k=Decimal(intent.get("frozen_k", self.profile.k[pod])),
-                    source_marks=amounts,
+                    source_marks=native_marks,
                     follower_marks=amounts,
                     follower_equity_usd=self.run.account.equity,
                     max_gross_notional_usd=Decimal(self.policy["max_gross_notional"]),
@@ -1127,6 +1205,20 @@ class ObservedP1Paper:
                 continue
             payload = {
                 "intent_id": intent_id,
+                "effect_identity": digest(
+                    [
+                        self.run_id,
+                        pod,
+                        intent_id,
+                        intent["source_sha"],
+                        intent.get("frozen_k"),
+                        intent.get("release_sha256"),
+                        self.policy_sha,
+                    ]
+                ),
+                "decision_source_chain_sha": source_fence["chain_sha"],
+                "decision_source_first_known_at": intent["first_known_at"],
+                "decision_cutoff": at,
                 "source_seq": intent["source_seq"],
                 "source_sha": intent["source_sha"],
                 "targets": quantized,
@@ -1146,6 +1238,9 @@ class ObservedP1Paper:
             if intent.get("frozen_k") is not None:
                 payload["frozen_k"] = intent["frozen_k"]
                 payload["release_sha256"] = intent["release_sha256"]
+            if native_price_proof is not None:
+                payload["native_source_price_proof"] = native_price_proof
+                payload["source_mark_policy"] = SOURCE_NATIVE_MARK_POLICY
             if self.native_contracts:
                 # Final fresh-source fence after slow PM03/04 calculations.
                 # The source and paper journals remain separate SQLite DBs;

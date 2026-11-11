@@ -16,6 +16,7 @@ from .pm03_account import clock, digest
 from .pm_e4_prospective import _account_state, _dex_universe, _subaccount_roster
 from .pm_forward_admission import admit_source_book
 from .pm_forward_journal import PaperJournal
+from .v4_source_export import _source_marks
 
 
 def _native_time(milliseconds: Any) -> str:
@@ -64,6 +65,24 @@ def read_public_all_dex_scope(
     ):
         raise ValueError("SOURCE_ALIAS_INVALID")
     frame_sha = digest(frame)
+    # Native positionValue / abs(szi) is the leader-venue valuation.
+    # Preserve its separate DEX event clock and the local first-known receipt;
+    # neither is a follower quote or a retrospective candle.
+    source_marks = _source_marks(frame, parsed["positions"])
+    dex_times = {
+        f"mainnet:perp:{entry['dex']}": _native_time(entry["state_at"])
+        for entry in parsed["per_dex"]
+    }
+    mark_evidence = {
+        market: {
+            "mark": mark,
+            "event_at": dex_times[market.split("/", 1)[1].rsplit("/", 1)[0]],
+            "first_known_at": first_known_at,
+            "native_frame_sha": frame_sha,
+            "basis": "OFFICIAL_POSITION_VALUE_DIV_ABS_NATIVE_QUANTITY",
+        }
+        for market, mark in sorted(source_marks.items())
+    }
     # We know there are N subaccounts; we do NOT know their simultaneous
     # collateral, positions, or their cross-dex/spot/vault completeness.
     partial = {
@@ -89,7 +108,8 @@ def read_public_all_dex_scope(
         "per_dex_margin_diagnostics": parsed["per_dex"],
         "position_margin_diagnostics": parsed["native_position_risk_metadata"],
         "whole_wallet_margin_reconciled": False,
-        "source_marks": {},
+        "source_marks": source_marks,
+        "source_mark_evidence": mark_evidence,
         "synthetic_fixture": False,
         "provider_raw_sha": frame_sha,
         "provider_signed": False,

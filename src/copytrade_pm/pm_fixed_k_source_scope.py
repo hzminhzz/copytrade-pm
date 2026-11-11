@@ -13,6 +13,162 @@ from typing import Any
 from .pm03_account import Instrument, clock, digest, number
 
 
+def verified_source_native_marks(
+    book: dict[str, Any],
+    *,
+    instruments: set[str],
+    decision_at: str,
+    max_age_seconds: int,
+) -> dict[str, str]:
+    """Require independently captured native valuation, never follower quote substitution.
+
+    The age limit is an explicit future release input. The caller must obtain
+    an evidence-derived venue/contract limit before activating a new release;
+    this function does not invent one from historical bars or follower marks.
+    """
+    if type(max_age_seconds) is not int or max_age_seconds <= 0:
+        raise ValueError("SOURCE_MARK_AGE_POLICY_UNVERIFIED")
+    if not isinstance(book, dict) or book.get("snapshot_sha") != digest(
+        {key: value for key, value in book.items() if key != "snapshot_sha"}
+    ):
+        raise ValueError("SOURCE_MARK_BOOK_INTEGRITY_FAILURE")
+    marks = book.get("source_marks")
+    evidence = book.get("source_mark_evidence")
+    if not isinstance(marks, dict) or not isinstance(evidence, dict):
+        raise ValueError("SOURCE_MARK_EVIDENCE_MISSING")
+    if not instruments.issubset(book.get("positions", {})):
+        raise ValueError("SOURCE_MARK_POSITION_SCOPE_MISMATCH")
+    try:
+        cutoff = clock(decision_at)
+    except (ValueError, TypeError) as exc:
+        raise ValueError("SOURCE_MARK_DECISION_CLOCK_INVALID") from exc
+    verified: dict[str, str] = {}
+    for instrument in sorted(instruments):
+        record = evidence.get(instrument)
+        if not isinstance(record, dict) or not isinstance(marks.get(instrument), str):
+            raise ValueError("SOURCE_MARK_EVIDENCE_MISSING:" + instrument)
+        if (
+            record.get("basis") != "OFFICIAL_POSITION_VALUE_DIV_ABS_NATIVE_QUANTITY"
+            or record.get("mark") != marks[instrument]
+            or record.get("native_frame_sha") != book.get("provider_raw_sha")
+        ):
+            raise ValueError("SOURCE_MARK_NATIVE_PROVENANCE_MISMATCH:" + instrument)
+        value = number(record["mark"])
+        if value <= 0:
+            raise ValueError("SOURCE_MARK_NONPOSITIVE:" + instrument)
+        try:
+            observed = clock(record["event_at"])
+            known = clock(record["first_known_at"])
+        except (TypeError, KeyError, ValueError) as exc:
+            raise ValueError("SOURCE_MARK_CLOCK_INVALID:" + instrument) from exc
+        if (
+            known != clock(book["first_known_at"])
+            or not observed <= known <= cutoff
+            or (cutoff - observed).total_seconds() > max_age_seconds
+        ):
+            raise ValueError("SOURCE_MARK_STALE_OR_FUTURE:" + instrument)
+        verified[instrument] = str(value)
+    return verified
+
+
+def compare_native_fixed_k_economics(
+    book: dict[str, Any],
+    *,
+    decision_at: str,
+    source_mark_max_age_seconds: int,
+    follower_quotes: dict[str, str],
+    native_steps: dict[str, str],
+    k: str,
+    equity_usd: str,
+    gross_cap_usd: str,
+    market_cap_usd: str,
+    pod_loss_budget_usd: str,
+    taker_fee_bps: str,
+    extra_slippage_bps: str,
+) -> dict[str, object]:
+    """Matched historical-vs-corrected intent, never follower profit evidence.
+
+    Uses the existing sizing owner and independently verified native source
+    mark. The old same-midpoint model is reported as a *legacy comparator*,
+    not silently installed as a valid prospective leader price.
+    """
+    from decimal import ROUND_DOWN, Decimal
+
+    from .pm_exposure_sizing import target_from_fixed_k
+
+    scope = set(book["positions"])
+    corrected_marks = verified_source_native_marks(
+        book,
+        instruments=scope,
+        decision_at=decision_at,
+        max_age_seconds=source_mark_max_age_seconds,
+    )
+    kwargs = {
+        "source_quantities": {key: Decimal(qty) for key, qty in book["positions"].items()},
+        "k": Decimal(k),
+        "follower_marks": {key: Decimal(v) for key, v in follower_quotes.items()},
+        "follower_equity_usd": Decimal(equity_usd),
+        "max_gross_notional_usd": Decimal(gross_cap_usd),
+        "max_market_notional_usd": Decimal(market_cap_usd),
+        "pod_loss_budget_usd": Decimal(pod_loss_budget_usd),
+    }
+    legacy = target_from_fixed_k(
+        **kwargs,
+        source_marks=kwargs["follower_marks"],
+    )
+    corrected = target_from_fixed_k(
+        **kwargs,
+        source_marks={key: Decimal(v) for key, v in corrected_marks.items()},
+    )
+    fee = Decimal(taker_fee_bps)
+    slippage = Decimal(extra_slippage_bps)
+    if fee < 0 or slippage < 0:
+        raise ValueError("PRICE_COMPARISON_NEGATIVE_EXECUTION_COST")
+    comparisons = {}
+    for key in sorted(scope):
+        mark = Decimal(follower_quotes[key])
+        step = Decimal(native_steps[key])
+        if step <= 0:
+            raise ValueError("PRICE_COMPARISON_NATIVE_STEP_INVALID")
+        raw_old = Decimal(legacy["target_quantities"][key])
+        raw_new = Decimal(corrected["target_quantities"][key])
+
+        def quantize(qty: Decimal) -> Decimal:
+            return (
+                (abs(qty) / step).to_integral_value(rounding=ROUND_DOWN)
+                * step
+                * (1 if qty >= 0 else -1)
+            )
+
+        old_qty, new_qty = quantize(raw_old), quantize(raw_new)
+        old_usd, new_usd = old_qty * mark, new_qty * mark
+        comparisons[key] = {
+            "legacy_follower_qty": str(old_qty),
+            "corrected_follower_qty": str(new_qty),
+            "follower_qty_delta": str(new_qty - old_qty),
+            "legacy_follower_notional_usd": str(old_usd),
+            "corrected_follower_notional_usd": str(new_usd),
+            "follower_notional_delta_usd": str(new_usd - old_usd),
+            "legacy_modeled_cost_usd": str(abs(old_usd) * (fee + slippage) / 10000),
+            "corrected_modeled_cost_usd": str(abs(new_usd) * (fee + slippage) / 10000),
+            "source_native_mark": corrected_marks[key],
+            "follower_quote": str(mark),
+            "native_step": str(step),
+        }
+    return {
+        "schema": "v4_matched_price_semantics_diagnostic_v1",
+        "decision_at": decision_at,
+        "source_book_sha": book["snapshot_sha"],
+        "legacy_policy": "legacy_same_follower_midpoint",
+        "corrected_policy": "future_fixed_k_independent_native_mark_v1",
+        "per_market": comparisons,
+        "execution_cost_class": "STATIC_COST_SCENARIO_ONLY",
+        "follower_net_pnl_evidence": "UNKNOWN_NOT_FROM_REAL_EXECUTIONS",
+        "scientific_qualification": False,
+        "trading_authorized": False,
+    }
+
+
 def assess_selected_parent_perp_scope(
     book: dict[str, Any] | None,
     *,

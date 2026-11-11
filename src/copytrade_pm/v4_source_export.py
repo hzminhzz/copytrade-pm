@@ -22,7 +22,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey,
 
 from .pm03_account import digest as source_digest
 from .pm_forward_stream_journal import verify_streams
-from .production_manifest import canonical, digest, sign
+from .production_manifest import canonical, digest, sign, verify
 
 
 ADDRESS = re.compile(r"0x[0-9a-f]{40}\Z")
@@ -226,6 +226,10 @@ def export_signed_events(
     signer: Ed25519PrivateKey,
     after: dict[str, int] | None = None,
     limit_per_account: int = 256,
+    wire_version: int = 1,
+    wire_epoch: str | None = None,
+    cutoff_ms: int | None = None,
+    anchor: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Export bounded prospective evidence from one verified read-only journal.
 
@@ -239,10 +243,43 @@ def export_signed_events(
         raise ValueError("V4_SELECTION_INVALID")
     if not 1 <= limit_per_account <= 256:
         raise ValueError("V4_EXPORT_LIMIT")
+    if wire_version not in (1, 2):
+        raise ValueError("V4_EXPORT_WIRE_VERSION")
+    if wire_version == 2:
+        if not isinstance(wire_epoch, str) or re.fullmatch(r"[0-9a-f]{32}", wire_epoch) is None:
+            raise ValueError("V4_WIRE_EPOCH_REQUIRED")
+        if anchor is None and (after is not None or type(cutoff_ms) is not int or cutoff_ms <= 0):
+            raise ValueError("V4_V2_ANCHOR_MUST_BE_NEW_CUTOFF")
+        if anchor is not None and (after is None or cutoff_ms is not None):
+            raise ValueError("V4_V2_ANCHOR_REQUIRED_FOR_SUCCESSORS")
+    elif anchor is not None or cutoff_ms is not None or wire_epoch is not None:
+        raise ValueError("V4_V1_CONTEXT_FORBIDDEN")
     verified = verify_streams(journal_db)
     after = after or {}
     records: dict[str, list[dict[str, Any]]] = {}
     heads: dict[str, int] = {}
+    anchor_heads: dict[str, dict[str, Any]] = {}
+    selected_normalized = {alias: address.lower() for alias, address in selected.items()}
+    anchor_payload = (
+        verify(anchor, signer.public_key(), "source-observer-v4-anchor")
+        if anchor is not None
+        else None
+    )
+    if (
+        wire_version == 2
+        and anchor_payload is not None
+        and (
+            anchor_payload.get("schema") != "v4_source_stream_head_anchor_v2"
+            or anchor_payload.get("selected") != selected_normalized
+            or anchor_payload.get("wire_epoch") != wire_epoch
+            or type(anchor_payload.get("cutoff_ms")) is not int
+            or anchor_payload["cutoff_ms"] <= 0
+            or not isinstance(anchor_payload.get("heads"), dict)
+            or set(anchor_payload["heads"]) != set(selected)
+            or anchor_payload.get("trading_authorized") is not False
+        )
+    ):
+        raise ValueError("V4_V2_ANCHOR_SCOPE_OR_EPOCH_INVALID")
     with closing(sqlite3.connect(f"file:{journal_db.resolve()}?mode=ro", uri=True)) as db:
         db.execute("PRAGMA query_only=ON")
         db.execute("BEGIN")
@@ -258,6 +295,23 @@ def export_signed_events(
             if sid not in verified["streams"]:
                 raise ValueError("V4_STREAM_ABSENT")
             head = verified["streams"][sid]["cursor"]
+            if wire_version == 2:
+                chain_row = db.execute(
+                    "SELECT cursor,chain_sha FROM observer_stream_heads WHERE stream_id=?",
+                    (sid,),
+                ).fetchone()
+                if chain_row is None or chain_row[0] != head:
+                    raise ValueError("V4_V2_HEAD_OR_CHAIN_DRIFT")
+                anchor_heads[alias] = {"cursor": head, "chain_sha": chain_row[1]}
+                if anchor_payload is not None:
+                    start = anchor_payload["heads"][alias]
+                    if (
+                        type(start.get("cursor")) is not int
+                        or start["cursor"] > head
+                        or not isinstance(start.get("chain_sha"), str)
+                        or re.fullmatch(r"[0-9a-f]{64}", start["chain_sha"]) is None
+                    ):
+                        raise ValueError("V4_V2_ANCHOR_HEAD_INVALID")
             cursor = after.get(alias, head)
             if type(cursor) is not int or not 0 <= cursor <= head:
                 raise ValueError("V4_CURSOR_INVALID")
@@ -266,27 +320,62 @@ def export_signed_events(
                 "FROM observer_stream_events WHERE stream_id=? AND seq>? AND seq<=? ORDER BY seq LIMIT ?",
                 (sid, cursor, head, limit_per_account),
             ).fetchall()
-            records[alias] = [
-                _record(db, alias=alias, identity=identity, row=row, signer=signer) for row in rows
-            ]
+            records[alias] = []
+            for row in rows:
+                item = _record(db, alias=alias, identity=identity, row=row, signer=signer)
+                if wire_version == 2:
+                    item["_predecessor_sha"] = row[4]
+                records[alias].append(item)
             heads[alias] = head
+    if wire_version == 2:
+        if anchor_payload is None:
+            anchor_payload = {
+                "schema": "v4_source_stream_head_anchor_v2",
+                "selected": selected_normalized,
+                "heads": anchor_heads,
+                "wire_epoch": wire_epoch,
+                "cutoff_ms": cutoff_ms,
+                "trading_authorized": False,
+            }
+            anchor = sign(anchor_payload, signer, "source-observer-v4-anchor")
+        else:
+            for alias, start in anchor_payload["heads"].items():
+                if after[alias] < start["cursor"]:
+                    raise ValueError("V4_V2_BEFORE_SIGNED_CUTOFF")
+            # The predecessor is signed in each successor; the signed anchor
+            # remains unchanged across the prospective epoch.
+            for alias, events in records.items():
+                for record in events:
+                    proof = verify(record["proof"], signer.public_key(), "source-observer-v4")
+                    # Each predecessor came from the verified original
+                    # hash-chain row, never from the packet caller.
+                    proof["schema"] = "v4_official_event_proof_v2"
+                    proof["wire_epoch"] = wire_epoch
+                    proof["anchor_sha"] = digest(anchor_payload)
+                    proof["previous_stream_chain_sha"] = record.pop("_predecessor_sha")
+                    record["proof"] = sign(proof, signer, "source-observer-v4")
     result = {
-        "schema": "v4_signed_source_export_v1",
+        "schema": "v4_signed_source_export_v2"
+        if wire_version == 2
+        else "v4_signed_source_export_v1",
         "head_cursors": heads,
         "events": records,
         "trading_authorized": False,
     }
-    result["batch_envelope"] = sign(
-        {
-            "schema": "v4_source_batch_binding_v1",
-            "selected": {alias: address.lower() for alias, address in selected.items()},
-            "head_cursors": heads,
-            "events_sha": digest(records),
-            "trading_authorized": False,
-        },
-        signer,
-        "source-observer-v4-batch",
-    )
+    if wire_version == 2:
+        result["anchor"] = anchor
+    binding = {
+        "schema": "v4_source_batch_binding_v2"
+        if wire_version == 2
+        else "v4_source_batch_binding_v1",
+        "selected": selected_normalized,
+        "head_cursors": heads,
+        "events_sha": digest(records),
+        "trading_authorized": False,
+    }
+    if wire_version == 2:
+        binding.update(anchor_sha=digest(anchor_payload), wire_epoch=wire_epoch)
+    result["batch_envelope"] = sign(binding, signer, "source-observer-v4-batch")
     return result
 
 

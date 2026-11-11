@@ -93,6 +93,101 @@ def official_observer(source):
     return obs
 
 
+def test_future_fixed_k_requires_official_position_value_and_distinct_follower_quote(
+    tmp_path, monkeypatch
+):
+    """A self-hashed mark is insufficient; the official stream link must verify."""
+    source = PaperJournal(tmp_path / "official_source")
+    prices = PaperJournal(tmp_path / "prices")
+    native = NativePaperContract(
+        instrument=BTC,
+        amount_step=D("0.001"),
+        minimum_notional=D("10"),
+        active=True,
+        market_known_at=at(0),
+        catalog_sha=digest(["native", BTC.key]),
+        hip3=False,
+    )
+    paper = ObservedP1Paper(
+        source_db=source.path,
+        price_db=prices.path,
+        price_mode="vike_minute",
+        state_root=tmp_path / "forward_official",
+        registry_db=registry(tmp_path / "registry.sqlite"),
+        run_id="future_price_proof",
+        catalog={},
+        native_contracts={BTC.key: native},
+        started_at=at(0),
+        source_mark_age_seconds=600,  # synthetic venue cutoff, not production-authorized
+    )
+    official = official_observer(source)
+    frame = official_frame(12, 20)
+    frame["data"]["clearinghouseStates"][0][1]["assetPositions"][0]["position"]["positionValue"] = (
+        "2400"
+    )
+    observed = official.observe(frame, at(13))
+    assert observed["classification"] == "OBSERVED_STATE_CHANGE"
+    assert paper.step(at(14))["quantity_count"] == 0
+    price(prices, 312)
+    # Adversarial locally hashable attempt: the durable reducer must
+    # independently recompute the native fixed-k quantity before commit.
+    from copy import deepcopy
+    from dataclasses import replace
+
+    previous_record = paper.run.record
+
+    def forged_follower_target(event):
+        if event.kind == "PM04_PAPER_EXECUTE":
+            payload = deepcopy(event.payload)
+            payload["input"]["targets"][BTC.key] = "999"
+            return previous_record(replace(event, payload=payload))
+        return previous_record(event)
+
+    with monkeypatch.context() as scope:
+        scope.setattr(paper.run, "record", forged_follower_target)
+        with pytest.raises(ValueError, match="PAPER_NATIVE_PRICE_TARGET_MISMATCH"):
+            paper.step(at(313))
+    assert not any(row["event"]["kind"] == "PM04_PAPER_EXECUTE" for row in paper.run.ledger.read())
+    opened = paper.step(at(313))
+    assert opened["quantity_count"] == 1
+    events = [
+        row["event"]
+        for row in paper.run.ledger.read()
+        if row["event"]["kind"] == "PM04_PAPER_EXECUTE"
+    ]
+    assert len(events) == 1
+    effect = events[0]["payload"]["input"]
+    assert D(effect["native_source_price_proof"]["marks"][BTC.key]) == D("120")
+    assert D(effect["quotes"][BTC.key]["mid_quote"]) != D("120")
+    assert effect["decision_source_chain_sha"]
+    assert effect["decision_cutoff"] == at(313)
+    assert effect["decision_source_first_known_at"] == at(13)
+    assert D(opened["positions"][BTC.key]) > D("0.60")
+    assert opened["order_route"] == "NONE"
+
+    unpriced = PaperJournal(tmp_path / "unpriced_source")
+    prices_unpriced = PaperJournal(tmp_path / "unpriced_prices")
+    observer = official_observer(unpriced)
+    observer.observe(official_frame(12, 20), at(13))
+    blocked_paper = ObservedP1Paper(
+        source_db=unpriced.path,
+        price_db=prices_unpriced.path,
+        price_mode="vike_minute",
+        state_root=tmp_path / "unpriced_forward",
+        registry_db=tmp_path / "registry.sqlite",
+        run_id="future_missing_native_mark",
+        catalog={},
+        native_contracts={BTC.key: native},
+        started_at=at(0),
+        source_mark_age_seconds=600,
+    )
+    blocked_paper.step(at(14))
+    price(prices_unpriced, 312)
+    blocked = blocked_paper.step(at(313))
+    assert "SOURCE_MARK_EVIDENCE_MISSING" in str(blocked["execution_results"])
+    assert blocked["quantity_count"] == 0
+
+
 def test_v4_native_catalog_freezes_quiet_market_before_first_price(tmp_path):
     source = PaperJournal(tmp_path / "source")
     prices = PaperJournal(tmp_path / "prices")
