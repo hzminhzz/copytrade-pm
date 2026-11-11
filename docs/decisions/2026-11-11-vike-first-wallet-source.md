@@ -1,7 +1,7 @@
 # ADR: Vike-first wallet transport with reconciled position authority
 
 **Date:** 2026-11-11
-**Status:** APPROVED TARGET ARCHITECTURE; migration engineering, live cutover and production qualification remain PENDING.
+**Status:** APPROVED TARGET ARCHITECTURE; opt-in Vike dual-channel observation plus independent complete-perp REST census partially IMPLEMENTED/TESTED. Complete reconciled source proof, live 14/14 continuity and canonical paper cutover remain PENDING. See [dated evidence](../V4-VIKE-FIRST-MIGRATION-PROGRESS-20261111.md).
 **Supersedes:** the *transport scaling preference* of [2026-11-08 position-first T+300](2026-11-08-position-first-t300.md), **not** its complete-position, timing, paper-finance or risk semantics.
 **Evidence:** [V4 canonical paper campaign](../V4-CANONICAL-FRESH-PAPER-20261111.md), [0911 official WebSocket budget recovery](../V4-0911-WS-SUBSCRIPTION-RECOVERY-292.md), [isolated Vike observer](../FORWARD-PAPER-VIKE-MIGRATION-20261108.md), and the live Vike stream registry checked 2026-11-11.
 
@@ -66,7 +66,7 @@ The provider registry establishes **capability**, not guaranteed full selected-a
 
 ## Engineering backlog and admission gates
 
-This documentation decision **does not implement** the following:
+This ADR by itself did not implement the following. The [2026-11-11 evidence](../V4-VIKE-FIRST-MIGRATION-PROGRESS-20261111.md) records a subsequent **partial** implementation: 14-wallet dual-channel read-only transport, original Vike notification journal, 14/14 SHA-archived independent official REST census, and a live short canary with a position-channel GAP. No versioned causal complete-position source or paper cutover is proven:
 
 - **Transport:** an isolated, bounded Vike-to-observation adapter with one durable cursor, raw event SHA, observed local timestamps, idempotent `event_id` handling, true `min_usd:0` parity, reconnect/fault coverage and source lag metrics.
 - **Account authority:** initial independent official selected-account full position baseline; parent/subaccount and DEX census; signed native quantity transition reconstruction; periodic or event-triggered official reconciliation; fail-closed GAP/STALE/MISMATCH.

@@ -12,6 +12,7 @@ from copytrade_pm.pm_vike_selected_fills import (
     open_selected_journal,
     record_event,
     selected_subscription,
+    selected_campaign_wallets,
     selected_wallets_from_registry,
 )
 
@@ -72,6 +73,51 @@ def test_selected_wallets_derive_from_sealed_registry_without_addresses_in_outpu
             database,
             portfolios=("P1",),
             as_of=at(0),
+        )
+
+
+def test_sixteen_campaign_selects_exactly_fourteen_unique_registry_checked_parents(
+    monkeypatch, tmp_path
+):
+    from types import SimpleNamespace
+    from copytrade_pm import pm_v4_sixteen_scenarios as scenarios
+
+    expected = tuple("0x" + format(i, "040x") for i in range(1, 15))
+    seen = {}
+
+    def stub_load_campaign(**kwargs):
+        seen.update(kwargs)
+        return SimpleNamespace(
+            profiles={pid: object() for pid in scenarios.IDENTITIES},
+            parents={str(i): address for i, address in enumerate(reversed(expected))},
+        )
+
+    monkeypatch.setattr(scenarios, "load_campaign", stub_load_campaign)
+    wallets = selected_campaign_wallets(
+        registry_db=tmp_path / "registry.sqlite",
+        manifest=tmp_path / "sealed-private.json",
+        manifest_sha256="a" * 64,
+        as_of="2026-11-11T10:00:00+00:00",
+    )
+    assert wallets == expected
+    assert seen["registry_db"] == tmp_path / "registry.sqlite"
+    assert seen["manifest"] == tmp_path / "sealed-private.json"
+    assert seen["expected_sha256"] == "a" * 64
+    assert selected_subscription(wallets, None)["filter"]["min_usd"] == 0
+
+    def duplicate_campaign(**kwargs):
+        return SimpleNamespace(
+            profiles={pid: object() for pid in scenarios.IDENTITIES},
+            parents={str(i): expected[0] for i in range(14)},
+        )
+
+    monkeypatch.setattr(scenarios, "load_campaign", duplicate_campaign)
+    with pytest.raises(ValueError, match="COHORT_NOT_14"):
+        selected_campaign_wallets(
+            registry_db=tmp_path / "registry.sqlite",
+            manifest=tmp_path / "sealed-private.json",
+            manifest_sha256="a" * 64,
+            as_of="2026-11-11T10:00:00+00:00",
         )
 
 

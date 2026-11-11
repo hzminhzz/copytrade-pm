@@ -1,6 +1,6 @@
 # V4 canonical 16-portfolio fresh paper campaign — 2026-11-11
 
-**Transport distinction:** [Vike-first wallet ingestion](decisions/2026-11-11-vike-first-wallet-source.md) is an approved future design, not an installed replacement for the current official complete-position source. Keep this campaign's selected-account official proof, T+300, frozen k, PM03/PM04 and immutable financial journal requirements unchanged until separate engineering, reconciliation and runtime admission. The 7-of-14 source coverage in this document is a dated deployment snapshot; verify current GAP/coverage from original journals and OS evidence.
+**Transport distinction:** [Vike-first wallet ingestion](decisions/2026-11-11-vike-first-wallet-source.md) is an approved design with [partially implemented nonactivating observation and official REST evidence](V4-VIKE-FIRST-MIGRATION-PROGRESS-20261111.md), **not an installed replacement** for the current official complete-position source. Keep this campaign's selected-account official proof, T+300, frozen k, PM03/PM04 and immutable financial journal requirements unchanged until separate engineering, reconciliation and runtime admission. The 7-of-14 source coverage in this document is a dated deployment snapshot; verify current GAP/coverage from original journals and OS evidence.
 
 ## Scope and outcome
 
