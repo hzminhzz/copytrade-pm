@@ -14,6 +14,7 @@ from .strategy_health import (
     StrategyScope,
     seal,
 )
+from .pm_forward_stream_anchor import VerifiedAnchor
 from .strategy_source_verify import verify_packet
 
 
@@ -29,6 +30,7 @@ def assess_verified_packet(
     as_of: datetime,
     created_at: datetime,
     registry_db: Path | None = None,
+    verified_anchor: VerifiedAnchor | None = None,
 ) -> StrategyAssessment:
     if scope.tier != "SELECTED":
         raise ValueError("PROSPECTIVE_CENSUS_SELECTED_ONLY")
@@ -52,6 +54,7 @@ def assess_verified_packet(
         as_of=as_of,
         policy_version=scope.k_version,
         frozen_k=str(scope.frozen_k),
+        verified_anchor=verified_anchor,
     )
     opportunities = tuple(
         Opportunity.model_validate_json(json.dumps(o)) for o in verified["opportunities"]

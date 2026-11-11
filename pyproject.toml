@@ -59,6 +59,7 @@ copytrade-pm-production-export = "copytrade_pm.production_export:main"
 copytrade-pm-production-manifest = "copytrade_pm.production_manifest:main"
 copytrade-pm-production-economics = "copytrade_pm.production_economics:main"
 copytrade-pm-track-b-prefect = "copytrade_pm.strategy_health_prefect:main"
+copytrade-pm-track-b-evidence-prefect = "copytrade_pm.strategy_evidence_prefect:main"
 
 [build-system]
 requires = ["hatchling"]

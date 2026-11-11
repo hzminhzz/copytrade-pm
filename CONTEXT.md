@@ -36,6 +36,8 @@ Canonical domain meanings. This glossary does not specify implementation or stor
 - **Durable receipt**: An observation or effect whose persistence can be verified after a process interruption; a successful delivery acknowledgement is not itself proof that a financial effect occurred.
 - **Wire contract**: The versioned meaning and identity of a record exchanged between independent authorities; historical signed representations retain their original meaning.
 - **Validated evidence**: A well-formed observation under its declared contract, distinct from complete/prospective evidence and distinct from permission to act.
+- **Independent source-audit anchor**: A separately trusted, immutable attestation of a fully audited original source-chain prefix and its exact identity, cursor, receipt-chain and causal clock heads; it is distinct from a source-producer signature or fast current-head diagnostic.
+- **Audited suffix**: A bounded, gap-free original event and receipt sequence whose chain, source identity, causal clocks and terminal heads verify against a separately trusted historical anchor; it does not itself confer financial or trading authority.
 - **Transition identity**: The unique provenance-bound occurrence of a state change, which may differ between events that reach the same economic state.
 - **Consumer cursor**: One consumer's durable position in a verified evidence stream, separate from the producer's cursor and other consumers' acknowledgements.
 - **Durable HALT**: A latched financial risk restriction that cannot disappear through a transient diagnostic update. Any reset requires its own authorized, auditable transition.

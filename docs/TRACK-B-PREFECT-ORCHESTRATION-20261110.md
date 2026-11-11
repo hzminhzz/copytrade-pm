@@ -56,6 +56,22 @@ uv run --frozen --extra prefect copytrade-pm-track-b-prefect \
 
 **Important:** output is **not** a signed Grafana publication. Only the separate original private publication binding with a trusted out-of-repo Ed25519 key, an independently pinned original v1 rollback snapshot, authenticated ingress and deployment authorization may promote a redacted projection. No default production publication exists.
 
+## Proof-bound original evidence — separate opt-in one-job mode (2026-11-11)
+
+The original `copytrade-pm-track-b-prefect` manifest interface remains unchanged. A separate command handles one **independently audited signed-original Track B reconciliation**: `copytrade-pm-track-b-evidence-prefect`. It uses the original `track_b_evidence_reconcile_request_v1` manifest from the proof-bound reconciler (not the old pre-sealed assessment jobs). An unaudited request cannot enter this Prefect path.
+
+```bash
+uv run --frozen --extra prefect copytrade-pm-track-b-evidence-prefect \
+  --manifest /owner-private/original/reconcile-request.json \
+  --sha256 EXACT_MANIFEST_FILE_SHA256 \
+  --trusted-source-public-key-sha256 OUT_OF_BAND_SOURCE_KEY_SHA256 \
+  --trusted-auditor-public-key-sha256 OUT_OF_BAND_AUDITOR_KEY_SHA256
+```
+
+The private manifest must pin the original signed V4 packet, its source public key, an independently signed audit anchor, its original auditor public key, source journal and an existing owner-owned private output directory. Every retry rereads the exact SHA-pinned request and delegates proof verification/assessment to `strategy_evidence_reconciler.reconcile_manifest`. A single local task returns only sanitized SHA/status fields. There is no persistent job manager, automatic source acquisition, second financial authority, public release, or trading permission. No remote Prefect API or telemetry analytics are allowed. Full-chain initial source audits are still allowed **only on small, isolated, operator-confirmed backups**; live large-journal full scans are not an optional fallback.
+
+This command is an engineering experiment. Original 0911 operational restoration, original market/PM03/04 completeness, scientifically comparable follower economics, independently signed publication and Grafana acceptance remain separate prerequisites.
+
 ## Reliability and rollback
 
 - Rerun the exact pinned manifest after an interruption. Completed SHA outputs return `EXISTING_VERIFIED`. There is no automatic process resurrection without an independently deployed worker.
