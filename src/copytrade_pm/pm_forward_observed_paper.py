@@ -853,6 +853,11 @@ class ObservedP1Paper:
     def _known_instruments(self) -> set[str]:
         state = self.run.account
         result = {inst.key for inst, qty in state.quantities.items() if qty}
+        # PM03 valuations include each pod's held positions even when
+        # opposing pod legs net to zero in consolidated quantities. Missing
+        # market data must defer the T+300 attempt, not crash at account.mark.
+        for held_book in state.pm_quantities.values():
+            result |= {inst.key for inst, qty in held_book.items() if qty}
         for pod in state.pm04_state["pod_targets"].values():
             result |= {key for key, q in pod.items() if number(q)}
         for pod in state.pm04_state["routed_targets"].values():
