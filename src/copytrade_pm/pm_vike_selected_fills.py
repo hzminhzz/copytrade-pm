@@ -106,6 +106,31 @@ def selected_wallets_from_registry(
     return tuple(sorted(accounts))
 
 
+def selected_campaign_wallets(
+    *, registry_db: Path, manifest: Path, manifest_sha256: str, as_of: str
+) -> tuple[str, ...]:
+    """Resolve the complete frozen sixteen-portfolio cohort from SQLite.
+
+    The historical manifest is admitted only after its pinned SHA and every
+    member's live SQLite identity have passed load_campaign validation.
+    Address output remains private, and fill collection is never paper proof.
+    """
+    from .pm_v4_sixteen_scenarios import IDENTITIES, load_campaign
+
+    campaign = load_campaign(
+        manifest=manifest,
+        registry_db=registry_db,
+        at=as_of,
+        expected_sha256=manifest_sha256,
+    )
+    if tuple(campaign.profiles) != IDENTITIES:
+        raise ValueError("VIKE_SELECTED_CAMPAIGN_IDENTITY_DRIFT")
+    wallets = tuple(sorted(allowed_wallet(value) for value in campaign.parents.values()))
+    if len(wallets) != len(set(wallets)) or len(wallets) != 14:
+        raise ValueError("VIKE_SELECTED_CAMPAIGN_COHORT_NOT_14")
+    return wallets
+
+
 def selected_subscription(wallets: tuple[str, ...], cursor: str | None) -> dict:
     selected = tuple(sorted({allowed_wallet(item) for item in wallets}))
     if not selected or len(selected) > 1000 or len(selected) != len(wallets):
@@ -362,21 +387,36 @@ async def run_selected(
     key: str,
     wallets: tuple[str, ...],
     seconds: float,
+    include_positions: bool = False,
 ) -> dict:
     from websockets.asyncio.client import connect
 
     from websockets.exceptions import ConnectionClosed
 
+    from . import pm_vike_position_observations as positions
+
     with closing(open_selected_journal(root)) as conn:
+        if include_positions:
+            positions.initialize(conn)
         # The cursor checkpoint survives restart, but recovered events are
         # observational evidence, NEVER backdated actionable signals.
         stats = {"PROSPECTIVE_FILL": 0, "RECOVERED_FILL": 0, "DUPLICATE": 0, "GAP": 0}
+        position_stats = {"PROSPECTIVE_POSITION_EVENT": 0, "RECOVERED_POSITION_EVENT": 0, "GAP": 0}
         deadline = monotonic() + seconds
         attempts = 0
         stop_reason = "BOUNDED_DURATION_COMPLETE"
         while monotonic() < deadline and attempts < 3:
             attempts += 1
             subscribed_head = None
+            if attempts > 1 and include_positions:
+                # Reconnection is never evidence of continuous complete state.
+                # A fresh official baseline is needed before any source admission.
+                old_position_cursor, _ = positions.checkpoint(conn)
+                if old_position_cursor is not None:
+                    with conn:
+                        positions._advance(
+                            conn, old_position_cursor, datetime.now(UTC).isoformat(), True
+                        )
             if attempts > 1 and current_cursor(conn):
                 try:
                     recovery = recover_rest(conn, key=key, wallets=wallets)
@@ -402,6 +442,12 @@ async def run_selected(
                             selected_subscription(wallets, current_cursor(conn)),
                         )
                     )
+                    if include_positions:
+                        position_cursor, _ = positions.checkpoint(conn)
+                        await socket.send(
+                            json.dumps(positions.position_subscription(wallets, position_cursor))
+                        )
+                    position_head = None
                     while monotonic() < deadline:
                         try:
                             raw = await asyncio.wait_for(
@@ -412,7 +458,42 @@ async def run_selected(
                             break
                         frame = json.loads(raw)
                         if frame.get("type") == "subscribed":
-                            subscribed_head = _cursor(frame.get("cursor"))
+                            if frame.get("channel") == CHANNEL:
+                                subscribed_head = _cursor(frame.get("cursor"))
+                            elif include_positions and frame.get("channel") == positions.CHANNEL:
+                                position_head = _cursor(frame.get("cursor"))
+                        if include_positions and (
+                            (
+                                frame.get("type") == "subscribed"
+                                and frame.get("channel") == positions.CHANNEL
+                            )
+                            or (
+                                frame.get("type") == "gap"
+                                and frame.get("channel") == positions.CHANNEL
+                            )
+                            or (
+                                frame.get("type") == "event"
+                                and frame.get("ids") == [positions.SUB_ID]
+                            )
+                        ):
+                            pcursor = frame.get("cursor")
+                            is_position_live = (
+                                position_head is not None
+                                and frame.get("type") == "event"
+                                and _cursor(pcursor) > position_head
+                                and not positions.checkpoint(conn)[1]
+                            )
+                            outcome = positions.apply_frame(
+                                conn,
+                                frame,
+                                wallets,
+                                datetime.now(UTC).isoformat(),
+                                raw_wire=raw,
+                                prospective=is_position_live,
+                            )
+                            if outcome in position_stats:
+                                position_stats[outcome] += 1
+                            continue
                         # The server's subscribed head separates old replay
                         # from later live frames. Unknown epochs fail closed.
                         is_live = (
@@ -463,7 +544,9 @@ async def run_selected(
             "subscription_acknowledgments": heartbeat[1] if heartbeat else 0,
             "last_server_frame_at": heartbeat[2] if heartbeat else None,
             "status": (
-                "BLOCKED_STREAM_GAP"
+                "BLOCKED_POSITION_STREAM_GAP"
+                if include_positions and positions.checkpoint(conn)[1]
+                else "BLOCKED_STREAM_GAP"
                 if had_gap(conn)
                 else "OBSERVED_FILL_INTAKE_ONLY"
                 if stop_reason == "BOUNDED_DURATION_COMPLETE"
@@ -472,6 +555,8 @@ async def run_selected(
             "stop_reason": stop_reason,
             "reconnect_attempts": max(0, attempts - 1),
             "observed": stats,
+            "positions": positions.coverage(conn, wallets) if include_positions else None,
+            "position_events": position_stats if include_positions else None,
             "cursor_persisted": current_cursor(conn) is not None,
             "source_positions_verified": False,
             "financial_events_committed": 0,
@@ -494,6 +579,17 @@ def main() -> int:
         default="P1,P14,P16",
         help="Comma-separated frozen portfolio IDs, for --registry-db",
     )
+    p.add_argument(
+        "--campaign-manifest",
+        type=Path,
+        help="Private SHA-pinned sixteen-portfolio campaign; requires --registry-db",
+    )
+    p.add_argument("--campaign-sha256", help="Pinned full SHA of the private campaign")
+    p.add_argument(
+        "--positions",
+        action="store_true",
+        help="Also journal Vike position notifications in the same socket; NEVER a complete book",
+    )
     p.add_argument("--seconds", type=float, default=60)
     p.add_argument("--dedicated-key-only", action="store_true")
     args = p.parse_args()
@@ -511,7 +607,18 @@ def main() -> int:
             )
         )
         return 2
-    if args.registry_db is not None:
+    if args.campaign_manifest is not None:
+        if args.registry_db is None or not args.campaign_sha256:
+            p.error("--campaign-manifest requires --registry-db and --campaign-sha256")
+        selection = selected_campaign_wallets(
+            registry_db=args.registry_db,
+            manifest=args.campaign_manifest,
+            manifest_sha256=args.campaign_sha256,
+            as_of=datetime.now(UTC).isoformat(),
+        )
+    elif args.campaign_sha256 is not None:
+        p.error("--campaign-sha256 requires --campaign-manifest")
+    elif args.registry_db is not None:
         selection = selected_wallets_from_registry(
             args.registry_db,
             portfolios=tuple(args.portfolios.split(",")),
@@ -533,6 +640,7 @@ def main() -> int:
                 key=key,
                 wallets=selection,
                 seconds=args.seconds,
+                include_positions=args.positions,
             )
         )
     except Exception as exc:

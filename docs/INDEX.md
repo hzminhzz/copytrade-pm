@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | First agent session or new work | [AGENTS.md](../AGENTS.md) → [Architecture](ARCHITECTURE.md) | Live Git, OS and private evidence beat written status |
 | Wallet/portfolio identity and exclusions | [Registry-first workflow](WALLET-REGISTRY-AGENT-WORKFLOW.md) | Owner-private SQLite, sealed selections |
-| New wallet activity ingestion | [Vike-first target ADR](decisions/2026-11-11-vike-first-wallet-source.md) | Approved transport **target**, not live source authority |
+| New wallet activity ingestion | [Vike-first target ADR](decisions/2026-11-11-vike-first-wallet-source.md) and [2026-11-11 implementation/canary evidence](V4-VIKE-FIRST-MIGRATION-PROGRESS-20261111.md) | Opt-in 14-parent transport and official REST census exist; **no complete-position authority or paper cutover** |
 | Current complete-position source and T+300 | [Official position-first ADR](decisions/2026-11-08-position-first-t300.md) | Original official complete-book receipts until a qualified replacement is activated |
 | Current canonical virtual-paper research | [2026-11-11 campaign runbook](V4-CANONICAL-FRESH-PAPER-20261111.md) | Actual pinned service + immutable private journals, not this document's snapshot |
 | Sizing and account risk | [Fixed-k sizing](RISK-BUDGETED-K-SIZING-20261106.md), [PM-03](PM-03-shadow-account.md), [PM-04](PM-04-shadow-hardening.md) | PM03/04 simulated finance; Guardian owns protected finance |
@@ -30,6 +30,9 @@ The [7 November reconciliation record](RECONCILIATION-20261107.md) explains PR a
 **Read-only Track B wallet health (#256):** [versioned daily as-of registry assessment, private immutable report, and redacted Grafana projection](WALLET-HEALTH-TRACK-B-20261110.md). The health research layer has no wallet or financial command authority; current field diagnosis depends on authentic, independently supplied provider evidence.
 
 **Track C risk-budgeted k research (#256):** [strict trial-aware proposals, immutable read-only research reports, nonactivating SHADOW release preflight and rollback](TRACK-C-K-RECALIBRATION-20261110.md). Proposal-level evidence is not verified follower alpha, signed release or activation.
+
+**2026-11-11 Vike-first source migration (nonactivating):**
+[14-parent wallet-filters, dual Vike observation stream, independent original-byte 11-DEX census, provider GAP canary, explicit paper cutover blockers](V4-VIKE-FIRST-MIGRATION-PROGRESS-20261111.md). Complete-book continuous 14/14 coverage, a versioned V4 reconciled source proof and source-authority cutover are **not verified**.
 
 **0911 official source subscription recovery (#292):**
 [7-at-a-time, 14-parent official WS SHADOW rotation, explicit GAPs and reversible source/paper deployment](V4-0911-WS-SUBSCRIPTION-RECOVERY-292.md). This does not establish simultaneous 14-account source continuity or authorize trading.
