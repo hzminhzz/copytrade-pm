@@ -21,6 +21,7 @@ from typing import Any
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
 from .pm03_account import digest as source_digest
+from .pm_forward_stream_anchor import VerifiedAnchor, verify_suffix
 from .pm_forward_stream_journal import verify_streams
 from .production_manifest import canonical, digest, sign
 
@@ -226,6 +227,7 @@ def export_signed_events(
     signer: Ed25519PrivateKey,
     after: dict[str, int] | None = None,
     limit_per_account: int = 256,
+    verified_anchor: VerifiedAnchor | None = None,
 ) -> dict[str, Any]:
     """Export bounded prospective evidence from one verified read-only journal.
 
@@ -239,7 +241,9 @@ def export_signed_events(
         raise ValueError("V4_SELECTION_INVALID")
     if not 1 <= limit_per_account <= 256:
         raise ValueError("V4_EXPORT_LIMIT")
-    verified = verify_streams(journal_db)
+    if verified_anchor is not None and len(selected) != 1:
+        raise ValueError("V4_ANCHORED_EXPORT_ONE_ACCOUNT_ONLY")
+    verified = verify_streams(journal_db) if verified_anchor is None else None
     after = after or {}
     records: dict[str, list[dict[str, Any]]] = {}
     heads: dict[str, int] = {}
@@ -255,17 +259,28 @@ def export_signed_events(
             if ADDRESS.fullmatch(identity) is None:
                 raise ValueError("V4_IDENTITY_INVALID")
             sid = "account:" + alias
-            if sid not in verified["streams"]:
-                raise ValueError("V4_STREAM_ABSENT")
-            head = verified["streams"][sid]["cursor"]
-            cursor = after.get(alias, head)
-            if type(cursor) is not int or not 0 <= cursor <= head:
-                raise ValueError("V4_CURSOR_INVALID")
-            rows = db.execute(
-                "SELECT seq,event_sha,payload,receipt_refs,prior_sha,chain_sha,committed_at "
-                "FROM observer_stream_events WHERE stream_id=? AND seq>? AND seq<=? ORDER BY seq LIMIT ?",
-                (sid, cursor, head, limit_per_account),
-            ).fetchall()
+            if verified_anchor is not None:
+                original = verify_suffix(db, verified_anchor, alias=alias, account=identity)
+                head = original["stream_cursor"]
+                cursor = after.get(alias, head)
+                if (
+                    type(cursor) is not int
+                    or not verified_anchor.payload["stream_cursor"] <= cursor <= head
+                ):
+                    raise ValueError("V4_ANCHORED_CURSOR_OUTSIDE_AUDITED_SUFFIX")
+                rows = [row for row in original["rows"] if row[0] > cursor][:limit_per_account]
+            else:
+                if sid not in verified["streams"]:
+                    raise ValueError("V4_STREAM_ABSENT")
+                head = verified["streams"][sid]["cursor"]
+                cursor = after.get(alias, head)
+                if type(cursor) is not int or not 0 <= cursor <= head:
+                    raise ValueError("V4_CURSOR_INVALID")
+                rows = db.execute(
+                    "SELECT seq,event_sha,payload,receipt_refs,prior_sha,chain_sha,committed_at "
+                    "FROM observer_stream_events WHERE stream_id=? AND seq>? AND seq<=? ORDER BY seq LIMIT ?",
+                    (sid, cursor, head, limit_per_account),
+                ).fetchall()
             records[alias] = [
                 _record(db, alias=alias, identity=identity, row=row, signer=signer) for row in rows
             ]

@@ -6,12 +6,14 @@ the pinned independent public key and the verified original journal.
 
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from .pm03_account import digest
+from .pm_forward_stream_anchor import VerifiedAnchor, _reader, verify_suffix
 from .pm_forward_stream_journal import verify_streams
 from .production_manifest import verify
 from .v4_source_export import export_signed_events
@@ -27,6 +29,7 @@ def verify_packet(
     as_of: datetime,
     policy_version: str,
     frozen_k: str,
+    verified_anchor: VerifiedAnchor | None = None,
 ) -> dict:
     """Check signed original bindings and regenerate exact original event identity.
 
@@ -70,6 +73,7 @@ def verify_packet(
         selected=selected,
         signer=Ed25519PrivateKey.generate(),
         after=after,
+        verified_anchor=verified_anchor,
     )
     if packet["head_cursors"] != original["head_cursors"]:
         raise ValueError("SOURCE_ORIGINAL_HEAD_DIVERGED")
@@ -155,12 +159,40 @@ def verify_packet(
                         "frozen_k": frozen_k,
                     }
                 )
+    # Legacy full-journal hash cannot be inferred from one independently
+    # anchored stream. Keep an explicit separate proof version.
+    if verified_anchor is None:
+        proof_digest = digest(verify_streams(original_journal)["streams"])
+    else:
+        if len(selected) != 1:
+            raise ValueError("SOURCE_ANCHORED_SELECTED_SCOPE_REQUIRED")
+        alias, account = next(iter(selected.items()))
+        with closing(_reader(original_journal)) as db:
+            head_proof = verify_suffix(db, verified_anchor, alias=alias, account=account)
+        if head_proof["stream_cursor"] != original["head_cursors"][alias]:
+            raise ValueError("SOURCE_ORIGINAL_HEAD_MOVED_DURING_VERIFICATION")
+        proof_digest = digest(
+            {
+                "schema": "strategy_source_anchored_proof_v1",
+                "anchor_file_sha256": verified_anchor.seal_file_sha256,
+                "auditor_key_sha256": verified_anchor.auditor_key_sha256,
+                "selected_account_sha256": verified_anchor.payload["account_sha256"],
+                "stream_cursor": head_proof["stream_cursor"],
+                "stream_chain_sha": head_proof["stream_chain_sha"],
+                "source_cursor": head_proof["source_cursor"],
+                "source_chain_sha": head_proof["source_chain_sha"],
+            }
+        )
     return {
-        "schema": "strategy_source_verification_v1",
+        "schema": (
+            "strategy_source_verification_v1"
+            if verified_anchor is None
+            else "strategy_source_verification_v2_anchored"
+        ),
         "source_status": "GAP" if any(x["recovered_at"] is None for x in missing) else "VERIFIED",
         "opportunities": opportunities,
         "missing_intervals": missing,
-        "verified_original_journal_sha256": digest(verify_streams(original_journal)["streams"]),
+        "verified_original_journal_sha256": proof_digest,
         "read_only": True,
         "trading_authorized": False,
     }

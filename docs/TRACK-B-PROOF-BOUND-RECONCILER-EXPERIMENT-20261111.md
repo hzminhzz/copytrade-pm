@@ -46,21 +46,38 @@ If registry seal is not independently supplied, source availability remains `INC
 
 All rejected signed-source, journal, hash, cursor, scope, symlink and permissions evidence fails closed. An unverified selected account is never called fully verified. Missing material is not silently filled from historical Vike fills.
 
-## Scale and reversibility
+## Incremental source-proof engineering (added 2026-11-11)
 
-Existing `v4_source_export.export_signed_events` and `strategy_source_verify.verify_packet` still call **full** original-chain verification. Their use on active source journals is unsafe at current VPS disk/CPU pressure. The reconciler refuses source SQLite DB+WAL sizes exceeding **64 MiB** before invoking that existing full verifier. This cap is intentionally conservative and **not** a solution for large journals. No live 0811/0911 source or paper worker should be configured to invoke this module.
+The optional independently anchored path is now implemented, **not deployed or promoted**:
 
-A later production-capable read model needs independently verified bounded incremental attestation anchored to an immutable fully audited checkpoint. `verify_stream_heads_fast` alone must not become the complete historical proof. Require checkpoint trust, cursor continuity, causal clocks, original hashes, WAL/reader resource and write-latency benchmarks, and recovery from archive/read-through before removing the 64 MiB guard.
+1. An independent auditor obtains a **consistent, isolated SQLite backup** of the original journal. With `offline_snapshot_confirmed=True`, `pm_forward_stream_anchor.full_audit_anchor` runs the existing full original stream/receipt audit on that small copy, validates the selected-account identity, source-receipt chain and causal clocks, and signs the exact stream and source-receipt cursor/hash heads with an externally provisioned **audit key independent of the producer signing key**. A WAL-bearing or larger-than-64-MiB initial audit file is refused. Never do this operation on an active 0811/0911 journal.
+2. `publish_anchor` durably commits exact canonical Ed25519 bytes in the owner-private 0700 `source-audit-anchors` sidecar using SHA-addressing and atomic no-clobber publication; files are 0600. `load_anchor` requires the exact file SHA **and a separately pinned auditor public-key SHA**. A signed producer packet or local fast-tail preflight is not an independent audit anchor.
+3. `verify_suffix` reads the actual original source journal in a single read-only SQLite snapshot, checks the exact sealed anchor row, verifies every contiguous stream event (including original v2 wire hash where applicable), linked original receipt, both hash-chain continuities, causal clocks, selected account, head, and absence of gaps in at most **256 stream events and 256 new source receipts**. It refuses backlog beyond either bound; no skipping and no full fallback. Both source and stream suffix must be independently verified.
+4. `advance_anchor` requires the same independently provisioned auditor key, re-verifies the bounded suffix, and signs a new future anchor linked by the parent anchor's file SHA. The owner explicitly publishes and pins the successor. Nothing automatically rotates the trust key or promotes a candidate.
+5. `v4_source_export.export_signed_events`, `strategy_source_verify.verify_packet`, and `strategy_census.assess_verified_packet` accept an **optional verified anchor**. The default full-chain legacy path is unchanged. The optional path uses the **same SQLite read transaction** to verify and export, then independently rechecks the verified head; a head that moves between reads fails closed. Its proof is `strategy_source_verification_v2_anchored`, not a substituted v1 historical audit hash. Existing V4 signed packet payloads and signatures are unchanged.
+6. The strict reconcile manifest accepts four optional all-or-none private audit inputs (`original_audit_anchor_path`, `original_audit_anchor_sha256`, `audit_public_key_path`, `audit_public_key_sha256`) and requires a **separate out-of-manifest** `trusted_auditor_public_key_sha256`. Anchored runs bypass the 64-MiB full-scan guard, never run the full scanner, and durably emit both the canonical private report and `track_b_original_evidence_binding_v1` SHA-bound private reference (`*.proof.json`). The binding captures the signed source packet, independently signed audit, pinned request, report identities, and permanent NO TRADE status. It is **not** an independent signed public release.
 
-The experiment has no systemd or Prefect integration, no Grafana release, no private/public Ed25519 publication signer, no external alerting and no automatic cleanup. Rollback is to **not invoke** it. Retain immutable experimental private receipts for audit; deletion requires an explicit retention decision.
+Example read-only invocation with an already provisioned, signed and pinned anchor:
+
+```sh
+uv run --frozen python -m copytrade_pm.strategy_evidence_reconciler \\
+  --manifest /owner-private/reconcile-request.json \\
+  --manifest-sha256 EXACT_REQUEST_SHA \\
+  --trusted-source-public-key-sha256 INDEPENDENT_SOURCE_KEY_SHA \\
+  --trusted-auditor-public-key-sha256 INDEPENDENT_AUDITOR_KEY_SHA
+```
+
+The old full-history path still refuses journals larger than 64 MiB. This does **not** prove that original SQLite WAL and native v2 wire sidecar reads are efficient on the actual 0811/0911 deployments; the host remained heavily disk constrained. The code is **not enabled** on a live service, Prefect schedule, Grafana ingress, Guardian or broker.
 
 ## Next vertical slices (not implemented by this experiment)
 
-1. Independently anchored incremental source and PM03 evidence verification on a bounded snapshot/cursor read model. Verify storage, WAL and CPU budgets first; address issue #292 separately.
-2. Authentic independently selected registry, original market, fee/funding and PM03/04 evidence completeness, with explicit missing reason codes rather than optimistic finance labels.
-3. Prefect adapter accepting only the reconciler's immutable manifest SHA and out-of-band source trust pin; preserve existing batch jobs and isolated research inputs.
-4. Owner-controlled signed private-to-public publication and read-only Grafana rollout, independent ingress/v1 rollback tests and measured freshness.
-5. Observed production metrics and scientific validation remain different acceptance tracks. No automatic k/Guardian/broker action.
+1. Independently establish suitable 0811/0911 offline backups, owner-private audit signer/key policy and read-through retention before obtaining real anchors. Resolve issue #292 WAL/reader pressure and benchmark original snapshot verification and read latency without sacrificing write availability. No full audit against large active SQLite.
+2. Bind independently selected registry, original market/fees/funding and PM03/04 completeness. Add explicit failure classifications and batch orchestration semantics; research-synthetic follower finance stays UNKNOWN for scientific comparability.
+3. Optional Prefect adapter accepting the new immutable manifest and out-of-band audit and source key pins. Preserve old Prefect jobs and zero remote API by default. No persistent scheduler without separately approved runtime promotion.
+4. Owner-controlled **independently signed** private-to-redacted release, with unchanged v1 wallet-health rollback and read-only Grafana canary/503 behavior; no publication without the real owner key and original proofs.
+5. Independently observed acceptance for actual prospective economics, source freshness, rollback and capacity; science and trading authorization remain separate.
+
+The experiment has no systemd activation, no scheduled Prefect, no Grafana release, no external alert delivery, no retention cleanup and no Guardian/trade route. Rollback means **do not invoke** the optional read-only functions; published experimental private receipts remain preserved until an explicitly approved retention operation.
 
 ## Engineering acceptance
 

@@ -67,10 +67,15 @@ def _inputs(tmp_path):
     return request, request_path, request_sha, staging
 
 
-def _reconcile(path, sha, trusted_key=None):
+def _reconcile(path, sha, trusted_key=None, trusted_auditor=None):
     # The independent trust anchor is supplied by the caller.
     pinned = json.loads(path.read_text())["source_public_key_sha256"]
-    return reconcile_manifest(path, sha, trusted_source_public_key_sha256=trusted_key or pinned)
+    return reconcile_manifest(
+        path,
+        sha,
+        trusted_source_public_key_sha256=trusted_key or pinned,
+        trusted_auditor_public_key_sha256=trusted_auditor,
+    )
 
 
 def test_signed_original_reconciles_idempotently_without_financial_promotion(tmp_path):

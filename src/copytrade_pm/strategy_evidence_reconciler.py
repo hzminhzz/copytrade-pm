@@ -17,6 +17,8 @@ from typing import Literal
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .pm_forward_stream_anchor import load_anchor
+from .production_manifest import canonical as canonical_binding
 from .strategy_advisory import with_recovery
 from .strategy_census import assess_verified_packet
 from .strategy_finance import (
@@ -36,6 +38,7 @@ from .strategy_health import (
 )
 from .strategy_health_jobs import _private_output, _read_private
 from .strategy_windows import with_windows
+from .v4_source_export import _atomic_private_output
 
 SHA = r"^[a-f0-9]{64}$"
 # Existing V4 proof functions verify complete chains. Never run them on large
@@ -67,6 +70,10 @@ class ReconciliationRequest(Strict):
     registry_db: Path | None = None
     original_pm03_root: Path | None = None
     original_pm03_head_sha256: str | None = Field(default=None, pattern=SHA)
+    original_audit_anchor_path: Path | None = None
+    original_audit_anchor_sha256: str | None = Field(default=None, pattern=SHA)
+    audit_public_key_path: Path | None = None
+    audit_public_key_sha256: str | None = Field(default=None, pattern=SHA)
 
     @model_validator(mode="after")
     def validate_contract(self):
@@ -83,11 +90,21 @@ class ReconciliationRequest(Strict):
             self.output_dir,
             self.registry_db,
             self.original_pm03_root,
+            self.original_audit_anchor_path,
+            self.audit_public_key_path,
         ):
             if path is not None and (not path.is_absolute() or ".." in path.parts):
                 raise ValueError("EVIDENCE_RECONCILE_ABSOLUTE_PATH_REQUIRED")
         if (self.original_pm03_root is None) != (self.original_pm03_head_sha256 is None):
             raise ValueError("EVIDENCE_RECONCILE_PM03_PATH_HEAD_PAIR_REQUIRED")
+        pins = (
+            self.original_audit_anchor_path,
+            self.original_audit_anchor_sha256,
+            self.audit_public_key_path,
+            self.audit_public_key_sha256,
+        )
+        if any(value is None for value in pins) and any(value is not None for value in pins):
+            raise ValueError("EVIDENCE_RECONCILE_ANCHOR_FOUR_PINS_REQUIRED")
         if (
             self.scope.tier != "SELECTED"
             or set(self.selected) != {self.scope.source_alias}
@@ -112,6 +129,7 @@ class ReconciliationReceipt(Strict):
     trading_authorized: Literal[False] = False
     private_report_sha256: str = Field(pattern=SHA)
     private_report_bytes_sha256: str = Field(pattern=SHA)
+    private_proof_binding_sha256: str | None = Field(default=None, pattern=SHA)
     reasons: tuple[str, ...] = ()
 
 
@@ -141,6 +159,7 @@ def reconcile(
     *,
     request_sha256: str,
     trusted_source_public_key_sha256: str,
+    trusted_auditor_public_key_sha256: str | None = None,
 ) -> ReconciliationReceipt:
     """Reconcile one immutable request, with no source/registry/finance writes.
 
@@ -154,7 +173,24 @@ def reconcile(
     ):
         raise ValueError("EVIDENCE_INDEPENDENT_SOURCE_KEY_PIN_REQUIRED")
     _private_output(request.output_dir)
-    _check_offline_original(request.original_source_journal)
+    anchored = request.original_audit_anchor_path is not None
+    if anchored != (trusted_auditor_public_key_sha256 is not None):
+        raise ValueError("EVIDENCE_RECONCILE_AUDITOR_TRUST_PIN_REQUIRED")
+    verified_anchor = None
+    if anchored:
+        if trusted_auditor_public_key_sha256 != request.audit_public_key_sha256:
+            raise ValueError("EVIDENCE_RECONCILE_AUDITOR_TRUST_PIN_MISMATCH")
+        audit_public = Ed25519PublicKey.from_public_bytes(
+            _read_private(request.audit_public_key_path, request.audit_public_key_sha256, limit=64)
+        )
+        verified_anchor = load_anchor(
+            request.original_audit_anchor_path,
+            request.original_audit_anchor_sha256,
+            audit_public,
+            expected_auditor_public_key_sha256=trusted_auditor_public_key_sha256,
+        )
+    else:
+        _check_offline_original(request.original_source_journal)
     public = Ed25519PublicKey.from_public_bytes(
         _read_private(request.source_public_key_path, request.source_public_key_sha256, limit=64)
     )
@@ -170,8 +206,11 @@ def reconcile(
         as_of=request.as_of,
         created_at=request.created_at,
         registry_db=request.registry_db,
+        verified_anchor=verified_anchor,
     )
     reasons: list[str] = []
+    if verified_anchor is not None:
+        reasons.append("SOURCE_ORIGINAL_FULL_AUDIT_ANCHORED_SUFFIX_VERIFIED")
     if request.registry_db is None:
         reasons.append("SELECTED_REGISTRY_SEAL_NOT_INDEPENDENTLY_VERIFIED")
     if request.original_pm03_root is None:
@@ -204,6 +243,35 @@ def reconcile(
         if canonical_report(existing) != canonical:
             raise ValueError("EVIDENCE_RECONCILE_OUTPUT_COLLISION_OR_TAMPER") from exc
         state = "EXISTING_VERIFIED"
+    binding_sha = None
+    if verified_anchor is not None:
+        # Preserve the original signed packet/independent audit/report lineage
+        # as an immutable owner-private reference. No research or publisher
+        # signatory is inferred from this content-addressed local sidecar.
+        binding = {
+            "schema": "track_b_original_evidence_binding_v1",
+            "request_sha256": request_sha256,
+            "source_packet_sha256": request.packet_sha256,
+            "source_public_key_sha256": request.source_public_key_sha256,
+            "original_audit_anchor_sha256": verified_anchor.seal_file_sha256,
+            "auditor_public_key_sha256": verified_anchor.auditor_key_sha256,
+            "private_report_sha256": report.report_sha256,
+            "private_report_bytes_sha256": output_sha,
+            "read_only": True,
+            "scientifically_qualified": False,
+            "trading_authorized": False,
+        }
+        raw = canonical_binding(binding)
+        binding_sha = sha256(raw).hexdigest()
+        proof_path = request.output_dir / (binding_sha + ".proof.json")
+        try:
+            _atomic_private_output(proof_path, raw)
+        except ValueError as exc:
+            if not proof_path.exists() or proof_path.is_symlink():
+                raise
+            existing = _read_private(proof_path, binding_sha, limit=4096)
+            if existing != raw:
+                raise ValueError("EVIDENCE_RECONCILE_PROOF_BINDING_TAMPER") from exc
     return ReconciliationReceipt(
         request_sha256=request_sha256,
         evidence_availability=(
@@ -212,12 +280,17 @@ def reconcile(
         operational_execution=state,
         private_report_sha256=report.report_sha256,
         private_report_bytes_sha256=output_sha,
+        private_proof_binding_sha256=binding_sha,
         reasons=tuple(reasons),
     )
 
 
 def reconcile_manifest(
-    path: Path, expected_sha256: str, *, trusted_source_public_key_sha256: str
+    path: Path,
+    expected_sha256: str,
+    *,
+    trusted_source_public_key_sha256: str,
+    trusted_auditor_public_key_sha256: str | None = None,
 ) -> ReconciliationReceipt:
     """Request and source trust pin must be supplied independently."""
     raw = _read_private(path, expected_sha256)
@@ -226,6 +299,7 @@ def reconcile_manifest(
         request,
         request_sha256=sha256(raw).hexdigest(),
         trusted_source_public_key_sha256=trusted_source_public_key_sha256,
+        trusted_auditor_public_key_sha256=trusted_auditor_public_key_sha256,
     )
 
 
@@ -237,11 +311,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--manifest-sha256", required=True)
     parser.add_argument("--trusted-source-public-key-sha256", required=True)
+    parser.add_argument("--trusted-auditor-public-key-sha256")
     args = parser.parse_args(argv)
     receipt = reconcile_manifest(
         args.manifest,
         args.manifest_sha256,
         trusted_source_public_key_sha256=args.trusted_source_public_key_sha256,
+        trusted_auditor_public_key_sha256=args.trusted_auditor_public_key_sha256,
     )
     print(receipt.model_dump_json(by_alias=True))
     return 0
