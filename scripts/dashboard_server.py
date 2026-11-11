@@ -312,8 +312,13 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         self.send_header("X-Frame-Options", "DENY")
         self.send_header(
             "Content-Security-Policy",
-            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
-            "img-src 'self' data:; font-src 'self' data:; connect-src 'self'; "
+            # Cloudflare JSD adds a request-specific inline bootstrap (dynamic Ray ID).
+            # It cannot be SHA-allowlisted. Only this public NO_TRADE app needs it;
+            # prohibit inline handler attributes and keep all remote script URLs
+            # restricted to this origin. No authenticated API write path exists.
+            "default-src 'self'; script-src 'self' 'unsafe-inline'; script-src-attr 'none'; "
+            "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+            "font-src 'self' data:; connect-src 'self'; "
             "frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
         )
         if not getattr(self, "_cache_set", False):
