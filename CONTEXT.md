@@ -29,6 +29,13 @@ Canonical domain meanings. This glossary does not specify implementation or stor
 - **Recovery reduction-only reconciliation**: An independently verified decrease of existing follower risk toward a restored complete source target, without admitting new exposure from a rebaseline.
 - **Target-change signal**: A source-authoritative proof of an actual economic difference between successive eligible complete checkpoints in continuous scope, distinct from the checkpoint outcome and consumer execution attempt.
 - **Single new-risk opportunity**: At most one independently guarded opening attempt per admissible target-change and per financial consumer, not an instruction to retry unchanged targets.
+- **Copy mandate**: A frozen, signed relationship binding a selected leader source and scope to an explicitly identified follower pod/account, sizing and risk policy, and activation/exit behavior; not a second signal authority.
+- **Activation baseline**: An authenticated complete initial source state when a copy relationship becomes effective, not an invitation to copy pre-existing leader exposure.
+- **Full-target follow-on increase**: A new risk-eligible source increase that may target the leader's full currently verified exposure after a prior missed follower opening, distinct from a retry of the prior signal.
+- **Pre-dispatch re-evaluation**: Rechecking a still-valid financial opportunity against fresh evidence while no broker order could yet have been sent; not an execution retry.
+- **Mandate pause**: A prohibition on new follower exposure under one copy relationship while pre-existing financial exposure, risk and uncertain orders remain independently owned.
+- **Netted follower order**: One broker order representing the net eligible change across individually risk-accounted follower pods, without erasing per-pod ownership or attribution.
+- **Verified empty scope**: An explicit authenticated native position response for one declared selected market/DEX scope showing no positions; not an inference from omitted data.
 
 ## Historical screening and execution proxies
 
