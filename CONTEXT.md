@@ -21,6 +21,9 @@ Canonical domain meanings. This glossary does not specify implementation or stor
 - **Sampled position-state change**: A verified difference between admitted complete position snapshots at consecutive eligible checkpoints; intrawindow changes that revert before sampling do not produce a sampled change.
 - **Canonical target-state signal**: A durable, provenance-bound desired leader exposure at a valid checkpoint, shared by independent financial consumers; it is neither a broker order nor trading authorization.
 - **Checkpoint unavailability**: A scheduled source sample that cannot establish a complete, fresh, authentic state for its declared scope; it is not a flat position or a signal.
+- **Checkpoint observation time**: The moment the source state was actually known and verified, separately recorded from the scheduled checkpoint boundary and the provider's earlier underlying state instant.
+- **Target-state reconciliation**: A financial consumer's comparison of one verified desired leader exposure with that consumer's independently reconciled holdings and unresolved effects; target identity is not a buy/sell order.
+- **Grid-timed source exit**: A verified leader reduction or close that enters the source target at an admitted periodic checkpoint, distinct from immediate independent follower-risk protection.
 
 ## Historical screening and execution proxies
 
