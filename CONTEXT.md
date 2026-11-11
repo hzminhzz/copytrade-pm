@@ -67,3 +67,8 @@ Canonical domain meanings. This glossary does not specify implementation or stor
 - **Predecessor chain proof**: Signed linkage between a stream occurrence and its verified prior stream identity, distinct from a signed current-head digest without demonstrable linkage.
 - **Consumer effect identity**: Stable, provenance-bound identity of one source occurrence's result for a particular destination portfolio, run, pod and frozen policy, retained across retries and restarts.
 - **Missed due opportunity**: A valid previously scheduled entry whose original deadline passed without a verified attempted execution; source replay does not reset its first-known time.
+- **Source-mark admissibility window**: The bounded interval during which authenticated leader valuation evidence remains suitable for a particular later decision; validity of the original position transition alone does not extend that interval.
+- **Account-scoped financial HALT**: A protected follower account's latched restriction on new risk caused by financial incoherence, distinct from a source-stream continuity gap or a system-wide observer outage.
+- **Signed stream-head anchor**: A trusted statement of a particular source stream's selected scope, epoch, cursor, original chain head and cutoff from which future continuity can be independently checked; it does not prove all earlier history.
+- **Scoped packet quarantine**: Preservation of one invalid attributable stream without contaminating independently valid streams in an authentic shared envelope; unresolved packet completion remains explicit.
+- **Expired new-risk opportunity**: An original time-limited entry that is no longer eligible after its agreed deadline and grace; later replay does not create a new first-known signal.
