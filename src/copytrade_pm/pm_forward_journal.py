@@ -824,7 +824,7 @@ class PaperJournal:
         return self.restore(run_id)
 
     @staticmethod
-    def _verify(db: sqlite3.Connection, run_id: str) -> dict:
+    def _verify(db: sqlite3.Connection, run_id: str, *, on_event=None) -> dict:
         row = db.execute(
             "SELECT manifest,manifest_sha,snapshot,snapshot_sha,last_event_at,cursor FROM runs WHERE run_id=?",
             (run_id,),
@@ -911,6 +911,8 @@ class PaperJournal:
                 [run_id, seq, event_id, input_sha, before, after]
             ):
                 raise ValueError("PAPER_JOURNAL_DIVERGENCE")
+            if on_event is not None:
+                on_event(event, account.snapshot(), last_result, chain_sha)
             prior_sha = after
             prior_at = at
         funding_claims = db.execute(
