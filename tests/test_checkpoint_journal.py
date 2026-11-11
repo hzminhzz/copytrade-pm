@@ -16,7 +16,15 @@ from copytrade_pm.pm_forward_journal import PaperJournal
 from test_checkpoint_source import ADDRESS, BOUNDARY, limits, scope
 
 
-def sample(journal, boundary, quantity="2", fail=False, provider_ms=None):
+def sample(
+    journal,
+    boundary,
+    quantity="2",
+    fail=False,
+    provider_ms=None,
+    source_scope=None,
+    address=ADDRESS,
+):
     def native(request):
         if request["type"] == "perpDexs":
             body = [None, {"name": "xyz"}]
@@ -41,8 +49,8 @@ def sample(journal, boundary, quantity="2", fail=False, provider_ms=None):
         return body, raw, sha256(raw).hexdigest()
 
     return collect_checkpoint(
-        scope(),
-        ADDRESS,
+        source_scope or scope(),
+        address,
         checkpoint_ms=boundary,
         limits=limits(),
         evidence_root=journal.root,

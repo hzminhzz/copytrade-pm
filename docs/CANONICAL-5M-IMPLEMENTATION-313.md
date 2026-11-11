@@ -116,6 +116,32 @@ independent HALT between boundaries. Ruff and format passed. These are synthetic
 engineering tests; no new prospective campaign or economic qualification is
 claimed. Current native timing-policy and real mandate approvals remain blocked.
 
+## #320 — shared-source sixteen-portfolio paper
+
+The existing `PaperCampaign` now accepts caller-scheduled checkpoint waves and
+exposes per-account coverage, dispositions, quantities, costs, P&L and journal
+heads. No second source timer exists. The selected-campaign entrypoint checks
+the existing SQLite-backed campaign definition, complete member coverage,
+source account hashes, frozen k, approved run/mandate ownership and pod risk
+ceilings before consumption. Missing approvals are UNRESOLVED, never implicit
+activation.
+
+A reproducible synthetic sixteen-account wave shares exactly one CWSA history
+and signal ID, uses independent k/finance, isolates one HALT, and survives replay.
+A two-source account test proves unavailable B preserves its inventory while
+healthy A can act only after full existing risk checks; coverage stays incomplete.
+Selected-campaign missing-approval negatives are explicit. Focused paper/source/
+existing observed-paper regression: **40 passed**; Ruff/format passed.
+
+The actual campaign was re-read without mutation: 16 scenarios, 14 deduplicated
+parents, and the unchanged manifest SHA
+`7c0b2a021a449c06f818cacf2f757a4d40b89e77669316107dc08ca659237e6f`.
+P1/P14/P16 are historical SQLite-approved profiles; the other 13 remain unsigned
+prospective paper scenarios. Existing exclusions and k-conflict flags remain.
+No real signed checkpoint mandates or qualified native timing policy have been
+established; these block prospective acceptance, not the synthetic engineering
+implementation. No current T0+300 result is relabeled.
+
 ## Dependency graph
 
 | Ticket | Prerequisites |

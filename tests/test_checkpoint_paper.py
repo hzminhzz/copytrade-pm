@@ -46,7 +46,7 @@ def policy():
     }
 
 
-def setup_paper(tmp_path, *, run="p1", account="fixture-account", journal=None):
+def setup_paper(tmp_path, *, run="p1", account="fixture-account", journal=None, k="0.025"):
     journal = journal or PaperJournal(tmp_path / "paper")
     source_policy = register(journal)
     p = policy()
@@ -57,6 +57,7 @@ def setup_paper(tmp_path, *, run="p1", account="fixture-account", journal=None):
     m = mandate().model_copy(
         update={
             "account_id": account,
+            "k": D(k),
             "source_account_sha": scope().account_sha,
             "policy_epoch": source_policy.epoch,
             "risk_policy_sha": digest(p),
