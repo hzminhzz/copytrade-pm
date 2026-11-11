@@ -191,3 +191,84 @@ def test_insufficient_rotation_window_rejected_before_any_journal_append(tmp_pat
             assert db.execute("SELECT COUNT(*) FROM observer_stream_events").fetchone() == (0,)
 
     asyncio.run(run())
+
+
+def test_fixed_seven_stable_official_parents_leave_others_permanent_gap(tmp_path, monkeypatch):
+    async def run():
+        journal, accounts = _accounts(tmp_path)
+        stop = asyncio.Event()
+        now = _clock()
+        stable = ("W00", "W01", "W02", "W03", "W04", "W05", "W06")
+        calls = []
+
+        async def session(**kwargs):
+            subs = kwargs["subscriptions"]
+            calls.append(tuple(s["user"] for s in subs))
+            assert len(subs) == 7
+            for sub in subs:
+                await kwargs["on_ack"](sub, now())
+                frame = deepcopy(sample_state())
+                frame["user"] = sub["user"]
+                for _, dex in frame["clearinghouseStates"]:
+                    dex["time"] = int((datetime.now(UTC) - timedelta(minutes=3)).timestamp() * 1000)
+                incoming = {"channel": "allDexsClearinghouseState", "data": frame}
+                raw = json.dumps(incoming, sort_keys=True)
+                await kwargs["handle"](incoming, now(), sha256(raw.encode()).hexdigest(), raw)
+            stop.set()
+
+        monkeypatch.setattr("copytrade_pm.pm_forward_continuous_transport.native_session", session)
+        async with SerialWriter() as writer:
+            result = await run_native_accounts(
+                accounts,
+                writer=writer,
+                stop=stop,
+                connect=None,
+                now=now,
+                limiter=ConnectionBudget(),
+                user_budget=7,
+                stable_aliases=stable,
+            )
+        assert result["status"] == "DEGRADED_PARTIAL_OFFICIAL_SOURCE"
+        assert result["stable_cohort"] is True
+        assert result["selected_parent_count"] == 14
+        assert result["subscribed_parent_count"] == 7
+        assert len(calls) == 1
+        assert verify_streams(journal.path)["integrity"] == "VERIFIED"
+        with closing(sqlite3.connect(journal.path)) as db:
+            for alias in accounts:
+                kinds = [
+                    row[0]
+                    for row in db.execute(
+                        "SELECT json_extract(payload,'$.kind') "
+                        "FROM observer_stream_events WHERE stream_id=? ORDER BY seq",
+                        ("account:" + alias,),
+                    )
+                ]
+                assert kinds[0] == "GAP"
+                assert ("BASELINE" in kinds) == (alias in stable)
+                assert kinds[-1] == "GAP"
+                assert accounts[alias].checkpoint["baseline_valid"] is False
+
+    asyncio.run(run())
+
+
+def test_unknown_stable_alias_fails_before_journal_mutation(tmp_path):
+    async def run():
+        journal, accounts = _accounts(tmp_path)
+        async with SerialWriter() as writer:
+            for invalid in (("W00", "UNKNOWN"), ("W00", "W00"), ("W00",) * 8):
+                with pytest.raises(ValueError, match="STABLE_COHORT_INVALID"):
+                    await run_native_accounts(
+                        accounts,
+                        writer=writer,
+                        stop=asyncio.Event(),
+                        connect=None,
+                        now=_clock(),
+                        limiter=ConnectionBudget(),
+                        user_budget=7,
+                        stable_aliases=invalid,
+                    )
+        with closing(sqlite3.connect(journal.path)) as db:
+            assert db.execute("SELECT COUNT(*) FROM observer_stream_events").fetchone() == (0,)
+
+    asyncio.run(run())

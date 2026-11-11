@@ -799,6 +799,7 @@ async def run_native_accounts(
     queue_size=256,
     user_budget: int | None = None,
     rotation_seconds: float = 420,
+    stable_aliases: tuple[str, ...] | None = None,
 ):
     """Capture original full books without exceeding one socket's user budget.
 
@@ -810,7 +811,23 @@ async def run_native_accounts(
     from .pm_forward_continuous_transport import native_session, wait_or_stop
     from .pm_source_contracts import SourceObservationRejected
 
-    cohorts = _native_account_cohorts(accounts, user_budget=user_budget)
+    if stable_aliases is not None:
+        # On a shared-IP endpoint, reusing a closed WS does not necessarily
+        # free its distinct-user allowance. A fixed admitted cohort avoids
+        # cycling into a provider rejection while retaining GAP for every
+        # other original selected parent. This is DEGRADED source coverage.
+        if (
+            not isinstance(stable_aliases, tuple)
+            or not stable_aliases
+            or len(set(stable_aliases)) != len(stable_aliases)
+            or not set(stable_aliases).issubset(accounts)
+            or type(user_budget) is not int
+            or not 1 <= len(stable_aliases) <= user_budget <= 10
+        ):
+            raise ValueError("SOURCE_NATIVE_STABLE_COHORT_INVALID")
+        cohorts = ({alias: accounts[alias] for alias in sorted(stable_aliases)},)
+    else:
+        cohorts = _native_account_cohorts(accounts, user_budget=user_budget)
     rotating = len(cohorts) > 1
     if rotating and (
         isinstance(rotation_seconds, bool)
@@ -825,14 +842,17 @@ async def run_native_accounts(
         await writer.submit(lambda a=account: a.begin(now()))
 
     cycle = 0
-    status = "STOPPED_READ_ONLY"
+    status = (
+        "DEGRADED_PARTIAL_OFFICIAL_SOURCE"
+        if stable_aliases is not None and len(stable_aliases) != len(accounts)
+        else "STOPPED_READ_ONLY"
+    )
     while not stop.is_set():
         active = cohorts[cycle % len(cohorts)]
         if cycle:
+            resume_reason = "NATIVE_BUDGET_ROTATION_REJOIN" if rotating else "NATIVE_RECONNECT"
             for account in active.values():
-                await writer.submit(
-                    lambda a=account: a.begin(now(), reason="NATIVE_BUDGET_ROTATION_REJOIN")
-                )
+                await writer.submit(lambda a=account: a.begin(now(), reason=resume_reason))
         by_address = {account.address.lower(): account for account in active.values()}
 
         async def acknowledge(sub, known):
@@ -925,6 +945,9 @@ async def run_native_accounts(
         "status": status,
         "rotation_enabled": rotating,
         "cohort_count": len(cohorts),
+        "stable_cohort": stable_aliases is not None,
+        "selected_parent_count": len(accounts),
+        "subscribed_parent_count": len(cohorts[0]) if stable_aliases is not None else None,
         "user_budget": user_budget,
         "broker_route": "NONE",
         "trading_authorized": False,

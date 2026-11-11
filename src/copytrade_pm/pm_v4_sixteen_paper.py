@@ -196,6 +196,10 @@ def main() -> int:
                 study_seal=(campaign.seals[pid] if pid not in PAPER_PROFILES else None),
                 study_accounts=campaign.account_hashes[pid],
                 started_at=started,
+                # A restarted live SHADOW paper must fence existing source
+                # history, not reprice stale downtime transitions as T+300.
+                # Historical/replay callers retain AS_OF_RUN_START by default.
+                source_startup_policy="NO_DOWNTIME_REPLAY",
             )
         if len(runs) != 16 or len({p.run.ledger.path for p in runs.values()}) != 16:
             raise ValueError("V4_SIXTEEN_NON_ISOLATED_FINANCIAL_LEDGERS")

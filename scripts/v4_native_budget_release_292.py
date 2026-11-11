@@ -270,9 +270,261 @@ def rollback(expected_sha: str) -> dict:
     }
 
 
+PAPER_OVERRIDE = "96-v4-paper-cursor-292.conf"
+PAPER_MARKER = "# V4_PAPER_CURSOR_292_PINNED_RELEASE "
+SOURCE_PARENT_SHA = "2598b25f55b7d542e351ed6fbcd4b5c233657a30"
+
+
+def _running_cmdline(pid: int) -> bytes:
+    return Path(f"/proc/{pid}/cmdline").read_bytes()
+
+
+def _paper_quiescence(*, check_source: bool) -> dict:
+    states = {unit: _status(unit) for unit in (PAPER, PYDNATIVE)}
+    if any(
+        row["ActiveState"] not in ("inactive", "failed") or row["MainPID"] != "0"
+        for row in states.values()
+    ):
+        raise ValueError("V4_PAPER_CURSOR_REQUIRES_STOPPED_PAPER_READERS")
+    if check_source:
+        source = _status(SOURCE)
+        old = UNIT_ROOT / (SOURCE + ".d") / NEW_OVERRIDE
+        if (
+            source["ActiveState"] != "active"
+            or int(source["MainPID"]) <= 0
+            or not old.is_file()
+            or old.is_symlink()
+            or not old.read_text().startswith(MARKER + SOURCE_PARENT_SHA + "\n")
+        ):
+            raise ValueError("V4_PAPER_CURSOR_PINNED_SOURCE_NOT_RUNNING")
+        pid = int(source["MainPID"])
+        cmdline = _running_cmdline(pid)
+        expected = str(_release(SOURCE_PARENT_SHA) / ".venv/bin/python").encode()
+        if expected not in cmdline or b"copytrade_pm.pm_v4_selected_positions" not in cmdline:
+            raise ValueError("V4_PAPER_CURSOR_SOURCE_PROCESS_PIN_MISMATCH")
+        upstream = _status("copytrade-v4-selected-positions-0811.service")
+        if upstream["ActiveState"] != "active" or int(upstream["MainPID"]) <= 0:
+            raise ValueError("V4_PAPER_CURSOR_0811_SOURCE_UNAVAILABLE")
+    return states
+
+
+def _paper_plans(expected_sha: str) -> dict:
+    release = _release(expected_sha)
+    _verify_release(release, expected_sha)
+    planned = {}
+    for unit in (PAPER, PYDNATIVE):
+        old = UNIT_ROOT / (unit + ".d") / NEW_OVERRIDE
+        if not old.is_file() or old.is_symlink():
+            raise ValueError("V4_PAPER_CURSOR_REQUIRES_PREVIOUS_95_OVERRIDE")
+        source_raw = old.read_text()
+        if not source_raw.startswith(MARKER + SOURCE_PARENT_SHA + "\n"):
+            raise ValueError("V4_PAPER_CURSOR_PREVIOUS_95_SHA_MISMATCH")
+        starts = [
+            row.removeprefix("ExecStart=")
+            for row in source_raw.splitlines()
+            if row.startswith("ExecStart=") and row != "ExecStart="
+        ]
+        if len(starts) != 1 or starts[0].count(PAPER_MODULE) != 1:
+            raise ValueError("V4_PAPER_CURSOR_OLD_READER_COMMAND_INVALID")
+        new_command = (
+            str(release / ".venv/bin/python")
+            + " "
+            + PAPER_MODULE
+            + starts[0].split(PAPER_MODULE, 1)[1]
+        )
+        if "broker" in new_command.lower() or "--compact-evidence" in new_command:
+            raise ValueError("V4_PAPER_CURSOR_BROKER_OR_COMPACT_DISABLED")
+        dest = UNIT_ROOT / (unit + ".d") / PAPER_OVERRIDE
+        if dest.exists() or dest.is_symlink():
+            raise FileExistsError("V4_PAPER_CURSOR_OVERRIDE_EXISTS")
+        body = (
+            PAPER_MARKER + expected_sha + "\n"
+            "[Service]\nExecStart=\nExecStart="
+            + new_command
+            + "\nWorkingDirectory="
+            + str(release)
+            + "\n"
+        ).encode()
+        planned[unit] = {"destination": dest, "content": body, "sha256": _sha(body)}
+    return planned
+
+
+def paper_apply(expected_sha: str) -> dict:
+    """Install paper readers from the new pinned SHA, leave live source alone."""
+    old_states = _paper_quiescence(check_source=True)
+    planned = _paper_plans(expected_sha)
+    written = []
+    try:
+        for unit in (PAPER, PYDNATIVE):
+            row = planned[unit]
+            _publish_exclusive(row["destination"], row["content"])
+            written.append(row["destination"])
+        _run(["systemctl", "--user", "daemon-reload"], capture_output=True)
+    except BaseException:
+        for dest in reversed(written):
+            dest.unlink(missing_ok=True)
+        _run(["systemctl", "--user", "daemon-reload"], capture_output=True)
+        raise
+    return {
+        "phase": "PAPER_PINNED_NO_START",
+        "new_paper_release_sha": expected_sha,
+        "source_release_sha": SOURCE_PARENT_SHA,
+        "source_kept_running": True,
+        "paper_units": list(planned),
+        "prior_states": old_states,
+        "paper_override_sha256": {unit: planned[unit]["sha256"] for unit in planned},
+        "broker_route": "NONE",
+        "trading_authorized": False,
+    }
+
+
+def paper_rollback(expected_sha: str) -> dict:
+    """Remove only owned paper overrides while the paper readers are stopped."""
+    _paper_quiescence(check_source=False)
+    removed = []
+    for unit in (PAPER, PYDNATIVE):
+        dest = UNIT_ROOT / (unit + ".d") / PAPER_OVERRIDE
+        if not dest.exists():
+            continue
+        raw = dest.read_bytes()
+        if not raw.startswith((PAPER_MARKER + expected_sha + "\n").encode()):
+            raise ValueError("V4_PAPER_CURSOR_UNOWNED_OVERRIDE")
+        removed.append(dest)
+    for dest in removed:
+        dest.unlink()
+    _run(["systemctl", "--user", "daemon-reload"], capture_output=True)
+    return {
+        "phase": "PAPER_PIN_ROLLED_BACK",
+        "removed": len(removed),
+        "source_unchanged": True,
+        "journals_unchanged": True,
+    }
+
+
+STABLE_SOURCE_OVERRIDE = "96-v4-stable-source-292.conf"
+STABLE_SOURCE_MARKER = "# V4_STABLE_SOURCE_292_PINNED_RELEASE "
+STABLE_SOURCE_ALIASES = ("S035", "S051", "S053", "S064", "Whale_0x5f94", "ACT04", "ACT08")
+
+
+def _stable_source_plan(expected_sha: str) -> dict:
+    release = _release(expected_sha)
+    _verify_release(release, expected_sha)
+    prior = UNIT_ROOT / (SOURCE + ".d") / NEW_OVERRIDE
+    if prior.is_symlink() or not prior.is_file():
+        raise ValueError("V4_STABLE_SOURCE_PRIOR_95_MISSING")
+    original = prior.read_text()
+    if not original.startswith(MARKER + SOURCE_PARENT_SHA + "\n"):
+        raise ValueError("V4_STABLE_SOURCE_PRIOR_95_SHA_MISMATCH")
+    starts = [
+        line.removeprefix("ExecStart=")
+        for line in original.splitlines()
+        if line.startswith("ExecStart=") and line != "ExecStart="
+    ]
+    if len(starts) != 1 or starts[0].count(SOURCE_MODULE) != 1:
+        raise ValueError("V4_STABLE_SOURCE_PREVIOUS_UNIT_INVALID")
+    suffix = starts[0].split(SOURCE_MODULE, 1)[1]
+    if "--native-stable-aliases" in suffix or "--compact-evidence" in suffix:
+        raise ValueError("V4_STABLE_SOURCE_PREVIOUS_MODE_INVALID")
+    new_command = (
+        str(release / ".venv/bin/python")
+        + " "
+        + SOURCE_MODULE
+        + suffix
+        + " --native-stable-aliases "
+        + ",".join(STABLE_SOURCE_ALIASES)
+    )
+    if "broker" in new_command.lower() or "--compact-evidence" in new_command:
+        raise ValueError("V4_STABLE_SOURCE_FORBIDDEN_ORDER_ROUTE")
+    dest = UNIT_ROOT / (SOURCE + ".d") / STABLE_SOURCE_OVERRIDE
+    if dest.exists() or dest.is_symlink():
+        raise FileExistsError("V4_STABLE_SOURCE_OVERRIDE_EXISTS")
+    content = (
+        STABLE_SOURCE_MARKER + expected_sha + "\n"
+        "[Service]\nExecStart=\nExecStart="
+        + new_command
+        + "\nWorkingDirectory="
+        + str(release)
+        + "\n"
+    ).encode()
+    return {"destination": dest, "content": content, "sha256": _sha(content)}
+
+
+def stable_apply(expected_sha: str) -> dict:
+    """Pin original 0911 source+paper to a seven-user fixed SHADOW cohort."""
+    states = _quiescence()
+    source_plan = _stable_source_plan(expected_sha)
+    planned = {SOURCE: source_plan, **_paper_plans(expected_sha)}
+    written = []
+    try:
+        for unit in UNITS:
+            row = planned[unit]
+            _publish_exclusive(row["destination"], row["content"])
+            written.append(row["destination"])
+        _run(["systemctl", "--user", "daemon-reload"], capture_output=True)
+    except BaseException:
+        for dest in reversed(written):
+            dest.unlink(missing_ok=True)
+        _run(["systemctl", "--user", "daemon-reload"], capture_output=True)
+        raise
+    return {
+        "phase": "STABLE_SEVEN_SOURCE_AND_PAPER_PINNED_NO_START",
+        "source_and_paper_release_sha": expected_sha,
+        "original_14_parent_campaign_preserved": True,
+        "official_active_user_budget": len(STABLE_SOURCE_ALIASES),
+        "permanently_unsubscribed_parents": 7,
+        "source_mode": "DEGRADED_PARTIAL_OFFICIAL_SOURCE",
+        "prior_states": states,
+        "overrides_sha256": {k: v["sha256"] for k, v in planned.items()},
+        "no_services_started": True,
+        "trading_authorized": False,
+        "broker_route": "NONE",
+    }
+
+
+def stable_rollback(expected_sha: str) -> dict:
+    _quiescence(require_0811=False)
+    targets = [
+        (SOURCE, STABLE_SOURCE_OVERRIDE, STABLE_SOURCE_MARKER),
+        (PAPER, PAPER_OVERRIDE, PAPER_MARKER),
+        (PYDNATIVE, PAPER_OVERRIDE, PAPER_MARKER),
+    ]
+    owned = []
+    for unit, name, marker in targets:
+        path = UNIT_ROOT / (unit + ".d") / name
+        if not path.exists():
+            continue
+        if path.is_symlink() or not path.read_bytes().startswith(
+            (marker + expected_sha + "\n").encode()
+        ):
+            raise ValueError("V4_STABLE_SOURCE_UNOWNED_OVERRIDE")
+        owned.append(path)
+    for path in owned:
+        path.unlink()
+    _run(["systemctl", "--user", "daemon-reload"], capture_output=True)
+    return {
+        "phase": "STABLE_SHADOW_OVERRIDES_ROLLED_BACK",
+        "removed": len(owned),
+        "previous_95_and_90_preserved": True,
+        "original_source_and_finance_journals_unchanged": True,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--phase", choices=("audit", "stage", "apply", "rollback"), required=True)
+    parser.add_argument(
+        "--phase",
+        choices=(
+            "audit",
+            "stage",
+            "apply",
+            "rollback",
+            "paper-apply",
+            "paper-rollback",
+            "stable-apply",
+            "stable-rollback",
+        ),
+        required=True,
+    )
     parser.add_argument("--expected-sha", required=True)
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args()
@@ -292,6 +544,14 @@ def main() -> int:
             result = stage(args.expected_sha)
         elif args.phase == "apply":
             result = apply(args.expected_sha)
+        elif args.phase == "paper-apply":
+            result = paper_apply(args.expected_sha)
+        elif args.phase == "paper-rollback":
+            result = paper_rollback(args.expected_sha)
+        elif args.phase == "stable-apply":
+            result = stable_apply(args.expected_sha)
+        elif args.phase == "stable-rollback":
+            result = stable_rollback(args.expected_sha)
         else:
             result = rollback(args.expected_sha)
     print(json.dumps(result, sort_keys=True, default=str))

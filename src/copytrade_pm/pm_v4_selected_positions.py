@@ -123,6 +123,7 @@ async def observe(
     stop: asyncio.Event | None = None,
     native_user_budget: int = 7,
     native_rotation_seconds: float = 420,
+    native_stable_aliases: tuple[str, ...] | None = None,
 ) -> dict:
     stop = stop or asyncio.Event()
     async with SerialWriter(max_pending=256) as writer:
@@ -137,6 +138,7 @@ async def observe(
                 limiter=ConnectionBudget(per_minute=6),
                 user_budget=native_user_budget,
                 rotation_seconds=native_rotation_seconds,
+                stable_aliases=native_stable_aliases,
             )
         )
         timer = None
@@ -189,6 +191,7 @@ def main() -> int:
     parser.add_argument("--duration-seconds", type=float, default=0)
     parser.add_argument("--native-user-budget", type=int, default=7)
     parser.add_argument("--native-rotation-seconds", type=float, default=420)
+    parser.add_argument("--native-stable-aliases", default="")
     parser.add_argument(
         "--compact-evidence",
         action="store_true",
@@ -203,6 +206,9 @@ def main() -> int:
         parser.error("--native-user-budget must be 1..7 (reserve 3 shared-IP users)")
     if not 330 <= args.native_rotation_seconds <= 3600:
         parser.error("--native-rotation-seconds must be 330..3600")
+    stable = tuple(part.strip() for part in args.native_stable_aliases.split(",") if part.strip())
+    if stable and (len(stable) > args.native_user_budget or len(stable) != len(set(stable))):
+        parser.error("--native-stable-aliases must be a unique subset within the WS budget")
     os.umask(0o077)
     now = datetime.now(UTC).isoformat(timespec="microseconds")
     ids = tuple(args.portfolios.split(","))
@@ -244,6 +250,7 @@ def main() -> int:
             duration_seconds=args.duration_seconds,
             native_user_budget=args.native_user_budget,
             native_rotation_seconds=args.native_rotation_seconds,
+            native_stable_aliases=stable or None,
         )
 
     result = asyncio.run(session())

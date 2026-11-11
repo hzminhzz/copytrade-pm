@@ -18,6 +18,37 @@ Native source flags: --native-user-budget 7 --native-rotation-seconds 420. The a
 4. Rerun 32 financial ledgers, verify original heads and unresolved positions. Start the 0911 V4 paper reader from the same compatible SHA only if the source and ledger gates pass. Start the separate Pydantic paper reader only if independent account and source-gap controls pass. Never infer flat or clear unresolved exposures to force a startup.
 5. Roll back by first stopping the two 0911 paper consumers and then the source, preserving heads and paper ledgers; remove only the additive 95 override and reload systemd. Existing 90 overrides and previous release remain preserved. Do not restore older SQLite data or truncate active WAL.
 
+## Provider refusal after rotating two seven-user cohorts — degraded recovery
+
+The first real 0911 SHA-pinned release (`2598b25f55b7d542e351ed6fbcd4b5c233657a30`) produced **14/14 cumulative** genuine baselines over two serial seven-user official WS cohorts. On the third cycle, Hyperliquid accepted three renewed baselines but rejected the remaining four with `STREAM_NATIVE_SUBSCRIPTION_REJECTED`. The source exited `STOPPED_NATIVE_SUBSCRIPTION_BLOCKED` with no restart and the WAL returned to 0 bytes. **Serial disconnection did not sustainably evade the IP-wide quota.** The provider's exact release or TTL window is unknown; do not substitute an inferred timer or a retry storm.
+
+The degraded recovery keeps all 14 parents in the original source campaign and original SQLite/GAP journals but maintains a fixed seven-parent official WS cohort:
+
+`S035, S051, S053, S064, Whale_0x5f94, ACT04, ACT08`
+
+The five P1/P14/P16 original parents take priority, with two additional research sources ACT04 and ACT08. Seven other selected parents remain in durable `GAP`, with no new-risk admission. The mode is `DEGRADED_PARTIAL_OFFICIAL_SOURCE`, **not 14/14 continuous coverage**. One persistent socket subscribes this fixed cohort with no intentional rotation. Every reconnect requires a new non-actionable baseline. Another provider rejection stops the source without restarting.
+
+To deploy, stage the updated, tested commit. Then run `scripts/v4_native_budget_release_292.py --phase stable-apply --expected-sha NEW_COMMIT_SHA --apply`. The source and both paper units must be stopped, while 0811 is active. Three additive exact-SHA overrides are created: one `96-v4-stable-source-292.conf` and two `96-v4-paper-cursor-292.conf`; old 90/95 source and paper overrides and all original source/PM03 financial journal bytes are preserved. Start source alone; accept 7/7 new official baselines and seven GAPs. Replay 32/32 financial ledgers and inspect original heads/WAL before starting V4 paper. Start Pydnative paper only after V4 admission and health. Roll back with `--phase stable-rollback --expected-sha NEW_COMMIT_SHA --apply` only when all 0911 units are stopped, preserving all prior 90/95 pins.
+
+Only source-covered portfolio pods can become candidates for paper decisions. Source-uncovered pods remain blocked under the existing complete-book, source gap, market quote, T+300, frozen k, risk budget and unresolved-exposure controls. A healthy subset is not a full 16-portfolio source-continuity claim, and no broker/scientific/trading permission is created.
+
+## Bounded paper-reader startup follow-up (2026-11-11)
+
+The source release at Git SHA `2598b25f55b7d542e351ed6fbcd4b5c233657a30` passed 14/14 cumulative official baseline acceptance (7 current, 7 explicitly GAP). The initial 0911 V4 paper restart was conservatively stopped **before 16-ledger admission** because the paper reader's prestart cutoff used an unindexed `julianday(json_extract(payload, '$.first_known_at'))` predicate over the original 12.65 GB SQLite and its 400k+ source rows. It held a read connection for minutes, accumulated source WAL, and approached the paper unit's 1 GiB cgroup memory limit. No broker or real trade was involved.
+
+The corrected **live-service-only** reader mode (`source_startup_policy=NO_DOWNTIME_REPLAY`) uses the original `(source_id, seq)` indexed head with `ORDER BY seq DESC LIMIT 1`. It explicitly fences every original receipt already persisted at this paper process start: skipped downtime transitions are **not** replayed as fresh paper risk, while future source receipts still pass original `first_known_at`, source proof, T+300 and PM03/PM04 guards. Historical and backtest users retain the prior `AS_OF_RUN_START` semantics by default; they can legitimately construct a reader after an original source event with a declared earlier run start. The service explicitly opts into the conservative mode, so no historical contract is silently changed. A durable ledger cursor ahead of the original source head fails closed. This does not change original source bytes, PM03 financial heads, manifest `started_at` or historical signed proofs.
+
+To deploy this reader without restarting the healthy 0911 source, stage the **new** committed exact SHA and use the source-preserving paper-only action of `scripts/v4_native_budget_release_292.py`:
+
+```sh
+uv run --frozen --group dev python scripts/v4_native_budget_release_292.py \\
+  --phase stage --expected-sha NEW_COMMIT_SHA --apply
+uv run --frozen --group dev python scripts/v4_native_budget_release_292.py \\
+  --phase paper-apply --expected-sha NEW_COMMIT_SHA --apply
+```
+
+This writes only two additive `96-v4-paper-cursor-292.conf` 0600 overrides for the stopped 0911 V4 and Pydnative paper readers. The live source stays pinned to `2598b25`, both paper readers get the new tested SHA, original source `95` and three original `90` overrides remain unchanged, and systemd daemon-reloads without starting a service. Review source/paper compatibility and 32-ledger financial replay before any start. Roll back while both paper units are stopped with `--phase paper-rollback --expected-sha NEW_COMMIT_SHA --apply`: remove only the two `96` overrides, preserve all source and financial evidence. **No live source restart, WAL checkpoint, journal pruning or trading authorization.**
+
 ## Acceptance interpretation
 
 Tests verify fixture cohort rotation, original signed/stream journal BASELINE/GAP and bounded read/finance contracts. Real deployment requires two cohorts' provider-accepted source books, preserved 0811 health and independent financial replay. Historical full-chain certification, continuous 14-account simultaneity, market-cost economics, scientific qualification and trading authorization remain separate and are NOT implied by these checks.
