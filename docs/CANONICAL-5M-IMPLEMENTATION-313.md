@@ -47,6 +47,29 @@ regressions, including actual SIGKILL before and after SQLite commit. Full gates
 will be rerun at integration. This is source evidence only; no financial writer
 or scheduler has been added.
 
+## #316 — signed source delivery
+
+The existing source exporter, spool, root-mediated file handoff and protected
+source receiver have a separately pinned v3 checkpoint path. It binds the full
+scope and policy, exact source transition chain, complete quantity vector,
+original native bytes/hashes and native request preimages. The receiver replays
+native scope/vector/clocks independently, preserves CWSA IDs, and adds no T+300
+timer. A subsequent source fence revokes an unconsumed opening candidate.
+
+Synthetic tests cover two independent consumer cursors, tampering, wrong signer,
+scope/policy/cursor faults, original-byte omissions, immutable handoff, restart,
+and SIGKILL before/after the source-only commit. Focused PM delivery/source and
+legacy suite: **44 passed**. Protected delivery/handoff suite: **23 passed**;
+strict mypy passed. Legacy wire versions stay supported; active installed wire
+remains v1. These results do not authorize a protected deployment or order.
+
+## #317 — native capacity evidence
+
+[Bounded capture report](CANONICAL-5M-CAPACITY-317.md) records three actual
+14-parent / 11-DEX runs, exact revision and immutable hashes. Every run returned
+all native scopes. Timing policy, long-run tails and shared-IP headroom remain
+UNKNOWN; the experiment creates no numerical production defaults.
+
 ## Dependency graph
 
 | Ticket | Prerequisites |

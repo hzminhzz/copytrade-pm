@@ -383,6 +383,24 @@ def verify_candidate(candidate: CheckpointSample, evidence_root: Path) -> bool:
             return False
         if candidate.catalog.request_sha != digest({"type": "perpDexs"}):
             return False
+        from hashlib import sha256
+
+        for receipt in receipts:
+            if receipt.request is None:
+                return False
+            request = receipt.request.model_dump(exclude_none=True)
+            if digest(request) != receipt.request_sha:
+                return False
+            if receipt.dex == "catalog":
+                if request != {"type": "perpDexs"}:
+                    return False
+            elif (
+                request.get("type") != "clearinghouseState"
+                or sha256(request.get("user", "").encode()).hexdigest()
+                != candidate.scope.account_sha
+                or request.get("dex", "default") != receipt.dex
+            ):
+                return False
         path = evidence_root / "paper-events.sqlite3"
         catalog = json.loads(read_wire(path, candidate.catalog.raw_sha))
         if tuple(sorted(_dex_universe(catalog))) != candidate.scope.dexes:

@@ -114,6 +114,53 @@ def _recover_bootstrap(outbox: Path, selected: dict[str, str], public: Ed25519Pu
     return heads
 
 
+def capture_checkpoint_once(
+    *,
+    journal,
+    scope,
+    policy,
+    root: Path,
+    signing_key: Path,
+    public_key: Path,
+    after_cursor: int,
+    issued_ms: int,
+) -> dict:
+    """Publish one immutable CWSA packet; the existing journal owns its source cursor."""
+    from .v4_source_export import export_checkpoint_packet
+
+    _private_directory(root)
+    outbox = root / "outbox"
+    outbox.mkdir(mode=0o700, exist_ok=True)
+    _private_directory(outbox)
+    signer = Ed25519PrivateKey.from_private_bytes(_private_input(signing_key))
+    public = _private_input(public_key)
+    if signer.public_key().public_bytes_raw() != public:
+        raise ValueError("CWSA_SOURCE_PIN_MISMATCH")
+    lock = os.open(root / "producer.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        packet = export_checkpoint_packet(
+            journal, scope, policy, signer=signer, after_cursor=after_cursor, issued_ms=issued_ms
+        )
+        raw = canonical(packet)
+        packet_sha = sha256(raw).hexdigest()
+        path = outbox / f"{issued_ms * 1_000_000:020d}-{packet_sha[:16]}.json"
+        if path.exists():
+            if _private_input(path) != raw:
+                raise ValueError("CWSA_PACKET_COLLISION")
+        else:
+            _atomic_private_output(path, raw)
+        return {
+            "schema": "cwsa_source_spool_v3",
+            "packet_sha": packet_sha,
+            "source_id": scope.source_id,
+            "cursor": packet["payload"]["transitions"][-1]["sequence"],
+            "trading_authorized": False,
+        }
+    finally:
+        os.close(lock)
+
+
 def capture_once(
     *,
     registry_db: Path,

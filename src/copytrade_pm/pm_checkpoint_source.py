@@ -51,6 +51,12 @@ class SamplingLimits(Contract):
     publication_grace_ms: Annotated[int, Field(gt=0, lt=GRID_MS)]
 
 
+class NativeRequest(Contract):
+    type: Literal["perpDexs", "clearinghouseState"]
+    user: str | None = None
+    dex: str | None = None
+
+
 class NativeReceipt(Contract):
     dex: str
     raw_sha: Sha
@@ -59,6 +65,7 @@ class NativeReceipt(Contract):
     received_ms: Milliseconds
     state_ms: Milliseconds | None
     position_count: Annotated[int, Field(ge=0)] | None
+    request: NativeRequest | None = None
 
 
 class CheckpointSample(Contract):
@@ -130,6 +137,8 @@ def collect_checkpoint(
     """Collect once. Callers own scheduling; failures never imply a flat book."""
     if type(checkpoint_ms) is not int or checkpoint_ms < 0 or checkpoint_ms % GRID_MS:
         raise ValueError("CHECKPOINT_UTC_BOUNDARY_REQUIRED")
+    if re.fullmatch(r"0x[0-9a-fA-F]{40}", address) is None:
+        raise ValueError("CHECKPOINT_ACCOUNT_FORMAT")
     if sha256(address.lower().encode()).hexdigest() != scope.account_sha:
         raise ValueError("CHECKPOINT_ACCOUNT_MISMATCH")
     evidence_root = Path(evidence_root)
@@ -157,6 +166,7 @@ def collect_checkpoint(
             received_ms=received,
             state_ms=None,
             position_count=None,
+            request=NativeRequest(**request),
         )
         originals[dex] = receipt
         if claimed != actual:
