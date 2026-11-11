@@ -1,11 +1,15 @@
 """Source NAV is not needed for parent-only, all-DEX perpetual position scope."""
 
 from contextlib import closing
+from decimal import Decimal
 import json
 import sqlite3
 
 from copytrade_pm.pm03_account import digest
-from copytrade_pm.pm_fixed_k_source_scope import assess_selected_parent_perp_scope
+from copytrade_pm.pm_fixed_k_source_scope import (
+    assess_selected_parent_perp_scope,
+    compare_native_fixed_k_economics,
+)
 from test_pm_forward_readiness import _setup
 
 
@@ -21,6 +25,47 @@ def _change(book, **changes):
     body = {key: value for key, value in book.items() if key != "snapshot_sha"}
     body.update(changes)
     return {**body, "snapshot_sha": digest(body)}
+
+
+def test_matched_price_semantics_report_refuses_alpha_claim(tmp_path):
+    book = _book(tmp_path)
+    market = "hyperliquid/mainnet:perp:default/BTC"
+    book = _change(
+        book,
+        positions={market: "20"},
+        source_marks={market: "120"},
+        source_mark_evidence={
+            market: {
+                "mark": "120",
+                "event_at": book["source_event_at"],
+                "first_known_at": book["first_known_at"],
+                "native_frame_sha": book["provider_raw_sha"],
+                "basis": "OFFICIAL_POSITION_VALUE_DIV_ABS_NATIVE_QUANTITY",
+            }
+        },
+    )
+    report = compare_native_fixed_k_economics(
+        book,
+        decision_at=book["first_known_at"],
+        source_mark_max_age_seconds=120,
+        follower_quotes={market: "100"},
+        native_steps={market: "0.001"},
+        k="0.0282",
+        equity_usd="10000",
+        gross_cap_usd="20000",
+        market_cap_usd="5000",
+        pod_loss_budget_usd="200",
+        taker_fee_bps="3.5",
+        extra_slippage_bps="2.5",
+    )
+    market_result = report["per_market"][market]
+    assert Decimal(market_result["legacy_follower_qty"]) == Decimal("0.564")
+    assert Decimal(market_result["corrected_follower_qty"]) == Decimal("0.676")
+    assert Decimal(market_result["follower_qty_delta"]) == Decimal("0.112")
+    assert report["execution_cost_class"] == "STATIC_COST_SCENARIO_ONLY"
+    assert report["follower_net_pnl_evidence"].startswith("UNKNOWN")
+    assert report["scientific_qualification"] is False
+    assert report["trading_authorized"] is False
 
 
 def test_official_parent_perp_scope_observed_without_any_nav(tmp_path):

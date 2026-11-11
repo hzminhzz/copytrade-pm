@@ -26,6 +26,95 @@ POLICY_VERSION = "single_shot_market_paper_v3"
 ESTIMATED_POLICY_VERSION = "single_shot_vike_minute_estimated_v4"
 
 
+def _verify_future_native_mark_effect(
+    account: Account,
+    event: Event,
+    intent: dict,
+    raw: dict,
+) -> None:
+    """Recompute future fixed-k target using native leader and follower evidence.
+
+    Historical same-midpoint runs are replayed under their own original
+    version; only the future semantic version carries this strict contract.
+    """
+    from decimal import ROUND_DOWN
+
+    policy = account.pm04_state.get("policy", {})
+    proof = raw.get("native_source_price_proof")
+    if (
+        event.payload.get("evidence_class") != "OFFICIAL_NATIVE_SOURCE_MARK_MODELED_FOLLOWER_ONLY"
+        or policy.get("source_price_policy") != "future_fixed_k_independent_native_mark_v1"
+        or not isinstance(proof, dict)
+        or proof.get("policy") != policy["source_price_policy"]
+        or proof.get("decision_cutoff") != event.decision_at
+        or proof.get("source_seq") != intent["source_seq"]
+        or proof.get("source_sha") != intent["source_sha"]
+        or not isinstance(proof.get("book_sha"), str)
+        or len(proof["book_sha"]) != 64
+        or not isinstance(raw.get("decision_source_chain_sha"), str)
+        or len(raw["decision_source_chain_sha"]) != 64
+        or raw.get("decision_source_first_known_at") != intent["first_known_at"]
+        or raw.get("decision_cutoff") != event.decision_at
+        or raw.get("source_mark_policy") != policy["source_price_policy"]
+    ):
+        raise ValueError("PAPER_NATIVE_PRICE_EFFECT_PROOF_INVALID")
+    expected_id = digest(
+        [
+            event.payload["run_id"],
+            intent["pod"],
+            intent["intent_id"],
+            intent["source_sha"],
+            intent.get("frozen_k"),
+            intent.get("release_sha256"),
+            digest(policy),
+        ]
+    )
+    if expected_id != raw.get("effect_identity"):
+        raise ValueError("PAPER_NATIVE_PRICE_EFFECT_IDENTITY_CONFLICT")
+    marks = proof.get("marks")
+    evidence = proof.get("mark_evidence")
+    if (
+        not isinstance(marks, dict)
+        or not isinstance(evidence, dict)
+        or set(marks) != set(intent["positions"])
+        or set(evidence) != set(marks)
+        or intent.get("frozen_k") is None
+    ):
+        raise ValueError("PAPER_NATIVE_PRICE_SOURCE_MARK_SCOPE_INVALID")
+    for key, original_qty in intent["positions"].items():
+        record = evidence.get(key)
+        if (
+            not isinstance(record, dict)
+            or record.get("mark") != marks[key]
+            or record.get("basis") != "OFFICIAL_POSITION_VALUE_DIV_ABS_NATIVE_QUANTITY"
+            or not isinstance(record.get("native_frame_sha"), str)
+            or len(record["native_frame_sha"]) != 64
+            or record.get("first_known_at") != intent["first_known_at"]
+        ):
+            raise ValueError("PAPER_NATIVE_PRICE_MARK_PROVENANCE_INVALID")
+        known = clock(record["first_known_at"])
+        observed = clock(record["event_at"])
+        cutoff = clock(event.decision_at)
+        if (
+            not observed <= known <= cutoff
+            or (cutoff - observed).total_seconds() > policy["source_mark_age_seconds"]
+        ):
+            raise ValueError("PAPER_NATIVE_PRICE_MARK_STALE")
+        market = raw["markets"][key]
+        native_step = number(market["amount_step"])
+        follower_quote = number(raw["quotes"][key]["mid_quote"])
+        if native_step <= ZERO or follower_quote <= ZERO:
+            raise ValueError("PAPER_NATIVE_PRICE_MARKET_INVALID")
+        expected = number(original_qty) * number(marks[key]) * number(intent["frozen_k"])
+        expected /= follower_quote
+        clipped = (abs(expected) / native_step).to_integral_value(rounding=ROUND_DOWN)
+        clipped *= native_step * (1 if expected >= ZERO else -1)
+        if clipped and abs(clipped) * follower_quote < number(market["minimum_notional"]):
+            clipped = ZERO
+        if number(raw["targets"][key]) != clipped:
+            raise ValueError("PAPER_NATIVE_PRICE_TARGET_MISMATCH")
+
+
 def _price_order(
     delta: D,
     quote: Mapping,
@@ -621,6 +710,12 @@ def apply_paper_event(account: Account, event: Event, policy: RiskPolicy, mode: 
     elif "frozen_k" in raw or "release_sha256" in raw:
         raise ValueError("PAPER_LEGACY_ATTEMPT_CANNOT_ADOPT_NEW_K")
     pod = intent["pod"]
+    if event.payload.get("evidence_class") == (
+        "OFFICIAL_NATIVE_SOURCE_MARK_MODELED_FOLLOWER_ONLY"
+    ) or account.pm04_state.get("policy", {}).get("source_price_policy") == (
+        "future_fixed_k_independent_native_mark_v1"
+    ):
+        _verify_future_native_mark_effect(account, event, intent, raw)
     targets = {Instrument.parse(key): number(qty) for key, qty in raw["targets"].items()}
     if set(targets) != {Instrument.parse(k) for k in intent["positions"]}:
         raise ValueError("PAPER_TARGET_SOURCE_SCOPE_MISMATCH")

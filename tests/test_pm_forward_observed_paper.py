@@ -68,6 +68,7 @@ def add_source(
     account_id: str | None = None,
     observation_kind: str = "OBSERVED_STATE_CHANGE",
     position_transition_eligible: bool = True,
+    leader_marks: dict[str, str] | None = None,
 ) -> None:
     book = {
         "schema": "paper_source_book_v1",
@@ -83,6 +84,18 @@ def add_source(
         "provider_raw_sha": digest(["source-frame", seq]),
         "source_equity": None,
     }
+    if leader_marks is not None:
+        book["source_marks"] = leader_marks
+        book["source_mark_evidence"] = {
+            key: {
+                "mark": mark,
+                "event_at": book["source_event_at"],
+                "first_known_at": book["first_known_at"],
+                "native_frame_sha": book["provider_raw_sha"],
+                "basis": "OFFICIAL_POSITION_VALUE_DIV_ABS_NATIVE_QUANTITY",
+            }
+            for key, mark in leader_marks.items()
+        }
     book["snapshot_sha"] = digest(book)
     receipt = {
         "schema": "paper_first_known_source_v1",
@@ -99,6 +112,140 @@ def add_source(
         "stream_epoch": "fixture-official-position-epoch",
     }
     journal.append_source_receipt("S035", seq, f"s035-{seq}", receipt)
+
+
+def test_future_native_price_policy_rejects_unlinked_selfhashed_leader_mark(tmp_path):
+    source = PaperJournal(tmp_path / "source")
+    add_quote(source, 10)
+    add_source(source, 1, 12, {BTC.key: "20"}, leader_marks={BTC.key: "120"})
+    paper = ObservedP1Paper(
+        source_db=source.path,
+        state_root=tmp_path / "paper",
+        run_id="future_unlinked_native_mark",
+        catalog={RAW_MARKET["symbol"]: RAW_MARKET},
+        registry_db=registry(tmp_path / "registry.sqlite"),
+        started_at=at(0),
+        source_mark_age_seconds=600,  # explicit synthetic age; no live calibration
+    )
+    assert paper.step(at(14))["quantity_count"] == 0
+    add_quote(source, 313)
+    blocked = paper.step(at(314))
+    assert "PAPER_NATIVE_PRICE_SOURCE_PROOF_INVALID" in str(blocked["execution_results"])
+    assert blocked["quantity_count"] == 0
+    assert not any(row["event"]["kind"] == "PM04_PAPER_EXECUTE" for row in paper.run.ledger.read())
+
+
+def test_effect_fsync_then_lost_ack_restarts_without_duplicate_model_pnl(tmp_path, monkeypatch):
+    """The append committed; a lost local acknowledgment must not invent T0 again."""
+    import pytest
+
+    observed = PaperJournal(tmp_path / "source")
+    add_quote(observed, 10)
+    registry_db = registry(tmp_path / "registry.sqlite")
+    catalog = {RAW_MARKET["symbol"]: RAW_MARKET}
+    paper = ObservedP1Paper(
+        source_db=observed.path,
+        state_root=tmp_path / "paper",
+        run_id="crash_after_local_effect",
+        catalog=catalog,
+        registry_db=registry_db,
+        started_at=at(0),
+    )
+    paper.step(at(12))
+    add_source(observed, 1, 12, {BTC.key: "20"}, leader_marks={BTC.key: "120"})
+    paper.step(at(14))
+    assert paper.run.account.pm04_state["paper_execution"]["active"]["S035"]
+    add_quote(observed, 313)
+    original_append = paper.run.ledger.append
+
+    def committed_then_ack_lost(event, *, expected_head=None):
+        original_append(event, expected_head=expected_head)
+        if event.kind == "PM04_PAPER_EXECUTE":
+            raise RuntimeError("SYNTHETIC_CRASH_AFTER_DURABLE_COMMIT")
+        return paper.run.ledger.read()[-1]["sha"]
+
+    with monkeypatch.context() as scope:
+        scope.setattr(paper.run.ledger, "append", committed_then_ack_lost)
+        with pytest.raises(RuntimeError, match="DURABLE_COMMIT"):
+            paper.step(at(314))
+    rows_before = paper.run.ledger.read()
+    effects_before = [
+        item["event"] for item in rows_before if item["event"]["kind"] == "PM04_PAPER_EXECUTE"
+    ]
+    assert len(effects_before) == 1
+    assert effects_before[0]["payload"]["input"]["decision_source_chain_sha"]
+    assert effects_before[0]["payload"]["input"]["decision_source_first_known_at"] == at(13)
+    assert effects_before[0]["payload"]["input"]["decision_cutoff"] == at(314)
+    restarted = ObservedP1Paper(
+        source_db=observed.path,
+        state_root=tmp_path / "paper",
+        run_id="crash_after_local_effect",
+        catalog=catalog,
+        registry_db=registry_db,
+    )
+    modeled = restarted.run.account.snapshot()
+    assert restarted.run.account.pm04_state["paper_execution"]["history"]
+    restarted.step(at(314))
+    assert restarted.run.account.snapshot()["quantities"] == modeled["quantities"]
+    effects_after = [
+        item["event"]
+        for item in restarted.run.ledger.read()
+        if item["event"]["kind"] == "PM04_PAPER_EXECUTE"
+    ]
+    assert len(effects_after) == 1
+    assert effects_after[0]["event_id"] == effects_before[0]["event_id"]
+    assert restarted.last_seen["S035"] == 1
+
+
+def test_restart_after_original_grace_expires_without_catchup_opening(tmp_path):
+    observed = PaperJournal(tmp_path / "source")
+    add_quote(observed, 10)
+    reg = registry(tmp_path / "registry.sqlite")
+    catalog = {RAW_MARKET["symbol"]: RAW_MARKET}
+    paper = ObservedP1Paper(
+        source_db=observed.path,
+        state_root=tmp_path / "paper",
+        run_id="no_late_catchup",
+        catalog=catalog,
+        registry_db=reg,
+        started_at=at(0),
+    )
+    add_source(observed, 1, 12, {BTC.key: "20"})
+    recorded = paper.step(at(14))
+    due = recorded["execution_intents"]["S035"]["due_at"]
+    assert due == at(313)
+    restarted = ObservedP1Paper(
+        source_db=observed.path,
+        state_root=tmp_path / "paper",
+        run_id="no_late_catchup",
+        catalog=catalog,
+        registry_db=reg,
+    )
+    add_quote(observed, 400)
+    expired = restarted.step(at(401))
+    assert expired["quantity_count"] == 0
+    assert (
+        len(
+            [
+                row
+                for row in restarted.run.ledger.read()
+                if row["event"]["kind"] == "PM04_PAPER_EXPIRE"
+            ]
+        )
+        == 1
+    )
+    assert not any(
+        row["event"]["kind"] == "PM04_PAPER_EXECUTE" for row in restarted.run.ledger.read()
+    )
+    again = ObservedP1Paper(
+        source_db=observed.path,
+        state_root=tmp_path / "paper",
+        run_id="no_late_catchup",
+        catalog=catalog,
+        registry_db=reg,
+    )
+    again.step(at(402))
+    assert not any(row["event"]["kind"] == "PM04_PAPER_EXECUTE" for row in again.run.ledger.read())
 
 
 def test_observed_forward_paper_entry_wait_300_close_and_restart(tmp_path):

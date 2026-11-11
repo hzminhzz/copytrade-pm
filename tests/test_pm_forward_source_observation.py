@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 import pytest
 
@@ -60,6 +61,27 @@ def test_verified_per_dex_signed_position_preserved_but_no_wallet_admission(tmp_
     assert recorded["status"] == "CAPTURED_ONLY"
     assert journal.source_status("S035")["paper_admitted"] is False
     assert PaperJournal(journal.root).source_status("S035")["cursor"] == 1
+
+
+def test_official_native_position_values_supply_independent_timed_leader_marks():
+    frame = sample_state()
+    frame["clearinghouseStates"][0][1]["assetPositions"][0]["position"]["positionValue"] = "1200"
+    frame["clearinghouseStates"][1][1]["assetPositions"][0]["position"]["positionValue"] = "75"
+    receipt = observed(frame={"channel": "allDexsClearinghouseState", "data": frame})
+    book = receipt["source_book"]
+    btc = "hyperliquid/mainnet:perp:default/BTC"
+    hip = "hyperliquid/mainnet:perp:xyz/CL"
+    assert {key: Decimal(value) for key, value in book["source_marks"].items()} == {
+        btc: Decimal("12000"),
+        hip: Decimal("15"),
+    }
+    for market in (btc, hip):
+        mark = book["source_mark_evidence"][market]
+        assert mark["mark"] == book["source_marks"][market]
+        assert mark["event_at"] == at(0)
+        assert mark["first_known_at"] == at(2)
+        assert mark["native_frame_sha"] == book["provider_raw_sha"]
+    assert book["snapshot_sha"]
 
 
 def test_incomplete_catalog_wrong_address_unknown_clock_and_future_rejected():

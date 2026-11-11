@@ -44,6 +44,53 @@ def source_event(source, seconds, qty, *, with_mark=True):
     )
 
 
+def test_future_v2_anchor_and_predecessor_are_signed_without_rewriting_v1(tmp_path):
+    journal, source = observer(tmp_path)
+    signer = Ed25519PrivateKey.generate()
+    epoch = "a" * 32
+    cutoff = int(__import__("datetime").datetime.fromisoformat(at(3)).timestamp() * 1000)
+    baseline = export_signed_events(
+        journal.path,
+        selected={"S035": ADDRESSES["S035"]},
+        signer=signer,
+        wire_version=2,
+        wire_epoch=epoch,
+        cutoff_ms=cutoff,
+    )
+    assert baseline["schema"] == "v4_signed_source_export_v2"
+    assert baseline["events"]["S035"] == []
+    anchor = verify(baseline["anchor"], signer.public_key(), "source-observer-v4-anchor")
+    assert anchor["cutoff_ms"] == cutoff
+    prior = anchor["heads"]["S035"]["chain_sha"]
+    source_event(source, 10, 20)
+    latest = export_signed_events(
+        journal.path,
+        selected={"S035": ADDRESSES["S035"]},
+        signer=signer,
+        wire_version=2,
+        wire_epoch=epoch,
+        after={"S035": anchor["heads"]["S035"]["cursor"]},
+        anchor=baseline["anchor"],
+    )
+    assert len(latest["events"]["S035"]) == 1
+    proof = verify(latest["events"]["S035"][0]["proof"], signer.public_key(), "source-observer-v4")
+    assert proof["schema"] == "v4_official_event_proof_v2"
+    assert proof["previous_stream_chain_sha"] == prior
+    assert proof["anchor_sha"] == digest(anchor)
+    assert proof["wire_epoch"] == epoch
+    assert latest["anchor"] == baseline["anchor"]
+    with pytest.raises(ValueError, match="BEFORE_SIGNED_CUTOFF"):
+        export_signed_events(
+            journal.path,
+            selected={"S035": ADDRESSES["S035"]},
+            signer=signer,
+            wire_version=2,
+            wire_epoch=epoch,
+            after={"S035": 0},
+            anchor=baseline["anchor"],
+        )
+
+
 def test_export_preserves_t0_signed_source_mark_and_native_identity(tmp_path):
     journal, source = observer(tmp_path)
     key = Ed25519PrivateKey.generate()
