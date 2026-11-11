@@ -1,5 +1,7 @@
 # Research operator runbook — verified CLI sequence
 
+**Before executing any command:** read [AGENTS.md](../AGENTS.md), [canonical index](INDEX.md), and the runbook for the **actual pinned installed release**. For new wallet source implementation use the [Vike-first target ADR](decisions/2026-11-11-vike-first-wallet-source.md). For today's official-position T+300 source use the [binding position-first ADR](decisions/2026-11-08-position-first-t300.md). For canonical virtual-paper cutover use [the dedicated 2026-11-11 runbook](V4-CANONICAL-FRESH-PAPER-20261111.md), not an older P1/P14 or 0911 historical command. Verify service PIDs, Git SHAs, source GAP/coverage and finance journal heads independently. All `--apply` commands are action-specific and require the documented preflight; this document alone never authorizes deployment.
+
 ## Read-only observer research-proof isolation (2026-11-07)
 
 `candidate_preflight` validates SQLite physical integrity and inventory SHA, then requires **only the requested** portfolio seals and resolved as-of watchlist. A missing external signature for another research priority is reported by registry `doctor` but does not block this independent observer. Explicitly selecting an unsealed portfolio remains blocked. The diagnostic `signed_selection` result now means `REQUESTED_PORTFOLIO_SEALS_ONLY`, not global research qualification. No observer preflight authorizes paper finance or broker orders.

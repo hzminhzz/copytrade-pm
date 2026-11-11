@@ -1,5 +1,7 @@
 # Vike forward-paper migration — isolated v4 engineering candidate (2026-11-08)
 
+**Supersession note (2026-11-11):** This is a dated candidate and deployment receipt. The approved future wallet-ingestion **transport** policy is now [Vike-first](decisions/2026-11-11-vike-first-wallet-source.md). The **current executable source authority** remains the [official complete-book position-first contract](decisions/2026-11-08-position-first-t300.md) until a reconciled Vike-derived position source independently qualifies. Neither Vike fills nor Vike position events alone establish a complete account snapshot. Preserve this document's original observed canaries and limits as historical evidence.
+
 ## Approved position-first V4 architecture (supersedes fill-driven source admission)
 
 The [2026-11-08 binding architecture decision](decisions/2026-11-08-position-first-t300.md)

@@ -1,4 +1,26 @@
-# copytrade-pm handbook — start here
+# copytrade-pm documentation — start here
+
+## Navigate by responsibility (authoritative)
+
+| When working on... | Read first | Source of truth |
+| --- | --- | --- |
+| First agent session or new work | [AGENTS.md](../AGENTS.md) → [Architecture](ARCHITECTURE.md) | Live Git, OS and private evidence beat written status |
+| Wallet/portfolio identity and exclusions | [Registry-first workflow](WALLET-REGISTRY-AGENT-WORKFLOW.md) | Owner-private SQLite, sealed selections |
+| New wallet activity ingestion | [Vike-first target ADR](decisions/2026-11-11-vike-first-wallet-source.md) | Approved transport **target**, not live source authority |
+| Current complete-position source and T+300 | [Official position-first ADR](decisions/2026-11-08-position-first-t300.md) | Original official complete-book receipts until a qualified replacement is activated |
+| Current canonical virtual-paper research | [2026-11-11 campaign runbook](V4-CANONICAL-FRESH-PAPER-20261111.md) | Actual pinned service + immutable private journals, not this document's snapshot |
+| Sizing and account risk | [Fixed-k sizing](RISK-BUDGETED-K-SIZING-20261106.md), [PM-03](PM-03-shadow-account.md), [PM-04](PM-04-shadow-hardening.md) | PM03/04 simulated finance; Guardian owns protected finance |
+| Data acquisition and recovery | [Data acquisition](DATA-ACQUISITION.md), [Vike recovery](VIKE-DATA-RECOVERY-20261106.md) | Provider-tagged raw evidence, actual local receipt time |
+| Safe operator workflow and commands | [RUNBOOK](RUNBOOK.md), [Blocker recovery](BLOCKER-RECOVERY.md) | Verify version and dry-run before runbook mutation |
+| Economics, readiness, promotion | [Qualification](QUALIFICATION.md), [Governance](GOVERNANCE-GATES.md), [Merge vs activation](decisions/2026-11-10-merge-vs-runtime-promotion.md) | Independent actual follower outcomes and action-specific signed permissions |
+
+**Authority order:** current code, original evidence, signed registry records and verified installed state define *what is*. An approved ADR defines *what should be*. A newer ADR supersedes only the specific boundary it says it supersedes. Reports, incident snapshots, PR prose and OptMem do not promote proposed designs into live facts. The [Vike-first transport ADR](decisions/2026-11-11-vike-first-wallet-source.md) supersedes scaling direct Hyperliquid user WS as a preferred future transport; the [2026-11-08 ADR](decisions/2026-11-08-position-first-t300.md) still governs currently implemented complete-position signals and T+300.
+
+**Status vocabulary:** APPROVED TARGET → IMPLEMENTED → TESTED → DEPLOYED → SCIENTIFICALLY QUALIFIED → TRADING AUTHORIZED. Each step needs separate evidence. Missing source continuity is NO_TRADE, not a zero position. For current 14-account coverage, inspect the live stream and saved GAP epochs instead of reusing a dated 7/14 claim.
+
+## Current release and historical checkpoints (dated, not instructions)
+
+[2026-11-11 repository-wide documentation disposition and cold-start audit](DOCUMENTATION-AUDIT-20261111.md) records contradictions, historical preservation and remaining implementation boundaries.
 
 **Public observer readiness:** unrelated unsigned research selections do not block independently sealed selected-portfolio preflight. Registry research-selection integrity remains a separate blocked diagnostic; explicit unverified portfolio requests still fail closed. See [continuous observer](FORWARD-PAPER-CONTINUOUS-OBSERVER.md).
 

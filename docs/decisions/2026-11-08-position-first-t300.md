@@ -1,5 +1,7 @@
 # ADR: Official selected-position authority with exact first-known T+300
 
+**2026-11-11 clarification:** [Vike-first source transport](2026-11-11-vike-first-wallet-source.md) is the approved *future scalable transport preference*. This ADR remains the binding **currently implemented complete-position authority, first-known T+300 and exit contract** until independently verified migration/cutover. The earlier decision to avoid mandatory fill-derived completeness remains current for live paper; any future fill-derived alternative must prove full selected-account baseline, gap-free reconstruction, official parity and its own release gates.
+
 **Date:** 2026-11-08
 **Status:** APPROVED FOR ENGINEERING; **NOT** approved for deployment or funded/broker trading.
 **Parent:** [#197](https://github.com/hzminhzz/copytrade-pm/issues/197), implementation [#198–#203](https://github.com/hzminhzz/copytrade-pm/issues/200), PR [#206](https://github.com/hzminhzz/copytrade-pm/pull/206).
