@@ -42,6 +42,11 @@ Canonical domain meanings. This glossary does not specify implementation or stor
 - **Unknown broker obligation**: Possibly dispatched, not-yet-terminal financial effects that retain reservations and require independent broker reconciliation, not a failed or rejected opportunity.
 - **Scoped source fault**: A loss of verified complete state within one selected source scope, preventing that source's new risk but not independently valid sources unless shared dependencies/risk are affected.
 - **Capability-specific qualification**: Independent engineering, operational-source, prospective economic and protected trading evidence; no single mutable readiness flag grants every capability.
+- **Old-mandate residual exposure**: Existing follower financial positions or obligations still attributed to a superseded copy mandate; they remain risk-managed and cannot be silently reassigned or omitted from account exposure.
+- **Opportunity expiry**: Immutable latest admissible opening time for one checkpoint-derived new-risk opportunity, no later than the next checkpoint or its earlier signed freshness deadline.
+- **Cross-zero reversal**: A follower adjustment changing the sign of a position through flat; admission of the opening side requires distinct native execution and protected-risk proof, unlike a reduce-only close.
+- **One effective opening policy**: Exactly one signed mandate policy generation permitted to create new exposure for a specific destination account/pod at a time, despite simultaneous read-only comparisons.
+- **Forward-only cutover**: A signed future-effective change in authoritative financial policy that preserves historical journal and signer versions, outstanding broker effects, HALT and financial reservations through rollback.
 
 ## Historical screening and execution proxies
 
