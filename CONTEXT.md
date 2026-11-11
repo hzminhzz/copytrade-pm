@@ -60,3 +60,10 @@ Canonical domain meanings. This glossary does not specify implementation or stor
 - **Source packet**: Authenticated transport envelope of individually verifiable source events; not an atomic transaction across all downstream financial consumers.
 - **Packet completion**: Proof that every event in a transport envelope reached an accepted terminal processing state; a durable accepted prefix is incomplete delivery.
 - **Per-event source effect**: An accepted provenance-bound source occurrence whose owning consumer atomically persists its progress and corresponding local effect; other consumers may be at different stream positions.
+- **Admissible source mark**: A provenance-verified, instrument-matched leader valuation known by the relevant decision cutoff and fresh under the declared policy; not a follower quote or silent historical-price fallback.
+- **Broker terminality**: Independently evidenced completion of a broker order's economic obligations, requiring status, executed quantity and coherent cutoff history to agree; a status label alone cannot settle unresolved effects.
+- **Semantic journal verification**: Checking historical state transitions against the business rules valid for their original contract version, in addition to hash/sequence integrity, without rewriting past records.
+- **Recovery evidence verification**: Independent assessment of incident-specific proof under current financial/source authority, separate from authentication of the person requesting clearance.
+- **Predecessor chain proof**: Signed linkage between a stream occurrence and its verified prior stream identity, distinct from a signed current-head digest without demonstrable linkage.
+- **Consumer effect identity**: Stable, provenance-bound identity of one source occurrence's result for a particular destination portfolio, run, pod and frozen policy, retained across retries and restarts.
+- **Missed due opportunity**: A valid previously scheduled entry whose original deadline passed without a verified attempted execution; source replay does not reset its first-known time.
