@@ -215,6 +215,9 @@ class PaperJournal:
                 """
             )
             db.executescript(STREAM_SCHEMA)
+            from .pm_checkpoint_journal import SCHEMA as CWSA_SCHEMA
+
+            db.executescript(CWSA_SCHEMA)
         self._configure_wal = False
         os.chmod(self.path, 0o600)
 
@@ -270,6 +273,39 @@ class PaperJournal:
                 db.close()
             fcntl.flock(fd, fcntl.LOCK_UN)
             os.close(fd)
+
+    def register_checkpoint_source(self, scope, policy, *, first_checkpoint_ms: int, at_ms: int):
+        from .pm_checkpoint_journal import register
+
+        with self._writer() as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                result = register(db, scope, policy, first_checkpoint_ms, at_ms)
+                db.execute("COMMIT")
+            except BaseException:
+                db.execute("ROLLBACK")
+                raise
+        return result
+
+    def append_checkpoint_sample(self, policy_epoch: str, sample, published_ms: int):
+        from .pm_checkpoint_journal import record, verify_candidate
+
+        proof_valid = verify_candidate(sample, self.root)
+        with self._writer() as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                result = record(db, policy_epoch, sample, published_ms, proof_valid=proof_valid)
+                db.execute("COMMIT")
+            except BaseException:
+                db.execute("ROLLBACK")
+                raise
+        return result
+
+    def checkpoint_history(self, scope, policy_epoch: str):
+        from .pm_checkpoint_journal import history
+
+        with closing(sqlite3.connect(f"file:{self.path}?mode=ro", uri=True)) as db:
+            return history(db, scope, policy_epoch)
 
     def append_stream_event(self, event: dict) -> dict:
         """Persist a transport/gap/checkpoint event without a financial effect."""
