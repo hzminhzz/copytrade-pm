@@ -157,6 +157,46 @@ def test_legacy_v1_unindexed_proof_backfill_preserves_heads(tmp_path):
         )
 
 
+@pytest.mark.parametrize("rebaseline", [False, True])
+def test_old_pending_receipt_rejected_before_legacy_json_history_scan(tmp_path, rebaseline):
+    # A pre-disconnect T+300 pending intent cannot become executable after
+    # an original source GAP/reconnect, even on a legacy unindexed v1 journal.
+    # Prove no full-history json_each fallback is attempted on the invalid
+    # epoch. Valid current-epoch receipts still use the existing proof path.
+    source, journal = account(tmp_path)
+    source.observe(shifted(0, "0"), T.isoformat())
+    source.observe(shifted(1, "20"), (T + timedelta(seconds=1)).isoformat())
+    with closing(_readonly(journal.path)) as db:
+        old = _read_source(db, "test", 2)
+        assert old is not None
+        assert verify_official_position_transition(
+            db,
+            alias="test",
+            receipt_id=old["receipt_id"],
+            receipt_sha=old["sha"],
+            receipt=old["receipt"],
+        )
+    source.gap((T + timedelta(seconds=2)).isoformat(), "NETWORK_DISCONNECTED")
+    if rebaseline:
+        recovered = source.observe(shifted(3, "20"), (T + timedelta(seconds=4)).isoformat())
+        assert recovered["classification"] == "BASELINE"
+    with closing(sqlite3.connect(journal.path)) as db:
+        db.execute("DROP TABLE observer_source_locators")
+        db.execute("DROP TABLE observer_source_locator_coverage")
+        db.commit()
+    with closing(_readonly(journal.path)) as db:
+        queries = []
+        db.set_trace_callback(queries.append)
+        assert not verify_official_position_transition(
+            db,
+            alias="test",
+            receipt_id=old["receipt_id"],
+            receipt_sha=old["sha"],
+            receipt=old["receipt"],
+        )
+        assert not any("json_each" in query.lower() for query in queries)
+
+
 def test_volatile_clocks_reject_conflict_and_gap_forces_new_baseline(tmp_path):
     source, journal = account(tmp_path)
     source.observe(shifted(0, "20"), T.isoformat())

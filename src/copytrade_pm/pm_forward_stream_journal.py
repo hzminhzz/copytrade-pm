@@ -461,6 +461,45 @@ def verify_official_position_transition(
         return False
     sid = "account:" + alias
     try:
+        # A missing active baseline, disconnected source or changed epoch
+        # invalidates an old pending T+300 attempt regardless of its original
+        # historical receipt. Check indexed current head BEFORE attempting the
+        # potentially unbounded legacy v1 json_each locator fallback. This is
+        # a negative admission fence, not proof that a surviving receipt is
+        # authentic; all original proof checks below still run when eligible.
+        current_head = db.execute(
+            "SELECT cursor,checkpoint FROM observer_stream_heads WHERE stream_id=?",
+            (sid,),
+        ).fetchone()
+        if current_head is None:
+            return False
+        current_state = json.loads(current_head[1])
+        if (
+            current_state.get("baseline_valid") is not True
+            or current_state.get("transport") != "CONNECTED"
+            or (
+                require_current_positions
+                and current_state.get("positions")
+                != receipt.get("source_book", {}).get("positions")
+            )
+        ):
+            return False
+        epoch = db.execute(
+            "SELECT json_extract(payload, '$.epoch') FROM observer_stream_events "
+            "WHERE stream_id=? AND seq=?",
+            (sid, current_head[0]),
+        ).fetchone()
+        if epoch is None or epoch[0] != receipt["stream_epoch"]:
+            return False
+        # Native BASELINE after a GAP may reuse the same source epoch in a
+        # process. A more recently first-known completed source state fences
+        # all earlier pending intents even when the resulting positions match.
+        # Without this O(1) negative guard an old v1 receipt may force an
+        # unbounded json_each scan over 400k+ original stream rows at each
+        # V4 paper tick. Missing legacy clocks keep the existing proof path.
+        last_state = current_state.get("last_state_at")
+        if isinstance(last_state, str) and clock(last_state) > clock(receipt["first_known_at"]):
+            return False
         indexed = db.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='observer_source_locators'"
         ).fetchone()

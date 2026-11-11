@@ -9,6 +9,11 @@ The [7 November reconciliation record](RECONCILIATION-20261107.md) explains PR a
 
 **Track C risk-budgeted k research (#256):** [strict trial-aware proposals, immutable read-only research reports, nonactivating SHADOW release preflight and rollback](TRACK-C-K-RECALIBRATION-20261110.md). Proposal-level evidence is not verified follower alpha, signed release or activation.
 
+**0911 official source subscription recovery (#292):**
+[7-at-a-time, 14-parent official WS SHADOW rotation, explicit GAPs and reversible source/paper deployment](V4-0911-WS-SUBSCRIPTION-RECOVERY-292.md). This does not establish simultaneous 14-account source continuity or authorize trading.
+
+**2026-11-11 canonical 16-portfolio SHADOW campaign:** [Versioned $10k / 5% daily / 8% trailing paper rules, original-journal archive and reversible pinned paper-only release](V4-CANONICAL-FRESH-PAPER-20261111.md). Old paper data is not rewritten, and only 7 of 14 source parents are presently continuously observed.
+
 **V4-aligned fast wallet screening (#255):** [opt-in v2 Polars retrospective screen, frozen-k inputs, engineering evidence and explicit PM03 shortlist handoff](V4-FAST-POLARS-SCREENING-20261110.md). This is not a prospective first-known wallet qualification or trading signal.
 
 **Vike post-window research-k follow-up (2026-11-10):** [94-wallet July-training / August–November OOS v3 experiment, research-only rankings, SQLite exclusions, and immutable receipt](research/2026-11-10-vike-retrospective-k-oos.md). Retrospectively calculated k is not a historical signed release or trading qualification.
