@@ -218,6 +218,9 @@ class PaperJournal:
             from .pm_checkpoint_journal import SCHEMA as CWSA_SCHEMA
 
             db.executescript(CWSA_SCHEMA)
+            from .pm_copy_mandate_journal import SCHEMA as MANDATE_SCHEMA
+
+            db.executescript(MANDATE_SCHEMA)
         self._configure_wal = False
         os.chmod(self.path, 0o600)
 
@@ -273,6 +276,56 @@ class PaperJournal:
                 db.close()
             fcntl.flock(fd, fcntl.LOCK_UN)
             os.close(fd)
+
+    def _copy_mandate_update(self, operation, *args, **kwargs):
+        with self._writer() as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                result = operation(db, *args, **kwargs)
+                db.execute("COMMIT")
+            except BaseException:
+                db.execute("ROLLBACK")
+                raise
+        return result
+
+    def activate_copy_mandate(self, envelope, key, *, account_id: str, at_ms: int):
+        from .pm_copy_mandate import verify_mandate
+        from .pm_copy_mandate_journal import activate
+
+        mandate = verify_mandate(envelope, key, account_id=account_id)
+        return self._copy_mandate_update(
+            activate,
+            mandate,
+            at_ms=at_ms,
+            evidence_sha=envelope["sha256"],
+            approval=envelope,
+            authority_public=key.public_bytes_raw().hex(),
+        )
+
+    def control_copy_mandate(self, envelope, key, *, at_ms: int):
+        from .production_manifest import verify
+        from .pm_copy_mandate_journal import control
+
+        command = verify(envelope, key, "copy-mandate-control-v1")
+        return self._copy_mandate_update(
+            control,
+            command,
+            at_ms=at_ms,
+            approval=envelope,
+            authority_public=key.public_bytes_raw().hex(),
+        )
+
+    def baseline_copy_mandate(self, owner: str, outcome_id: str, *, at_ms: int):
+        from .pm_copy_mandate_journal import baseline
+
+        return self._copy_mandate_update(baseline, owner, outcome_id, at_ms=at_ms)
+
+    def copy_mandate_state(self, owner: str):
+        from .pm_copy_mandate_journal import history, state
+
+        with closing(sqlite3.connect(f"file:{self.path}?mode=ro", uri=True)) as db:
+            history(db, owner)
+            return state(db, owner)
 
     def register_checkpoint_source(self, scope, policy, *, first_checkpoint_ms: int, at_ms: int):
         from .pm_checkpoint_journal import register
