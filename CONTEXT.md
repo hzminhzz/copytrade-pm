@@ -24,6 +24,11 @@ Canonical domain meanings. This glossary does not specify implementation or stor
 - **Checkpoint observation time**: The moment the source state was actually known and verified, separately recorded from the scheduled checkpoint boundary and the provider's earlier underlying state instant.
 - **Target-state reconciliation**: A financial consumer's comparison of one verified desired leader exposure with that consumer's independently reconciled holdings and unresolved effects; target identity is not a buy/sell order.
 - **Grid-timed source exit**: A verified leader reduction or close that enters the source target at an admitted periodic checkpoint, distinct from immediate independent follower-risk protection.
+- **Canonical checkpoint outcome**: One durable, stable disposition for a source-account, scope, policy epoch and scheduled boundary; it exists for changed, unchanged, unavailable and baseline observations without implying a trade.
+- **Recovery baseline**: The first independently verified complete source book after a continuity gap; it reestablishes a reference but cannot itself authorize new source-driven exposure.
+- **Recovery reduction-only reconciliation**: An independently verified decrease of existing follower risk toward a restored complete source target, without admitting new exposure from a rebaseline.
+- **Target-change signal**: A source-authoritative proof of an actual economic difference between successive eligible complete checkpoints in continuous scope, distinct from the checkpoint outcome and consumer execution attempt.
+- **Single new-risk opportunity**: At most one independently guarded opening attempt per admissible target-change and per financial consumer, not an instruction to retry unchanged targets.
 
 ## Historical screening and execution proxies
 
