@@ -191,6 +191,100 @@ def archive_independent_census(
     }
 
 
+def verify_archived_official_census(address: str, *, directory: Path, manifest_sha256: str) -> dict:
+    """Rebuild full perp positions from hash-pinned *original* official bytes.
+
+    The caller must already know the source wallet and expected manifest SHA.
+    Never trust only normalized quantities in an archived derived report.
+    """
+    wallet = allowed_wallet(address)
+    if not re.fullmatch(r"[0-9a-f]{64}", manifest_sha256):
+        raise ValueError("OFFICIAL_RECON_MANIFEST_SHA_INVALID")
+    if directory.is_symlink() or not directory.is_dir():
+        raise ValueError("OFFICIAL_RECON_ARCHIVE_DIRECTORY_INVALID")
+    if stat.S_IMODE(directory.stat().st_mode) != 0o700:
+        raise ValueError("OFFICIAL_RECON_ARCHIVE_NOT_PRIVATE")
+    manifest_path = directory / "manifest.json"
+    if manifest_path.is_symlink() or manifest_path.stat().st_size > 1_000_000:
+        raise ValueError("OFFICIAL_RECON_MANIFEST_BOUNDS_INVALID")
+    data = manifest_path.read_bytes()
+    if sha256(data).hexdigest() != manifest_sha256:
+        raise ValueError("OFFICIAL_RECON_MANIFEST_HASH_MISMATCH")
+    body = json.loads(data)
+    if (
+        body.get("schema") != "copytrade_independent_official_rest_archive_v1"
+        or body.get("continuous_coverage_verified") is not False
+        or body.get("v4_paper_source_eligible") is not False
+    ):
+        raise ValueError("OFFICIAL_RECON_ARCHIVE_SCHEMA_INVALID")
+    report, files = body.get("census"), body.get("original_files")
+    if not isinstance(report, dict) or not isinstance(files, list):
+        raise ValueError("OFFICIAL_RECON_MANIFEST_FIELDS_INVALID")
+    if report.get("account_sha256") != sha256(wallet.encode()).hexdigest():
+        raise ValueError("OFFICIAL_RECON_ARCHIVE_ACCOUNT_MISMATCH")
+    if len(files) != report.get("dex_count", -1) + 1 or len(files) > MAX_DEXS + 1:
+        raise ValueError("OFFICIAL_RECON_ARCHIVE_FILE_COUNT_INVALID")
+    originals = {}
+    for entry in files:
+        name, expected = entry.get("name"), entry.get("sha256")
+        if (
+            not isinstance(name, str)
+            or not re.fullmatch(r"raw-[A-Za-z0-9_-]+\.json", name)
+            or not isinstance(expected, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", expected)
+            or name in originals
+        ):
+            raise ValueError("OFFICIAL_RECON_ARCHIVE_FILE_RECORD_INVALID")
+        path = directory / name
+        if path.is_symlink() or not path.is_file() or path.stat().st_size > 4_000_000:
+            raise ValueError("OFFICIAL_RECON_ARCHIVE_FILE_BOUNDS_INVALID")
+        raw = path.read_bytes()
+        if len(raw) != entry.get("size_bytes") or sha256(raw).hexdigest() != expected:
+            raise ValueError("OFFICIAL_RECON_ARCHIVE_FILE_HASH_MISMATCH")
+        originals[name] = (json.loads(raw), expected)
+    if "raw-catalog.json" not in originals:
+        raise ValueError("OFFICIAL_RECON_ARCHIVE_CATALOG_MISSING")
+    catalog, catalog_sha = originals.pop("raw-catalog.json")
+    if report["dex_catalog_sha256"] != catalog_sha:
+        raise ValueError("OFFICIAL_RECON_ARCHIVE_CATALOG_SHA_MISMATCH")
+    dexs = _dex_universe(catalog)
+    if set(originals) != {"raw-" + dex + ".json" for dex in dexs}:
+        raise ValueError("OFFICIAL_RECON_ARCHIVE_SCOPE_MISMATCH")
+    states = []
+    timestamps = {}
+    hashes = {}
+    for dex in sorted(dexs):
+        payload, digest = originals["raw-" + dex + ".json"]
+        if not isinstance(payload, dict) or type(payload.get("time")) is not int:
+            raise ValueError("OFFICIAL_RECON_ARCHIVE_NATIVE_TIME_INVALID")
+        states.append(["" if dex == "default" else dex, payload])
+        timestamps[dex] = payload["time"]
+        hashes[dex] = digest
+    rebuilt = _account_state(
+        {"user": wallet, "clearinghouseStates": states},
+        wallet,
+        expected_dexs=dexs,
+    )
+    if (
+        rebuilt["positions"] != report.get("positions")
+        or rebuilt["position_count"] != report.get("position_count")
+        or hashes != report.get("dex_state_shas")
+        or timestamps != report.get("dex_provider_times_ms")
+        or max(timestamps.values()) - min(timestamps.values())
+        != report.get("provider_time_skew_ms")
+        or rebuilt["dex_catalog_parity_verified"] is not True
+    ):
+        raise ValueError("OFFICIAL_RECON_ARCHIVE_REBUILD_MISMATCH")
+    return {
+        **report,
+        "original_bytes_independently_verified": True,
+        "manifest_sha256": manifest_sha256,
+        "continuous_observation_proven": False,
+        "new_risk_eligible": False,
+        "order_route": "NONE",
+    }
+
+
 def audit_selected_campaign(
     *,
     registry_db: Path,
