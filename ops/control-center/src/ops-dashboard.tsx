@@ -569,8 +569,6 @@ function OpsRecordRow({ record, onStatus: _onStatus }: { record: OpsRecord; onSt
   const completed = ["verified", "passed", "approved", "merged", "deployed"].includes(record.status);
   return (
     <article className="ops-record-row">
-
-[90 more lines in file. Use offset=592 to continue.]
       <div className={"record-status-icon " + statusClass(record.status)}>
         {completed ? <Check size={14} /> : <FileClock size={14} />}
       </div>

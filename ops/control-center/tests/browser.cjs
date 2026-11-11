@@ -78,6 +78,8 @@ async function main() {
         assert.equal(await page.locator('select[aria-label^="Update"]').count(), 0);
         await page.getByRole("button", { name: "Gates & blockers" }).click();
         assert.equal(await page.getByRole("button", { name: "Add gate" }).count(), 0);
+        await page.getByRole("button", { name: "Release & runtime" }).click();
+        assert.ok((await page.locator(".release-column").count()) >= 3);
         await page.getByRole("button", { name: "Overview" }).click();
         await page.getByLabel("Switch to light mode").click();
         assert.equal(await page.locator(".app-shell").getAttribute("data-theme"), "light");
@@ -93,7 +95,7 @@ async function main() {
       }
       assert.deepEqual(errors, [], `browser errors after interactions ${width}`);
       const source = await page.locator("body").innerText();
-      for (const marker of ["NaN", "[object Object]"]) assert.equal(source.includes(marker), false);
+      for (const marker of ["NaN", "[object Object]", "more lines in file", "offset="]) assert.equal(source.includes(marker), false);
       console.log(`PASS ${width}x${height} responsive, no JS errors, read-only UI`);
       await context.close();
     }
