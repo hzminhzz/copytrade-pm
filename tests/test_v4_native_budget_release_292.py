@@ -215,3 +215,63 @@ def test_stable_source_refuses_source_and_paper_active(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="REQUIRES_STOPPED"):
         deploy.stable_apply("c" * 40)
     assert not list(units.rglob(deploy.STABLE_SOURCE_OVERRIDE))
+
+
+def test_proof_fast_97_paper_only_pin_preserves_running_stable_source(tmp_path, monkeypatch):
+    units, base_release, states, calls = _fixtures(tmp_path, monkeypatch)
+    deploy.apply(SHA)
+    monkeypatch.setattr(deploy, "SOURCE_PARENT_SHA", SHA)
+    source_sha = "c" * 40
+    deploy._release(source_sha).mkdir(mode=0o700)
+    deploy.stable_apply(source_sha)
+    monkeypatch.setattr(deploy, "STABLE_SOURCE_SHA", source_sha)
+    states[deploy.SOURCE] = {"ActiveState": "active", "MainPID": "6001"}
+    monkeypatch.setattr(
+        deploy,
+        "_running_cmdline",
+        lambda pid: (
+            str(deploy._release(source_sha) / ".venv/bin/python")
+            + "\0-m\0copytrade_pm.pm_v4_selected_positions"
+            + "\0--native-stable-aliases\0S035,S051"
+        ).encode(),
+    )
+    next_sha = "d" * 40
+    deploy._release(next_sha).mkdir(mode=0o700)
+    result = deploy.proof_fast_apply(next_sha)
+    assert result["phase"] == "PROOF_FAST_PAPER_PINNED_NO_START"
+    assert result["source_unchanged"] is True
+    assert result["no_services_started"] is True
+    assert result["trading_authorized"] is False
+    assert result["source_release_sha"] == source_sha
+    assert not (units / (deploy.SOURCE + ".d") / deploy.PROOF_FAST_OVERRIDE).exists()
+    assert (units / (deploy.SOURCE + ".d") / deploy.STABLE_SOURCE_OVERRIDE).is_file()
+    for unit in (deploy.PAPER, deploy.PYDNATIVE):
+        folder = units / (unit + ".d")
+        assert (
+            (folder / deploy.PROOF_FAST_OVERRIDE)
+            .read_text()
+            .startswith(deploy.PROOF_FAST_MARKER + next_sha)
+        )
+        assert (folder / deploy.PAPER_OVERRIDE).is_file()
+        assert (folder / deploy.NEW_OVERRIDE).is_file()
+        assert (folder / deploy.OLD_OVERRIDE).is_file()
+    with pytest.raises(FileExistsError, match="PROOF_FAST_OVERRIDE_EXISTS"):
+        deploy.proof_fast_apply(next_sha)
+    rolled = deploy.proof_fast_rollback(next_sha)
+    assert rolled["removed"] == 2
+    assert rolled["source_preserved"] is True
+    for unit in (deploy.PAPER, deploy.PYDNATIVE):
+        assert not (units / (unit + ".d") / deploy.PROOF_FAST_OVERRIDE).exists()
+
+
+def test_proof_fast_refuses_stopped_or_changed_source_pin(tmp_path, monkeypatch):
+    units, release, states, calls = _fixtures(tmp_path, monkeypatch)
+    deploy.apply(SHA)
+    monkeypatch.setattr(deploy, "SOURCE_PARENT_SHA", SHA)
+    current = "c" * 40
+    deploy._release(current).mkdir(mode=0o700)
+    deploy.stable_apply(current)
+    monkeypatch.setattr(deploy, "STABLE_SOURCE_SHA", current)
+    with pytest.raises(ValueError, match="STABLE_SOURCE_NOT_RUNNING"):
+        deploy.proof_fast_apply("d" * 40)
+    assert not list(units.rglob(deploy.PROOF_FAST_OVERRIDE))

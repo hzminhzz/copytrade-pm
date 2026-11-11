@@ -509,6 +509,129 @@ def stable_rollback(expected_sha: str) -> dict:
     }
 
 
+PROOF_FAST_OVERRIDE = "97-v4-paper-proof-fast-292.conf"
+PROOF_FAST_MARKER = "# V4_PAPER_PROOF_FAST_292_PINNED_RELEASE "
+STABLE_SOURCE_SHA = "0c696a61f7ada0a3857f69a0bfa4e9bc20d07d21"
+
+
+def _stable_source_running() -> None:
+    original = UNIT_ROOT / (SOURCE + ".d") / STABLE_SOURCE_OVERRIDE
+    if (
+        original.is_symlink()
+        or not original.is_file()
+        or not original.read_text().startswith(STABLE_SOURCE_MARKER + STABLE_SOURCE_SHA + "\n")
+    ):
+        raise ValueError("V4_PROOF_FAST_STABLE_SOURCE_OVERRIDE_MISSING")
+    state = _status(SOURCE)
+    if state["ActiveState"] != "active" or int(state["MainPID"]) <= 0:
+        raise ValueError("V4_PROOF_FAST_STABLE_SOURCE_NOT_RUNNING")
+    command = _running_cmdline(int(state["MainPID"]))
+    if (
+        str(_release(STABLE_SOURCE_SHA) / ".venv/bin/python").encode() not in command
+        or b"copytrade_pm.pm_v4_selected_positions" not in command
+        or b"--native-stable-aliases" not in command
+    ):
+        raise ValueError("V4_PROOF_FAST_STABLE_SOURCE_PIN_MISMATCH")
+    upstream = _status("copytrade-v4-selected-positions-0811.service")
+    if upstream["ActiveState"] != "active" or int(upstream["MainPID"]) <= 0:
+        raise ValueError("V4_PROOF_FAST_0811_NOT_RUNNING")
+
+
+def _proof_fast_plans(expected_sha: str) -> dict:
+    release = _release(expected_sha)
+    _verify_release(release, expected_sha)
+    plans = {}
+    for unit in (PAPER, PYDNATIVE):
+        previous = UNIT_ROOT / (unit + ".d") / PAPER_OVERRIDE
+        if previous.is_symlink() or not previous.is_file():
+            raise ValueError("V4_PROOF_FAST_PREVIOUS_96_REQUIRED")
+        source_content = previous.read_text()
+        if not source_content.startswith(PAPER_MARKER + STABLE_SOURCE_SHA + "\n"):
+            raise ValueError("V4_PROOF_FAST_PREVIOUS_96_PIN_MISMATCH")
+        starts = [
+            row.removeprefix("ExecStart=")
+            for row in source_content.splitlines()
+            if row.startswith("ExecStart=") and row != "ExecStart="
+        ]
+        if len(starts) != 1 or starts[0].count(PAPER_MODULE) != 1:
+            raise ValueError("V4_PROOF_FAST_ORIGINAL_PAPER_COMMAND_INVALID")
+        new_command = (
+            str(release / ".venv/bin/python")
+            + " "
+            + PAPER_MODULE
+            + starts[0].split(PAPER_MODULE, 1)[1]
+        )
+        if "broker" in new_command.lower() or "--compact-evidence" in new_command:
+            raise ValueError("V4_PROOF_FAST_BROKER_OR_COMPACT_DISABLED")
+        target = UNIT_ROOT / (unit + ".d") / PROOF_FAST_OVERRIDE
+        if target.exists() or target.is_symlink():
+            raise FileExistsError("V4_PROOF_FAST_OVERRIDE_EXISTS")
+        raw = (
+            PROOF_FAST_MARKER + expected_sha + "\n"
+            "[Service]\nExecStart=\nExecStart="
+            + new_command
+            + "\nWorkingDirectory="
+            + str(release)
+            + "\n"
+        ).encode()
+        plans[unit] = {"destination": target, "content": raw, "sha256": _sha(raw)}
+    return plans
+
+
+def proof_fast_apply(expected_sha: str) -> dict:
+    states = _paper_quiescence(check_source=False)
+    _stable_source_running()
+    plans = _proof_fast_plans(expected_sha)
+    written = []
+    try:
+        for unit in (PAPER, PYDNATIVE):
+            row = plans[unit]
+            _publish_exclusive(row["destination"], row["content"])
+            written.append(row["destination"])
+        _run(["systemctl", "--user", "daemon-reload"], capture_output=True)
+    except BaseException:
+        for target in reversed(written):
+            target.unlink(missing_ok=True)
+        _run(["systemctl", "--user", "daemon-reload"], capture_output=True)
+        raise
+    return {
+        "phase": "PROOF_FAST_PAPER_PINNED_NO_START",
+        "source_release_sha": STABLE_SOURCE_SHA,
+        "new_paper_release_sha": expected_sha,
+        "source_unchanged": True,
+        "paper_units": list(plans),
+        "previous_paper_states": states,
+        "override_shas": {unit: plans[unit]["sha256"] for unit in plans},
+        "all_original_journals_unchanged": True,
+        "trading_authorized": False,
+        "no_services_started": True,
+    }
+
+
+def proof_fast_rollback(expected_sha: str) -> dict:
+    _paper_quiescence(check_source=False)
+    targets = []
+    for unit in (PAPER, PYDNATIVE):
+        path = UNIT_ROOT / (unit + ".d") / PROOF_FAST_OVERRIDE
+        if not path.exists():
+            continue
+        if path.is_symlink() or not path.read_bytes().startswith(
+            (PROOF_FAST_MARKER + expected_sha + "\n").encode()
+        ):
+            raise ValueError("V4_PROOF_FAST_UNOWNED_OVERRIDE")
+        targets.append(path)
+    for target in targets:
+        target.unlink()
+    _run(["systemctl", "--user", "daemon-reload"], capture_output=True)
+    return {
+        "phase": "PROOF_FAST_OVERRIDE_ROLLBACK",
+        "removed": len(targets),
+        "source_preserved": True,
+        "original_90_95_96_preserved": True,
+        "original_journals_unchanged": True,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -522,6 +645,8 @@ def main() -> int:
             "paper-rollback",
             "stable-apply",
             "stable-rollback",
+            "proof-fast-apply",
+            "proof-fast-rollback",
         ),
         required=True,
     )
@@ -552,6 +677,10 @@ def main() -> int:
             result = stable_apply(args.expected_sha)
         elif args.phase == "stable-rollback":
             result = stable_rollback(args.expected_sha)
+        elif args.phase == "proof-fast-apply":
+            result = proof_fast_apply(args.expected_sha)
+        elif args.phase == "proof-fast-rollback":
+            result = proof_fast_rollback(args.expected_sha)
         else:
             result = rollback(args.expected_sha)
     print(json.dumps(result, sort_keys=True, default=str))
