@@ -36,6 +36,12 @@ Canonical domain meanings. This glossary does not specify implementation or stor
 - **Mandate pause**: A prohibition on new follower exposure under one copy relationship while pre-existing financial exposure, risk and uncertain orders remain independently owned.
 - **Netted follower order**: One broker order representing the net eligible change across individually risk-accounted follower pods, without erasing per-pod ownership or attribution.
 - **Verified empty scope**: An explicit authenticated native position response for one declared selected market/DEX scope showing no positions; not an inference from omitted data.
+- **Explicit domain transition**: A legal, independently verifiable move between typed states under one owning authority, with an original triggering event, predecessor, guard, journal effect and replay interpretation; not a status inferred from unrelated fields.
+- **Source continuity state**: The independently durable per-selected-source-scope condition that determines whether successive complete checkpoint comparisons can produce genuine target changes, distinct from the outcome of any single checkpoint.
+- **Mandate generation**: One immutable signed effective interval for a specific follower relationship and frozen policy; separate from CWSA's shared source-scope generation even when both refer to the same leader.
+- **Unknown broker obligation**: Possibly dispatched, not-yet-terminal financial effects that retain reservations and require independent broker reconciliation, not a failed or rejected opportunity.
+- **Scoped source fault**: A loss of verified complete state within one selected source scope, preventing that source's new risk but not independently valid sources unless shared dependencies/risk are affected.
+- **Capability-specific qualification**: Independent engineering, operational-source, prospective economic and protected trading evidence; no single mutable readiness flag grants every capability.
 
 ## Historical screening and execution proxies
 

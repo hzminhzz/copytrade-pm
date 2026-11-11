@@ -1,7 +1,7 @@
 # ADR: Canonical five-minute position checkpoints (design grill)
 
 **Date:** 2026-11-11
-**Status:** OWNER-APPROVED TARGET POLICY (Q1–Q16; Q2=B, Q13=B, all other Q=A). Documentation only, not implemented, merged, deployed, scientifically qualified or trading-authorized.
+**Status:** OWNER-APPROVED TARGET POLICY (Q1–Q20; Q2=B, Q13=B, all other Q=A), with explicit domain-owned transition contract. Documentation only, not implemented, merged, deployed, scientifically qualified or trading-authorized.
 **Scope:** Shared source-signal interpretation for `copytrade-pm` virtual paper and `prop-production` Guardian. Native REST checkpoint provider authority is approved as a target (Q2=B); collection feasibility, bounded freshness, cross-DEX consistency and financial protocol details remain undecided.
 **Related current contract:** [Official selected-position first-known T+300](2026-11-08-position-first-t300.md). That contract and its running services remain unchanged pending a separately authorized, versioned release/cutover.
 
@@ -96,20 +96,48 @@ The checked `prop-production.release.ReleaseVerifier` admits strict `portfolio_r
 
 Remaining material architecture questions include: first-party risk/source sampling isolation across failing wallets; how scope/mandate revisions transition without equivocation or rewinding an existing broker intent; exact opening expiry/late-source and reduction/reversal behavior under uncertain broker outcomes; independently demonstrated provider freshness/capacity and measured follower economics; and a reversible, versioned paper-to-protected cutover. These must be resolved before an implementation-ready specification or financial authorization.
 
+## Owner-approved Round 5 — scope isolation, policy succession, finance uncertainty, qualification (2026-11-12)
+
+**Q17=A — failure isolation under shared portfolio finance.** Every selected source account/scope has its own independently checked checkpoint-continuity authority. If source B has any required missing/invalid DEX, B is not a complete source and produces no new-risk signal; independently valid A and C remain eligible for their own signals **only** when shared portfolio and destination-account limits, data dependencies and Guardian/Paper authority independently allow them. A shared signer compromise, destination broker/account uncertainty or other genuinely shared dependency fences *every affected consumer*, not just the first failing wallet. A portfolio evaluation missing B's valid opportunities is **incomplete economic evidence**, not a clean comparison or B=flat. No global 16-portfolio readiness flag can grant or veto unrelated capabilities.
+
+**Q18=A — signed mandate revision and prospective succession.** A material change in leader identity, selected scope, allowed assets, frozen `k`, timing, risk or activation/reduction rules creates a new signed **copy mandate generation** and prospective baseline, not an in-place edit. Preserve old signed releases, source/financial evidence, account positions, pod attribution, HALTs, reservations and outstanding broker effects. One opening-effective mandate generation per destination account/pod relationship at a time; retiring one generation does not erase its residual financial liabilities. **Critical ownership distinction:** changing only one follower's mandate MUST NOT reset the common CWSA source-scope epoch or its checkpoints for other followers. A CWSA source epoch changes only for genuine changes to the source-account/scope authority; mandate epochs are destination-specific.
+
+**Q19=A — unknown native execution is outstanding risk, not a failed order.** An order committed for possible dispatch retains its original financial effect ID, conservative reservation and all observed partial fills until independent account-bound broker status/history/execution reconciliation proves terminality and financial conservation. Block conflicting opening risk across every affected pod/account; do not blindly resend, cancel by assumption, clear HALT, or use a future unchanged checkpoint to create another opportunity. A separately proven protective reduction may be evaluated by Guardian, but the source checkpoint never owns it. Failed broker connectivity does not erase follower inventory.
+
+**Q20=A — independent acceptance gates.** Evaluate four independent capabilities: (1) engineering tests/proof and replay compatibility; (2) authentic 14-selected-account/all-required-DEX REST completeness, skew/freshness, latency and operational resource behavior; (3) separately recorded **prospective, actual/costed** matched follower economics against the old event-driven T0+300 baseline, including delayed source exits, missed openings/full-target later increases, netting and drawdown; and (4) account-bound financial reconciliation, signed release, protected broker permission and explicit owner authorization. Historical hindsight, passing tests, Shadow source collection and paper evidence cannot substitute for live broker authorization or prove trading edge. Read-only evidence collection is not blocked by unrelated live-science readiness.
+
+### Abstraction rule: explicit domain transitions, no hidden state machines (owner instruction)
+
+Reuse the existing [domain-owned proof-carrying transition contract](2026-11-11-invariant-grill-design-closure.md), not a new approval service, distributed transaction, central state machine or `is_ready` boolean pile. Three bounded authorities own the minimum state they need:
+
+| Existing owner / aggregate | Explicit contractual lifecycle (future policy; precise wire symbols pending) | Legal cause of advance | Durable result |
+| --- | --- | --- | --- |
+| **CWSA source-scope continuity** | UNANCHORED → CONTINUOUS ↔ FENCED | Verified *initial* baseline → continuous unchanged/changed complete checkpoints; a gap invalidates continuity; verified first complete recovery returns to continuous **as nonactionable recovery baseline** | One checkpoint outcome each boundary; separate change signal only for genuine economic change between successive eligible complete checkpoints |
+| **Signed copy mandate generation** | AWAITING_BASELINE → ACTIVE → PAUSED/RETIRED | Verified first baseline under new signed generation; separately authorized pause/retire | Signed lineage and effective interval; exposure under old generations persists under financial ownership |
+| **Consumer new-risk opportunity** | UNDECIDED → REVIEWABLE / PRE_DISPATCH_BLOCKED → COMMITTED_ONCE / MISSED | Changed canonical signal plus own mandate and independent account/quote/risk checks; bounded pre-dispatch re-evaluation; irreversible possible-dispatch commit or expiry | One outcome per source signal × financial consumer; never retry potentially dispatched/unknown broker orders |
+
+These are **separate** logical lifecycles; do not make a Cartesian product or use one mutable `ACTIVE`/`GREEN` status for all. The table specifies *contractual boundaries*, not a proposal to add three new services or duplicate journals. In particular, Guardian's existing order statuses/semantic journal remain the protected finance owner; the opportunity lifecycle is **not** a second broker-order state machine. `financial HALT`, broker certainty, source continuity, release activation and economic qualification are orthogonal facts. Source availability or a UI green light cannot clear a financial HALT.
+
+**Transition enforcement invariant:** every attempted transition has a typed predecessor, cause/original evidence and version, applicable signed policy, actor/authority, as-of cutoff, guarded next state, and exactly one owner-local durable effect/rejection. Replays must verify the same legal transition by its *historical* policy version; no implicit transitions by timestamp arithmetic, empty lists, expired process leases, booleans, missing rows, cache updates or service restarts. Illegal transitions are explicit, attributable rejections. A consumer may receive evidence at least once, but each financial effect belongs to one local journal; do **not** claim globally exactly-once cross-database delivery.
+
+**Observed implementation mismatch:** `pm_source_contracts.PositionObservation` already types BASELINE/UNCHANGED/OBSERVED_STATE_CHANGE/DUPLICATE, but the current reducer still accepts a `previous` dict with `baseline_valid` and runs *event-driven* source rules, not the approved five-minute state machine. `prop-production.financial_semantics` has allowed statuses and semantic conservation/HALT checks, but no approved new checkpoint/mandate/opportunity transition reducer yet. None of the future lifecycle labels above is installed or tested by these ADRs.
+
+**Open next frontier, not authorization:** residual holdings across revised mandates; finite unconsumed opportunity deadline; safe long-to-short broker reversal semantics; and an exact forward-only single-active-policy cutover/rollback with dual read-only observation. Measured source/provider numeric limits and scientific results are **fact-gathering/proof tasks**, not an invitation to create more readiness flags.
+
 ## Why this abstraction
 
 The existing source-to-paper path schedules per-observed-transition T+300; `prop-production.v4_timing.V4ShadowProjection` separately schedules market-level T+300 eligibility. These implementations can diverge on local first-known time, coalescing and recovery. One checkpoint-state authority removes the *need for duplicated source timing*, not the need for independent Guardian verification and durable uncertain-broker-outcome recovery.
 
 The alternative rejected for this *new policy* is to keep independent first-transition clocks for each consumer. The existing T+300 system remains a supported historical/current version until deliberately retired through a new contract and reversible release.
 
-## Explicitly unresolved after Q1–Q16 approval
+## Explicitly unresolved after Q1–Q20 approval
 
 - **Settled Q3/Q9/Q10:** UTC checkpoint identity, complete DEX census, evidence-qualified bounded source observation; **unsettled:** measured and signed numerical freshness/grace/skew limits, tested native REST capacity, and late-sample discard details.
 - **Settled Q6:** failed checkpoints fence new risk; restoration forms nonactionable baseline with independently verified reduction-only policy; **unsettled:** exact late-sample, baseline identity and cross-DEX coherence tests.
 - **Settled Q7/Q12:** distinct outcome/change-signal identities and signed CWSA source proof bound to Guardian's copy mandate; **unsettled:** new protocol field schema, signer trust roots, epoch/sequence, replay verification and compatible source/consumer pins.
 - **Settled Q4/Q5/Q8/Q11/Q13/Q15:** full grid-timed targets, independent pod accounting, safely netted orders, one-shot new risk with bounded pre-dispatch re-evaluation, and full-target follow-on increases; **unsettled:** original opportunity expiry, reversal/reduce ordering, unknown broker outcome and net-fill attribution protocol.
 - **Settled Q2=B target:** native Hyperliquid REST source authority; **unsettled:** measured 14-account/all-DEX rate budget, provenance, collection skew, completeness and runtime proof.
-- **Settled Q14/Q16:** signed mandate activation baseline; pause/retire does not flatten. **Unsettled:** exact versioned mandate lifecycle transitions, signed release cutover/rollback, independent economic qualification, native broker permission and protected operation.
+- **Settled Q14/Q16/Q18:** signed mandate baseline, nonimplicit pause/retire and new material-policy generation with durable old financial effects; **unsettled:** cross-generation residual exposure admission, exact new wire/release cutover/rollback protocol, independent economic qualification and protected financial operation.
 
 ## Safety and migration constraints
 
