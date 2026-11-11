@@ -772,17 +772,71 @@ def _acknowledge_native(feed, known):
     )
 
 
-async def run_native_accounts(accounts, *, writer, stop, connect, now, limiter, queue_size=256):
+def _native_account_cohorts(accounts, *, user_budget: int | None) -> tuple[dict, ...]:
+    """Provider-limit-safe, deterministic cohorts; never silently omit users."""
+    ordered = dict(sorted(accounts.items()))
+    addresses = [account.address.lower() for account in ordered.values()]
+    if not ordered or len(set(addresses)) != len(ordered):
+        raise ValueError("SOURCE_NATIVE_SELECTED_USERS_INVALID")
+    if user_budget is None:
+        if len(ordered) > 10:
+            raise ValueError("SOURCE_NATIVE_EXPLICIT_USER_BUDGET_REQUIRED")
+        return (ordered,)
+    if type(user_budget) is not int or not 1 <= user_budget <= 10:
+        raise ValueError("SOURCE_NATIVE_USER_BUDGET_INVALID")
+    entries = list(ordered.items())
+    return tuple(dict(entries[i : i + user_budget]) for i in range(0, len(entries), user_budget))
+
+
+async def run_native_accounts(
+    accounts,
+    *,
+    writer,
+    stop,
+    connect,
+    now,
+    limiter,
+    queue_size=256,
+    user_budget: int | None = None,
+    rotation_seconds: float = 420,
+):
+    """Capture original full books without exceeding one socket's user budget.
+
+    Rotation is an explicitly noncontinuous observation policy: accounts not
+    currently subscribed remain in a durable GAP. Rejoin always starts a new
+    epoch and requires a fresh non-actionable baseline; missed transitions
+    can never be assigned an invented earlier first-known timestamp.
+    """
     from .pm_forward_continuous_transport import native_session, wait_or_stop
     from .pm_source_contracts import SourceObservationRejected
 
-    by_address = {account.address: account for account in accounts.values()}
+    cohorts = _native_account_cohorts(accounts, user_budget=user_budget)
+    rotating = len(cohorts) > 1
+    if rotating and (
+        isinstance(rotation_seconds, bool)
+        or not isinstance(rotation_seconds, (float, int))
+        or not 330 <= rotation_seconds <= 3600
+    ):
+        raise ValueError("SOURCE_NATIVE_ROTATION_MUST_COVER_T300")
+
+    # The initial startup gap must fence every selected parent, including
+    # those not in the first active cohort. This is not a whole-book snapshot.
+    for account in accounts.values():
+        await writer.submit(lambda a=account: a.begin(now()))
+
+    cycle = 0
+    status = "STOPPED_READ_ONLY"
     while not stop.is_set():
-        for account in accounts.values():
-            await writer.submit(lambda a=account: a.begin(now()))
+        active = cohorts[cycle % len(cohorts)]
+        if cycle:
+            for account in active.values():
+                await writer.submit(
+                    lambda a=account: a.begin(now(), reason="NATIVE_BUDGET_ROTATION_REJOIN")
+                )
+        by_address = {account.address.lower(): account for account in active.values()}
 
         async def acknowledge(sub, known):
-            account = by_address[sub["user"]]
+            account = by_address[sub["user"].lower()]
             await writer.submit(lambda: _acknowledge_native(account, known))
 
         async def handle(frame, known, raw_sha, wire):
@@ -794,14 +848,10 @@ async def run_native_accounts(accounts, *, writer, stop, connect, now, limiter, 
             )
             if frame.get("channel") != "allDexsClearinghouseState" or account is None:
                 reason = "SOURCE_NATIVE_AMBIGUOUS_IDENTITY_OR_CHANNEL"
-                for affected in accounts.values():
+                for affected in active.values():
                     await writer.submit(
                         lambda a=affected: a.gap(
-                            known,
-                            reason,
-                            frame=frame,
-                            raw_sha=raw_sha,
-                            raw_text=wire,
+                            known, reason, frame=frame, raw_sha=raw_sha, raw_text=wire
                         )
                     )
                 raise ValueError(reason)
@@ -810,43 +860,75 @@ async def run_native_accounts(accounts, *, writer, stop, connect, now, limiter, 
                     lambda: account.observe(frame, known, raw_sha=raw_sha, raw_text=wire)
                 )
             except SourceObservationRejected:
-                # The account owner has already committed its targeted quarantine.
-                # Keep other subscribed accounts alive; a bounded rejection budget
-                # prevents malformed traffic from causing endless reconnects.
                 if writer.failed:
                     raise
 
         async def transport(known):
-            for account in accounts.values():
+            for account in active.values():
                 if clock(known) >= clock(account.progress.head["event"]["first_known_at"]):
                     await writer.submit(lambda a=account: a.transport(known))
 
+        session_stop = asyncio.Event() if rotating else stop
+        timer = None
+        if rotating:
+
+            async def expire_session():
+                try:
+                    await asyncio.wait_for(stop.wait(), timeout=rotation_seconds)
+                except TimeoutError:
+                    pass
+                finally:
+                    session_stop.set()
+
+            timer = asyncio.create_task(expire_session())
         reason = "ORDERLY_STOP"
         try:
             await native_session(
                 subscriptions=[
                     {"type": "allDexsClearinghouseState", "user": a.address}
-                    for a in accounts.values()
+                    for a in active.values()
                 ],
                 on_ack=acknowledge,
                 handle=handle,
                 on_transport=transport,
-                stop=stop,
+                stop=session_stop,
                 now=now,
                 connect=connect,
                 limiter=limiter,
                 queue_size=queue_size,
             )
+            if rotating and not stop.is_set():
+                reason = "NATIVE_BUDGET_ROTATION_GAP"
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             if writer.failed:
                 raise
             reason = _reason(exc)
+            if reason in ("STREAM_NATIVE_SUBSCRIPTION_REJECTED", "STREAM_NATIVE_ACK_TIMEOUT"):
+                # Provider cap/ack failure is not a reason to loop forever
+                # producing GAPs and growing WAL. Shutdown without restart.
+                status = "STOPPED_NATIVE_SUBSCRIPTION_BLOCKED"
+                stop.set()
         finally:
-            for account in accounts.values():
+            if timer is not None:
+                timer.cancel()
+                await asyncio.gather(timer, return_exceptions=True)
+            for account in active.values():
                 await writer.submit(lambda a=account: a.gap(now(), reason))
-        await wait_or_stop(stop, 15)
+        cycle += 1
+        if not stop.is_set():
+            await wait_or_stop(
+                stop, 1 if rotating and reason == "NATIVE_BUDGET_ROTATION_GAP" else 15
+            )
+    return {
+        "status": status,
+        "rotation_enabled": rotating,
+        "cohort_count": len(cohorts),
+        "user_budget": user_budget,
+        "broker_route": "NONE",
+        "trading_authorized": False,
+    }
 
 
 async def run_native_public(

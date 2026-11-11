@@ -121,9 +121,12 @@ async def observe(
     *,
     duration_seconds: float = 0,
     stop: asyncio.Event | None = None,
+    native_user_budget: int = 7,
+    native_rotation_seconds: float = 420,
 ) -> dict:
     stop = stop or asyncio.Event()
     async with SerialWriter(max_pending=256) as writer:
+        result = None
         worker = asyncio.create_task(
             run_native_accounts(
                 accounts,
@@ -132,6 +135,8 @@ async def observe(
                 connect=None,
                 now=lambda: datetime.now(UTC).isoformat(timespec="microseconds"),
                 limiter=ConnectionBudget(per_minute=6),
+                user_budget=native_user_budget,
+                rotation_seconds=native_rotation_seconds,
             )
         )
         timer = None
@@ -145,7 +150,7 @@ async def observe(
                         stop.set()
 
                 timer = asyncio.create_task(end_after_duration())
-            await worker
+            result = await worker
         finally:
             stop.set()
             if timer is not None:
@@ -154,7 +159,8 @@ async def observe(
             if not worker.done():
                 await worker
     return {
-        "status": "STOPPED_READ_ONLY",
+        "status": "STOPPED_READ_ONLY" if result is None else result["status"],
+        "native_transport": result,
         "accounts": len(accounts),
         "writer_health": {
             "write_count": writer.write_count,
@@ -181,6 +187,8 @@ def main() -> int:
     )
     parser.add_argument("--campaign-sha256")
     parser.add_argument("--duration-seconds", type=float, default=0)
+    parser.add_argument("--native-user-budget", type=int, default=7)
+    parser.add_argument("--native-rotation-seconds", type=float, default=420)
     parser.add_argument(
         "--compact-evidence",
         action="store_true",
@@ -189,6 +197,12 @@ def main() -> int:
     args = parser.parse_args()
     if not 0 <= args.duration_seconds <= 86400:
         parser.error("--duration-seconds must be 0..86400")
+    # Reserve three user-specific slots for the co-running 0811 source on this
+    # shared-IP host. This is a local budget, not an IP-wide lease manager.
+    if not 1 <= args.native_user_budget <= 7:
+        parser.error("--native-user-budget must be 1..7 (reserve 3 shared-IP users)")
+    if not 330 <= args.native_rotation_seconds <= 3600:
+        parser.error("--native-rotation-seconds must be 330..3600")
     os.umask(0o077)
     now = datetime.now(UTC).isoformat(timespec="microseconds")
     ids = tuple(args.portfolios.split(","))
@@ -224,7 +238,13 @@ def main() -> int:
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGINT, signal.SIGTERM):
             loop.add_signal_handler(sig, stop.set)
-        return await observe(accounts, stop=stop, duration_seconds=args.duration_seconds)
+        return await observe(
+            accounts,
+            stop=stop,
+            duration_seconds=args.duration_seconds,
+            native_user_budget=args.native_user_budget,
+            native_rotation_seconds=args.native_rotation_seconds,
+        )
 
     result = asyncio.run(session())
     print(json.dumps(result, sort_keys=True), flush=True)
