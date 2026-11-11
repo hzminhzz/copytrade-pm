@@ -632,6 +632,7 @@ class ObservedP1Paper:
         study_accounts: Mapping[str, str] | None = None,
         source_mark_age_seconds: int | None = None,
         source_startup_policy: str = "AS_OF_RUN_START",
+        paper_risk_profile: str = "LEGACY_STATIC_10PCT",
     ) -> None:
         # Existing three registry-sealed profiles remain the default. Other
         # scenarios require an explicit, independently checked private campaign.
@@ -667,6 +668,14 @@ class ObservedP1Paper:
             self.profile = study_profile
         self.members = self.profile.source_ids
         self.portfolio_id = portfolio_id
+        if paper_risk_profile not in ("LEGACY_STATIC_10PCT", "CHALLENGE_TRAILING_8PCT"):
+            raise ValueError("PAPER_RISK_PROFILE_UNSUPPORTED")
+        self.paper_risk_profile = paper_risk_profile
+        risk_source = (
+            f"{self.portfolio_id}_20261111_TRAILING_8PCT_RESEARCH_NOT_PROP_CONTRACT"
+            if paper_risk_profile == "CHALLENGE_TRAILING_8PCT"
+            else f"{self.portfolio_id}_20261103_RISK_REFERENCE_NOT_PROP_CONTRACT"
+        )
         if source_startup_policy not in ("AS_OF_RUN_START", "NO_DOWNTIME_REPLAY"):
             raise ValueError("PAPER_SOURCE_STARTUP_POLICY_UNSUPPORTED")
         self.source_startup_policy = source_startup_policy
@@ -710,6 +719,7 @@ class ObservedP1Paper:
                 or manifest["rulebook"].get("program") != f"{self.portfolio_id}_10000_VIRTUAL_PAPER"
                 or manifest.get("mode") != "RESEARCH_SYNTHETIC"
                 or manifest["rulebook"].get("version") != self.schema
+                or manifest["rulebook"].get("source") != risk_source
             ):
                 raise ValueError("PAPER_RESTART_MANIFEST_POLICY_DRIFT")
             started_at = manifest["started_at"]
@@ -760,15 +770,19 @@ class ObservedP1Paper:
             rulebook = Rulebook(
                 program=f"{self.portfolio_id}_10000_VIRTUAL_PAPER",
                 stage="RESEARCH_PAPER",
-                source=f"{self.portfolio_id}_20261103_RISK_REFERENCE_NOT_PROP_CONTRACT",
+                source=risk_source,
                 observed_at=started_at,
                 version=self.schema,
                 timezone="UTC",
                 initial_balance=Decimal("10000"),
                 profit_target=None,
                 daily_loss=Decimal("500"),
-                static_loss=Decimal("1000"),
-                trailing_loss=None,
+                static_loss=(
+                    None if paper_risk_profile == "CHALLENGE_TRAILING_8PCT" else Decimal("1000")
+                ),
+                trailing_loss=(
+                    Decimal("800") if paper_risk_profile == "CHALLENGE_TRAILING_8PCT" else None
+                ),
                 confirmed=True,
                 account_terms_confirmed=False,
                 permitted=permitted,
@@ -806,6 +820,10 @@ class ObservedP1Paper:
             **_policy(self.profile, price_mode=self.price_mode),
             "selected_account_hashes": self.selected_accounts,
         }
+        if paper_risk_profile != "LEGACY_STATIC_10PCT":
+            self.policy["paper_challenge_risk_profile"] = paper_risk_profile
+            self.policy["trailing_cap_assumption"] = "UNCAPPED"
+            self.policy["account_terms_confirmed"] = False
         if source_mark_age_seconds is not None:
             self.policy.update(
                 source_price_policy=SOURCE_NATIVE_MARK_POLICY,

@@ -13,6 +13,7 @@ from decimal import Decimal
 import json
 import os
 from pathlib import Path
+import re
 import signal
 import sqlite3
 import time
@@ -134,11 +135,21 @@ def main() -> int:
     parser.add_argument("--state-root", required=True, type=Path)
     parser.add_argument("--paper-min-notional", default="10")
     parser.add_argument("--poll-seconds", type=float, default=1.0)
+    parser.add_argument("--run-label", default="0911")
+    parser.add_argument(
+        "--paper-risk-profile",
+        choices=("LEGACY_STATIC_10PCT", "CHALLENGE_TRAILING_8PCT"),
+        default="LEGACY_STATIC_10PCT",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--once", action="store_true")
     args = parser.parse_args()
     if not 0.1 <= args.poll_seconds <= 5:
         parser.error("poll seconds must be 0.1..5")
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{2,39}", args.run_label):
+        parser.error("--run-label must be a safe, immutable campaign identifier")
+    if args.run_label == "0911" and args.paper_risk_profile != "LEGACY_STATIC_10PCT":
+        parser.error("CHALLENGE_TRAILING_8PCT requires a new --run-label")
     if args.campaign_sha256 != MANIFEST_SHA256:
         parser.error("unreviewed campaign SHA")
     os.umask(0o077)
@@ -180,7 +191,7 @@ def main() -> int:
         runs: dict[str, ObservedP1Paper] = {}
         for pid in IDENTITIES:
             per_root = root / pid.lower()
-            run_id = f"{pid.lower()}_v4_sixteen_0911"
+            run_id = f"{pid.lower()}_v4_sixteen_{args.run_label}"
             stack.enter_context(_exclusive_runner(per_root, run_id))
             runs[pid] = ObservedP1Paper(
                 source_db=args.source_db,
@@ -196,6 +207,7 @@ def main() -> int:
                 study_seal=(campaign.seals[pid] if pid not in PAPER_PROFILES else None),
                 study_accounts=campaign.account_hashes[pid],
                 started_at=started,
+                paper_risk_profile=args.paper_risk_profile,
                 # A restarted live SHADOW paper must fence existing source
                 # history, not reprice stale downtime transitions as T+300.
                 # Historical/replay callers retain AS_OF_RUN_START by default.
