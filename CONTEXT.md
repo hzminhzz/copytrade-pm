@@ -17,6 +17,11 @@ Canonical domain meanings. This glossary does not specify implementation or stor
 - **Selected-perp completeness**: Complete, authentic official positions and DEX coverage for one explicitly selected account's perpetual market scope; not the same as all-wallet collateral or related subaccount finance.
 - **Whole-wallet financial completeness**: Evidence sufficient to characterize broader leader financial balances and collateral across relevant account types; not a universal requirement for fixed-k mirroring.
 
+- **Canonical five-minute checkpoint**: A globally identified UTC five-minute sampling boundary for one selected source scope and policy version, distinct from an observed trade's first-known time.
+- **Sampled position-state change**: A verified difference between admitted complete position snapshots at consecutive eligible checkpoints; intrawindow changes that revert before sampling do not produce a sampled change.
+- **Canonical target-state signal**: A durable, provenance-bound desired leader exposure at a valid checkpoint, shared by independent financial consumers; it is neither a broker order nor trading authorization.
+- **Checkpoint unavailability**: A scheduled source sample that cannot establish a complete, fresh, authentic state for its declared scope; it is not a flat position or a signal.
+
 ## Historical screening and execution proxies
 
 - **Historical oracle clock**: A retrospective exchange/source-event timestamp available from recorded fills; not evidence of when the follower system first learned of that event.
