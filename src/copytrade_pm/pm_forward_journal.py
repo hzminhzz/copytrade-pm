@@ -327,6 +327,12 @@ class PaperJournal:
             history(db, owner)
             return state(db, owner)
 
+    def consume_checkpoint(self, run_id, owner, outcome_id, *, at_ms, policy, catalog):
+        """Canonical v3 paper consumption; PM03 remains the financial owner."""
+        from .pm_checkpoint_paper import consume
+
+        return consume(self, run_id, owner, outcome_id, at_ms=at_ms, policy=policy, catalog=catalog)
+
     def register_checkpoint_source(self, scope, policy, *, first_checkpoint_ms: int, at_ms: int):
         from .pm_checkpoint_journal import register
 
@@ -376,6 +382,10 @@ class PaperJournal:
     def _apply(account: Account, event: dict) -> dict:
         account._prepare_risk_semantics(event.get("risk_semantics_version", 1))
         kind = event.get("kind")
+        if kind == "CWSA_PAPER_REVIEW":
+            from .pm_checkpoint_paper import apply
+
+            return apply(account, event)
         if kind == "HALT":
             account.latch_halt(event.get("reason") or "PAPER_OPERATOR_HALT")
             return {"status": "HALT_LATCHED"}
@@ -669,6 +679,10 @@ class PaperJournal:
         if row is None:
             raise ValueError("UNKNOWN_PAPER_RUN")
         manifest, snapshot, last_at, cursor, prior_sha = row
+        if event.get("kind") == "CWSA_PAPER_REVIEW":
+            from .pm_checkpoint_paper import validate_binding
+
+            validate_binding(db, run_id, event)
         if event.get("kind", "").startswith("PM04_"):
             saved_manifest = json.loads(manifest)
             if (
@@ -719,7 +733,7 @@ class PaperJournal:
 
     def append(self, run_id: str, event_id: str, event: dict) -> dict:
         self._validate_event(event_id, event)
-        if "source_ref" in event:
+        if "source_ref" in event or event.get("kind") == "CWSA_PAPER_REVIEW":
             raise ValueError("SOURCE_REF_REQUIRES_ATOMIC_CONSUME")
         with self._writer() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -887,6 +901,10 @@ class PaperJournal:
                 or event.get("sealed_policy_sha") != manifest["policy_sha"]
             ):
                 raise ValueError("PM04_MANIFEST_POLICY_MISMATCH")
+            if event.get("kind") == "CWSA_PAPER_REVIEW":
+                from .pm_checkpoint_paper import validate_binding
+
+                validate_binding(db, run_id, event)
             last_result = PaperJournal._apply(account, event)
             expected_post = digest(account.snapshot())
             if after != expected_post or chain_sha != digest(

@@ -1,5 +1,6 @@
 """CWSA outcomes through the existing paper journal, not a parallel store."""
 
+from decimal import Decimal
 from hashlib import sha256
 import json
 import os
@@ -26,7 +27,15 @@ def sample(journal, boundary, quantity="2", fail=False, provider_ms=None):
                 "time": boundary if provider_ms is None else provider_ms,
                 "assetPositions": []
                 if request.get("dex") == "xyz" or quantity == "0"
-                else [{"position": {"coin": "BTC", "szi": quantity}}],
+                else [
+                    {
+                        "position": {
+                            "coin": "BTC",
+                            "szi": quantity,
+                            "positionValue": str(abs(Decimal(quantity)) * 10000),
+                        }
+                    }
+                ],
             }
         raw = json.dumps(body).encode()
         return body, raw, sha256(raw).hexdigest()

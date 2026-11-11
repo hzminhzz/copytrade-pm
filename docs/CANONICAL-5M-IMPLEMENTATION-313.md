@@ -92,6 +92,30 @@ and requires exact proof coverage for every stored transition. Focused mandate,
 source and Guardian verification: PM 18 passed; protected 43 passed; strict mypy
 passed. Full integration and prospective evidence remain separate gates.
 
+## #319 — one-portfolio checkpoint paper
+
+`PaperJournal.consume_checkpoint` adds a versioned causal event to the existing
+PM03 account journal. Source history and mandate approvals are independently
+replayed. No extra financial tables, source timer or broker transport are added.
+Typed one-shot opportunities have a fixed deadline, explicit non-dispatch
+blocking, terminal misses, and one modeled commitment. Baseline, unchanged and
+recovery observations cannot open or fabricate closes.
+
+Frozen-k requested notional uses original native positionValue / abs(szi).
+The independent L2 executable side and native lot contract determine follower
+quantity. Existing PM03 classification, execution, risk scaling, cash, costs and
+allocation conservation own the modeled outcome. Requested targets remain
+visible when risk scaling reduces the actual modeled quantity. Other owners'
+inventory is preserved; gross and individual pod stress limits remain explicit.
+
+TDD began with the missing public consumer. Focused S1/source/mandate/legacy
+regression: **43 passed**, including real SIGKILL before and after the financial
+commit, duplicate/restart, deadline equality, unchanged nonretry, genuine later
+change, native rounding, reduce/exit/reversal, source gap/recovery, and an
+independent HALT between boundaries. Ruff and format passed. These are synthetic
+engineering tests; no new prospective campaign or economic qualification is
+claimed. Current native timing-policy and real mandate approvals remain blocked.
+
 ## Dependency graph
 
 | Ticket | Prerequisites |
