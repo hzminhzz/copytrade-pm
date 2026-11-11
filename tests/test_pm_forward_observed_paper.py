@@ -158,6 +158,45 @@ def test_observed_forward_paper_entry_wait_300_close_and_restart(tmp_path):
     assert restarted.run.restore()["account"] == restarted.run.account.snapshot()
 
 
+def test_due_paper_with_offsetting_held_pod_without_mark_waits_instead_of_crashing(tmp_path):
+    """PM03 marks every pod leg even when aggregate net quantity is flat."""
+    observed = PaperJournal(tmp_path / "source")
+    add_quote(observed, 10)
+    paper = ObservedP1Paper(
+        source_db=observed.path,
+        state_root=tmp_path / "private",
+        run_id="offsetting_pod_marks",
+        catalog={RAW_MARKET["symbol"]: RAW_MARKET},
+        registry_db=registry(tmp_path / "registry.sqlite"),
+        started_at=at(0),
+    )
+    add_source(observed, 1, 12, {BTC.key: "20"})
+    first = paper.step(at(14))
+    pending = first["execution_intents"]["S035"]
+    assert pending["status"] == "PENDING_5M"
+
+    # Both pods hold ETH but aggregate exposure nets to zero. There is no ETH
+    # minute quote. PM03 still requires its valuation mark before any entry.
+    eth = Instrument("hyperliquid", "mainnet:perp:default", "ETH")
+    account = paper.run.account
+    account.pm_quantities.setdefault("S035", {})[eth] = D("1")
+    account.pm_quantities.setdefault("S051", {})[eth] = D("-1")
+    assert not account.quantities.get(eth)
+    assert eth.key not in account.pm04_state["pod_targets"].get("S035", {})
+    assert eth.key not in account.pm04_state["routed_targets"].get("S051", {})
+
+    add_quote(observed, 312)
+    with closing(sqlite3.connect(observed.path)) as source_conn:
+        result = paper._execute_pending(source_conn, at(313))
+    assert result["S035"] == "WAIT_MARKET_OR_TARGET:PAPER_QUOTE_MISSING:" + eth.key
+    assert not any(row["event"]["kind"] == "PM04_PAPER_EXECUTE" for row in paper.run.ledger.read())
+    after = paper.run.account.pm04_state["paper_execution"]["history"][pending["intent_id"]]
+    assert after["status"] == "PENDING_5M"
+    assert after["due_at"] == pending["due_at"]
+    assert after["first_known_at"] == pending["first_known_at"]
+    assert after["frozen_k"] == pending["frozen_k"]
+
+
 def test_future_started_run_never_backfills_old_source(tmp_path):
     observed = PaperJournal(tmp_path / "public")
     add_quote(observed, 10)
