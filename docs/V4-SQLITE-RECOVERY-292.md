@@ -23,6 +23,10 @@
 8. Install and start *only* independently reviewed pinned source code with full private sidecar preservation, then require a non-actionable new baseline. Reopen paper readers one by one; verify source streams, first-known clocks, T+300 non-resetting intents, independent ledger heads, genuine risk reductions and halted new risk until proven continuity.
 9. Restore the prior pinned release only with schema/sidecar compatibility verification and preserved immutable financial/source heads. If a step fails, keep all original journals, backups and PIDs evidence intact; report exact blocker and run no real broker order.
 
+## 0911 shared-IP provider subscription recovery (2026-11-11)
+
+The 0911 WAL recovery was independently performed and verified (original source-chain head preserved; checkpoint result (0,0,0); original WAL 22.68 GB to zero). This does not resolve Hyperliquid's documented 10-unique-user-per-IP WS limit. With three 0811 native users running, the 0911 14-parent campaign must not start all 14 subscriptions together. The approved isolated source change rotates two seven-user cohorts with explicit non-actionable fresh baseline and durable off-cohort GAP. Read [the 0911 source-budget runbook](V4-0911-WS-SUBSCRIPTION-RECOVERY-292.md) and follow all independent finance/source acceptance gates before activating the separate 0911 SHADOW paper consumers. This does not change frozen campaign identities, compact-v2, original finance or broker permissions.
+
 ## Benchmark/monitoring contract
 
 Synthetic benchmark receipt: `PYTHONPATH=.:tests uv run --frozen --group dev python scripts/benchmark_v4_proof_292.py` — 40,003 stream events, indexed locator and interruption plans, proof median 0.219 ms / p95 0.349 ms / max 0.622 ms (single isolated local run, not a live VPS SLA). Multi-process reader, pre/post-commit crash, independent restore and terminal GAP-interleaving tests are in `tests/test_v4_sqlite_multiprocess_292.py` and `tests/test_v4_terminal_race_292.py`.

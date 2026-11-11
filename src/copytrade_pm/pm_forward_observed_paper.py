@@ -199,6 +199,26 @@ def _readonly(path: Path) -> sqlite3.Connection:
     return conn
 
 
+def _prestart_source_cursor(db: sqlite3.Connection, alias: str, durable_seen: int) -> int:
+    """Fence every source receipt known before this process starts, in O(log N).
+
+    Historical receipts from a stopped consumer's downtime must not be
+    replayed as fresh T+300 signals. A genuine future source receipt after
+    the startup fence is eligible for ordinary causal/scope checks. This
+    avoids assuming all historical JSON clocks are indexable or monotonic.
+    """
+    if type(durable_seen) is not int or durable_seen < 0:
+        raise ValueError("PAPER_DURABLE_SOURCE_CURSOR_INVALID")
+    row = db.execute(
+        "SELECT seq FROM source_receipts WHERE source_id=? ORDER BY seq DESC LIMIT 1",
+        (alias,),
+    ).fetchone()
+    cutoff = int(row[0]) if row is not None else 0
+    if cutoff < durable_seen:
+        raise ValueError("PAPER_ORIGINAL_SOURCE_CURSOR_REGRESSED")
+    return cutoff
+
+
 def _sealed_p1_accounts(
     registry_db: Path,
     *,
@@ -611,6 +631,7 @@ class ObservedP1Paper:
         study_seal: Mapping[str, object] | None = None,
         study_accounts: Mapping[str, str] | None = None,
         source_mark_age_seconds: int | None = None,
+        source_startup_policy: str = "AS_OF_RUN_START",
     ) -> None:
         # Existing three registry-sealed profiles remain the default. Other
         # scenarios require an explicit, independently checked private campaign.
@@ -646,6 +667,9 @@ class ObservedP1Paper:
             self.profile = study_profile
         self.members = self.profile.source_ids
         self.portfolio_id = portfolio_id
+        if source_startup_policy not in ("AS_OF_RUN_START", "NO_DOWNTIME_REPLAY"):
+            raise ValueError("PAPER_SOURCE_STARTUP_POLICY_UNSUPPORTED")
+        self.source_startup_policy = source_startup_policy
         if price_mode not in ("l2", "vike_minute"):
             raise ValueError("PAPER_PRICE_MODE_UNSUPPORTED")
         self.price_mode = price_mode
@@ -833,18 +857,24 @@ class ObservedP1Paper:
             alias: state.get("last_source_seq", {}).get(alias, 0) for alias in self.members
         }
         self.prestart_seen = {alias: False for alias in self.members}
-        # This read-only cursor is derived from the immutable run start and
-        # the source's first-known sequence. Never replay old signals into
-        # a fresh campaign or rescan its historical 1000+ receipts every 2s.
+        # Live service recovery must not ingest past downtime source records
+        # as fresh T+300 entries: index only (source_id,seq) head, no full
+        # source history JSON extraction or long-held live source read.
+        # Historical replay keeps the original as-of-run-start policy. A
+        # historical caller may legitimately know a source event at the run
+        # start even when the constructor is invoked later in wall-clock time.
         with closing(_readonly(self.source_db)) as db:
             for alias in self.members:
-                row = db.execute(
-                    "SELECT MAX(seq) FROM source_receipts WHERE source_id=? "
-                    "AND julianday(json_extract(payload, '$.first_known_at')) "
-                    "<= julianday(?)",
-                    (alias, self.started_at),
-                ).fetchone()
-                cutoff = int(row[0]) if row[0] is not None else 0
+                if self.source_startup_policy == "NO_DOWNTIME_REPLAY":
+                    cutoff = _prestart_source_cursor(db, alias, self.last_seen[alias])
+                else:
+                    row = db.execute(
+                        "SELECT MAX(seq) FROM source_receipts WHERE source_id=? "
+                        "AND julianday(json_extract(payload, '$.first_known_at')) "
+                        "<= julianday(?)",
+                        (alias, self.started_at),
+                    ).fetchone()
+                    cutoff = int(row[0]) if row[0] is not None else 0
                 self.prestart_seen[alias] = cutoff > 0 and self.last_seen[alias] == 0
                 self.last_seen[alias] = max(self.last_seen[alias], cutoff)
 
