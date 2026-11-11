@@ -141,6 +141,10 @@ def test_http_api_cors_cache_and_no_trade(http_server: str):
     assert "Access-Control-Allow-Origin" not in headers
     assert headers["X-Content-Type-Options"] == "nosniff"
     assert "frame-ancestors 'none'" in headers["Content-Security-Policy"]
+    # Cloudflare's request-specific JS Detection bootstrap is inline. This
+    # unprivileged viewer has no public writer and forbids event attributes.
+    assert "script-src 'self' 'unsafe-inline'" in headers["Content-Security-Policy"]
+    assert "script-src-attr 'none'" in headers["Content-Security-Policy"]
     payload = json.loads(raw)
     assert len(payload["wallets"]) == 2
     assert payload["registrySync"]["latestAccepted"] is None
