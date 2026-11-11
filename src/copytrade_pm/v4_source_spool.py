@@ -114,6 +114,122 @@ def _recover_bootstrap(outbox: Path, selected: dict[str, str], public: Ed25519Pu
     return heads
 
 
+def _publish_checkpoint(packet: dict, outbox: Path) -> dict:
+    raw = canonical(packet)
+    packet_sha = sha256(raw).hexdigest()
+    issued_ms = packet["payload"]["issued_ms"]
+    path = outbox / f"{issued_ms * 1_000_000:020d}-{packet_sha[:16]}.json"
+    if path.exists():
+        if _private_input(path) != raw:
+            raise ValueError("CWSA_PACKET_COLLISION")
+    else:
+        _atomic_private_output(path, raw)
+    return {
+        "schema": "cwsa_source_spool_v3",
+        "packet_sha": packet_sha,
+        "source_id": packet["payload"]["scope"]["source_id"],
+        "cursor": packet["payload"]["transitions"][-1]["sequence"],
+        "trading_authorized": False,
+    }
+
+
+def capture_checkpoint_batch(
+    *,
+    journal_db: Path,
+    config,
+    root: Path,
+    signing_key: Path,
+    public_key: Path,
+    issued_ms: int,
+) -> dict:
+    """Resume solely from immutable signed packets; no mutable cursor can erase history."""
+    from contextlib import closing
+    from .pm_checkpoint_journal import SourceTransition, history
+    from .production_manifest import verify
+    from .v4_source_export import export_checkpoint_packet
+
+    _private_directory(root)
+    if (root / "cursor.json").exists():
+        raise ValueError("CWSA_LEGACY_SPOOL_MIX")
+    outbox = root / "outbox"
+    outbox.mkdir(mode=0o700, exist_ok=True)
+    _private_directory(outbox)
+    signer = Ed25519PrivateKey.from_private_bytes(_private_input(signing_key))
+    public_raw = _private_input(public_key)
+    if signer.public_key().public_bytes_raw() != public_raw:
+        raise ValueError("CWSA_SOURCE_PIN_MISMATCH")
+    public = Ed25519PublicKey.from_public_bytes(public_raw)
+    lock = os.open(root / "producer.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        retained = {alias: {} for alias in config.scopes}
+        for path in outbox.iterdir():
+            if path.name.startswith(".v4-stage-") and path.name.endswith(".tmp"):
+                continue
+            raw = _private_input(path)
+            envelope = json.loads(raw)
+            body = verify(envelope, public, "cwsa-checkpoint-v3")
+            alias = body["scope"]["source_id"]
+            if (
+                raw != canonical(envelope)
+                or not path.name.endswith("-" + sha256(raw).hexdigest()[:16] + ".json")
+                or alias not in retained
+                or body["schema"] != "cwsa_checkpoint_packet_v3"
+                or body["scope"] != config.scopes[alias].model_dump(mode="json")
+                or body["policy"] != config.policy.model_dump(mode="json")
+                or body["trading_authorized"] is not False
+                or body["issued_ms"] > issued_ms
+            ):
+                raise ValueError("CWSA_SPOOL_HISTORY_PIN")
+            for event in body["transitions"]:
+                transition = SourceTransition.model_validate_json(canonical(event))
+                prior = retained[alias].setdefault(transition.sequence, transition.sha)
+                if prior != transition.sha:
+                    raise ValueError("CWSA_SPOOL_EQUIVOCATION")
+        heads, blocked, packets, events = {}, {}, [], 0
+        with closing(sqlite3.connect(f"file:{journal_db.resolve()}?mode=ro", uri=True)) as db:
+            db.execute("PRAGMA query_only=ON")
+            db.execute("BEGIN")
+            for alias, scope in sorted(config.scopes.items()):
+                rows = history(db, scope, config.policy.epoch)
+                published = retained[alias]
+                cursor = max(published, default=0)
+                if set(published) != set(range(1, cursor + 1)):
+                    raise ValueError("CWSA_SPOOL_HISTORY_GAP")
+                if cursor > len(rows) or any(published[t.sequence] != t.sha for t in rows[:cursor]):
+                    raise ValueError("CWSA_SPOOL_JOURNAL_DIVERGENCE")
+                heads[alias] = cursor
+                if not rows:
+                    blocked[alias] = "SOURCE_NOT_REGISTERED"
+                    continue
+                if cursor == rows[-1].sequence:
+                    continue
+                packet = export_checkpoint_packet(
+                    journal_db,
+                    scope,
+                    config.policy,
+                    signer=signer,
+                    after_cursor=cursor,
+                    issued_ms=issued_ms,
+                )
+                receipt = _publish_checkpoint(packet, outbox)
+                packets.append(receipt["packet_sha"])
+                events += receipt["cursor"] - cursor
+                heads[alias] = receipt["cursor"]
+        return {
+            "schema": "cwsa_source_spool_batch_v3",
+            "state": "SIGNED_SOURCE_PACKETS_PUBLISHED" if packets else "NO_NEW_VERIFIED_EVENTS",
+            "packets": len(packets),
+            "events": events,
+            "packet_shas": packets,
+            "head_cursors": heads,
+            "blocked_sources": blocked,
+            "trading_authorized": False,
+        }
+    finally:
+        os.close(lock)
+
+
 def capture_checkpoint_once(
     *,
     journal,
@@ -142,21 +258,7 @@ def capture_checkpoint_once(
         packet = export_checkpoint_packet(
             journal, scope, policy, signer=signer, after_cursor=after_cursor, issued_ms=issued_ms
         )
-        raw = canonical(packet)
-        packet_sha = sha256(raw).hexdigest()
-        path = outbox / f"{issued_ms * 1_000_000:020d}-{packet_sha[:16]}.json"
-        if path.exists():
-            if _private_input(path) != raw:
-                raise ValueError("CWSA_PACKET_COLLISION")
-        else:
-            _atomic_private_output(path, raw)
-        return {
-            "schema": "cwsa_source_spool_v3",
-            "packet_sha": packet_sha,
-            "source_id": scope.source_id,
-            "cursor": packet["payload"]["transitions"][-1]["sequence"],
-            "trading_authorized": False,
-        }
+        return _publish_checkpoint(packet, outbox)
     finally:
         os.close(lock)
 
@@ -255,16 +357,61 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--source-signing-key", type=Path, required=True)
     parser.add_argument("--source-public-key", type=Path, required=True)
     parser.add_argument("--portfolios", default="P1,P14,P16")
+    parser.add_argument("--wire-version", type=int, choices=(1, 3), default=1)
+    parser.add_argument("--checkpoint-config", type=Path)
+    parser.add_argument("--checkpoint-config-sha256")
+    parser.add_argument("--campaign-manifest", type=Path)
+    parser.add_argument("--campaign-sha256")
     args = parser.parse_args(argv)
-    try:
-        result = capture_once(
-            registry_db=args.registry_db,
-            journal_db=args.journal_db,
-            root=args.spool_root,
-            signing_key=args.source_signing_key,
-            public_key=args.source_public_key,
-            portfolios=tuple(args.portfolios.split(",")),
+    if args.wire_version == 3:
+        if args.checkpoint_config is None or args.checkpoint_config_sha256 is None:
+            parser.error("wire v3 requires an explicit checkpoint config and SHA pin")
+    elif any(
+        (
+            args.checkpoint_config,
+            args.checkpoint_config_sha256,
+            args.campaign_manifest,
+            args.campaign_sha256,
         )
+    ):
+        parser.error("checkpoint and campaign options require wire v3")
+    try:
+        if args.wire_version == 3:
+            from .pm_checkpoint_source import utc_milliseconds
+            from .pm_v4_selected_positions import (
+                load_checkpoint_configuration,
+                selected_source_parents,
+            )
+
+            parents = selected_source_parents(
+                args.registry_db,
+                portfolios=tuple(args.portfolios.split(",")),
+                as_of=datetime.now(UTC).isoformat(),
+                campaign_manifest=args.campaign_manifest,
+                campaign_sha256=args.campaign_sha256,
+            )
+            config = load_checkpoint_configuration(
+                args.checkpoint_config,
+                args.checkpoint_config_sha256,
+                parents,
+            )
+            result = capture_checkpoint_batch(
+                journal_db=args.journal_db,
+                config=config,
+                root=args.spool_root,
+                signing_key=args.source_signing_key,
+                public_key=args.source_public_key,
+                issued_ms=utc_milliseconds(),
+            )
+        else:
+            result = capture_once(
+                registry_db=args.registry_db,
+                journal_db=args.journal_db,
+                root=args.spool_root,
+                signing_key=args.source_signing_key,
+                public_key=args.source_public_key,
+                portfolios=tuple(args.portfolios.split(",")),
+            )
         print(json.dumps(result, sort_keys=True))
         return 0
     except (OSError, ValueError, TypeError, sqlite3.Error, KeyError) as exc:

@@ -43,7 +43,15 @@ def export_checkpoint_packet(
 
     if type(after_cursor) is not int or after_cursor < 0 or type(issued_ms) is not int:
         raise ValueError("CWSA_EXPORT_CURSOR_OR_CLOCK")
-    history = journal.checkpoint_history(scope, policy.epoch)
+    path = Path(journal) if isinstance(journal, (str, Path)) else journal.path
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("CWSA_EXPORT_JOURNAL_PATH")
+    from .pm_checkpoint_journal import history as checkpoint_history
+
+    with closing(sqlite3.connect(f"file:{path.resolve()}?mode=ro", uri=True)) as db:
+        db.execute("PRAGMA query_only=ON")
+        db.execute("BEGIN")
+        history = checkpoint_history(db, scope, policy.epoch)
     if not history or after_cursor > history[-1].sequence:
         raise ValueError("CWSA_EXPORT_UNKNOWN_HEAD")
     selected = [item for item in history if item.sequence > after_cursor][:256]
@@ -57,7 +65,7 @@ def export_checkpoint_packet(
         sample = outcome.sample
         receipts = ((sample.catalog,) if sample.catalog else ()) + sample.receipts
         for receipt in receipts:
-            originals[receipt.raw_sha] = read_wire(journal.path, receipt.raw_sha)
+            originals[receipt.raw_sha] = read_wire(path, receipt.raw_sha)
     payload = {
         "schema": "cwsa_checkpoint_packet_v3",
         "scope": scope.model_dump(mode="json"),
