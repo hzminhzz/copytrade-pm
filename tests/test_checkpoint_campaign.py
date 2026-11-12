@@ -178,3 +178,26 @@ def test_selected_campaign_rejects_missing_or_changed_mandates(tmp_path):
     )
     assert len(missing["portfolios"]) == 16
     assert {r["status"] for r in missing["portfolios"].values()} == {"UNRESOLVED"}
+    changed_name = next(iter(IDENTITIES))
+    before = j.restore(changed_name)
+    profiles[changed_name] = PaperPortfolioSpec(
+        changed_name,
+        (m.source_id,),
+        (m.source_id,),
+        ("0.05",),
+        ("200",),
+        "SYNTHETIC_TEST_ONLY",
+        "200",
+    )
+    drift = campaign.record_selected_checkpoint_wave(
+        selected,
+        requests,
+        at_ms=BOUNDARY + 104,
+        catalog={"BTC/USDC:USDC": ccxt_market()},
+    )
+    assert drift["portfolios"][changed_name]["status"] == "UNRESOLVED"
+    assert (
+        drift["portfolios"][changed_name]["reason"] == "CHECKPOINT_SELECTED_MANDATE_OR_RISK_DRIFT"
+    )
+    assert j.restore(changed_name) == before
+    assert sum(r["status"] == "BASELINE" for r in drift["portfolios"].values()) == 15

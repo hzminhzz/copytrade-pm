@@ -130,7 +130,7 @@ A reproducible synthetic sixteen-account wave shares exactly one CWSA history
 and signal ID, uses independent k/finance, isolates one HALT, and survives replay.
 A two-source account test proves unavailable B preserves its inventory while
 healthy A can act only after full existing risk checks; coverage stays incomplete.
-Selected-campaign missing-approval negatives are explicit. Focused paper/source/
+Selected-campaign missing-approval and changed frozen-k negatives are explicit. Focused paper/source/
 existing observed-paper regression: **40 passed**; Ruff/format passed.
 
 The actual campaign was re-read without mutation: 16 scenarios, 14 deduplicated
@@ -141,6 +141,55 @@ prospective paper scenarios. Existing exclusions and k-conflict flags remain.
 No real signed checkpoint mandates or qualified native timing policy have been
 established; these block prospective acceptance, not the synthetic engineering
 implementation. No current T0+300 result is relabeled.
+
+## #321–#325 — protected boundary and cross-repository proof
+
+The existing Guardian owns checkpoint opportunities, market/checkpoint claims,
+exact pod allocation, average-cost fixture basis, independent account evidence,
+one-shot reservation/outbox dispatch and broker reconciliation. Source, mandate,
+financial and broker transitions remain separately owned. Same-account gross
+risk is assessed before offsetting pods; zero external netting creates no
+fictitious execution costs or profits. Native cross-zero capability is UNKNOWN
+unless independently established; the synthetic reference proves safe-net and
+reduce-only/MISSED cases without a real route.
+
+Old mandate generations retain fills, costs, positions, HALT and UNKNOWN
+obligations. A successor cannot reset shared source continuity or erase retained
+owner risk. Actual SIGKILL tests establish before/after-commit behavior and
+independent fill adoption after restart without resubmission.
+
+The clean #325 matrix at research `a18c8c0f7af9851cfec2f9588a92e501331d1fff`,
+application `3337dd2db8c6c8c8df4cb1e66a151a2b244a1b1e` and connector
+`ea95f9bf9661bcda41685d6ba939aa349628f8f5` passed: application Python 3.13/3.14
+each 321/1 skipped, connector 399/1 skipped, mocked native adapter groups 2 and
+15 passed, research all-extras 2127/6 skipped. Exact producer vectors, 16
+independent paper accounts and the Guardian consumer were compared across clean
+pinned checkouts. Later review corrections receive their own final gate receipt.
+See prop-production `docs/CHECKPOINT-INTEGRATION-325.md` for the owner contract.
+
+## #326 — reproducible matched follower economics
+
+[The evaluator contract](CANONICAL-5M-ECONOMICS-326.md) requires exact clean code,
+original immutable ledger/manifest heads, matched scope/frozen k, independent
+causal quotes, original source proofs and a predeclared signed criterion.
+It replays the existing financial owners rather than introducing a simulator.
+Missing legs, coverage gaps and incomplete provenance remain missing; fixture
+fills or shared marks do not become native executable P&L. The actual new
+prospective cohort and approved study criterion do not yet exist.
+
+## #327 — nonactivating release and compatible rollback
+
+The application verifies a signed candidate's exact code/schema/trust/scope and
+strictly future boundary without advancing its signer floor. Its existing
+isolated Guardian worker rehearses baseline, source GAP, scope rejection,
+restart and intact HALT with zero broker submissions. Compatible code recovery
+changes code/units only; an incompatible older contract keeps services stopped
+and preserves new durable state. See prop-production
+`docs/CHECKPOINT-SHADOW-RELEASE-327.md`.
+
+A real operational candidate still requires approved measured source limits,
+real new mandate signatures and a future effective boundary. Publication of the
+engineering artifacts is not deployment or authorization.
 
 ## Dependency graph
 
