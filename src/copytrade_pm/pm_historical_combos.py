@@ -576,7 +576,15 @@ def _run_combo(
     cost_multiplier: D = D("1"),
     measure_tracking: bool = False,
     capacity_enforced: bool = False,
+    start_at: datetime = START,
+    end_at: datetime = END,
+    holdout_at: datetime | None = HOLDOUT_START,
+    pod_loss_limit: D | None = None,
 ) -> dict:
+    if pod_loss_limit is not None and pod_loss_limit <= ZERO:
+        raise ValueError("INVALID_POD_LOSS_LIMIT")
+    if start_at >= end_at or start_at.tzinfo is None or end_at.tzinfo is None:
+        raise ValueError("INVALID_REPLAY_INTERVAL")
     actions = (
         actions_override
         if actions_override is not None
@@ -591,10 +599,11 @@ def _run_combo(
             "pnl_usd": None,
         }
     instruments = {_native_pm(ep.coin) for wallet in trio for ep in episodes[wallet]}
-    account = Account.start(_synthetic_rulebook(instruments), START.isoformat())
+    account = Account.start(_synthetic_rulebook(instruments), start_at.isoformat())
     latest: dict[str, dict[Instrument, D]] = {w: {} for w in trio}
     counters = Counter()
     per_wallet_tracking = defaultdict(Counter)
+    suspended_pods: set[str] = set()
     curve = []
     peak = CASH
     max_dd = ZERO
@@ -603,17 +612,17 @@ def _run_combo(
     daily_floor_min: D | None = None
     reason = None
     i = 0
-    current = START
-    last_day = START.date()
+    current = start_at
+    last_day = start_at.date()
     prior_equity = CASH
-    while current < END:
+    while current < end_at:
         if i >= len(actions) and not _has_exposure(account):
             # Finished the last observed episode; a flat book has no mark PnL.
-            current = END
+            current = end_at
             break
         if not _has_exposure(account) and i < len(actions) and current < actions[i][0]:
             current = actions[i][0]
-        if current >= END:
+        if current >= end_at:
             break
         pending = actions[i][1] if i < len(actions) and actions[i][0] == current else {}
         insts = {inst for inst, q in account.quantities.items() if q}
@@ -634,7 +643,7 @@ def _run_combo(
             reason = "CONTRACTUAL_DRAWDOWN_BREACH"
         if account.stage_passed:
             reason = "SIMULATED_STAGE_TARGET_REACHED"
-        if current >= HOLDOUT_START and holdout_start_equity is None:
+        if holdout_at is not None and current >= holdout_at and holdout_start_equity is None:
             holdout_start_equity = account.equity
         current_day = current.date()
         if current_day != last_day:
@@ -653,10 +662,17 @@ def _run_combo(
             )
         if reason:
             break
-        if pending:
+        newly_suspended = set()
+        if pod_loss_limit is not None:
+            for pod, pnl in account.pm_equity_pnl().items():
+                if pod in trio and pod not in suspended_pods and pnl <= -pod_loss_limit:
+                    newly_suspended.add(pod)
+                    counters["pod_fixed_loss_stop_latched"] += 1
+            suspended_pods.update(newly_suspended)
+        if pending or newly_suspended:
             latest.update(pending)
-            # Mark quotes for all requested positions, including unchanged.
-            desired = latest
+            # Always retain source intent independently from stop/veto decisions.
+            desired = {p: ({} if p in suspended_pods else book) for p, book in latest.items()}
             if any(inst not in prices for b in desired.values() for inst in b):
                 # Existing portfolio active legs already have current marks;
                 # on unchanged source targets acquire their exact minute quote.
@@ -716,27 +732,36 @@ def _run_combo(
                 for wallet, target in latest.items():
                     actual = account.pm_quantities.get(wallet, {})
                     insts_for_wallet = set(target) | set(actual)
+                    missing_quote = 0
+                    for inst in sorted(insts_for_wallet - set(prices)):
+                        try:
+                            prices[inst] = _quote(market, inst, current).open
+                        except MarketDataBlocked:
+                            missing_quote += 1
+                    priced = insts_for_wallet & set(prices)
                     intended = sum(
-                        (abs(target.get(inst, ZERO) * prices[inst]) for inst in insts_for_wallet),
+                        (abs(target.get(inst, ZERO) * prices[inst]) for inst in priced),
                         ZERO,
                     )
                     actual_gross = sum(
-                        (abs(actual.get(inst, ZERO) * prices[inst]) for inst in insts_for_wallet),
+                        (abs(actual.get(inst, ZERO) * prices[inst]) for inst in priced),
                         ZERO,
                     )
                     error = sum(
                         (
                             abs(target.get(inst, ZERO) - actual.get(inst, ZERO)) * prices[inst]
-                            for inst in insts_for_wallet
+                            for inst in priced
                         ),
                         ZERO,
                     )
                     stats = per_wallet_tracking[wallet]
+                    stats["unpriced_target_instrument_samples"] += missing_quote
                     stats["intended_gross_usd_sum"] += intended
                     stats["actual_gross_usd_sum"] += actual_gross
                     stats["tracking_error_usd_sum"] += error
                     stats["samples"] += 1
-            i += 1
+            if pending:
+                i += 1
         # Fixed conservative funding debit proxy at eight-hour settlement.
         if current.minute == 0 and current.hour in (0, 8, 16) and account.quantities:
             distribution: dict[str, D] = {}
@@ -754,10 +779,10 @@ def _run_combo(
         max_dd = max(max_dd, peak - account.equity)
         worst_day_usd = min(worst_day_usd, account.equity - account.daily_start_balance)
         current += MINUTE
-    if holdout_start_equity is None and current >= END:
+    if holdout_at is not None and holdout_start_equity is None and current >= end_at:
         # Flat-account fast-forward across Sep 1 has no hidden PnL.
         holdout_start_equity = account.equity
-    if current >= END and _has_exposure(account):
+    if current >= end_at and _has_exposure(account):
         reason = "UNCLOSED_FOLLOWER_BOOK_AT_Q3_END"
     if curve and curve[-1]["date"] == last_day.isoformat():
         curve[-1]["equity_usd"] = str(account.equity)
@@ -773,9 +798,14 @@ def _run_combo(
                 "actual_gross_usd_sum": str(stats["actual_gross_usd_sum"]),
                 "tracking_error_usd_sum": str(stats["tracking_error_usd_sum"]),
                 "action_count": stats["samples"],
+                **(
+                    {"unpriced_target_instrument_samples": stats["unpriced_target_instrument_samples"]}
+                    if pod_loss_limit is not None or stats["unpriced_target_instrument_samples"]
+                    else {}
+                ),
                 "action_weighted_tracking_error_fraction": (
                     str(stats["tracking_error_usd_sum"] / stats["intended_gross_usd_sum"])
-                    if stats["intended_gross_usd_sum"]
+                    if stats["intended_gross_usd_sum"] and not stats["unpriced_target_instrument_samples"]
                     else None
                 ),
             }
@@ -788,9 +818,9 @@ def _run_combo(
         if eligible_full
         else "PARTIAL_CONDITIONAL_REPLAY",
         "stop_reason": reason,
-        "observed_through": min(current, END).isoformat(),
-        "model_start": START.isoformat(),
-        "model_end_exclusive": END.isoformat(),
+        "observed_through": min(current, end_at).isoformat(),
+        "model_start": start_at.isoformat(),
+        "model_end_exclusive": end_at.isoformat(),
         "accepted_episodes": {w: len(episodes[w]) for w in trio},
         "equity_usd": str(account.equity),
         "pnl_usd": str(account.equity - CASH),
@@ -801,11 +831,16 @@ def _run_combo(
         if holdout_start_equity is not None
         else None,
         "holdout_end_delta_usd": str(account.equity - holdout_start_equity)
-        if holdout_start_equity is not None and current >= END
+        if holdout_start_equity is not None and current >= end_at
         else None,
         "breached_floor": account.breached,
         "stage_passed": account.stage_passed,
         "per_wallet_pnl_usd": {k: str(v) for k, v in account.pm_equity_pnl().items()},
+        **(
+            {"pod_loss_limit_usd": str(pod_loss_limit), "suspended_pods": sorted(suspended_pods)}
+            if pod_loss_limit is not None
+            else {}
+        ),
         "counters": {k: (str(v) if isinstance(v, D) else v) for k, v in sorted(counters.items())},
         "daily_curve": curve,
         "economic_classification": "HISTORICAL_ORACLE_CONDITIONAL_EPISODES_NOT_WALLET_EQUITY_OR_VERIFIED_FOLLOWER",
