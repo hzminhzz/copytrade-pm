@@ -1725,9 +1725,16 @@ class PaperJournal:
 
     def market_quote_status(self, instrument: str) -> dict:
         """Read-only full chain audit; no market/financial mutations."""
+        return self.market_quote_file_status(self.path, instrument)
+
+    @staticmethod
+    def market_quote_file_status(path: Path, instrument: str) -> dict:
+        """Native chain/quote verification without instantiating a writable journal."""
         from contextlib import closing
 
-        uri = "file:" + str(self.path.resolve()) + "?mode=ro"
+        if path.is_symlink() or not path.is_file():
+            raise ValueError("PAPER_MARKET_QUOTE_PATH_INVALID")
+        uri = "file:" + str(path.resolve()) + "?mode=ro"
         with closing(sqlite3.connect(uri, uri=True, timeout=0)) as db:
             db.execute("PRAGMA query_only=ON")
             rows = db.execute(
@@ -1747,7 +1754,7 @@ class PaperJournal:
             rows, 1
         ):
             quote = json.loads(payload)
-            self._validate_market_quote(quote)
+            PaperJournal._validate_market_quote(quote)
             if (
                 seq < 1
                 or seq != expected_seq
