@@ -1,6 +1,6 @@
 # Reservoir: wallet-scoped DuckDB acquisition and PIT backtest plan
 
-**Status:** DESIGN + BOUNDED PILOT EVIDENCE. Approved research DEX scope: **`hyperliquid` and `xyz` only**; the completed seven-day, 14-wallet pilot acquired **`hyperliquid` fills only**, not `xyz`. See [pilot report](RESERVOIR-WALLET-PILOT-20261112.md). This scope decision does **not** establish new `xyz` acquisition, canonical-store ingestion, longer history, schema migration, trading cutover, PM-03/04 changes or scientific qualification.
+**Status:** DESIGN + VERIFIED 31-DAY PRIVATE RESEARCH UPDATE. Approved research DEX scope: **`hyperliquid` and `xyz` only**. The original seven-day main-DEX-only pilot is preserved in [pilot evidence](RESERVOIR-WALLET-PILOT-20261112.md); the later **31-day two-DEX selected six-portfolio acquisition is completed** and documented in [verified backfill evidence](RESERVOIR-SIX-PORTFOLIO-BACKFILL-20261112.md). This does **not** establish canonical-store ingestion, full 2026 history, trading cutover, PM-03/04 financial admission or scientific qualification.
 **Evidence reviewed:** 2026-11-12 10:32–10:50 UTC, source docs fetched 2026-11-12.
 **Working checkout inspected:** /home/quant/dev/copytrade-pm, HEAD 6c07cc6d; checkout dirty and behind remote. These are dated observations, not current source-of-truth service status.
 

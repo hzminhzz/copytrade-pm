@@ -35,6 +35,7 @@ import polars as pl
 
 BUCKET = "hydromancer-reservoir"
 REGION = "ap-northeast-1"
+ALLOWED_DEXES = frozenset({"hyperliquid", "xyz"})
 SELECTED_PORTFOLIOS = ("A", "B", "C", "Combo2", "regime.macro/TriadA", "regime.macro/TriadChop")
 REGISTRY = Path("/home/quant/.local/share/copytrade/registry/wallet_registry.sqlite")
 CATALOG = Path("/home/quant/dev/copytrade-pm/data/private/wallet_store/catalog.sqlite")
@@ -209,29 +210,32 @@ def s3_head(key: str) -> dict[str, Any]:
     }
 
 
-def source_keys(day: str) -> tuple[dict[str, Any], dict[str, Any]]:
-    fill = s3_head(f"by_dex/hyperliquid/fills/perp/all/date={day}/fills.parquet")
+def source_keys(
+    day: str, dex: str = "hyperliquid", snapshot_scope: str = "global"
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    if dex not in ALLOWED_DEXES:
+        raise ValueError("DEX_NOT_APPROVED")
+    if snapshot_scope not in ("global", "dex") or (dex == "xyz" and snapshot_scope != "dex"):
+        raise ValueError("SNAPSHOT_SCOPE_NOT_APPROVED")
+    fill = s3_head(f"by_dex/{dex}/fills/perp/all/date={day}/fills.parquet")
+    snap_prefix = (
+        f"global/snapshots/perp/all/date={day}/"
+        if snapshot_scope == "global"
+        else f"by_dex/{dex}/snapshots/perp/date={day}/"
+    )
     objects = aws_cli(
-        [
-            "list-objects-v2",
-            "--bucket",
-            BUCKET,
-            "--prefix",
-            f"global/snapshots/perp/all/date={day}/",
-            "--max-keys",
-            "25",
-        ]
+        ["list-objects-v2", "--bucket", BUCKET, "--prefix", snap_prefix, "--max-keys", "25"]
     )
     contents = objects.get("Contents", [])
     if len(contents) != 1 or objects.get("IsTruncated"):
         raise ValueError(f"SNAPSHOT_MISSING_OR_MULTIPLE day={day}")
     key = contents[0]["Key"]
-    match = SNAPSHOT.fullmatch(key)
-    if match is None or match.group(1) != day:
+    match = re.fullmatch(re.escape(snap_prefix) + r"(\d+)_(\d+)\.parquet", key)
+    if match is None:
         raise ValueError(f"BAD_SNAPSHOT_STATE_ID day={day}")
     snapshot = s3_head(key)
-    snapshot["block"] = int(match.group(2))
-    snapshot["state_ts_ms"] = int(match.group(3))
+    snapshot["block"] = int(match.group(1))
+    snapshot["state_ts_ms"] = int(match.group(2))
     state_day = datetime.fromtimestamp(snapshot["state_ts_ms"] / 1000, UTC).date()
     if str(state_day) != day:
         raise ValueError(f"SNAPSHOT_TIME_DAY_MISMATCH day={day}")
@@ -275,7 +279,9 @@ def column_budget(con, key: str, fields: tuple[str, ...]) -> dict[str, Any]:
     }
 
 
-def validate_fills(table: pa.Table, wallets: set[str], day: str) -> dict[str, Any]:
+def validate_fills(
+    table: pa.Table, wallets: set[str], day: str, dex: str = "hyperliquid"
+) -> dict[str, Any]:
     required = (
         "wallet",
         "exchange_ts",
@@ -304,7 +310,7 @@ def validate_fills(table: pa.Table, wallets: set[str], day: str) -> dict[str, An
     liquidation = 0
     for row in table.to_pylist():
         wallet = row["wallet"]
-        if wallet not in wallets or row["dex"] != "hyperliquid":
+        if wallet not in wallets or row["dex"] != dex:
             raise ValueError("SOURCE_SCOPE_MISMATCH")
         stamp = row["exchange_ts"]
         if stamp is None or str(stamp.astimezone(UTC).date()) != day:
@@ -347,7 +353,9 @@ def fetch_fills(con, key: str, wallets: list[str], day: str) -> pa.Table:
     return con.sql(sql, params=[f"{S3_PREFIX}/{key}", *wallets]).to_arrow_table()
 
 
-def fetch_snapshot(con, key: str, wallets: list[str], state: dict[str, Any]) -> pa.Table:
+def fetch_snapshot(
+    con, key: str, wallets: list[str], state: dict[str, Any], allow_empty: bool = False
+) -> pa.Table:
     slots = ",".join("?" for _ in wallets)
     sql = f"""
         SELECT user AS wallet, market,
@@ -360,7 +368,7 @@ def fetch_snapshot(con, key: str, wallets: list[str], state: dict[str, Any]) -> 
     table = con.sql(
         sql, params=[state["block"], state["state_ts_ms"], f"{S3_PREFIX}/{key}", *wallets]
     ).to_arrow_table()
-    if table.num_rows == 0:
+    if table.num_rows == 0 and not allow_empty:
         raise ValueError("SNAPSHOT_EMPTY_SELECTED_SCOPE_UNKNOWN")
     for row in table.to_pylist():
         if row["wallet"] not in wallets or not row["market"]:
@@ -392,12 +400,12 @@ def publish_table(
     source_key: str,
     day: str,
     metrics: dict[str, Any],
+    allow_empty: bool = False,
 ) -> dict[str, Any]:
     old = verify_artifact(folder, etag, scope_sha)
     if old is not None:
         return old
-    if table.num_rows == 0:
-        # Zero rows is not proof of inactivity, never publish a zero-day tape.
+    if table.num_rows == 0 and not allow_empty:
         raise ValueError("NO_ROWS_SERVED_NOT_AN_INACTIVE_DAY")
     digest = exclusive_arrow(folder / "data.parquet", table)
     record = {
@@ -408,6 +416,7 @@ def publish_table(
         "sha256": digest,
         "wallet_set_sha256": scope_sha,
         "rows": table.num_rows,
+        "empty_not_inactivity": table.num_rows == 0,
         "fields": list(table.column_names),
         "metrics": metrics,
         "historical_first_known": False,
@@ -427,7 +436,14 @@ def date_window(start: date, end: date) -> list[str]:
     return [str(start + timedelta(days=i)) for i in range((end - start).days + 1)]
 
 
-def preflight(start: date, end: date, folder: Path, max_projected_bytes: int) -> dict[str, Any]:
+def preflight(
+    start: date,
+    end: date,
+    folder: Path,
+    max_projected_bytes: int,
+    dex: str = "hyperliquid",
+    snapshot_scope: str = "global",
+) -> dict[str, Any]:
     wallets, scope = registry_scope()
     if len(wallets) != 14:
         raise ValueError("UNEXPECTED_SELECTED_COHORT")
@@ -437,7 +453,11 @@ def preflight(start: date, end: date, folder: Path, max_projected_bytes: int) ->
         objects = []
         total_projection = 0
         for day in days:
-            fill, snapshot = source_keys(day)
+            fill, snapshot = (
+                source_keys(day)
+                if dex == "hyperliquid" and snapshot_scope == "global"
+                else source_keys(day, dex=dex, snapshot_scope=snapshot_scope)
+            )
             fill["type"] = "fills"
             snapshot["type"] = "position_snapshot"
             fill["column_budget"] = column_budget(conn, fill["key"], CORE)
@@ -449,6 +469,8 @@ def preflight(start: date, end: date, folder: Path, max_projected_bytes: int) ->
             raise ValueError("COST_CAP_ESTIMATE_EXCEEDED")
         manifest = {
             "schema": "reservoir_pilot_preflight_v1",
+            "dex": dex,
+            "snapshot_scope": snapshot_scope,
             "created_utc": datetime.now(UTC).isoformat(),
             "days": days,
             "scope": scope,
@@ -493,11 +515,17 @@ def verify_manifest(folder: Path) -> tuple[list[str], dict[str, Any]]:
         != pre["total_projected_compressed_bytes"]
     ):
         raise ValueError("MANIFEST_BUDGET_INCONSISTENT")
+    source_dex = pre.get("dex", "hyperliquid")
+    if source_dex not in ALLOWED_DEXES:
+        raise ValueError("PREFLIGHT_DEX_NOT_APPROVED")
+    if source_dex == "xyz" and pre.get("snapshot_scope") != "dex":
+        raise ValueError("XYZ_REQUIRES_DEX_SNAPSHOTS")
     return wallets, pre
 
 
 def fetch(folder: Path, only_day: str | None = None) -> dict[str, Any]:
     wallets, pre = verify_manifest(folder)
+    dex = pre.get("dex", "hyperliquid")
     if only_day is not None and only_day not in pre["days"]:
         raise ValueError("FETCH_DAY_NOT_IN_FROZEN_PREFLIGHT")
     pending_days = [only_day] if only_day is not None else pre["days"]
@@ -528,18 +556,29 @@ def fetch(folder: Path, only_day: str | None = None) -> dict[str, Any]:
                 started = time.monotonic()
                 if kind == "fills":
                     table = fetch_fills(con, item["key"], wallets, day)
-                    metrics = validate_fills(table, set(wallets), day)
+                    metrics = validate_fills(table, set(wallets), day, dex=dex)
                 else:
-                    table = fetch_snapshot(con, item["key"], wallets, item)
+                    table = fetch_snapshot(
+                        con,
+                        item["key"],
+                        wallets,
+                        item,
+                        allow_empty=pre.get("snapshot_scope") == "dex",
+                    )
                     metrics = {
                         "rows": table.num_rows,
                         "wallets_with_positions": len(set(table.column("wallet").to_pylist())),
-                        "native_main_market_rows": sum(
-                            ":" not in row["market"] for row in table.to_pylist()
+                        "native_selected_market_rows": sum(
+                            (
+                                ":" not in row["market"]
+                                if dex == "hyperliquid"
+                                else row["market"].startswith("xyz:")
+                            )
+                            for row in table.to_pylist()
                         ),
                     }
                 elapsed = round(time.monotonic() - started, 3)
-                if table.num_rows == 0:
+                if table.num_rows == 0 and pre.get("snapshot_scope") != "dex":
                     summary.append(
                         {
                             "day": day,
@@ -558,6 +597,7 @@ def fetch(folder: Path, only_day: str | None = None) -> dict[str, Any]:
                     item["key"],
                     day,
                     metrics,
+                    allow_empty=pre.get("snapshot_scope") == "dex",
                 )
                 summary.append(
                     {
@@ -580,6 +620,7 @@ def fetch(folder: Path, only_day: str | None = None) -> dict[str, Any]:
         result = {
             "asof_utc": datetime.now(UTC).isoformat(),
             "schema": "reservoir_wallet_pilot_run_v1",
+            "dex": dex,
             "study_class": "RETROSPECTIVE_FIXED_COHORT_NOT_PIT_SELECTION",
             "scope_sha": pre["scope"]["wallet_set_sha256"],
             "results": summary,
@@ -603,7 +644,9 @@ def fetch(folder: Path, only_day: str | None = None) -> dict[str, Any]:
         con.close()
 
 
-def read_local_ids(con: sqlite3.Connection, wallet: str, day: str) -> tuple[set[int], str]:
+def read_local_ids(
+    con: sqlite3.Connection, wallet: str, day: str, dex: str = "hyperliquid"
+) -> tuple[set[int], str]:
     # The immutable canonical store is another evidence provider, not overwritten.
     partitions = con.execute(
         "SELECT path,sha256 FROM partitions WHERE kind='fills' AND wallet=? AND day=?",
@@ -617,7 +660,8 @@ def read_local_ids(con: sqlite3.Connection, wallet: str, day: str) -> tuple[set[
         if not path.is_file() or sha256(path.read_bytes()).hexdigest() != expected:
             return set(), "LOCAL_HASH_OR_PATH_BLOCKED"
         frame = pl.read_parquet(path, columns=["dex", "trade_id"])
-        frame = frame.filter(pl.col("dex").is_in(["HL", "hyperliquid"]))
+        local_names = ["HL", "hyperliquid"] if dex == "hyperliquid" else ["xyz"]
+        frame = frame.filter(pl.col("dex").is_in(local_names))
         for tid in frame.get_column("trade_id").to_list():
             if tid is not None:
                 results.add(int(tid))
@@ -626,6 +670,7 @@ def read_local_ids(con: sqlite3.Connection, wallet: str, day: str) -> tuple[set[
 
 def report(folder: Path) -> dict[str, Any]:
     wallets, pre = verify_manifest(folder)
+    dex = pre.get("dex", "hyperliquid")
     catalog = sqlite3.connect(f"file:{CATALOG}?mode=ro", uri=True)
     group: Counter[str] = Counter()
     day_result: list[dict[str, Any]] = []
@@ -657,7 +702,7 @@ def report(folder: Path) -> dict[str, Any]:
             daily = Counter()
             for wallet in wallets:
                 source_ids = per_wallet.get(wallet, set())
-                local_ids, local_status = read_local_ids(catalog, wallet, day)
+                local_ids, local_status = read_local_ids(catalog, wallet, day, dex=dex)
                 if local_status != "LOCAL_PARTITION_PRESENT":
                     daily[local_status] += 1
                 daily["source_rows"] += len(source_ids)
@@ -707,14 +752,25 @@ def report(folder: Path) -> dict[str, Any]:
                 chains["single_event_pair_mismatch_unresolved"] += 1
 
     by_date: dict[str, dict[tuple[str, str], float]] = defaultdict(dict)
-    state_times: dict[str, int] = {}
+    # Source snapshot state/time remains available from the exact pinned
+    # object even when zero selected-wallet position rows were returned.
+    state_times: dict[str, int] = {
+        day: next(
+            item["state_ts_ms"]
+            for item in pre["objects"]
+            if item["type"] == "position_snapshot" and f"date={day}/" in item["key"]
+        )
+        for day in pre["days"]
+    }
     for row in snapshots:
         d = str(datetime.fromtimestamp(row["state_ts_ms"] / 1000, UTC).date())
-        state_times[d] = row["state_ts_ms"]
-        if ":" not in row["market"]:  # main-DEX only
+        if row["state_ts_ms"] != state_times.get(d):
+            raise ValueError("SNAPSHOT_ROWS_STATE_MISMATCH")
+        if ":" not in row["market"] if dex == "hyperliquid" else row["market"].startswith("xyz:"):
             by_date[d][(row["wallet"], row["market"])] = row["signed_size"]
     anchor = Counter()
     days = pre["days"]
+    anchor["selected_scope_zero_position_days_unknown"] = sum(day not in by_date for day in days)
     for d0, d1 in zip(days, days[1:]):
         t0 = datetime.fromtimestamp(state_times[d0] / 1000, UTC)
         t1 = datetime.fromtimestamp(state_times[d1] / 1000, UTC)
@@ -762,6 +818,7 @@ def report(folder: Path) -> dict[str, Any]:
     result = {
         "asof_utc": datetime.now(UTC).isoformat(),
         "schema": "reservoir_wallet_pilot_parity_v2",
+        "dex": dex,
         "study_class": "RETROSPECTIVE_FIXED_COHORT_NOT_PIT_SELECTION",
         "days": days,
         "wallets": len(wallets),
@@ -798,11 +855,20 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=OUTPUT)
     parser.add_argument("--max-projected-mb", type=int, default=1300)
     parser.add_argument("--day", type=date.fromisoformat, default=None)
+    parser.add_argument("--dex", choices=sorted(ALLOWED_DEXES), default="hyperliquid")
+    parser.add_argument("--snapshot-scope", choices=["global", "dex"], default="global")
     args = parser.parse_args()
     os.umask(0o077)
     with private_lock(args.out):
         if args.mode == "preflight":
-            out = preflight(args.start, args.end, args.out, args.max_projected_mb * 1_000_000)
+            out = preflight(
+                args.start,
+                args.end,
+                args.out,
+                args.max_projected_mb * 1_000_000,
+                dex=args.dex,
+                snapshot_scope=args.snapshot_scope,
+            )
         elif args.mode == "fetch":
             out = fetch(args.out, str(args.day) if args.day else None)
         else:
