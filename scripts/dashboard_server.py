@@ -30,6 +30,7 @@ REGISTRY_DB = Path(
         "/home/quant/.local/share/copytrade/registry/wallet_registry.sqlite",
     )
 )
+_CONFIGURED_REGISTRY_DB = REGISTRY_DB.resolve()
 PROJECTION_DB = Path(
     os.environ.get(
         "COPYTRADE_OPS_PROJECTION_DB",
@@ -205,7 +206,7 @@ def read_portfolio_tracking() -> tuple[dict[str, dict], dict[str, dict]]:
         if not db_path.exists():
             continue
         try:
-            with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as conn:
+            with closing(sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)) as conn:
                 row = conn.execute(
                     "SELECT run_id, manifest, snapshot, last_event_at, cursor FROM runs ORDER BY last_event_at DESC LIMIT 1"
                 ).fetchone()
@@ -308,7 +309,11 @@ def get_sqlite_state(
     prefect_health = read_prefect_staging(
         prefect_staging_dir if prefect_staging_dir is not None else PREFECT_STAGING_DIR
     )
-    hist_tracking, cwsa_tracking = read_portfolio_tracking()
+    # Do not splice production historical/CWSA accounting into a different
+    # registry snapshot (including tests or independent review copies).
+    hist_tracking, cwsa_tracking = (
+        read_portfolio_tracking() if reg.resolve() == _CONFIGURED_REGISTRY_DB else ({}, {})
+    )
     wallets: list[dict] = []
     portfolios: list[dict] = []
     import_observed: str | None = None
@@ -447,7 +452,10 @@ def get_sqlite_state(
                 health_as_of = health_report.get("as_of")
 
             is_cwsa_ch2 = (version == 2 and pid in ("A", "B", "C", "Combo2", "regime.macro/TriadA", "regime.macro/TriadChop"))
-            is_archived_v4 = pid in ("P1", "P14", "P15", "P16") or str(pid).startswith("E")
+            is_archived_v4 = (
+                (pid in ("P1", "P14", "P15", "P16") or str(pid).startswith("E"))
+                and str(pid).upper() in hist_tracking
+            )
 
             tracking_info = None
             if is_cwsa_ch2 and pid in cwsa_tracking:
@@ -506,7 +514,7 @@ def get_sqlite_state(
                     "state": port_state,
                     "strategy": port_strat,
                     "walletAddressesJson": json.dumps(member_aliases),
-                    "podCount": len(member_aliases),
+                    "podCount": None,  # a seal's member count is not an admitted pod count
                     "totalRiskUsd": total_risk,
                     "evidenceBasis": ev_basis,
                     "evidenceQuality": ev_qual,
@@ -576,7 +584,7 @@ def get_sqlite_state(
                     "state": "archived",
                     "strategy": "Archived V4 — Historical",
                     "walletAddressesJson": "[]",
-                    "podCount": len(h_info.get("positions", [])),
+                    "podCount": None,  # open positions do not establish pod count
                     "totalRiskUsd": None,
                     "evidenceBasis": "historical",
                     "evidenceQuality": "verified",
