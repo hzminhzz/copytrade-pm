@@ -18,11 +18,35 @@ type Wallet = {
   drawdownPct: string | null; evidenceQuality: string; evidenceBasis: Basis;
   sourceRef: string | null; assessedAt: string | null; updatedAt: string; registryMetadataJson?: string;
 };
+type PositionItem = {
+  instrument: string;
+  symbol: string;
+  side: "LONG" | "SHORT";
+  quantity: number;
+  entryPrice: number;
+  markPrice: number;
+  marketValue: number;
+  unrealizedPnl: number;
+};
 type Portfolio = {
   id: string; name: string; state: string; strategy: string | null;
   walletAddressesJson: string; podCount: number | null; totalRiskUsd: string | null;
   evidenceBasis: Basis; evidenceQuality: string; sourceRef: string | null;
   detailsJson: string; updatedAt: string;
+  strategyHealth?: string | null; advisoryStatus?: string | null;
+  advisoryCalibration?: string | null; feeDragUsd?: string | null;
+  prefectReportSha256?: string | null; prefectAssessedAt?: string | null;
+  initialEquityUsd?: number | null; currentEquityUsd?: number | null;
+  cashUsd?: number | null; realizedPnlUsd?: number | null;
+  unrealizedPnlUsd?: number | null; totalPnlUsd?: number | null;
+  totalPnlPct?: number | null; highWaterMarkUsd?: number | null;
+  drawdownPct?: number | null; dailyLossUsd?: number | null;
+  totalCostsUsd?: number | null; totalFundingUsd?: number | null;
+  grossExposureUsd?: number | null; leverage?: number | null;
+  openPositionsCount?: number | null; positions?: PositionItem[] | null;
+  riskState?: string | null; haltReason?: string | null;
+  killSwitchActivated?: boolean | null; paperStatus?: string | null;
+  lastMarkAt?: string | null;
 };
 type OpsRecord = {
   id: string; category: string; title: string; status: string; basis: Basis;
@@ -64,9 +88,21 @@ const statuses = ["pending", "in_progress", "blocked", "verified", "passed", "fa
 const bases: Basis[] = ["historical", "prospective", "paper", "unknown"];
 
 const labelFor = (value: string) => value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
-const asMoney = (value: string | null | undefined) => {
-  const amount = value ? Number(value) : Number.NaN;
-  return Number.isFinite(amount) ? `$${amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : "Pending";
+const asMoney = (value: string | number | null | undefined, digits = 2) => {
+  if (value === null || value === undefined) return "—";
+  const amount = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(amount) ? `$${amount.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits })}` : "—";
+};
+const asPnl = (pnl: number | string | null | undefined, pct: number | string | null | undefined) => {
+  if (pnl === null || pnl === undefined) return { text: "—", tone: "muted" };
+  const val = typeof pnl === "number" ? pnl : parseFloat(String(pnl));
+  const p = pct !== null && pct !== undefined ? (typeof pct === "number" ? pct : parseFloat(String(pct))) : null;
+  if (!Number.isFinite(val)) return { text: "—", tone: "muted" };
+  const sign = val > 0 ? "+" : "";
+  const pctStr = p !== null && Number.isFinite(p) ? ` (${sign}${p.toFixed(2)}%)` : "";
+  const text = `${sign}$${val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${pctStr}`;
+  const tone = val > 0.005 ? "good" : val < -0.005 ? "bad" : "muted";
+  return { text, tone };
 };
 function parseJsonObject(value: string | null | undefined): Record<string, unknown> {
   try { const parsed: unknown = JSON.parse(value || "{}"); return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {}; }
@@ -217,7 +253,7 @@ function Overview({ data, dbStatus, dbMessage, blockers, decision, onOpen, onNav
     <div className="registry-banner"><div className="banner-icon"><Database size={19} /></div><div className="banner-copy"><strong>{dbStatus === "ready" ? registryLabel : "Site SQLite is unavailable"}</strong><span>{dbStatus === "ready" ? registryDetail : dbMessage || "The Site projection could not be read."} The VPS SQLite remains authoritative; This is a read-only VPS projection.</span></div><Badge tone={dbStatus === "ready" && sourceCurrent ? "good" : "warn"}>{dbStatus === "ready" ? (sync ? `SOURCE ${labelFor(sync.sourceStatus.toLowerCase())}` : "SYNC PENDING") : "PENDING"}</Badge></div>
     <div className="stat-grid">
       <StatCard label="Registry wallet rows" value={sync ? String(sync.walletTotal) : "—"} detail={sync ? `${sync.walletUnresolved} unresolved aliases; health assessment pending` : "No VPS snapshot received"} icon={WalletCards} tone="blue" pending={!sync} />
-      <StatCard label="Current portfolios" value={sync ? String(data.portfolios.length) : "—"} detail={sync ? `${active} active · ${candidates} selected candidate · paper state unknown` : "Current portfolio set unknown"} icon={Layers3} tone="violet" pending={!sync} />
+      <StatCard label="Current portfolios" value={sync ? String(data.portfolios.length) : "—"} detail={sync ? `${active} active · ${candidates} candidate · ${data.portfolios.filter(p => p.strategyHealth || parseJsonObject(p.detailsJson).strategyHealth).length} assessed health` : "Current portfolio set unknown"} icon={Layers3} tone="violet" pending={!sync} />
       <StatCard label="Open blockers" value={dbStatus === "ready" ? String(blockers) : "Pending"} detail={dbStatus !== "ready" ? "Site records unavailable" : blockers ? "Needs an owner and next step" : "No blockers recorded yet"} icon={AlertTriangle} tone={dbStatus !== "ready" || blockers ? "amber" : "green"} pending={dbStatus !== "ready"} />
       <StatCard label="Production decision" value={decision ? labelFor(decision.status) : "Pending"} detail={decision ? decision.title : "No readiness decision recorded"} icon={Shield} tone="slate" pending={!decision} />
     </div>
@@ -228,7 +264,17 @@ function Overview({ data, dbStatus, dbMessage, blockers, decision, onOpen, onNav
           <ReadinessRow icon={Database} label="VPS wallet & portfolio registry" detail={sync ? `SQLite integrity ${sync.databaseIntegrity || "unknown"}; scientific qualification ${sync.scientificallyQualified ? "reported" : "not established"}; trading authorization ${sync.tradingAuthorized ? "reported" : "not authorized"}` : "Waiting for registry inventory"} status={accepted && sourceCurrent ? "Verified" : "Unverified"} tone={sync && sourceCurrent ? "good" : "warn"} />
           <ReadinessRow icon={Activity} label="Paper trading & T+5 entry" detail="Capture the single-order delay behavior and observed fills" status={data.records.some((r) => r.category === "execution" || r.category === "paper_state") ? "Tracked" : "Pending"} tone={data.records.some((r) => r.category === "execution" || r.category === "paper_state") ? "good" : "warn"} />
           <ReadinessRow icon={GitBranch} label="Deployed revision & runtime" detail="Record deployed SHA, health evidence, and rollback identity" status={deployed ? "Deployed" : "Unknown"} tone={deployed ? "good" : "muted"} />
-          <ReadinessRow icon={BarChart3} label="Grafana rollout" detail="Keep dashboards, alerts, and access checks explicit" status={data.records.some((r) => r.category === "grafana") ? "Tracked" : "Pending"} tone={data.records.some((r) => r.category === "grafana") ? "good" : "warn"} />
+          {(() => {
+            const prefectBatch = data.records.find((r) => r.id === "prefect-track-b-flow" || r.category === "prefect_flow");
+            const isVerified = prefectBatch && (prefectBatch.status === "verified" || (prefectBatch as any).reportedStatus === "verified");
+            return <ReadinessRow
+              icon={Activity}
+              label="Track B strategy health (Prefect)"
+              detail={prefectBatch ? `${prefectBatch.title} · ${prefectBatch.details || "Flow published"}` : "Track B offline strategy health assessments"}
+              status={prefectBatch ? (isVerified ? "Verified" : labelFor(prefectBatch.status)) : "Pending"}
+              tone={isVerified ? "good" : "warn"}
+            />;
+          })()}
         </div>
         <div className="panel-foot"><span>Read-only by default</span><span>·</span><span>Trading controls are never invoked here</span></div>
       </section>
@@ -396,9 +442,11 @@ function PortfoliosPage({ portfolios }: { portfolios: Portfolio[] }) {
   const [left, setLeft] = useState("");
   const [right, setRight] = useState("");
   const [stateFilter, setStateFilter] = useState("all");
+  const [campaignFilter, setCampaignFilter] = useState("all");
   const [portQuery, setPortQuery] = useState("");
-  const [sortKey, setSortKey] = useState<"risk" | "name" | "wallets" | "pods" | "state">("risk");
+  const [sortKey, setSortKey] = useState<"equity" | "pnl" | "risk" | "name" | "wallets" | "pods" | "state" | "positions">("equity");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [selectedPortId, setSelectedPortId] = useState<string | null>(null);
 
   const addressCount = (row: Portfolio) => {
     try {
@@ -408,25 +456,41 @@ function PortfoliosPage({ portfolios }: { portfolios: Portfolio[] }) {
     }
   };
 
-  const handleSort = (key: "risk" | "name" | "wallets" | "pods" | "state") => {
+  const handleSort = (key: typeof sortKey) => {
     if (sortKey === key) {
       setSortDir(sortDir === "asc" ? "desc" : "asc");
     } else {
       setSortKey(key);
-      setSortDir(key === "risk" || key === "wallets" || key === "pods" ? "desc" : "asc");
+      setSortDir(["equity", "pnl", "risk", "positions", "pods", "wallets"].includes(key) ? "desc" : "asc");
     }
   };
 
   const filtered = portfolios.filter((portfolio) => {
     const matchState = stateFilter === "all" || portfolio.state === stateFilter;
-    const matchQuery = !portQuery || `${portfolio.name} ${portfolio.id} ${portfolio.strategy || ""}`.toLowerCase().includes(portQuery.toLowerCase());
-    return matchState && matchQuery;
+    const matchCampaign =
+      campaignFilter === "all" ||
+      (campaignFilter === "cwsa" && portfolio.strategy === "CWSA Chapter 2") ||
+      (campaignFilter === "v4" && portfolio.strategy === "Archived V4 — Historical") ||
+      (campaignFilter === "candidate" && portfolio.state === "candidate");
+    const matchQuery =
+      !portQuery ||
+      `${portfolio.name} ${portfolio.id} ${portfolio.strategy || ""}`.toLowerCase().includes(portQuery.toLowerCase());
+    return matchState && matchCampaign && matchQuery;
   });
 
   const sorted = [...filtered].sort((a, b) => {
     let valA: number | string = 0;
     let valB: number | string = 0;
-    if (sortKey === "risk") {
+    if (sortKey === "equity") {
+      valA = a.currentEquityUsd ?? -1;
+      valB = b.currentEquityUsd ?? -1;
+    } else if (sortKey === "pnl") {
+      valA = a.totalPnlUsd ?? -999999;
+      valB = b.totalPnlUsd ?? -999999;
+    } else if (sortKey === "positions") {
+      valA = a.openPositionsCount ?? -1;
+      valB = b.openPositionsCount ?? -1;
+    } else if (sortKey === "risk") {
       valA = a.totalRiskUsd ? parseFloat(a.totalRiskUsd) : -1;
       valB = b.totalRiskUsd ? parseFloat(b.totalRiskUsd) : -1;
       if (isNaN(valA as number)) valA = -1;
@@ -449,24 +513,143 @@ function PortfoliosPage({ portfolios }: { portfolios: Portfolio[] }) {
     return 0;
   });
 
+  const cwsaPortfolios = portfolios.filter((p) => p.strategy === "CWSA Chapter 2");
+  const archivedPortfolios = portfolios.filter((p) => p.strategy === "Archived V4 — Historical");
+  const activeCapital = cwsaPortfolios.reduce((acc, p) => acc + (p.currentEquityUsd ?? 0), 0);
+  const activePnl = cwsaPortfolios.reduce((acc, p) => acc + (p.totalPnlUsd ?? 0), 0);
+  const totalOpenPos = portfolios.reduce((acc, p) => acc + (p.openPositionsCount ?? 0), 0);
+
+  const selectedPortfolio = portfolios.find((p) => p.id === selectedPortId);
   const leftPortfolio = portfolios.find((item) => item.id === left);
   const rightPortfolio = portfolios.find((item) => item.id === right);
 
   return <>
-    <PageHeading eyebrow="PORTFOLIO / 03" title="Candidate & active portfolios" description="Current SQLite research selections are candidates until separate paper-run and production evidence exists." />
-    <section className="panel compare-panel"><div className="compare-heading"><div><div className="eyebrow">SIDE-BY-SIDE</div><h3>Portfolio comparison</h3><p>Compare recorded configuration and evidence metadata. Missing fields stay blank.</p></div><div className="compare-selects"><select value={left} onChange={(event) => setLeft(event.target.value)} aria-label="First portfolio"><option value="">Choose portfolio A</option>{portfolios.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><span>vs</span><select value={right} onChange={(event) => setRight(event.target.value)} aria-label="Second portfolio"><option value="">Choose portfolio B</option>{portfolios.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div></div>
-      {leftPortfolio && rightPortfolio ? <div className="comparison-grid"><CompareColumn row={leftPortfolio} addressCount={addressCount(leftPortfolio)} /><div className="compare-divider">COMPARE</div><CompareColumn row={rightPortfolio} addressCount={addressCount(rightPortfolio)} /></div> : <div className="compare-placeholder"><Boxes size={18} /><span>Select two portfolios to compare state, pods, source-equity handling, risk, and evidence basis.</span></div>}
+    <PageHeading eyebrow="PORTFOLIO / 03" title="Portfolio tracking & risk accounts" description="Explicit virtual portfolio accounting: real-time equities, P&L, free cash, peak drawdown, gross exposure, and open position inventories." />
+
+    <div className="metric-strip" style={{ marginBottom: "16px" }}>
+      <Metric label="CWSA Active Capital" value={asMoney(activeCapital)} />
+      <Metric label="CWSA Session P&L" value={asPnl(activePnl, 0).text} />
+      <Metric label="Total Open Positions" value={`${totalOpenPos} positions`} />
+      <Metric label="Tracking Roster" value={`${cwsaPortfolios.length} active · ${archivedPortfolios.length} archived`} />
+    </div>
+
+    {selectedPortfolio && (
+      <section className="panel" style={{ padding: "18px", marginBottom: "16px", border: "1px solid #77948c" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "14px", flexWrap: "wrap", gap: "10px" }}>
+          <div>
+            <div className="eyebrow">PORTFOLIO TRACKING INSPECTOR</div>
+            <h3 style={{ margin: "4px 0 0", fontSize: "16px" }}>{selectedPortfolio.name} <Badge tone={selectedPortfolio.strategy === "CWSA Chapter 2" ? "blue" : "muted"}>{selectedPortfolio.strategy || "Candidate"}</Badge></h3>
+            <p style={{ margin: "2px 0 0", fontSize: "12px", color: "var(--muted-foreground)" }}>ID: {selectedPortfolio.id} · State: {labelFor(selectedPortfolio.state)} · Risk: <Badge tone={statusClass(selectedPortfolio.riskState || selectedPortfolio.state)}>{selectedPortfolio.riskState || "NORMAL"}</Badge> · Kill switch: {selectedPortfolio.killSwitchActivated ? "ACTIVE" : "OFF"}</p>
+          </div>
+          <button className="button secondary" style={{ minHeight: "32px", fontSize: "12px" }} onClick={() => setSelectedPortId(null)}>Close inspector ✕</button>
+        </div>
+
+        <div className="metric-strip" style={{ marginBottom: "16px" }}>
+          <Metric label="Account Value (Equity)" value={asMoney(selectedPortfolio.currentEquityUsd)} />
+          <Metric label="Free Cash" value={asMoney(selectedPortfolio.cashUsd)} />
+          <Metric label="Total P&L" value={asPnl(selectedPortfolio.totalPnlUsd, selectedPortfolio.totalPnlPct).text} />
+          <Metric label="Max Drawdown" value={selectedPortfolio.drawdownPct != null ? `${selectedPortfolio.drawdownPct.toFixed(2)}%` : "0.00%"} />
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "10px", marginBottom: "16px", fontSize: "12px" }}>
+          <div style={{ background: "var(--accent)", padding: "10px", borderRadius: "6px" }}>
+            <span className="mono" style={{ display: "block", color: "var(--muted-foreground)" }}>Starting Balance</span>
+            <strong>{asMoney(selectedPortfolio.initialEquityUsd)}</strong>
+          </div>
+          <div style={{ background: "var(--accent)", padding: "10px", borderRadius: "6px" }}>
+            <span className="mono" style={{ display: "block", color: "var(--muted-foreground)" }}>Realized P&L</span>
+            <strong>{asMoney(selectedPortfolio.realizedPnlUsd)}</strong>
+          </div>
+          <div style={{ background: "var(--accent)", padding: "10px", borderRadius: "6px" }}>
+            <span className="mono" style={{ display: "block", color: "var(--muted-foreground)" }}>Unrealized P&L</span>
+            <strong>{asMoney(selectedPortfolio.unrealizedPnlUsd)}</strong>
+          </div>
+          <div style={{ background: "var(--accent)", padding: "10px", borderRadius: "6px" }}>
+            <span className="mono" style={{ display: "block", color: "var(--muted-foreground)" }}>High Water Mark</span>
+            <strong>{asMoney(selectedPortfolio.highWaterMarkUsd)}</strong>
+          </div>
+          <div style={{ background: "var(--accent)", padding: "10px", borderRadius: "6px" }}>
+            <span className="mono" style={{ display: "block", color: "var(--muted-foreground)" }}>Gross Notional</span>
+            <strong>{asMoney(selectedPortfolio.grossExposureUsd)}</strong>
+          </div>
+          <div style={{ background: "var(--accent)", padding: "10px", borderRadius: "6px" }}>
+            <span className="mono" style={{ display: "block", color: "var(--muted-foreground)" }}>Leverage</span>
+            <strong>{selectedPortfolio.leverage != null ? `${selectedPortfolio.leverage.toFixed(2)}x` : "0.00x"}</strong>
+          </div>
+          <div style={{ background: "var(--accent)", padding: "10px", borderRadius: "6px" }}>
+            <span className="mono" style={{ display: "block", color: "var(--muted-foreground)" }}>Fees & Costs</span>
+            <strong>{asMoney(selectedPortfolio.totalCostsUsd)}</strong>
+          </div>
+          <div style={{ background: "var(--accent)", padding: "10px", borderRadius: "6px" }}>
+            <span className="mono" style={{ display: "block", color: "var(--muted-foreground)" }}>Funding Paid / Recv</span>
+            <strong>{asMoney(selectedPortfolio.totalFundingUsd)}</strong>
+          </div>
+        </div>
+
+        <div style={{ marginTop: "12px" }}>
+          <h4 style={{ fontSize: "13px", marginBottom: "8px" }}>Open Positions ({selectedPortfolio.positions?.length ?? 0})</h4>
+          {selectedPortfolio.positions && selectedPortfolio.positions.length > 0 ? (
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Instrument / Symbol</th>
+                    <th>Side</th>
+                    <th>Quantity</th>
+                    <th>Entry Price</th>
+                    <th>Mark Price</th>
+                    <th>Notional Value</th>
+                    <th>Unrealized P&L</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedPortfolio.positions.map((pos, idx) => {
+                    const pnlPos = asPnl(pos.unrealizedPnl, pos.marketValue > 0 ? (pos.unrealizedPnl / pos.marketValue * 100) : 0);
+                    return (
+                      <tr key={idx}>
+                        <td><strong>{pos.symbol}</strong><small className="mono">{pos.instrument}</small></td>
+                        <td><Badge tone={pos.side === "LONG" ? "good" : "bad"}>{pos.side}</Badge></td>
+                        <td>{pos.quantity}</td>
+                        <td>{asMoney(pos.entryPrice)}</td>
+                        <td>{asMoney(pos.markPrice)}</td>
+                        <td>{asMoney(pos.marketValue)}</td>
+                        <td><Badge tone={pnlPos.tone}>{pnlPos.text}</Badge></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div style={{ padding: "14px", background: "var(--accent)", borderRadius: "6px", fontSize: "12px", color: "var(--muted-foreground)" }}>
+              Zero active virtual follower positions (clean prospective epoch baseline).
+            </div>
+          )}
+        </div>
+      </section>
+    )}
+
+    <section className="panel compare-panel"><div className="compare-heading"><div><div className="eyebrow">SIDE-BY-SIDE</div><h3>Portfolio comparison</h3><p>Compare recorded configuration, account equity, and evidence metadata.</p></div><div className="compare-selects"><select value={left} onChange={(event) => setLeft(event.target.value)} aria-label="First portfolio"><option value="">Choose portfolio A</option>{portfolios.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><span>vs</span><select value={right} onChange={(event) => setRight(event.target.value)} aria-label="Second portfolio"><option value="">Choose portfolio B</option>{portfolios.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div></div>
+      {leftPortfolio && rightPortfolio ? <div className="comparison-grid"><CompareColumn row={leftPortfolio} addressCount={addressCount(leftPortfolio)} /><div className="compare-divider">COMPARE</div><CompareColumn row={rightPortfolio} addressCount={addressCount(rightPortfolio)} /></div> : <div className="compare-placeholder"><Boxes size={18} /><span>Select two portfolios to compare state, equities, cash, risk, and evidence basis.</span></div>}
     </section>
+
     <section className="panel table-panel">
       <div className="table-toolbar">
-        <div>          <h3>Current research selection</h3>
-          <p>Read-only projection from VPS SQLite. Historical portfolio archive is not included in this snapshot.</p>
+        <div>
+          <h3>Portfolio tracking ledgers</h3>
+          <p>Read-only projection from authentic VPS journals and sealed registry databases.</p>
         </div>
         <div className="filters">
           <label className="search-field">
             <Search size={15} />
             <input value={portQuery} onChange={(event) => setPortQuery(event.target.value)} placeholder="Search portfolio name or ID" />
           </label>
+          <select className="filter-select" value={campaignFilter} onChange={(event) => setCampaignFilter(event.target.value)} aria-label="Filter by campaign">
+            <option value="all">All campaigns</option>
+            <option value="cwsa">CWSA Chapter 2 ({cwsaPortfolios.length} active)</option>
+            <option value="v4">Archived V4 ({archivedPortfolios.length} historical)</option>
+            <option value="candidate">Candidate selections</option>
+          </select>
           <select className="filter-select" value={stateFilter} onChange={(event) => setStateFilter(event.target.value)} aria-label="Filter by state">
             <option value="all">All states</option>
             {["candidate", "active", "paper", "archived", "pending"].map((x) => <option key={x}>{x}</option>)}
@@ -480,15 +663,15 @@ function PortfoliosPage({ portfolios }: { portfolios: Portfolio[] }) {
               setSortDir(d);
             }}
           >
-            <option value="risk:desc">Risk: High → Low</option>
-            <option value="risk:asc">Risk: Low → High</option>
+            <option value="equity:desc">Equity: High → Low</option>
+            <option value="equity:asc">Equity: Low → High</option>
+            <option value="pnl:desc">P&L: High → Low</option>
+            <option value="pnl:asc">P&L: Low → High</option>
+            <option value="positions:desc">Positions: Most → Fewest</option>
+            <option value="positions:asc">Positions: Fewest → Most</option>
             <option value="name:asc">Name: A → Z</option>
             <option value="name:desc">Name: Z → A</option>
-            <option value="wallets:desc">Wallets: Most → Fewest</option>
-            <option value="wallets:asc">Wallets: Fewest → Most</option>
-            <option value="pods:desc">Pods: Most → Fewest</option>
-            <option value="pods:asc">Pods: Fewest → Most</option>
-            <option value="state:asc">State: A → Z</option>
+            <option value="risk:desc">Risk: High → Low</option>
           </select>
           <button
             type="button"
@@ -503,29 +686,107 @@ function PortfoliosPage({ portfolios }: { portfolios: Portfolio[] }) {
       </div>
       {sorted.length ? <div className="table-scroll"><table><thead><tr>
         <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => handleSort("name")}>
-          Portfolio {sortKey === "name" ? (sortDir === "asc" ? "▲" : "▼") : "↕"}
+          Portfolio & Campaign {sortKey === "name" ? (sortDir === "asc" ? "▲" : "▼") : "↕"}
         </th>
+        <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => handleSort("equity")}>
+          Account Value (Equity) {sortKey === "equity" ? (sortDir === "asc" ? "▲" : "▼") : "↕"}
+        </th>
+        <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => handleSort("pnl")}>
+          Total P&L {sortKey === "pnl" ? (sortDir === "asc" ? "▲" : "▼") : "↕"}
+        </th>
+        <th>Drawdown & Peak</th>
+        <th>Gross & Lev</th>
+        <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => handleSort("positions")}>
+          Open Positions {sortKey === "positions" ? (sortDir === "asc" ? "▲" : "▼") : "↕"}
+        </th>
+        <th>Costs & Funding</th>
         <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => handleSort("state")}>
-          State {sortKey === "state" ? (sortDir === "asc" ? "▲" : "▼") : "↕"}
+          Risk & Status {sortKey === "state" ? (sortDir === "asc" ? "▲" : "▼") : "↕"}
         </th>
-        <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => handleSort("wallets")}>
-          Wallet aliases {sortKey === "wallets" ? (sortDir === "asc" ? "▲" : "▼") : "↕"}
-        </th>
-        <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => handleSort("pods")}>
-          Pods {sortKey === "pods" ? (sortDir === "asc" ? "▲" : "▼") : "↕"}
-        </th>
-        <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => handleSort("risk")}>
-          Risk budget {sortKey === "risk" ? (sortDir === "asc" ? "▲" : "▼") : "↕"}
-        </th>
-        <th>Evidence</th>
-        <th>Paper / authorization</th>
       </tr></thead><tbody>{sorted.map((row) => {
         const details = parseJsonObject(row.detailsJson);
-        return <tr key={row.id}><td><strong>{row.name}</strong><small className="table-sub">{row.id} · v{String(details.version ?? "?")}</small><small className="table-sub">{row.strategy || "Role pending"}</small></td><td><Badge tone={statusClass(row.state)}>{labelFor(row.state)}</Badge></td><td>{addressCount(row) || "Pending"}<small className="table-sub">{(() => { try { return (JSON.parse(row.walletAddressesJson) as string[]).join(", "); } catch { return "Membership unresolved"; } })()}</small></td><td>{row.podCount ?? "Pending"}</td><td>{asMoney(row.totalRiskUsd)}</td><td><span>{labelFor(row.evidenceBasis)}</span><small className="table-sub">{labelFor(row.evidenceQuality)} · definition {String(details.definitionSha256 ?? "unavailable").slice(0, 12)}</small></td><td><Badge tone="muted">{labelFor(String(details.paperRunning ?? "unknown"))}</Badge><small className="table-sub">Trading authorization {details.tradingAuthorized === true ? "reported" : "not authorized"}</small></td></tr>;
+        const health = (row.strategyHealth ?? details.strategyHealth) as string | undefined;
+        const pnlInfo = asPnl(row.totalPnlUsd, row.totalPnlPct);
+        const isSelected = selectedPortId === row.id;
+
+        return <tr key={row.id} style={{ background: isSelected ? "var(--accent)" : undefined }}>
+          <td>
+            <strong>{row.name}</strong>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "3px" }}>
+              <Badge tone={row.strategy === "CWSA Chapter 2" ? "blue" : row.strategy === "Archived V4 — Historical" ? "muted" : "slate"}>
+                {row.strategy === "CWSA Chapter 2" ? "CWSA Ch2" : row.strategy === "Archived V4 — Historical" ? "Archived V4" : "Research"}
+              </Badge>
+              <small className="table-sub" style={{ margin: 0 }}>{row.podCount != null ? `${row.podCount} pods` : ""}</small>
+            </div>
+            {health && (
+              <small className="table-sub" style={{ marginTop: "2px" }}>Health: {health}</small>
+            )}
+          </td>
+          <td>
+            <strong>{asMoney(row.currentEquityUsd)}</strong>
+            <small className="table-sub">Cash: {asMoney(row.cashUsd)} · Init: {asMoney(row.initialEquityUsd)}</small>
+          </td>
+          <td>
+            <Badge tone={pnlInfo.tone}>{pnlInfo.text}</Badge>
+            <small className="table-sub">Real: {asMoney(row.realizedPnlUsd)} · Unreal: {asMoney(row.unrealizedPnlUsd)}</small>
+          </td>
+          <td>
+            <strong>{row.drawdownPct != null ? `${row.drawdownPct.toFixed(2)}%` : "0.00%"}</strong>
+            <small className="table-sub">Peak: {asMoney(row.highWaterMarkUsd)}</small>
+          </td>
+          <td>
+            <strong>{asMoney(row.grossExposureUsd)}</strong>
+            <small className="table-sub">Lev: {row.leverage != null ? `${row.leverage.toFixed(2)}x` : "0.00x"}</small>
+          </td>
+          <td>
+            <button
+              className="button secondary"
+              style={{ padding: "4px 8px", fontSize: "11px", minHeight: "26px", cursor: "pointer" }}
+              onClick={() => setSelectedPortId(isSelected ? null : row.id)}
+              title="Click to inspect open positions"
+            >
+              {row.openPositionsCount != null ? `${row.openPositionsCount} positions` : "0 positions"} {isSelected ? "▲" : "▼"}
+            </button>
+          </td>
+          <td>
+            <span>Costs: {asMoney(row.totalCostsUsd)}</span>
+            <small className="table-sub">Funding: {asMoney(row.totalFundingUsd)}</small>
+          </td>
+          <td>
+            <Badge tone={statusClass(row.riskState || row.state)}>{row.riskState || labelFor(row.state)}</Badge>
+            <small className="table-sub">Kill switch: {row.killSwitchActivated ? "ACTIVE" : "OFF"}</small>
+          </td>
+        </tr>;
       })}</tbody></table></div> : <EmptyState title="No VPS portfolio selection loaded" detail="The Site has not received a signed current-selection snapshot matching your filter." />}</section>
   </>;
 }
-function CompareColumn({ row, addressCount }: { row: Portfolio; addressCount: number }) { return <div className="compare-column"><div className="compare-name"><strong>{row.name}</strong><Badge tone={statusClass(row.state)}>{labelFor(row.state)}</Badge></div><CompareMetric label="Wallet count" value={addressCount ? String(addressCount) : "Pending"} /><CompareMetric label="Pod count" value={row.podCount === null ? "Pending" : String(row.podCount)} /><CompareMetric label="Total risk" value={asMoney(row.totalRiskUsd)} /><CompareMetric label="Evidence basis" value={labelFor(row.evidenceBasis)} /><CompareMetric label="Evidence quality" value={labelFor(row.evidenceQuality)} /><CompareMetric label="Source wallet equity" value="Use live source value · pending verification" /></div>; }
+function CompareColumn({ row, addressCount }: { row: Portfolio; addressCount: number }) {
+  const details = parseJsonObject(row.detailsJson);
+  const health = (row.strategyHealth ?? details.strategyHealth) as string | undefined;
+  const advisory = (row.advisoryStatus ?? details.advisoryStatus) as string | undefined;
+  const feeDrag = (row.feeDragUsd ?? details.feeDragUsd) as string | undefined;
+  const pnlInfo = asPnl(row.totalPnlUsd, row.totalPnlPct);
+  return <div className="compare-column">
+    <div className="compare-name"><strong>{row.name}</strong><Badge tone={statusClass(row.state)}>{labelFor(row.state)}</Badge></div>
+    <CompareMetric label="Campaign" value={row.strategy || "Candidate"} />
+    <CompareMetric label="Current Equity" value={asMoney(row.currentEquityUsd)} />
+    <CompareMetric label="Available Cash" value={asMoney(row.cashUsd)} />
+    <CompareMetric label="Total P&L" value={pnlInfo.text} />
+    <CompareMetric label="Realized P&L" value={asMoney(row.realizedPnlUsd)} />
+    <CompareMetric label="Unrealized P&L" value={asMoney(row.unrealizedPnlUsd)} />
+    <CompareMetric label="Max Drawdown" value={row.drawdownPct != null ? `${row.drawdownPct.toFixed(2)}%` : "0.00%"} />
+    <CompareMetric label="Gross Exposure" value={asMoney(row.grossExposureUsd)} />
+    <CompareMetric label="Open Positions" value={String(row.openPositionsCount ?? 0)} />
+    <CompareMetric label="Wallet count" value={addressCount ? String(addressCount) : "Pending"} />
+    <CompareMetric label="Pod count" value={row.podCount === null ? "Pending" : String(row.podCount)} />
+    <CompareMetric label="Total risk budget" value={asMoney(row.totalRiskUsd)} />
+    <CompareMetric label="Strategy health" value={health || "Pending"} />
+    <CompareMetric label="Advisory status" value={advisory || "Uncalibrated"} />
+    {feeDrag && <CompareMetric label="Fee drag" value={`$${feeDrag}`} />}
+    <CompareMetric label="Trading Costs" value={asMoney(row.totalCostsUsd)} />
+    <CompareMetric label="Evidence basis" value={labelFor(row.evidenceBasis)} />
+  </div>;
+}
 function CompareMetric({ label, value }: { label: string; value: string }) { return <div className="compare-metric"><span>{label}</span><strong>{value}</strong></div>; }
 
 function ExecutionPage({ records, onOpen, onStatus }: { records: OpsRecord[]; onOpen: (kind: FormKind) => void; onStatus: (record: OpsRecord, status: string) => void }) {
