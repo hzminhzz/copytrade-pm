@@ -56,8 +56,8 @@ class PaperManifest:
             raise ValueError("FUTURE_KNOWN_PORTFOLIO")
         if clock(self.rulebook.observed_at) > clock(self.started_at):
             raise ValueError("FUTURE_KNOWN_RULEBOOK")
-        if self.rulebook.initial_balance != Decimal("10000"):
-            raise ValueError("PAPER_STARTING_BALANCE_MUST_BE_10000")
+        if self.rulebook.initial_balance not in (Decimal("10000"), Decimal("5000")):
+            raise ValueError("PAPER_STARTING_BALANCE_MUST_BE_10000_OR_5000")
 
     def payload(self) -> dict[str, Any]:
         return {
@@ -134,7 +134,8 @@ class PaperCampaign:
 
         if self._journal is None:
             raise ValueError("PAPER_JOURNAL_REQUIRED")
-        if set(selected.profiles) != set(IDENTITIES) or set(requests) - set(IDENTITIES):
+        identities = getattr(selected, "identities", None) or IDENTITIES
+        if set(selected.profiles) != set(identities) or set(requests) - set(identities):
             raise ValueError("CHECKPOINT_SELECTED_CAMPAIGN_ROSTER")
         ready, blocked = {}, {}
         with closing(sqlite3.connect(f"file:{self._journal.path}?mode=ro", uri=True)) as db:
