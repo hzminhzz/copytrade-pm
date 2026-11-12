@@ -11,6 +11,13 @@ esac
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+# The read-only HTTP server serves a built frontend; the contract tests require it.
+# Keep this prerequisite in the local pre-push gate as well as hosted Actions.
+if ! command -v npm >/dev/null 2>&1; then
+    printf 'CI_BLOCKED: npm unavailable for ops frontend build\n' >&2
+    exit 2
+fi
+(cd ops/control-center && npm ci --no-audit --no-fund && npm run build)
 LOGS="$(mktemp -d)"
 trap 'rm -rf "$LOGS"' EXIT
 
