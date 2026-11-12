@@ -82,7 +82,6 @@ def test_supervisor_evaluates_checkpoint_wave(tmp_path):
         source_db=SOURCE_PATH,
         registry_db=REGISTRY_PATH,
     )
-    assert reopened.last_processed_checkpoint_ms == 0
-    # Polling again without new checkpoints returns 0
-    reopened.last_processed_checkpoint_ms = supervisor.last_processed_checkpoint_ms
+    assert reopened.last_processed_checkpoint_ms == supervisor.last_processed_checkpoint_ms
+    # Durable observation cursor prevents duplicate checkpoint effects on restart.
     assert reopened.poll_once() == 0
