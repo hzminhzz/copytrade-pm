@@ -1,6 +1,6 @@
 # Reservoir: wallet-scoped DuckDB acquisition and PIT backtest plan
 
-**Status:** DESIGN + BOUNDED PILOT EVIDENCE. A seven-day, 14-wallet, main-DEX **read-only-source staging pilot** was approved and executed on 2026-11-12; see [verified pilot report](RESERVOIR-WALLET-PILOT-20261112.md). This does **not** authorize canonical-store ingestion, longer history, full-DEX acquisition, schema migration, trading cutover, PM-03/04 changes or scientific qualification.
+**Status:** DESIGN + BOUNDED PILOT EVIDENCE. Approved research DEX scope: **`hyperliquid` and `xyz` only**; the completed seven-day, 14-wallet pilot acquired **`hyperliquid` fills only**, not `xyz`. See [pilot report](RESERVOIR-WALLET-PILOT-20261112.md). This scope decision does **not** establish new `xyz` acquisition, canonical-store ingestion, longer history, schema migration, trading cutover, PM-03/04 changes or scientific qualification.
 **Evidence reviewed:** 2026-11-12 10:32–10:50 UTC, source docs fetched 2026-11-12.
 **Working checkout inspected:** /home/quant/dev/copytrade-pm, HEAD 6c07cc6d; checkout dirty and behind remote. These are dated observations, not current source-of-truth service status.
 
@@ -8,13 +8,13 @@
 
 ## 1. Decision: scan once per DEX/day, retain only selected wallets
 
-**ADOPT:** Run one bounded DuckDB S3 query per applicable DEX and UTC day with **all selected wallet addresses in the same prepared predicate**. Project only the fields required for the current stage. Persist only returned selected-wallet rows into private, immutable Parquet. Reuse already verified local source partitions first.
+**ADOPT:** The **only allowed Reservoir perpetual DEXes are `hyperliquid` (main/default) and `xyz` (HIP-3)**. Run one bounded DuckDB S3 query per allowed DEX and UTC day with **all selected wallet addresses in the same prepared predicate**. Project only required fields, retain the complete wallet execution history *within those two DEXes*, and persist matching wallet rows into private immutable Parquet. Reuse already verified local partitions first. The 2026-10-30 Propr public-display snapshot maps 96 unique crypto perps to `hyperliquid` and 61 equities/index/commodity instruments to `xyz` (157 unique in total); this is a **dated display universe**, not account-specific order authorization or a historical listing guarantee.
 
 **AVOID as default:** one Reservoir query *per wallet*, wide global fills when a single DEX object suffices, SELECT *, full-object local downloads, joining snapshots by the folder date instead of the block timestamp, and combining the fill sub-datasets with the overlapping perp/all tape.
 
 **Important bandwidth caveat:** A WHERE address predicate filters the result rows, but it does NOT promise a tiny network transfer. A one-wallet sample scanned all 9 Parquet row groups, and address statistics were absent in all 9. Projected column-chunk transfer, not output row count, dominates that example. Actual network bytes were **not instrumented**.
 
-Scope: Start with the **actual sealed selected source-wallet scope** of the new six-paper-portfolio CWSA study (previously 14 accounts; re-resolve before execution). The full 264-wallet production roster and the 502-identity research registry are separate scopes. A current selection backtested before its historical known_at is an ex-post fixed-cohort study, **not** a PIT selection strategy.
+Scope: Start with the **actual sealed selected source-wallet scope** of the new six-paper-portfolio CWSA study (previously 14 accounts; re-resolve before execution). Explicitly **exclude all other HIP-3 DEXes** (`cash`, `hyna`, `flx`, `km`, `vntl`, `para`, `io`, etc.) from acquisition. If selected wallets hold exposure outside `hyperliquid` + `xyz`, report it as **OUT_OF_STUDY_SCOPE / PARTIAL_WALLET_BOOK**, not flat and not a faithful whole-wallet replication. The full 264-wallet production roster and the 502-identity research registry are separate scopes. A current selection backtested before its historical known_at is an ex-post fixed-cohort study, **not** a PIT selection strategy.
 
 ## 2. Official Reservoir source reference (checked 2026-11-12)
 
@@ -30,13 +30,16 @@ Requester-pays S3 bucket: s3://hydromancer-reservoir, AWS region ap-northeast-1.
 
 | Need | Exact object family | Scope |
 | --- | --- | --- |
-| Perp fills | by_dex/{dex}/fills/perp/all/date=YYYY-MM-DD/fills.parquet | ONE native DEX and day per query |
-| Position anchors | global/snapshots/perp/all/date=YYYY-MM-DD/{block}_{timestamp_ms}.parquet | All perpetual DEXes at one recorded state; filter selected wallets |
+| Main perp fills | `by_dex/hyperliquid/fills/perp/all/date=YYYY-MM-DD/fills.parquet` | 14-wallet query, one per UTC day |
+| Propr `xyz` perp fills | `by_dex/xyz/fills/perp/all/date=YYYY-MM-DD/fills.parquet` | Same wallet set, separate one-per-day query |
+| Main perp position anchors | `by_dex/hyperliquid/snapshots/perp/date=YYYY-MM-DD/{block}_{timestamp_ms}.parquet` | One state per available day; verify block/time |
+| `xyz` perp position anchors | `by_dex/xyz/snapshots/perp/date=YYYY-MM-DD/{block}_{timestamp_ms}.parquet` | Verify block/time compatibility with main |
+| Existing main-only pilot's global anchors | `global/snapshots/perp/all/date=YYYY-MM-DD/{block}_{timestamp_ms}.parquet` | Retained historical pilot input; **not approved for new acquisition** |
 | Existing account values | data/private/nav_hyperliquid_perp_daily/date=YYYY-MM-DD/data.parquet | Already downloaded locally; mode-aware, selected roster |
 | Optional spot collateral | global/snapshots/spot/date=YYYY-MM-DD/{block}_{timestamp_ms}.parquet | Only if collateral/account-mode reconciliation needs it |
 | Optional 1s candles | by_dex/{dex}/candles/1s/date=YYYY-MM-DD/candles.parquet | Only for unresolved market-day/intraminute evidence |
 
-Supported published DEX prefixes include hyperliquid, xyz, cash, hyna, flx, km, vntl, para and io. Select relevant DEX scopes from independently verified market/position identity; a fill on xyz is **not** in the hyperliquid DEX file. Source perp/all already includes liquidations, ADL, builder and TWAP executions; the adjacent named sub-datasets are overlapping subsets and must not be unioned with all.
+**Hard source allowlist for this study:** `hyperliquid`, `xyz`. A `xyz:` market is separate from the main `hyperliquid` DEX; main-only extraction misses those instruments. Do not query any other HIP-3 DEX, global fill tape, or unrelated market-wide input. Preserve all selected-wallet events *within these two DEXes*, including trades in markets not on Propr's dated display list, and label non-Propr instruments as non-executable rather than silently removing hedges. Source `perp/all` already includes liquidations, ADL, builder and TWAP executions; the named sub-datasets overlap and must not be appended.
 
 The fills document specifies 27 schema columns; the sampled Parquet footer exposed 28 physical columns. Confirm exact columns **per actual object**, preserve optional-column evolution and refuse unsupported schema shifts; do not force all dates to the latest field set.
 
@@ -80,7 +83,7 @@ A separate read-only DuckDB parquet_metadata() test on that SAME object estimate
 ### 4A. Preflight: freeze wallet scope and object budget
 
 1. Read the *current* signed SQLite registry and CWSA selection, verify its release and selected account/DEX census, record wallet-set SHA and selection_known_at privately. Historical backtest windows before that known_at must be marked EX_POST_SELECTION unless a separately frozen earlier cohort exists.
-2. Build an allowlisted object manifest **per date and actual source DEX**. HEAD individual S3 objects with RequestPayer=requester and list snapshot dates/filenames once per date. No broad all-DEX/day wildcard scan.
+2. Build an exact object manifest **for `hyperliquid` and `xyz` only**, per UTC day. HEAD each existing S3 object with RequestPayer=requester and list the per-DEX snapshot keys separately. Treat missing dates or unequal snapshot state identities explicitly as BLOCKED evidence. No global/all-DEX fill glob or third-DEX wildcard.
 3. Collect/cached footer metadata for new (source object SHA/version, schema, column chunk compressed bytes, row groups, stats bounds) once per object. Estimate transfer volume for the exact projected field list before initiating bulk requests.
 4. Fail if expected daily/total projected scan exceeds the explicit user-approved cap. Record SQL/projection SHA, provider object metadata, estimated bytes, start/end date and requested scope. Never record private wallet lists in reports committed to Git.
 
@@ -98,10 +101,7 @@ from datetime import date
 sys.path.insert(0, "/home/quant/tmp")
 from reservoir_query import connect, load_credentials
 
-DEXES = {
-    "hyperliquid", "xyz", "cash", "hyna", "flx",
-    "km", "vntl", "para", "io",
-}
+DEXES = {"hyperliquid", "xyz"}  # Exact approved acquisition allowlist
 
 # Obtain these privately from signed SQLite selections, not a hardcoded list:
 selected_wallets = validated_private_registry_wallet_addresses
@@ -167,11 +167,11 @@ For same-Dex/day multiwallet extraction, one query should pay for the source col
 
 Avoid adding fields to the first pass merely because they exist. Correctness beats a superficially small projection: preserve complete event semantics and promote to extended columns when continuity checks indicate they are needed.
 
-### 4D. Position anchors: global snapshot, once per available day
+### 4D. Position anchors: exactly the two allowed DEXes
 
-Reservoir gives global/snapshots/perp/all/date=YYYY-MM-DD/{block}_{timestamp_ms}.parquet. Discover the **exact key** by S3 listing; the documented example requires 1 captured state per day and the actual state timestamp in the filename. Preserve the original block/timestamp, filename, ETag/source-hash and capture scope.
+**Future acquisition:** Use only the `by_dex/hyperliquid/snapshots/perp/` and `by_dex/xyz/snapshots/perp/` daily objects. Discover each DEX/date **exact key** by S3 listing. Keep the original `{block}_{timestamp_ms}` in each filename; verify the per-DEX state identities refer to compatible ABCI capture times before combining them. A missing/unsynchronized DEX snapshot is **UNKNOWN / BLOCKED**, never a zero position. The completed main-DEX pilot used the global snapshots, which remain historical evidence but do not justify broad future retrieval.
 
-Read one global snapshot file with a prepared wallet predicate for the full selected cohort:
+Read each allowed DEX snapshot with a prepared wallet predicate for the selected cohort:
 
 ~~~sql
 SELECT user AS wallet, market, size AS signed_size, notional,
@@ -184,7 +184,7 @@ WHERE user IN (/* prepared ?, ?, ... for selected wallets */)
 
 **Do not infer a snapshot time from its folder date.** Do not use daily state as a fabricated 5-minute snapshot. A prior S3 HEAD found a 2026-09-29 global perp snapshot of 31,035,622 bytes. Per-wallet contents/position parity were not independently queried in that test.
 
-**Completion:** Snapshot keys all have parsable state block and actual UTC timestamp; one-state invariant and all selected DEX market scopes are reconciled or marked UNKNOWN. No gap is filled with a future snapshot.
+**Completion:** Both allowed DEX snapshot keys have parsable block/UTC state timestamps, compatible capture identities, and complete selected-wallet market scopes **within `hyperliquid` and `xyz`**, or the corresponding interval is BLOCKED. A position on any unqueried DEX does not become zero; whole-wallet fidelity remains explicitly unqualified. No gap is filled with a future snapshot.
 
 ### 4E. Reuse existing account-value and 1m bar history
 
@@ -213,11 +213,11 @@ State types: VERIFIED_SOURCE, RECONSTRUCTED_CHECKED, MODELED_HYPOTHESIS, BLOCKED
 | Order | Action | Acceptance |
 | --- | --- | --- |
 | 0 | Snapshot current private/dirty repo and read-only registry. Freeze sealed cohort as-of + native DEX universe; compare with already stored fills/snapshots and existing Vike wallet evidence | No unverified portfolio, address, or selection backdated |
-| 1 | Build metadata-only S3 object index and projected compressed-field-byte budget for a **7-day, selected-wallet, main-DEX pilot** | No broad listing; explicit S3 charge/bytes cap, exact source keys and schema |
+| 1 | Keep completed seven-day selected-wallet **main-DEX** pilot as baseline; create a **new xyz-only** metadata/column-byte budget for the same cohort and dates | No new S3 fill acquisition until `xyz` costs are preflighted; exact allowed source keys, source-state times and budgets |
 | 2 | Acquire missing **core 10-column** fills with one query per DEX/day for entire cohort, local zstd immutable staging | 100% returned rows schema/identity validated, per-source SHA, no overwrite, no duplicates |
 | 3 | Cross-check source vs existing canonical store by wallet/day and trade identity; collect evidence that any supposed no-trade day is source-complete | Source-positive missing store entries reported; empty results never equated to inactivity |
-| 4 | Acquire global daily position anchors for the same dates; replay events between anchors in Polars, using signed start_position | Every admitted interval matches independent anchors; ambiguous same-ms ordering and missing events block |
-| 5 | Expand to other verified HIP-3 DEXes and then historical windows only after a network-cost benchmark and scientific validity review | Budget and capacity decision explicit; no blind 264-wallet x day repeated scans |
+| 4 | Acquire per-DEX daily position anchors for `hyperliquid` and `xyz`; validate same-state compatibility and replay fills between anchors in Polars | Both allowed DEXes reconciled independently; ambiguous same-ms ordering and missing events block |
+| 5 | Complete **`xyz` only** after its cost preflight, then expand historical dates for **`hyperliquid` + `xyz` only** following benchmark and scientific validity review | Exact two-DEX scope; exclude other HIP-3 DEXes; no blind 264-wallet × day scans |
 | 6 | Add finance/exception data only for specific failed checks or intended follower-economics studies | Need justified per market-day; tx_hash and extra columns not fetched indiscriminately |
 | 7 | Produce retrospective five-minute modeled source books and compare with actual prospective CWSA timing distribution, using existing PM-03/PM-04 interfaces once wired | Historical modeled timing and genuine first-known stay separate; qualifications remain BLOCKED pending actual independent evidence |
 
@@ -229,7 +229,7 @@ State types: VERIFIED_SOURCE, RECONSTRUCTED_CHECKED, MODELED_HYPOTHESIS, BLOCKED
 2. **Fan out by DEX/day, not wallet.** A selected cohort of 14 may cost similar source bytes to one wallet on a date whose address statistics cannot prune row groups. Reuse cached filtered day data for all subsequent research.
 3. **Minimize the first projection**: 10 core columns ~183 MB compressed chunks in the tested 590.5 MB source object, 16-column diagnostic ~320 MB, +tx_hash ~472 MB. These are **single-object examples**, not universal daily estimates.
 4. **Deduplicate source reads across datasets.** The all fill tape includes the liquidation, ADL, builder and TWAP subsets. Only use specialized subsets if validating a separate exceptional event family; never append them to all.
-5. **Budget before full-history scan.** The 2025-07-28-onward main-DEX daily fills are many large objects. Fixed daily egress/GET limits and an explicit freeze of selected-wallet membership apply before 418-day or 264-wallet expansion.
+5. **Budget before full-history scan.** `hyperliquid` and `xyz` daily fill objects have separate transfer/storage profiles; the measured seven-day numbers refer **only to `hyperliquid`**. Apply separate `xyz` S3 budgets and frozen wallet scope before any longer-history or 264-wallet expansion.
 6. **Use Tokyo EC2 only if measured transfer cost makes it advantageous.** Process object/column chunks in ap-northeast-1, export only filtered compressed Parquet; account for EC2, S3 requests, transfer back to VPS and failure recovery. Existing VPS is sufficient for the pilot unless measured otherwise.
 7. **Research validity remains separate.** Historical fills identify the trader's execution time, not our first-known receipt. Snapshot books are once per day; reconstructing the intervening books is conditional on complete fills and independent anchor parity. Backtest net follower PnL requires independent costs, quotes, funding, risk and modeled vs actual timing labels.
 
