@@ -35,6 +35,11 @@ import polars as pl
 
 BUCKET = "hydromancer-reservoir"
 REGION = "ap-northeast-1"
+# Requester-pays billing identity: explicit operator-controlled profile.
+# The default profile previously expired; never silently switch accounts.
+AWS_PROFILE = os.environ.get("RESERVOIR_AWS_PROFILE", "default")
+if AWS_PROFILE not in ("default", "mgmt"):
+    raise ValueError("UNAPPROVED_RESERVOIR_AWS_PROFILE")
 ALLOWED_DEXES = frozenset({"hyperliquid", "xyz"})
 SELECTED_PORTFOLIOS = ("A", "B", "C", "Combo2", "regime.macro/TriadA", "regime.macro/TriadChop")
 REGISTRY = Path("/home/quant/.local/share/copytrade/registry/wallet_registry.sqlite")
@@ -179,6 +184,59 @@ def registry_scope(path: Path = REGISTRY) -> tuple[list[str], dict[str, Any]]:
         con.close()
 
 
+def scope_from_registry(
+    cohort: str = "sealed_six", path: Path = REGISTRY
+) -> tuple[list[str], dict[str, Any]]:
+    """Freeze one immutable research roster, never infer a historical subscription.
+
+    The monitored snapshot is dated. Its selected-wallet union is retrospective
+    and neither changes the live monitoring table nor widens trading authority.
+    """
+    selected_wallets, selected = registry_scope(path)
+    if cohort == "sealed_six":
+        return selected_wallets, selected
+    if cohort != "monitored_plus_six":
+        raise ValueError("UNAPPROVED_RESEARCH_COHORT")
+    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        monitored = sorted(
+            {
+                row[0]
+                for row in con.execute("""
+                SELECT lower(w.address)
+                FROM monitoring m JOIN wallets w ON w.wallet_id = m.wallet_id
+                WHERE m.configured = 1 AND m.subscribed = 1
+            """)
+            }
+        )
+        if len(monitored) != 264 or not all(ADDRESS.fullmatch(v) for v in monitored):
+            raise ValueError("MONITORED_ROSTER_UNVERIFIED")
+        union = sorted(set(monitored) | set(selected_wallets))
+        if len(union) != 269 or len(set(selected_wallets) - set(monitored)) != 5:
+            raise ValueError("UNION_ROSTER_UNVERIFIED")
+        meta = dict(con.execute("SELECT key, value FROM snapshot_meta").fetchall())
+        if not meta.get("observed_at") or not re.fullmatch(
+            r"[a-f0-9]{64}", meta.get("manifest_sha256", "")
+        ):
+            raise ValueError("MONITORED_SNAPSHOT_PROVENANCE_MISSING")
+        scope = {
+            **selected,
+            "cohort": "monitored_plus_six",
+            "wallet_count": len(union),
+            "wallet_set_sha256": sha256("\n".join(union).encode()).hexdigest(),
+            "selected_wallet_count": len(selected_wallets),
+            "production_monitored_count": len(monitored),
+            "selected_outside_monitored": len(set(selected_wallets) - set(monitored)),
+            "production_monitored_sha256": sha256("\n".join(monitored).encode()).hexdigest(),
+            "monitoring_manifest_sha256": meta["manifest_sha256"],
+            "monitoring_observed_at": meta["observed_at"],
+            "study_class": "RETROSPECTIVE_FIXED_MONITORED_PLUS_SIX_NOT_PIT",
+        }
+        return union, scope
+    finally:
+        con.close()
+
+
 def aws_cli(args: list[str]) -> Any:
     cmd = [
         "aws",
@@ -189,7 +247,7 @@ def aws_cli(args: list[str]) -> Any:
         "--region",
         REGION,
         "--profile",
-        "default",
+        AWS_PROFILE,
         "--output",
         "json",
     ]
@@ -246,7 +304,7 @@ def remote_connection():
     sys.path.insert(0, "/home/quant/tmp")
     from reservoir_query import connect, load_credentials
 
-    con = connect(load_credentials("default"))
+    con = connect(load_credentials(AWS_PROFILE))
     con.execute("SET threads=4")
     con.execute("SET memory_limit='4GB'")
     con.execute("SET TimeZone='UTC'")
@@ -443,10 +501,11 @@ def preflight(
     max_projected_bytes: int,
     dex: str = "hyperliquid",
     snapshot_scope: str = "global",
+    cohort: str = "sealed_six",
 ) -> dict[str, Any]:
-    wallets, scope = registry_scope()
-    if len(wallets) != 14:
-        raise ValueError("UNEXPECTED_SELECTED_COHORT")
+    wallets, scope = scope_from_registry(cohort)
+    if len(wallets) not in (14, 269):
+        raise ValueError("UNEXPECTED_RESEARCH_COHORT")
     days = date_window(start, end)
     conn = remote_connection()
     try:
@@ -469,6 +528,7 @@ def preflight(
             raise ValueError("COST_CAP_ESTIMATE_EXCEEDED")
         manifest = {
             "schema": "reservoir_pilot_preflight_v1",
+            "aws_billing_profile": AWS_PROFILE,
             "dex": dex,
             "snapshot_scope": snapshot_scope,
             "created_utc": datetime.now(UTC).isoformat(),
@@ -499,11 +559,15 @@ def preflight(
 def verify_manifest(folder: Path) -> tuple[list[str], dict[str, Any]]:
     path = folder / "preflight.json"
     pre = json.loads(path.read_text())
-    wallets, scope = registry_scope()
+    wallets, scope = scope_from_registry(pre["scope"].get("cohort", "sealed_six"))
+    if pre.get("aws_billing_profile", "default") != AWS_PROFILE:
+        raise ValueError("AWS_BILLING_PROFILE_CHANGED")
     if pre["scope"]["wallet_set_sha256"] != scope["wallet_set_sha256"]:
         raise ValueError("SELECTED_SCOPE_CHANGED")
     if pre["scope"]["portfolio_versions"] != scope["portfolio_versions"]:
         raise ValueError("SEALED_PORTFOLIO_CHANGED")
+    if pre["scope"].get("cohort") == "monitored_plus_six" and pre["scope"] != scope:
+        raise ValueError("MONITORED_ROSTER_GENERATION_CHANGED")
     if pre["days"] != date_window(
         date.fromisoformat(pre["days"][0]), date.fromisoformat(pre["days"][-1])
     ):

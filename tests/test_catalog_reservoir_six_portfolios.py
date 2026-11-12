@@ -29,13 +29,18 @@ def fake_index() -> dict:
     }
 
 
-def test_window_map_exact_31_day_two_dex_and_reuses_existing_pilot():
+def test_window_map_exact_134_day_two_dex_and_reuses_existing_pilot():
     mapping = catalog.window_sources()
-    assert len(mapping) == 62
+    assert len(mapping) == 268
     assert {dex for dex, _ in mapping} == {"hyperliquid", "xyz"}
     assert mapping[("hyperliquid", "2026-11-11")] == pilot.OUTPUT
     assert mapping[("xyz", "2026-11-11")] != pilot.OUTPUT
-    assert len({date for _, date in mapping}) == 31
+    assert len({date for _, date in mapping}) == 134
+    assert ("hyperliquid", "2026-07-01") in mapping
+    assert ("xyz", "2026-07-01") in mapping
+    assert ("xyz", "2026-06-30") not in mapping
+    assert len(catalog.historical_windows()) == 15
+    assert catalog.historical_windows()[-1][2] == date(2026, 10, 11)
 
 
 def test_fails_closed_outside_two_dex_scope_and_dates():
@@ -43,7 +48,7 @@ def test_fails_closed_outside_two_dex_scope_and_dates():
     with pytest.raises(ValueError, match="SOURCE_DEX_NOT_APPROVED"):
         catalog.scan_fills(item, "cash")
     with pytest.raises(ValueError, match="OUTSIDE_VERIFIED_DATE_WINDOW"):
-        catalog.scan_fills(item, "xyz", date(2026, 10, 11), date(2026, 10, 12))
+        catalog.scan_fills(item, "xyz", date(2026, 6, 30), date(2026, 7, 1))
     with pytest.raises(ValueError, match="INCOMPLETE_REQUESTED_DATE_WINDOW"):
         catalog.scan_fills(item, "xyz", date(2026, 11, 10), date(2026, 11, 11))
 

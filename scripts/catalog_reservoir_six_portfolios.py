@@ -25,15 +25,30 @@ from scripts.pilot_reservoir_wallet_scoped import (  # noqa: E402
     ALLOWED_DEXES,
     exclusive_bytes,
     jdump,
-    registry_scope,
+    scope_from_registry,
     validate_fills,
     verify_artifact,
 )
 
 PRIVATE_RESEARCH_ROOT = Path("/home/quant/.local/share/copytrade/research")
-CATALOG_ROOT = PRIVATE_RESEARCH_ROOT / "reservoir-six-20261012-20261111"
-START, END = date(2026, 10, 12), date(2026, 11, 11)
-WEEKLY = (
+CATALOG_ROOT = PRIVATE_RESEARCH_ROOT / "reservoir-six-20260701-20261111"
+MONITORED_CATALOG_ROOT = PRIVATE_RESEARCH_ROOT / "reservoir-monitored-plus-six-20260701-20261111"
+START, END = date(2026, 7, 1), date(2026, 11, 11)
+
+
+def historical_windows() -> tuple[tuple[str, date, date], ...]:
+    """Bounded seven-day, non-overlapping windows before the existing catalog."""
+    result = []
+    day = date(2026, 7, 1)
+    cutoff = date(2026, 10, 11)
+    while day <= cutoff:
+        end = min(day + timedelta(days=6), cutoff)
+        result.append((f"{day:%Y%m%d}-{end:%Y%m%d}", day, end))
+        day = end + timedelta(days=1)
+    return tuple(result)
+
+
+WEEKLY = historical_windows() + (
     ("20261012-14", date(2026, 10, 12), date(2026, 10, 14)),
     ("20261015-21", date(2026, 10, 15), date(2026, 10, 21)),
     ("20261022-28", date(2026, 10, 22), date(2026, 10, 28)),
@@ -46,14 +61,35 @@ def days_between(start: date, end: date) -> list[str]:
     return [(start + timedelta(days=i)).isoformat() for i in range((end - start).days + 1)]
 
 
-def window_sources() -> dict[tuple[str, str], Path]:
+def monitored_windows() -> tuple[tuple[str, date, date], ...]:
+    begin = START
+    result = []
+    while begin <= END:
+        last = min(begin + timedelta(days=6), END)
+        result.append((f"{begin:%Y%m%d}-{last:%Y%m%d}", begin, last))
+        begin = last + timedelta(days=1)
+    return tuple(result)
+
+
+def window_sources(cohort: str = "sealed_six") -> dict[tuple[str, str], Path]:
+    if cohort == "sealed_six":
+        windows_to_index = WEEKLY
+    elif cohort == "monitored_plus_six":
+        windows_to_index = monitored_windows()
+    else:
+        raise ValueError("UNAPPROVED_COHORT")
     roots = {}
-    for token, start, end in WEEKLY:
+    for token, start, end in windows_to_index:
         for dex in sorted(ALLOWED_DEXES):
             root = (
                 ORIGINAL_MAIN_PILOT
-                if token == "20261105-11" and dex == "hyperliquid"
-                else PRIVATE_RESEARCH_ROOT / f"reservoir-six-{dex}-{token}"
+                if cohort == "sealed_six" and token == "20261105-11" and dex == "hyperliquid"
+                else PRIVATE_RESEARCH_ROOT
+                / (
+                    f"reservoir-six-{dex}-{token}"
+                    if cohort == "sealed_six"
+                    else f"reservoir-monitored-plus-six-{dex}-{token}"
+                )
             )
             for day in days_between(start, end):
                 k = (dex, day)
@@ -69,11 +105,11 @@ def read_manifest(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text())
 
 
-def build_index() -> dict[str, Any]:
-    wallets, selected = registry_scope()
+def build_index(cohort: str = "sealed_six") -> dict[str, Any]:
+    wallets, selected = scope_from_registry(cohort)
     roster_sha = selected["wallet_set_sha256"]
     expected_days = days_between(START, END)
-    sources = window_sources()
+    sources = window_sources(cohort)
     if set(sources) != {(d, day) for d in ALLOWED_DEXES for day in expected_days}:
         raise ValueError("WINDOW_COVERAGE_INCOMPLETE")
     entries: list[dict[str, Any]] = []
@@ -90,11 +126,17 @@ def build_index() -> dict[str, Any]:
             pre = read_manifest(prepath)
             if pre["scope"]["wallet_set_sha256"] != roster_sha:
                 raise ValueError("FROZEN_SELECTED_WALLET_SET_CHANGED")
+            if pre["scope"].get("cohort", "sealed_six") != cohort:
+                raise ValueError("RESEARCH_COHORT_DRIFT")
+            if cohort == "monitored_plus_six" and pre["scope"] != selected:
+                raise ValueError("MONITORED_ROSTER_PROVENANCE_DRIFT")
             if pre["scope"]["portfolio_versions"] != selected["portfolio_versions"]:
                 raise ValueError("FROZEN_PORTFOLIO_SELECTION_CHANGED")
             if pre.get("dex", "hyperliquid") != dex:
                 raise ValueError("DEX_SOURCE_MISMATCH")
-            expected_snapshot_scope = "global" if root == ORIGINAL_MAIN_PILOT else "dex"
+            expected_snapshot_scope = (
+                "global" if cohort == "sealed_six" and root == ORIGINAL_MAIN_PILOT else "dex"
+            )
             if pre.get("snapshot_scope", "global") != expected_snapshot_scope:
                 raise ValueError("SNAPSHOT_SOURCE_SCOPE_MISMATCH")
             if day not in pre["days"]:
@@ -196,7 +238,8 @@ def build_index() -> dict[str, Any]:
         summary[dex]["verified_dates"] = len(expected_days)
 
     return {
-        "schema": "reservoir_six_portfolio_two_dex_catalog_v1",
+        "schema": "reservoir_two_dex_catalog_v3",
+        "cohort": cohort,
         "created_at_utc": datetime.now(UTC).isoformat(),
         "scope": selected,
         "allowed_dexes": sorted(ALLOWED_DEXES),
@@ -304,9 +347,14 @@ def scan_snapshots(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=("build", "verify", "counts"))
-    parser.add_argument("--out", type=Path, default=CATALOG_ROOT)
+    parser.add_argument(
+        "--cohort", choices=("sealed_six", "monitored_plus_six"), default="sealed_six"
+    )
+    parser.add_argument("--out", type=Path, default=None)
     args = parser.parse_args()
-    index = build_index()
+    if args.out is None:
+        args.out = MONITORED_CATALOG_ROOT if args.cohort == "monitored_plus_six" else CATALOG_ROOT
+    index = build_index(args.cohort)
     if args.mode in ("build", "verify"):
         if args.mode == "build":
             digest = write_catalog(args.out, index)

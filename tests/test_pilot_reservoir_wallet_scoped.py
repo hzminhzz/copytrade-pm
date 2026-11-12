@@ -163,6 +163,72 @@ def test_selected_sealed_roster_and_missing_seal(tmp_path):
         pilot.registry_scope(db)
 
 
+def test_production_monitored_plus_six_scope_freezes_269_and_preserves_five(
+    tmp_path,
+):
+    db = tmp_path / "roster.sqlite"
+    conn = sqlite3.connect(db)
+    conn.executescript("""
+        CREATE TABLE wallets(wallet_id INTEGER PRIMARY KEY,address TEXT);
+        CREATE TABLE portfolio_seals(
+          portfolio_id TEXT,version INTEGER,selection_known_at TEXT,
+          definition_sha256 TEXT
+        );
+        CREATE TABLE portfolio_memberships(
+          portfolio_id TEXT,version INTEGER,member_alias TEXT,wallet_id INTEGER
+        );
+        CREATE TABLE monitoring(
+          wallet_id INTEGER,configured INTEGER,subscribed INTEGER,known_at TEXT
+        );
+        CREATE TABLE snapshot_meta(key TEXT PRIMARY KEY,value TEXT);
+    """)
+    for i in range(269):
+        conn.execute("INSERT INTO wallets VALUES(?,?)", (i + 1, "0x" + f"{i + 1:040x}"))
+    for i in range(264):
+        conn.execute(
+            "INSERT INTO monitoring VALUES(?,?,?,?)",
+            (i + 1, 1, 1, "2026-11-04T09:36:57Z"),
+        )
+    # Nine source-selection wallets are monitored; five are outside.
+    members = [1, 2, 3, 4, 5, 6, 7, 8, 9, 265, 266, 267, 268, 269]
+    edges = members[:12] + [
+        members[12],
+        members[13],
+        members[0],
+        members[1],
+        members[2],
+        members[3],
+    ]
+    for j, name in enumerate(pilot.SELECTED_PORTFOLIOS):
+        conn.execute(
+            "INSERT INTO portfolio_seals VALUES(?,?,?,?)",
+            (name, 2, "2026-11-07T00:00:00Z", "b" * 64),
+        )
+        for k, wid in enumerate(edges[j * 3 : (j + 1) * 3]):
+            conn.execute(
+                "INSERT INTO portfolio_memberships VALUES(?,?,?,?)",
+                (name, 2, f"S{k}", wid),
+            )
+    conn.executemany(
+        "INSERT INTO snapshot_meta VALUES (?,?)",
+        [
+            ("manifest_sha256", "c" * 64),
+            ("observed_at", "2026-11-04T09:36:57Z"),
+        ],
+    )
+    conn.commit()
+    conn.close()
+    selection, selected_scope = pilot.scope_from_registry("sealed_six", db)
+    assert len(selection) == 14
+    enlarged, scope = pilot.scope_from_registry("monitored_plus_six", db)
+    assert len(enlarged) == 269
+    assert set(selection).issubset(enlarged)
+    assert scope["production_monitored_count"] == 264
+    assert scope["selected_outside_monitored"] == 5
+    assert scope["wallet_set_sha256"] != selected_scope["wallet_set_sha256"]
+    assert scope["study_class"] == "RETROSPECTIVE_FIXED_MONITORED_PLUS_SIX_NOT_PIT"
+
+
 def test_preflight_respects_projected_budget_and_never_fetches_wallet_data(tmp_path, monkeypatch):
     class DummyConn:
         def close(self):

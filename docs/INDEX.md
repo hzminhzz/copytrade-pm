@@ -12,7 +12,7 @@
 | Current canonical virtual-paper research | [2026-11-11 campaign runbook](V4-CANONICAL-FRESH-PAPER-20261111.md) | Actual pinned service + immutable private journals, not this document's snapshot |
 | Sizing and account risk | [Fixed-k sizing](RISK-BUDGETED-K-SIZING-20261106.md), [PM-03](PM-03-shadow-account.md), [PM-04](PM-04-shadow-hardening.md) | PM03/04 simulated finance; Guardian owns protected finance |
 | Data acquisition and recovery | [Data acquisition](DATA-ACQUISITION.md), [Vike recovery](VIKE-DATA-RECOVERY-20261106.md) | Provider-tagged raw evidence, actual local receipt time |
-| Reservoir wallet-scoped historical research | [Acquisition plan](RESERVOIR-WALLET-DUCKDB-PLAN-20261112.md), [31-day two-DEX six-portfolio backfill](RESERVOIR-SIX-PORTFOLIO-BACKFILL-20261112.md), [initial seven-day pilot](RESERVOIR-WALLET-PILOT-20261112.md) | Private source SHA; full-history and paper qualification remain separate |
+| Reservoir wallet-scoped historical research | [269-wallet full-history acquisition and AWS blocker](RESERVOIR-MONITORED-PLUS-SIX-269-20261112.md), [two-DEX acquisition plan](RESERVOIR-WALLET-DUCKDB-PLAN-20261112.md), [14-wallet 31-day evidence](RESERVOIR-SIX-PORTFOLIO-BACKFILL-20261112.md) | 269-wallet metadata staged; no 269 fills downloaded, no paper activation |
 | Safe operator workflow and commands | [RUNBOOK](RUNBOOK.md), [Blocker recovery](BLOCKER-RECOVERY.md) | Verify version and dry-run before runbook mutation |
 | Economics, readiness, promotion | [Qualification](QUALIFICATION.md), [Governance](GOVERNANCE-GATES.md), [Merge vs activation](decisions/2026-11-10-merge-vs-runtime-promotion.md) | Independent actual follower outcomes and action-specific signed permissions |
 
