@@ -1,67 +1,45 @@
 # copytrade-pm — agent operating contract
 
-**Start here.** Research, source observation and virtual paper only. No broker credentials, real orders or trading authorization in this repository. ChatGPT executes work directly; preserve other sessions' changes. This file is the agent entrypoint; [docs/INDEX.md](docs/INDEX.md) is the navigation directory.
+This repository owns **research, original source observation, and virtual paper**, not broker authority. ChatGPT is the hands-on engineer. Do not delegate coding without an explicit user request. No broker credentials, live orders, protected Guardian changes, or trading authorization.
 
-## First 5 minutes
+## First inspection
 
-1. Read this file, [docs/INDEX.md](docs/INDEX.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Read the *owning* contract/runbook for the task before changing it. Dated studies are evidence, not standing instructions.
-2. Inspect real `origin/main`, PRs/issues, the current branch, dirty/untracked work and all worktrees. Use an isolated worktree if the main checkout is dirty or owned by another session. Never reset, clean, overwrite or repurpose another agent's work.
-3. Run `~/.optmem/memo wake`, completing all pages; use `memo recall` and `memo zoom` for durable decisions. Memory does not override Git, SQLite, live source receipts or OS evidence. Update memory after binding decisions with short `memo note` (maximum 280 bytes); never edit memory storage directly.
-4. Discover the real owner before adding a capability: `uv run --frozen --group dev copytrade-pm capabilities list`, `uv run --frozen --group dev copytrade-pm capabilities show <id>`, `uv run --frozen --group dev copytrade-pm capabilities validate`. See [agent-native operations](docs/AGENT-NATIVE-OPERATIONS.md).
-5. Verify actual installed release SHA, service PID, original source/financial journals, registry identity and provider coverage before claiming a service is running correctly. **MERGED != DEPLOYED != RUNNING VERIFIED != SCIENTIFICALLY QUALIFIED != TRADING AUTHORIZED.**
+1. Read [docs/INDEX.md](docs/INDEX.md), the owning architecture decision, and the canonical runbook for the task.
+2. Inspect current origin/main, actual GitHub issues/PRs, branch, worktrees, dirty and untracked files, installed service PIDs, release SHAs, and real SQLite journals. Never reset, clean, overwrite, or commandeer another session's work. Use an isolated worktree.
+3. Run OptMem wake and recall for context; repository, original receipts, SQLite, and live OS facts override memory. Do not use dated status notes as current truth.
+4. Discover existing CLI capabilities before adding a module: `copytrade-pm capabilities list`, `copytrade-pm capabilities show`, and `copytrade-pm capabilities validate`. See [agent-native operations](docs/AGENT-NATIVE-OPERATIONS.md).
+5. Run the existing `scripts/ci.sh all` / `.githooks/pre-push` gate and verify its exact-commit receipt. Passing CI does not prove an installed release, financial admission, or trading authorization.
 
-## Authority — one owner per fact
+## Independent authorities
 
-| Fact | Owner |
+| Boundary | Source of truth |
 | --- | --- |
-| Reviewed code and accepted ADRs | GitHub exact SHA; [documentation directory](docs/INDEX.md) |
-| Wallets, exclusions, aliases, sealed portfolios | Private **SQLite** registry; [registry-first workflow](docs/WALLET-REGISTRY-AGENT-WORKFLOW.md) |
-| Original observations, first-known clocks, coverage gaps | Immutable private source and market journals |
-| Research position accounting, paper risk and portfolio simulation | PM-03/PM-04 in this repository |
-| Signed risk permits, actual follower inventory and broker finance | Guardian in `prop-production` |
-| Provider transport and broker-specific normalization | `trading-connector` |
-| Running version | Real service PID + OS configuration + exact deployed checkout |
-| Long-lived context | OptMem; never runtime truth |
+| Code and accepted engineering contracts | Git exact SHA and [architecture](docs/ARCHITECTURE.md) |
+| Wallets, exclusions, portfolio memberships/versions | Private SQLite; [registry-first workflow](docs/WALLET-REGISTRY-AGENT-WORKFLOW.md) |
+| Causal source positions and coverage | Original native source journal; never fill gaps with inferred flats |
+| Financial virtual paper / risk | PM03/PM04 replay of isolated paper journals |
+| Frozen k research | Track C PIT/OOS originals; research is not permission |
+| Signed paper-only authority | Independently verified Copy Mandates and new epoch |
+| Protected native trading | Guardian in prop-production; broker adapter in trading-connector |
+| Deployment and dashboard | Actual service PID, executable SHA, authenticated Site revision and publisher proof |
 
-## MANDATORY REGISTRY-FIRST workflow
+**MANDATORY REGISTRY-FIRST:** For any portfolio/paper question, verify the registry with `copytrade-wallet-registry doctor`, `copytrade-wallet-registry status`, `copytrade-wallet-registry native status`, and `scripts/registry_release.py verify`. Resolve the SQLite **source generation** (manifest SHA/as-of), namespace/version/as-of, and authoritative source receipts. [WALLET-STATUS.md](docs/WALLET-STATUS.md) is dated historical evidence, not current truth. An unsigned seal, research portfolio, or healthy observer does **not** establish signed financial admission.
 
-For wallet/portfolio/paper/readiness questions, first run from the verified checkout:
+## Source and timing boundaries
 
-```bash
-uv run --frozen --group dev copytrade-wallet-registry doctor
-uv run --frozen --group dev copytrade-wallet-registry status
-uv run --frozen --group dev copytrade-wallet-registry native status
-uv run --frozen --group dev python scripts/registry_release.py verify
-```
+- Current approved V4 entry timing is genuine first locally known complete-book transition T0 + 300 seconds for one new-risk attempt; verified reductions and protective exits are immediate. See [position-first ADR](docs/decisions/2026-11-08-position-first-t300.md).
+- Future Vike-first transport is preferred for scale; Vike observation/fill transport alone is **not** continuous official complete-book proof or permission to cut over. See [Vike-first ADR](docs/decisions/2026-11-11-vike-first-wallet-source.md) and [migration status contract](docs/V4-VIKE-FIRST-MIGRATION-PROGRESS-20261111.md).
+- The distinct canonical five-minute CWSA policy uses official REST original-backed checkpoints, independent wallet waves, explicit source/mandate transitions, immutable freeze, and no implied state machine. It does not silently replace V4. See [checkpoint ADR](docs/decisions/2026-11-11-canonical-5m-checkpoint-grill.md) and [CWSA Chapter 2 runbook](docs/CWSA-CHAPTER2-20261112.md).
+- Default sizing is FIXED_K_NATIVE_QUANTITY; historical NAV-relative assumptions remain historical. Never infer executable P&L from market mids, historical leader fills, or a healthy service. See [risk-budgeted k](docs/RISK-BUDGETED-K-SIZING-20261106.md), [qualification](docs/QUALIFICATION.md), and [PM03](docs/PM-03-shadow-account.md).
 
-Verify the SQLite **source generation** (manifest SHA/as-of) against the actual query and compare the dated [WALLET-STATUS.md](docs/WALLET-STATUS.md) only as historical evidence. Physical SQLite integrity, unsigned selection, selected signed seal, original source coverage, running financial worker and Guardian permit are **different gates**. A `BLOCKED_MISSING_EXTERNAL_PROOF` result is not database corruption and does not permit an unsigned selection. Verify original namespace/version/as-of; `q3/B` is not `gemini.phase5/B`. Read-only observer preflight checks *requested independently sealed* portfolios without requiring unrelated unsigned priorities; it still rejects an unsealed requested portfolio. See [the registry policy](docs/WALLET-REGISTRY-AGENT-WORKFLOW.md) and [release/rollback](docs/WALLET-REGISTRY-RELEASE-RUNBOOK.md). Do not perform native registry writes as diagnostics.
+## Operations and release
 
-## Source: Vike-first **target**, official position authority **now**
+- **Single Chapter 2 owner:** [CWSA Chapter 2 runbook](docs/CWSA-CHAPTER2-20261112.md). It owns premerge/predeploy/postdeploy acceptance, unsigned research-to-paper release discipline, CI receipts, nonfinancial observation fallback, and rollback. Report PASS, BLOCKED_EVIDENCE, or FAIL without promoting an empty financial journal.
+- **Current intended operator UI:** the user-facing Site source in /home/quant/dev/copytrade-pm/dashboard/. It is untracked in the main checkout and belongs to another session until ownership is verified. Grafana and Marimo are historical/retired operator interfaces. The older ops-control-center service is a read-only sidecar; a running sidecar is not proof that the Site projection is deployed.
+- Review [RUNBOOK](docs/RUNBOOK.md), [governance](docs/GOVERNANCE-GATES.md), [merge-versus-deployment ADR](docs/decisions/2026-11-10-merge-vs-runtime-promotion.md), and [blocker recovery](docs/BLOCKER-RECOVERY.md) before any mutation. Never change protected Guardian/broker or existing journals for an observer deployment.
+- Prefect is opt-in Track B research orchestration only; never a hot source, financial, or order authority. See [Prefect](docs/TRACK-B-PREFECT-ORCHESTRATION-20261110.md).
+- **MANDATORY contract EV tool:** use native `research.contract_selector` with `copytrade-pm contracts rules` and `copytrade-pm contracts compare --portfolio NAMESPACE/ID --tape PRIVATE_TAPE`. Resolve the portfolio from SQLite and require genuine matched **net follower** evidence. Missing tape means BLOCKED; synthetic EV means SCENARIO_ONLY; neither gives permission to trade. See [contract EV](docs/CONTRACT-PORTFOLIO-EV-TOOL-20261105.md).
 
-**Approved future transport:** prefer a shared, wallet-filtered **Vike** stream for new wallet ingestion instead of scaling direct Hyperliquid user-specific WebSockets across this VPS shared IP. Read the [binding Vike-first migration ADR](docs/decisions/2026-11-11-vike-first-wallet-source.md) before touching provider ingestion. Direct Hyperliquid remains bounded independent verification/fallback. **The 14-parent Vike observation collector, independently verified REST archives, pure candidate reducer and isolated crash-safe candidate SQLite journal are nonactivating engineering. A continuously verified, paper-admissible reconciled source and Vike paper cutover remain unimplemented.** The live `hl.positions` canary observed a provider GAP, not a qualified book. See [current migration evidence and blockers](docs/V4-VIKE-FIRST-MIGRATION-PROGRESS-20261111.md).
+## Engineering documentation
 
-**Current V4 contract:** only a genuine observed change of a complete **official** selected-account all-DEX perp position book after a non-actionable baseline can initiate new risk. Vike `hl.fills` and `hl.positions` are not independently full account-position authority. A fill-reconstructed book requires an independently reconciled complete baseline, full continuity and matching official proof before paper admission. A gap/stale/mismatch blocks new risk; never infer an exit or create an earlier first-known timestamp from historical REST recovery. See [current position-first ADR](docs/decisions/2026-11-08-position-first-t300.md) and [0911 budget incident](docs/V4-0911-WS-SUBSCRIPTION-RECOVERY-292.md). Historic 7-of-14 coverage is a dated observation, not a guaranteed present count.
-
-**Current deployed-policy timing, not the approved next strategy:** first genuine locally known transition T0 → one new-risk attempt at **T0+300 seconds** under existing grace and current complete book; coalesce later updates without clock reset. Verified source reductions and protective risk exits attempt immediately. Keep event, local receive, durable commit, decision and order clocks distinct. Preserve existing immutable first-known proofs, source/financial journal versions and crash/restart semantics. Never rewrite past source or financial evidence. See [V4 canonical paper](docs/V4-CANONICAL-FRESH-PAPER-20261111.md).
-
-**Checkpoint policy (Q1–Q24; nonactivating implementation):** native Hyperliquid REST authoritative five-minute complete position checkpoints; signed target-state proofs and frozen copy mandates; recovery/activation baselines; pod-independent risk and netted orders; one-shot risk with bounded pre-dispatch re-evaluation; full-target later increases; pause/retire distinct from flatten; scoped wallet faults, immutable mandate succession and independently qualified economic/broker gates. **No implicit state machines**: future source continuity and mandate lifecycle require typed predecessor/event/guard/next-state/effect tables owned by their existing contexts; do not infer state from booleans, timestamp age, absent database rows, UI readiness or services. Guardian retains its own independent financial journal and UNKNOWN obligations.
-
-For checkpoint source, paper, or release changes, read the [implementation evidence and boundaries](docs/CANONICAL-5M-IMPLEMENTATION-313.md), [runtime opt-in contract](docs/CANONICAL-5M-RUNTIME-314-316.md), and [binding ADR](docs/decisions/2026-11-11-canonical-5m-checkpoint-grill.md). The collector, explicit journal, signed mandates, one-shot paper consumer and matched-economics evaluator exist. Installed T0+300 policy remains separately owned; measured source qualification, real new mandate approvals, prospective follower economics and protected activation require their own evidence. Vike remains a nonauthoritative event/research transport.
-
-**Sizing:** `FIXED_K_NATIVE_QUANTITY` by default. Follower target notional = signed `k * leader_native_quantity * source_mark`, converted with an independent follower quote. Source leader NAV is optional; source selected account/DEX scope, source exit receipts, frozen k, follower equity/headroom, broker reconciliation, PM03/PM04 pod losses, daily/trailing floors, gross/market limits, and Guardian permit remain mandatory at their boundaries. Legacy `ALLOCATION_OVER_LIVE_NAV` remains explicit historical opt-in. Never confuse a $200 modeled stop with guaranteed maximum fill loss. See [fixed-k policy](docs/RISK-BUDGETED-K-SIZING-20261106.md).
-
-**Research:** historical HyperX/Vike fills and market bars are retrospective. They cannot claim prospective first-known times or executable follower PnL. Preserve frozen PM-01 membership, `pm01_fill_only_replay_v2`, selection source hashes, full-source positions and independently pinned OOS/holdout boundaries. Follow [data acquisition](docs/DATA-ACQUISITION.md) and [qualification](docs/QUALIFICATION.md); do not silently relax eligibility, cost, capacity or risk gates.
-
-## Safe execution and verification
-
-- **Before operations:** follow [RUNBOOK](docs/RUNBOOK.md) and the exact versioned release runbook; inspect service identity, restart/reconciliation semantics, source budgets, WAL size and deployment pins. Never run historical `--apply` examples just because a dated document contains them. For current canonical virtual paper read [its dedicated release runbook](docs/V4-CANONICAL-FRESH-PAPER-20261111.md). Guardian/broker changes require separate protected authority.
-- **MANDATORY contract EV tool:** for portfolio/prop comparisons use native `research.contract_selector` via `copytrade-pm contracts rules` and `copytrade-pm contracts compare --portfolio NAMESPACE/ID --tape PRIVATE_TAPE`. Resolve portfolios from SQLite and require genuine matched net follower evidence; missing authentic tape means BLOCKED, synthetic EV means SCENARIO_ONLY; neither gives permission to trade. See [contract EV](docs/CONTRACT-PORTFOLIO-EV-TOOL-20261105.md).
-- **For Prefect:** opt-in private Track B research orchestration only; never own source hot loops, live finance, k release or orders. See [Prefect runbook](docs/TRACK-B-PREFECT-ORCHESTRATION-20261110.md).
-- **For dashboards:** The current user-facing Ops Control Center source is at `/home/quant/dev/copytrade-pm/dashboard/`; validate the actually deployed Site revision and authenticated redacted publisher contract before claiming parity. Legacy Grafana/Marimo records and running service processes are historical/operational evidence, not authority for new UI integration. The ops sidecar is read-only and nonauthoritative. See [control center](docs/OPS-CONTROL-CENTER-20261111.md), [dashboard retirement](docs/DASHBOARD-RETIREMENT-20261108.md), and [Chapter 2 paper contract](docs/CWSA-CHAPTER2-20261112.md).
-- **For blockers:** diagnose → repair → retest → resume, preserving adverse evidence and other agents' work. See [blocker recovery](docs/BLOCKER-RECOVERY.md). When inspecting a stash containing untracked files, verify its **third parent** (`<stash-sha>^3`) separately; see [follow-up audit](docs/RECONCILIATION-FOLLOWUP-20261107.md).
-
-Verify exact-head tests, Ruff format/lint, build, capability catalog, relevant adversarial scenarios and cross-repository consumer pins when affected. `README.md` owns commands; `prop-production/src/prop_production/compatibility.json` owns compatibility pins. Independently captured signed agent traces, not test fixtures, are required for [agent trace evaluation](docs/AGENT-TRACE-EVAL-20261105.md). Git merge needs engineering evidence; runtime promotion requires action-specific gates. See [merge vs promotion ADR](docs/decisions/2026-11-10-merge-vs-runtime-promotion.md).
-
-## Documentation maintenance is engineering work
-
-For every source, contract, command, risk, release or architecture change: update **one canonical owner**, its ADR when a decision changed, `docs/INDEX.md` navigation and relevant OptMem record. Link instead of duplicating rules. Keep historical ADRs/experiments/incident proofs intact with supersession pointers. Record **APPROVED TARGET / IMPLEMENTED / TESTED / DEPLOYED / SCIENTIFICALLY_QUALIFIED / TRADING_AUTHORIZED** separately. Keep ephemeral balances, PIDs, disk sizes and portfolio PnL out of durable agent rules. Final report: exact changed paths, tests, installed evidence if checked, commit/PR, unresolved gaps.
+Update one canonical owner, docs/INDEX.md navigation and the relevant ADR when contracts change. Preserve historical reports and negative evidence. Confirm cross-repository consumer pins when changed. Keep ephemeral processes, balances, resource values, and P&L out of permanent instructions. Report **IMPLEMENTED / TESTED / MERGED / DEPLOYED / PROSPECTIVE_PAPER_ACTIVE / ECONOMICALLY_QUALIFIED / SCIENTIFICALLY_QUALIFIED / TRADING_AUTHORIZED** as separate states with exact supporting receipts.
