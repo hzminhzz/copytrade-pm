@@ -24,6 +24,16 @@ jobs:
         run: uv python install 3.14
       - name: Sync pinned research environment
         run: uv sync --python 3.14 --frozen --all-extras --group dev
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: ops/control-center/package-lock.json
+      - name: Build read-only operations frontend for HTTP contract tests
+        working-directory: ops/control-center
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
       - name: Tests
         run: uv run --python 3.14 --no-sync pytest -q
       - name: Static checks
