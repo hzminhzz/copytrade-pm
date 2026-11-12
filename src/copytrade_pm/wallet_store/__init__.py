@@ -1,63 +1,60 @@
-"""Canonical wallet-level trading data store for copytrade-pm."""
+"""Canonical wallet-level trading data store.
 
-from .adapters import (
-    from_hyperx_camel,
-    from_hyperx_snake,
-    from_vike,
-)
-from .catalog import (
-    DEFAULT_REGISTRY_DB,
-    DEFAULT_STORE_DIR,
-    get_catalog_path,
-    init_catalog,
-    query_uncovered_registry_wallets,
-)
-from .schema import (
-    DATASET_SCHEMAS,
-    DATASET_SHA256,
-    FILLS_POLARS_SCHEMA,
-    POSITIONS_POLARS_SCHEMA,
-    EQUITY_POLARS_SCHEMA,
-    FUNDING_POLARS_SCHEMA,
-    LEDGER_POLARS_SCHEMA,
-    SCHEMA_VERSION,
-    Equity,
-    Fill,
-    Funding,
-    Ledger,
-    Position,
-)
-from .store import (
-    coverage,
-    ingest,
-    scan,
-    verify,
-)
+The public package remains importable without the optional market extra.
+Accessing a store model or operation loads its actual implementation, which
+requires Polars; ordinary copytrade-pm core imports do not.
+"""
 
-__all__ = [
-    "DATASET_SCHEMAS",
-    "DATASET_SHA256",
-    "DEFAULT_REGISTRY_DB",
-    "DEFAULT_STORE_DIR",
-    "EQUITY_POLARS_SCHEMA",
-    "Equity",
-    "FILLS_POLARS_SCHEMA",
-    "Fill",
-    "FUNDING_POLARS_SCHEMA",
-    "Funding",
-    "LEDGER_POLARS_SCHEMA",
-    "Ledger",
-    "POSITIONS_POLARS_SCHEMA",
-    "Position",
-    "SCHEMA_VERSION",
-    "coverage",
-    "from_hyperx_camel",
-    "from_hyperx_snake",
-    "from_vike",
-    "get_catalog_path",
-    "ingest",
-    "init_catalog",
-    "query_uncovered_registry_wallets",
-    "scan",
-    "verify",
-]
+from __future__ import annotations
+
+from importlib import import_module
+
+_EXPORT_GROUPS = {
+    "adapters": (
+        "from_hyperx_camel",
+        "from_hyperx_snake",
+        "from_vike",
+    ),
+    "catalog": (
+        "DEFAULT_REGISTRY_DB",
+        "DEFAULT_STORE_DIR",
+        "get_catalog_path",
+        "init_catalog",
+        "query_uncovered_registry_wallets",
+    ),
+    "schema": (
+        "DATASET_SCHEMAS",
+        "DATASET_SHA256",
+        "FILLS_POLARS_SCHEMA",
+        "POSITIONS_POLARS_SCHEMA",
+        "EQUITY_POLARS_SCHEMA",
+        "FUNDING_POLARS_SCHEMA",
+        "LEDGER_POLARS_SCHEMA",
+        "SCHEMA_VERSION",
+        "Equity",
+        "Fill",
+        "Funding",
+        "Ledger",
+        "Position",
+    ),
+    "store": (
+        "coverage",
+        "ingest",
+        "scan",
+        "verify",
+    ),
+}
+_EXPORT_MODULES = {name: module for module, names in _EXPORT_GROUPS.items() for name in names}
+
+__all__ = sorted(_EXPORT_MODULES)
+
+
+def __getattr__(name: str):
+    module = _EXPORT_MODULES.get(name)
+    if module is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return getattr(import_module(f".{module}", __name__), name)
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(__all__))
