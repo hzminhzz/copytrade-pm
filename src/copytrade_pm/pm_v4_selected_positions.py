@@ -39,29 +39,48 @@ from .pm_forward_source_stream import PersistentAccount
 from .pm_forward_stream_journal import verify_stream_heads_fast
 
 
+APPROVED_PORTFOLIOS = {
+    *PAPER_PROFILES,
+    "A",
+    "B",
+    "C",
+    "Combo2",
+    "regime.macro/TriadA",
+    "regime.macro/TriadChop",
+}
+
+
 def selected_parents(
     registry_db: Path, *, portfolios: tuple[str, ...], as_of: str
 ) -> dict[str, str]:
     """Read exact current portfolio selections once; do not widen to child NAV."""
     if not portfolios or len(portfolios) != len(set(portfolios)):
         raise ValueError("V4_SELECTED_PORTFOLIOS_INVALID")
-    if any(pid not in PAPER_PROFILES for pid in portfolios):
+    if any(pid not in APPROVED_PORTFOLIOS for pid in portfolios):
         raise ValueError("V4_SELECTED_PORTFOLIO_UNAPPROVED")
-    for pid in portfolios:
-        selection = _verify_portfolio_selection(
-            registry_db,
-            PAPER_PROFILES[pid],
-            as_of=as_of,
-        )
-        if not selection.get("definition_sha256"):
-            raise ValueError("V4_SELECTED_PORTFOLIO_SEAL_MISSING")
-
     parents: dict[str, str] = {}
     with closing(_readonly(registry_db)) as db:
         db.execute("BEGIN")
         try:
             for pid in portfolios:
-                for alias, full in PAPER_PROFILES[pid].registry_aliases.items():
+                if pid in PAPER_PROFILES:
+                    selection = _verify_portfolio_selection(
+                        registry_db,
+                        PAPER_PROFILES[pid],
+                        as_of=as_of,
+                    )
+                    items = tuple(PAPER_PROFILES[pid].registry_aliases.items())
+                else:
+                    from .wallet_registry_portfolios import select_asof
+
+                    selection = select_asof(db, pid, as_of)
+                    if not selection.get("definition_sha256"):
+                        raise ValueError("V4_SELECTED_PORTFOLIO_SEAL_MISSING")
+                    items = tuple((m, m) for m in selection.get("members", []))
+                if not selection.get("definition_sha256"):
+                    raise ValueError("V4_SELECTED_PORTFOLIO_SEAL_MISSING")
+
+                for alias, full in items:
                     addresses = db.execute(
                         "SELECT DISTINCT w.address FROM wallets w "
                         "JOIN wallet_aliases a ON a.wallet_id=w.wallet_id "
