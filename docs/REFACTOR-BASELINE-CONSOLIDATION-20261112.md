@@ -12,7 +12,7 @@ Create one independently reproducible, source- and contract-pinned baseline for 
 
 | Repository | GitHub baseline ref (observed) | Primary VPS checkout | Open PRs | Notes |
 | --- | --- | --- | ---: | --- |
-| copytrade-pm | `main@26554dba965def37b1b1932bbbfb4bd7bcdd7eb3` | `main@6c07cc6d36099135881be27a072c426a52a24f24` | 20 | Primary checkout behind and dirty; CWSA #333 / Reservoir #332 are active work |
+| copytrade-pm | `main@1c4ac38e76dc7ed31e3421273269750b2f03e086` | `main@6c07cc6d36099135881be27a072c426a52a24f24` | 19 | Primary checkout behind and dirty; CWSA #333 merged, Reservoir #332 remains open |
 | prop-production | `feat/account-guardian-program@22861edd5e42bed4e5bf8eb286423928afdcf937` (GitHub default) | same branch `00073496e0a3e4dc59b8d1cac4d3533c37c275ce` | 0 | Primary checkout clean but behind |
 | trading-connector | `main@1a9cc6b39e78dc7745e3b5675df8abc838a9bd9a` | `main@5f7664b51988e9f48b3ff3a07876a136c2d97de8` | 0 | Primary checkout behind with mixed Bybit/provider drafts |
 
@@ -25,7 +25,8 @@ A prior exhaustive worktree scan found **200 registered worktrees** (158/23/19),
 - Original live Ops Control Center source differences at deployed `49731332ea24803a7141a48d07e74c3ee490ca30` were copied **byte-for-byte** into isolated Git commit `aeaed40d0d894d3be38445db13d30bb2459a1fa4`, without modifying the deployed checkout or restarting the service.
 - Follow-up isolated fix `375a3361bbd3b1e4ae3ee314458bb5832860c1a0`: no invented pod counts; no cross-registry historical tracking injection; close SQLite read-only connections. Published branch: `preserve/ops-control-center-runtime-20261112`.
 - That branch's pre-push CI passed **1,795 core / 48 skipped**, **1,963 market / 19 skipped**, Ruff and builds. Frontend TypeScript/Vite build passed and targeted server tests passed **4/4**. The **running service has not been upgraded to the fixed branch**; its advertised revision is still not the actual modified source tree. Never conflate the preserved original snapshot commit with a verified repaired live deployment.
-- CWSA PR #333 and Reservoir PR #332 are actively owned, committed and open. Do not duplicate their work or silently force-push/rebase them. Recheck #333's current branch/head because it was locally amended while the earlier PR head was already published.
+- CWSA PR #333 merged as `1c4ac38e76dc7ed31e3421273269750b2f03e086` during this plan's preparation. It is engineering code on GitHub main, **not** an installed financial paper release. Reservoir PR #332 remains open and separately owned. Do not duplicate that work or silently force-push/rebase its branch.
+- The canonical wallet-store package, migration/inspection scripts, documentation and synthetic golden fixtures were preserved on `preserve/canonical-wallet-store-20261112`: original isolated commit `efe2fae9ab7e659a48273ba9555014a320f1cba5`, optional market-import fix `b71c99e81d92f82abdae1fd8e2696f5b9fcc8f98`. Full exact-commit CI passed (core **1,910 passed / 49 skipped**, market **2,085 passed / 20 skipped**, Ruff, frontend build and wheel/sdist). It is research source preservation, not canonical-store ingest or paper admission.
 
 ## Dependency-aware phases
 
@@ -41,7 +42,7 @@ A prior exhaustive worktree scan found **200 registered worktrees** (158/23/19),
 ### G1 — Preserve and classify unfinished work (P0)
 
 1. Inventory dirty paths across all 200 registered worktrees and the installed Ops checkout. Classify each cluster as `ALREADY_COMMITTED`, `VERIFIED_READY_TO_COMMIT`, `ACTIVE_WIP`, `GENERATED_OR_VENDOR`, `SENSITIVE_EXCLUDE`, or `SUPERSEDED`. Record original path, owner, test evidence, base SHA, and intended review action. A registered worktree is not inherently stale.
-2. Check whether untracked work is already represented by #332, #333, or another GitHub branch **before** copying or committing it. Current candidates include the root's wallet store, Reservoir docs/backtests, untracked Site source, and the connector's Bybit/Vanta/Vest/MFP drafts. Neither optional provider code nor agent-generated assets are automatic baseline content.
+2. Check whether untracked work is already represented by open #332, merged #333, the wallet-store preservation branch, or another GitHub branch **before** copying or committing it. Remaining candidates include the root's Reservoir docs/backtests, untracked Site source, and the connector's Bybit/Vanta/Vest/MFP drafts. Neither optional provider code nor agent-generated assets are automatic baseline content.
 3. Commit only **coherent completed clusters**, after specific tests and checks, in *independent* topic/preservation branches. Keep the original dirty checkout unchanged. For a deployed dirty checkout, first preserve exact bytes as a separate historical commit, then fix/verify on a descendant; do not edit active release files in place. Push commits using the repository's normal local gate.
 4. Leave active in-progress or unverified work owned by other sessions intact; preserve its SHA/path inventory rather than manufacturing a `DONE` commit. Exclude generated caches, private Parquet, raw wallet addresses/secrets, credentials and local skill/vendor directories.
 
@@ -49,11 +50,11 @@ A prior exhaustive worktree scan found **200 registered worktrees** (158/23/19),
 
 ### G2 — Triage open copytrade-pm PRs (P1; after G0/G1)
 
-Recheck the list before triage (20 open at inspection time). Required disposition for **every** PR: `MERGE_CANDIDATE`, `KEEP_ACTIVE`, `SUPERSEDED_CLOSE_CANDIDATE`, `ARCHIVE_HISTORICAL`, or `BLOCKED`, with exact base/head/merge-base, replacement commit if applicable, owner, test status, and contract/deployment consequence.
+Recheck the list before triage (19 open after #333 merged). Required disposition for **every** PR: `MERGE_CANDIDATE`, `KEEP_ACTIVE`, `SUPERSEDED_CLOSE_CANDIDATE`, `ARCHIVE_HISTORICAL`, or `BLOCKED`, with exact base/head/merge-base, replacement commit if applicable, owner, test status, and contract/deployment consequence.
 
 | PRs | Initial triage queue, not a preapproved merge/close |
 | --- | --- |
-| #333, #332 | `KEEP_ACTIVE`: ongoing CWSA acceptance gates and six-portfolio Reservoir acquisition. Do not overtake owners or equate PR CI with deployed finance. |
+| #332 | `KEEP_ACTIVE`: six-portfolio Reservoir acquisition. CWSA acceptance gates #333 already merged, **not deployed**; do not equate a merge or CI with admitted paper finance. |
 | #301 | `REVIEW_MERGE_CANDIDATE`: Track B original-evidence/Prefect integration; compare to current main and installed evidence. |
 | #291 | `CHECK_SUPERSEDED`: frozen-k follow-up; compare with merged Track C contracts and pending status. |
 | #289 | `CHECK_ALREADY_DEPLOYED`: Site registry sync; determine if source is in main and if actual installed release is tracked. |
@@ -79,14 +80,14 @@ A PR can be excluded from the refactor baseline without closing it. Merge only r
 ### G4 — Cross-repository compatibility (P1; after G0/G2)
 
 1. Verify the protected installed `prop-production@22861edd...` manifest and its **actual** pinned `copytrade-pm@9fa86ed...` / `trading-connector@ea95f9...` source and schema compatibility. Do **not** change protected services.
-2. Separately check candidate review triple `copytrade-pm@26554dba...`, `prop-production@22861edd...`, `trading-connector@1a9cc6b...` (or replacement reviewed SHAs). Validate `portfolio_release_v1/v2`, `cwsa_checkpoint_packet_v3`, `copy_mandate_v1`, account/market evidence, immutable source-wire version, and signed release semantics with the real cross-tree test interfaces.
+2. Separately check candidate review triple `copytrade-pm@1c4ac38e...`, `prop-production@22861edd...`, `trading-connector@1a9cc6b...` (or replacement reviewed SHAs). Validate `portfolio_release_v1/v2`, `cwsa_checkpoint_packet_v3`, `copy_mandate_v1`, account/market evidence, immutable source-wire version, and signed release semantics with the real cross-tree test interfaces.
 3. Any incompatibility creates an explicit `BLOCKED_CONTRACT` result with owning repo and exact diff; do not silently repin `compatibility.json` or broaden provider permissions.
 
 **Gate:** protected runtime pins remain independently verified, and chosen refactor triple passes an explicit cross-tree compatibility matrix; both are named separately.
 
 ### G5 — Exact-SHA local CI and review freeze (P1; after G0–G4)
 
-1. From *clean, detached or dedicated* review worktrees run the pinned native local suites: `copytrade-pm: bash scripts/ci.sh all` (with any merged post-#333 gate), `prop-production: bash scripts/verify-local.sh all`, and the connector's own relevant provider tests + Ruff/type/build.
+1. From *clean, detached or dedicated* review worktrees run the pinned native local suites: `copytrade-pm: bash scripts/ci.sh all` (including merged #333 requirements), `prop-production: bash scripts/verify-local.sh all`, and the connector's own relevant provider tests + Ruff/type/build.
 2. Run cross-repository checkpoint/Guardian/connector tests and no-order-readonly smoke tests, including restart, HALT, stale evidence, reversal, duplicate/unknown order, historical journal compatibility and source/market causality. Do not need real broker credentials.
 3. Publish a content-hashed **private** verification receipt per SHA: exact commands, Python and lockfile versions, test/skip counts, failures, exit codes, hash of logs, and independently readable acceptance report.
 4. Recheck GitHub heads, PR dispositions, `git status --porcelain`, deployed process identities, disk/WAL and no unintended service/release changes before declaring freeze.
