@@ -50,6 +50,8 @@ For checkpoint source, paper, or release changes, read the [implementation evide
 
 **Sizing:** `FIXED_K_NATIVE_QUANTITY` by default. Follower target notional = signed `k * leader_native_quantity * source_mark`, converted with an independent follower quote. Source leader NAV is optional; source selected account/DEX scope, source exit receipts, frozen k, follower equity/headroom, broker reconciliation, PM03/PM04 pod losses, daily/trailing floors, gross/market limits, and Guardian permit remain mandatory at their boundaries. Legacy `ALLOCATION_OVER_LIVE_NAV` remains explicit historical opt-in. Never confuse a $200 modeled stop with guaranteed maximum fill loss. See [fixed-k policy](docs/RISK-BUDGETED-K-SIZING-20261106.md).
 
+**Reservoir research:** for wallet-scoped historical fills or daily position anchors, read the [bounded DuckDB plan](docs/RESERVOIR-WALLET-DUCKDB-PLAN-20261112.md) and [measured seven-day pilot](docs/RESERVOIR-WALLET-PILOT-20261112.md). Query one DEX/day for all selected wallets with source and cost budgets; observed exchange event time is not first-known receipt.
+
 **Research:** historical HyperX/Vike fills and market bars are retrospective. They cannot claim prospective first-known times or executable follower PnL. Preserve frozen PM-01 membership, `pm01_fill_only_replay_v2`, selection source hashes, full-source positions and independently pinned OOS/holdout boundaries. Follow [data acquisition](docs/DATA-ACQUISITION.md) and [qualification](docs/QUALIFICATION.md); do not silently relax eligibility, cost, capacity or risk gates.
 
 ## Safe execution and verification
