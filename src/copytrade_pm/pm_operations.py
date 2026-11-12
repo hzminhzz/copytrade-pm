@@ -404,6 +404,14 @@ def dispatch(args: argparse.Namespace) -> dict:
                 matches[0] if matches else {"status": "UNKNOWN", "error_code": "UNKNOWN_CAPABILITY"}
             )
         return capabilities.validate(args.root)
+    if args.group == "cwsa":
+        if args.verb == "projection":
+            from .pm_cwsa_chapter2_projection import build_runtime_projection
+
+            return build_runtime_projection(args)
+        from .pm_cwsa_chapter2_gate import verify
+
+        return verify(args)
     if args.group == "wallets":
         if args.verb == "show":
             return _read_registry(db, ["wallet", "--alias", args.id], "wallet.lookup", args.asof)
@@ -458,6 +466,22 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--root", type=Path, default=ROOT)
     p.add_argument("--observer-state-root", type=Path)
     top = p.add_subparsers(dest="group", required=True)
+    cwsa = top.add_parser("cwsa", help="CWSA acceptance gates (read-only)")
+    cwsa_sub = cwsa.add_subparsers(dest="policy", required=True)
+    chapter2 = cwsa_sub.add_parser("chapter2")
+    chapter2_sub = chapter2.add_subparsers(dest="verb", required=True)
+    verify_cmd = chapter2_sub.add_parser("verify")
+    from .pm_cwsa_chapter2_gate import add_arguments
+
+    verify_cmd.add_argument(
+        "--stage", required=True, choices=("premerge", "predeploy", "postdeploy")
+    )
+    add_arguments(verify_cmd)
+    projection_cmd = chapter2_sub.add_parser(
+        "projection", help="Read-only redacted source and PM03 proof"
+    )
+    add_arguments(projection_cmd)
+    projection_cmd.add_argument("--release-sha", required=True)
     cap = top.add_parser("capabilities")
     sub = cap.add_subparsers(dest="verb", required=True)
     cap_list = sub.add_parser("list")
@@ -537,6 +561,10 @@ def cli(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
     response = dispatch(args)
     print(json.dumps(response, sort_keys=True, indent=2))
+    if args.group == "cwsa":
+        if args.verb == "projection":
+            return 0
+        return {"PASS": 0, "BLOCKED_EVIDENCE": 2, "FAIL": 1}[response["verdict"]]
     if args.group == "capabilities":
         return 2 if response.get("status") in ("BLOCKED", "UNKNOWN") else 0
     if args.group == "contracts" and response.get("status") == "BLOCKED":

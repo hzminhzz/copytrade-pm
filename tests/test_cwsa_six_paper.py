@@ -1,7 +1,9 @@
 """Tests for CWSA Chapter 2 six-portfolio paper campaign."""
 
+from contextlib import closing
 from decimal import Decimal
 from pathlib import Path
+import sqlite3
 
 
 from copytrade_pm.pm_cwsa_six_paper import (
@@ -50,9 +52,15 @@ def test_supervisor_initializes_six_clean_isolated_journals(tmp_path):
 
 def test_supervisor_evaluates_checkpoint_wave(tmp_path):
     state_root = tmp_path / "paper_root"
+    # Freeze the live, continuously progressing source as a consistent SQLite
+    # snapshot. A new real checkpoint arriving during restart is not a replay.
+    source_copy = tmp_path / "source_snapshot.sqlite3"
+    with closing(sqlite3.connect(f"file:{SOURCE_PATH}?mode=ro", uri=True)) as src:
+        with closing(sqlite3.connect(source_copy)) as target:
+            src.backup(target)
     supervisor = Chapter2PaperSupervisor(
         state_root=state_root,
-        source_db=SOURCE_PATH,
+        source_db=source_copy,
         registry_db=REGISTRY_PATH,
     )
     # Process checkpoints from actual source database
@@ -79,7 +87,7 @@ def test_supervisor_evaluates_checkpoint_wave(tmp_path):
     # Restart supervisor and verify clean recovery
     reopened = Chapter2PaperSupervisor(
         state_root=state_root,
-        source_db=SOURCE_PATH,
+        source_db=source_copy,
         registry_db=REGISTRY_PATH,
     )
     assert reopened.last_processed_checkpoint_ms == supervisor.last_processed_checkpoint_ms
