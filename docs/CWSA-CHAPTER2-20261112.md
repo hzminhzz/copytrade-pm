@@ -1,6 +1,6 @@
 # CWSA Chapter 2 — six-portfolio paper runtime and release contract
 
-**Status:** The implementation on `fix/cwsa-chapter2-verified-paper-20261112` is **engineering code under review**, not evidence of a new verified running release, scientifically qualified P&L, or trading authorization. Inspect the actual running service PID and pinned release rather than this document's date.
+**Status (2026-11-12 evidence):** The original Chapter 2 repair PR #331 was squash-merged as `26554dba965def37b1b1932bbbfb4bd7bcdd7eb3`. A separate session reported installing its nonfinancial observer source/paper under an isolated worktree. Recheck real systemd PID and immutable release identity: merge and an observed running process are **not** qualified financial execution, current dashboard parity, or trading authorization. The retrospective stage gates are follow-up engineering work.
 
 ## Current research identities and existing service
 
@@ -70,3 +70,58 @@ Before any deployment: record service PIDs/sha, journal heads, source cadence, W
 The current operator frontend source is `/home/quant/dev/copytrade-pm/dashboard/`; new Chapter 2 evidence should be projected through its existing privacy-safe read-only data flow. **Do not confuse a local JSON status file or a running legacy Grafana process with verified dashboard deployment.**
 
 **Qualification:** A functioning source collector, clean paper journal and passing synthetic tests are engineering evidence. Count prospective economic holdout only after legitimate signed paper admissions, complete source coverage, real independent quotes, paper-financial receipts and risk/cost observations. Tickets #319/#320/#326/#327 retain their original required evidence and acceptance criteria.
+
+
+## Chapter 2 retrospective — mandatory stage separation
+
+**Owner:** this page. For actual operator requests, invoke the existing `copytrade-pm` CLI, not a second service or paper engine. A successful CI run is only engineering verification; a live process is only service liveness. Neither proves admitted finance or scientific qualification.
+
+### Deterministic acceptance
+
+The verifier emits `cwsa_chapter2_gate_verdict_v1` JSON with an explicit top-level `verdict`: `PASS` (exit 0), `BLOCKED_EVIDENCE` (exit 2), or `FAIL` (exit 1). FAIL dominates missing-evidence blockers, which dominate PASS. Always retain the entire returned check array and exact candidate SHA.
+
+From the checked-out release, use:
+
+```bash
+copytrade-pm cwsa chapter2 verify --stage premerge --receipt /private/sha-bound-local-ci.json
+copytrade-pm cwsa chapter2 verify --stage predeploy --receipt /private/sha-bound-local-ci.json \
+  --expected-sha EXACT_CANDIDATE_SHA --rollback-sha EXACT_OLD_RELEASE_SHA \
+  --rollback-path /private/actual-pinned-rollback-release \
+  --paper-root /private/new-empty-financial-epoch \
+  --quote-db /private/verified-independent-l2/paper-events.sqlite3 \
+  --qualification /private/independently-signed-k-qualification.json \
+  --research-public-key INDEPENDENT_RESEARCH_KEY_HEX \
+  --approved-paper-bundle /private/paper-only-release.json \
+  --approved-paper-sha256 EXACT_APPROVAL_SHA256 \
+  --trusted-paper-public-key INDEPENDENT_PAPER_TRUST_ROOT_HEX
+copytrade-pm cwsa chapter2 verify --stage postdeploy \
+  --expected-sha EXACT_VERIFIER_RELEASE_SHA \
+  --expected-source-sha EXACT_SOURCE_RELEASE_SHA \
+  --expected-paper-sha EXACT_PAPER_RELEASE_SHA \
+  --dashboard-url https://PRIVATE_SITE/chapter2/evidence.json \
+  --dashboard-revision EXACT_DASHBOARD_RELEASE_SHA
+```
+
+Postdeploy inspects actual systemd PID/executable checkout, SQLite-backed source policy and 14-wallet roster, all six read-only PM03 replayed journals, immutable receipt chains, resource headroom, financial consumer progress and deployed authenticated dashboard lineage. An active service under an unpinned mutable worktree must **not** be treated as an immutable release. A healthy observer with zero signed mandates remains blocked; a signed financial consumer that fails to process an eligible due change is FAIL. No eligible trades means no verified modeled financial effect.
+
+The predeploy gate is a *financial-epoch* acceptance check. It must reject retroactive use of the existing provisional observation root. Nonfinancial source observation may stay running under its separately reviewed reversible observer deployment; that does **not** make the financial predeploy gate PASS. Do not fill absent qualified k or L2 evidence with illustrative estimates.
+
+### Frozen k and paper mandate authority
+
+The existing Track C KResearchInput / KReleaseCandidate and native Copy Mandate/PM03 abstractions are the owners. The research-attestation verifier accepts only independently Ed25519-signed `cwsa-paper-k-research-only` envelopes with six SQLite-matching seals, member-by-member PIT/OOS and original-cost/market receipt hashes, risk-approved k limits, recorded negative findings, future effective start, and explicit `PAPER_ONLY` scope. These signed research attestations are *not* themselves executable Copy Mandates. The separately signed `cwsa_chapter2_paper_release_v1` must bind every member, the original account and scope, fixed-k risk policy, allowed markets and fresh independent L2 evidence. Never use a paper signing key for protected Guardian/broker authority.
+
+The code can produce unsigned `UNQUALIFIED_K` paper candidate structure for review; no actual qualified six-portfolio research evidence or signing key may be manufactured by a code agent. Signed-paper activation requires a **new empty** financial epoch and future-effective mandates. A provisional journal can never be upgraded retrospectively.
+
+### Permanent local CI and provenance
+
+Run `scripts/ci.sh all` from the exact **committed clean** checkout; the existing pre-push hook calls it. Core, market, the mandatory CWSA/PM03 adversarial roster, frontend typecheck/build, Ruff lint/format and Python build are independently logged. The full run writes a non-overwritten receipt in the current worktree Git-dir under `local-ci/`, with commit/tree SHAs, Python and uv versions, source/contract/lockfile hashes, skipped tests, and the SHA of each original log. Recheck with `python -m copytrade_pm.pm_ci_receipt verify --root REPO --receipt PATH --sha COMMIT`. Publish the receipt path/hash and exact counts to the follow-up PR. An absent receipt is BLOCKED_EVIDENCE, not a claim that GitGuardian/hosted checks ran unit tests.
+
+### Dashboard evidence contract
+
+The privacy-safe v1 CWSA evidence projection is distinct from historical V4 and native broker outcomes. It shows exactly A, B, C, Combo2, regime.macro/TriadA and regime.macro/TriadChop; wallet aliases, causal source provenance, checkpoint/wave heads, signed admission blockers, k qualification, replayed financial status, and *nullable* modeled P&L/cost/position fields. Never synthesize a zero P&L for blocked financial journals. The deployed Site endpoint must be authenticated and carry the actual publisher revision, source-head hash and fresh generated timestamp. HTTP 200, a build, or a public registry snapshot alone cannot pass the Site smoke gate.
+
+The intended Site source is currently untracked in the main checkout; preserve its owner/work. The independent source/finance projection library does not by itself publish, authenticate, or deploy the hosted Site. Keep the dashboard gate BLOCKED_EVIDENCE until a real publish/endpoint smoke check passes.
+
+### Deployment / rollback / retention
+
+Read the actual systemd unit files, ExecStart executable source checkout, PID, installed SHA and journal heads immediately before acting; these may change concurrently. Confirm disk, RAM/swap, writer leases and a runnable previous release. Preserve all six current observation journals, historical 16-portfolio archive, original source records, protected Guardian/broker services and other sessions' dirty work. A rollback restores the previously pinned unit file/release; it must not rewind immutable financial/source journals. Report implementation, tests, GitHub merge, installed service, actual financial effects, economic qualification and protected trading authorization separately. Do not close #320 unless its **original 16-portfolio** requirement is independently proven.
