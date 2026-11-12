@@ -1,0 +1,12 @@
+[Unit]
+Description=Refresh the private copytrade-pm Sites evidence projection
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=15min
+AccuracySec=1min
+Persistent=true
+Unit=copytrade-site-registry-sync.service
+
+[Install]
+WantedBy=timers.target

@@ -70,6 +70,7 @@ context. [AGENTS.md](../AGENTS.md) defines the execution workflow.
 | Wallet/cohort/portfolio discovery | [Registry-first workflow](WALLET-REGISTRY-AGENT-WORKFLOW.md) |
 | Protected native metadata writes | [Native SQLite controls](SQLITE-NATIVE-LEGACY-LOCK-20261105.md) |
 | Registry release, verification and rollback | [Registry release runbook](WALLET-REGISTRY-RELEASE-RUNBOOK.md) |
+| Private Sites evidence projection (read-only; no trading controls) | [Site registry sync](SITE-REGISTRY-SYNC.md) |
 | Default fixed-k sizing; leader NAV optional | [Sizing policy](RISK-BUDGETED-K-SIZING-20261106.md) |
 | Signed producer/Guardian handoff | [Production handoff](PRODUCTION-HANDOFF.md), [V4 source export](V4-PROP-SOURCE-EXPORT-20261108.md) |
 | Source acquisition and retrospective recovery | [Data acquisition](DATA-ACQUISITION.md), [Vike contract](VIKE-DATA-RECOVERY-20261106.md) |
