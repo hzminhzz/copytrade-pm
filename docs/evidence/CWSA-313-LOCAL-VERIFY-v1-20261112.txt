@@ -1,0 +1,94 @@
+Local filesystem paths redacted. Test output, counts and final receipt retained.
+
+ - websockets==17.4
+ - yarl==1.25.1
+ - zlib-ng==1.0.0
+.............................................................................................................................................................................................................................................................. [ 74%]
+.....................................................................................                                                                                                                                                                          [100%]
+339 passed, 1 skipped in 21.23s
+All checks passed!
+Success: no issues found in 54 source files
+{"account_readiness":"UNKNOWN","mode":"SHADOW","order_route":"NONE","schema":"operator_status_v1","scientifically_qualified":false,"state":"DISARMED","trading_authorized":false,"version":"0.1.0"}
+{"account_readiness":"UNKNOWN","equity":"10000","mode":"SHADOW","order_route":"NONE","schema":"operator_status_v1","scientifically_qualified":false,"source":"FIXTURE","state":"DISARMED","synthetic":true,"trading_authorized":false,"version":"0.1.0"}
+
+[app / Python 3.14]
+Using CPython 3.14.6
+Removed virtual environment at: .venv
+Creating virtual environment at: .venv
+Installed 14 packages in 19ms
+ + cffi==2.0.0
+ + cryptography==50.0.2
+ + iniconfig==2.3.1
+ + mypy==1.18.2
+ + mypy-extensions==1.2.0
+ + packaging==26.3
+ + pathspec==1.1.1
+ + pluggy==1.7.0
+ + prop-production==0.1.0 (from file://<ISOLATED_APPLICATION_CHECKOUT>)
+ + pycparser==3.0
+ + pygments==2.21.0
+ + pytest==8.4.2
+ + ruff==0.14.3
+ + typing-extensions==4.16.0
+.............................................................................................................................................................................................................................................................. [ 74%]
+.....................................................................................                                                                                                                                                                          [100%]
+339 passed, 1 skipped in 19.89s
+All checks passed!
+Success: no issues found in 54 source files
+{"account_readiness":"UNKNOWN","mode":"SHADOW","order_route":"NONE","schema":"operator_status_v1","scientifically_qualified":false,"state":"DISARMED","trading_authorized":false,"version":"0.1.0"}
+{"account_readiness":"UNKNOWN","equity":"10000","mode":"SHADOW","order_route":"NONE","schema":"operator_status_v1","scientifically_qualified":false,"source":"FIXTURE","state":"DISARMED","synthetic":true,"trading_authorized":false,"version":"0.1.0"}
+Building source distribution...
+Building wheel from source distribution...
+Successfully built dist/prop_production-0.1.0.tar.gz
+Successfully built dist/prop_production-0.1.0-py3-none-any.whl
+
+[connector / ea95f9bf9661bcda41685d6ba939aa349628f8f5]
+.............................................................................................................................................................................................................................................................. [ 63%]
+.................................................................................................................................................                                                                                                              [100%]
+========================================================================================================================== warnings summary ==========================================================================================================================
+.venv/lib/python3.13/site-packages/websockets/legacy/__init__.py:6
+  <ISOLATED_CONNECTOR_CHECKOUT>/.venv/lib/python3.13/site-packages/websockets/legacy/__init__.py:6: DeprecationWarning: websockets.legacy is deprecated; see https://websockets.readthedocs.io/en/stable/howto/upgrade.html for upgrade instructions
+    warnings.warn(  # deprecated in 14.0 - 2024-11-09
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+====================================================================================================================== short test summary info =======================================================================================================================
+SKIPPED [1] connectors/propr/tests/test_free_trial_delta_canary.py:12: could not import 'copytrade_pm.pm_combo2_rest_capture': No module named 'copytrade_pm.pm_combo2_rest_capture'
+399 passed, 1 skipped, 1 warning in 2.68s
+All checks passed!
+
+[app + native connector / ea95f9bf9661bcda41685d6ba939aa349628f8f5]
+Using CPython 3.13.5 interpreter at: <PYTHON_3_13_INTERPRETER>
+Removed virtual environment at: .venv
+Creating virtual environment at: .venv
+Installed 39 packages in 21ms
+..                                                                                                                                                                                                                                                             [100%]
+2 passed in 0.12s
+
+[Bybit Demo native adapter / ea95f9bf9661bcda41685d6ba939aa349628f8f5]
+...............                                                                                                                                                                                                                                                [100%]
+15 passed in 0.04s
+
+[research / 9fa86ed32f8679f8ec5487e5cbfa2ef8e37bce10]
+Checked 125 packages in 1ms
+...........................................................................................................................s.................................................................................................................................. [ 11%]
+.............................................................................................................................................................................................................................................................. [ 23%]
+.............................................................................................................................................................................................................................................................. [ 35%]
+.............................................................................................................................................................................................................................................................. [ 47%]
+.............................................................................................................................................................................................................................................................. [ 59%]
+.............................................................................................................................................................................................................................................................. [ 71%]
+.................................................................................s..............................................ss............................................................................................................................ [ 83%]
+.............................................................................................................................................................................................................................................................. [ 95%]
+...................................................................................................                                                                                                                                                            [100%]
+2127 passed, 6 skipped in 57.52s
+All checks passed!
+490 files already formatted
+{
+  "capability_count": 114,
+  "cli_count": 41,
+  "errors": [],
+  "module_only_count": 48,
+  "schema": "copytrade_capability_validation_v1",
+  "status": "VERIFIED"
+}
+LOCAL_VERIFY_PASS app=7d975461b2e90ae1a956baa464b9659b157c939c mode=all research=9fa86ed32f8679f8ec5487e5cbfa2ef8e37bce10 connector=ea95f9bf9661bcda41685d6ba939aa349628f8f5 compatibility=6bbedd136334732faccc674c602e81227c658834ca0043fb0037214771d34a77
+Scope: ENGINEERING_TESTS_ONLY; G0-G4 and live trading remain BLOCKED

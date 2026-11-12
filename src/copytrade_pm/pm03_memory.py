@@ -118,17 +118,22 @@ class Ledger:
         self.events_path = self.path / "events.jsonl"
         self.lock_path = self.path / ".writer.lock"
 
-    def _secure_file(self, path: Path) -> None:
+    @staticmethod
+    def _secure_file(path: Path) -> None:
         if path.is_symlink():
             raise ValueError("SYMLINK_LEDGER_FILE")
         if path.exists() and (not stat.S_ISREG(path.stat().st_mode) or path.stat().st_mode & 0o077):
             raise ValueError("INSECURE_LEDGER_FILE")
 
     def read(self) -> list[dict]:
-        self._secure_file(self.events_path)
-        if not self.events_path.exists():
+        return self.read_path(self.events_path)
+
+    @staticmethod
+    def read_path(events_path: Path) -> list[dict]:
+        Ledger._secure_file(events_path)
+        if not events_path.exists():
             return []
-        raw = self.events_path.read_bytes()
+        raw = events_path.read_bytes()
         if raw and not raw.endswith(b"\n"):
             raise ValueError("TRUNCATED_EVENT_TAIL")
         try:

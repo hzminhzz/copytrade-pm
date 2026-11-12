@@ -5,6 +5,8 @@
 **Supersedes:** the *transport scaling preference* of [2026-11-08 position-first T+300](2026-11-08-position-first-t300.md), **not** its complete-position, timing, paper-finance or risk semantics.
 **Evidence:** [V4 canonical paper campaign](../V4-CANONICAL-FRESH-PAPER-20261111.md), [0911 official WebSocket budget recovery](../V4-0911-WS-SUBSCRIPTION-RECOVERY-292.md), [isolated Vike observer](../FORWARD-PAPER-VIKE-MIGRATION-20261108.md), and the live Vike stream registry checked 2026-11-11.
 
+**2026-11-12 subsequent approved target (documentation-only):** [the canonical five-minute checkpoint strategy](2026-11-11-canonical-5m-checkpoint-grill.md) selects native Hyperliquid complete-position REST as the source of **checkpoint truth** (Q2=B), with Vike retained for scaled raw wallet-event ingestion, historical research and independent comparison. This does not revoke Vike-first transport for raw discovery/observations, does not make delayed Vike snapshots live position authority, and does not replace any installed first-known T0+300 V4 service. The distinct future economic policy requires independently qualified forward cutover.
+
 ## Decision and current state
 
 **New wallet-ingestion designs use Vike as the preferred scalable transport** instead of scaling direct Hyperliquid user-specific WebSocket subscriptions across every source wallet. Direct Hyperliquid APIs remain a bounded fallback and an independent source of complete-book baseline/reconciliation proof. This is a transport decision, **not** permission for raw vendor fills or position-change notifications to become trading signals.

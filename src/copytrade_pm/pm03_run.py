@@ -126,10 +126,14 @@ class ShadowRun:
         self.restore()
 
     def _apply(self, account: Account, event: Event) -> dict:
+        return self.replay_record(account, event, self.manifest, self.policy)
+
+    @staticmethod
+    def replay_record(account: Account, event: Event, manifest: dict, policy: RiskPolicy) -> dict:
         account._prepare_risk_semantics(event.payload.get("risk_semantics_version", 1))
-        if event.payload.get("run_id") != self.manifest["run_id"]:
+        if event.payload.get("run_id") != manifest["run_id"]:
             raise ValueError("CROSS_RUN_EVENT")
-        if clock(event.decision_at) < clock(self.manifest["started_at"]):
+        if clock(event.decision_at) < clock(manifest["started_at"]):
             raise ValueError("EVENT_PRECEDES_START")
         if clock(event.decision_at) < clock(account.rulebook.observed_at):
             raise ValueError("RULEBOOK_FROM_FUTURE")
@@ -141,7 +145,7 @@ class ShadowRun:
         if kind.startswith("PM04_"):
             from .pm04_shadow import apply_pm04
 
-            result = apply_pm04(account, event, self.policy, self.manifest["mode"])
+            result = apply_pm04(account, event, policy, manifest["mode"])
         elif kind == "MARK":
             if not input_row.get("state_known", False):
                 account.latch_halt("UNKNOWN_ACCOUNT_OBSERVATION")
@@ -154,13 +158,13 @@ class ShadowRun:
             candidates = _positions(input_row["proposed"])
             obs = _quotes(input_row["observations"])
             evidence = _evidence(input_row["evidence"])
-            if evidence.input_status != self.manifest["mode"]:
+            if evidence.input_status != manifest["mode"]:
                 raise ValueError("RESEARCH_MODE_MISMATCH")
             if any(clock(q.first_known_at) > clock(event.first_known_at) for q in obs.values()):
                 raise ValueError("MARKET_OBSERVATION_NOT_YET_KNOWN")
             if evidence.input_status == "PROSPECTIVE_OBSERVED" and (
-                self.manifest["pm01_sha"] == digest("unknown")
-                or self.manifest["pm02_sha"] == digest("unknown")
+                manifest["pm01_sha"] == digest("unknown")
+                or manifest["pm02_sha"] == digest("unknown")
             ):
                 raise ValueError("MISSING_PROSPECTIVE_EVIDENCE")
             shocks = tuple(_prices(sc) for sc in input_row["shocks"])
@@ -179,7 +183,7 @@ class ShadowRun:
                 {k: q.mark for k, q in obs.items()},
                 shocks,
                 evidence,
-                self.policy,
+                policy,
             )
             may_simulate = (
                 account.rulebook.confirmed

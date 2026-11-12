@@ -215,6 +215,12 @@ class PaperJournal:
                 """
             )
             db.executescript(STREAM_SCHEMA)
+            from .pm_checkpoint_journal import SCHEMA as CWSA_SCHEMA
+
+            db.executescript(CWSA_SCHEMA)
+            from .pm_copy_mandate_journal import SCHEMA as MANDATE_SCHEMA
+
+            db.executescript(MANDATE_SCHEMA)
         self._configure_wal = False
         os.chmod(self.path, 0o600)
 
@@ -271,6 +277,95 @@ class PaperJournal:
             fcntl.flock(fd, fcntl.LOCK_UN)
             os.close(fd)
 
+    def _copy_mandate_update(self, operation, *args, **kwargs):
+        with self._writer() as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                result = operation(db, *args, **kwargs)
+                db.execute("COMMIT")
+            except BaseException:
+                db.execute("ROLLBACK")
+                raise
+        return result
+
+    def activate_copy_mandate(self, envelope, key, *, account_id: str, at_ms: int):
+        from .pm_copy_mandate import verify_mandate
+        from .pm_copy_mandate_journal import activate
+
+        mandate = verify_mandate(envelope, key, account_id=account_id)
+        return self._copy_mandate_update(
+            activate,
+            mandate,
+            at_ms=at_ms,
+            evidence_sha=envelope["sha256"],
+            approval=envelope,
+            authority_public=key.public_bytes_raw().hex(),
+        )
+
+    def control_copy_mandate(self, envelope, key, *, at_ms: int):
+        from .production_manifest import verify
+        from .pm_copy_mandate_journal import control
+
+        command = verify(envelope, key, "copy-mandate-control-v1")
+        return self._copy_mandate_update(
+            control,
+            command,
+            at_ms=at_ms,
+            approval=envelope,
+            authority_public=key.public_bytes_raw().hex(),
+        )
+
+    def baseline_copy_mandate(self, owner: str, outcome_id: str, *, at_ms: int):
+        from .pm_copy_mandate_journal import baseline
+
+        return self._copy_mandate_update(baseline, owner, outcome_id, at_ms=at_ms)
+
+    def copy_mandate_state(self, owner: str):
+        from .pm_copy_mandate_journal import history, state
+
+        with closing(sqlite3.connect(f"file:{self.path}?mode=ro", uri=True)) as db:
+            history(db, owner)
+            return state(db, owner)
+
+    def consume_checkpoint(self, run_id, owner, outcome_id, *, at_ms, policy, catalog):
+        """Canonical v3 paper consumption; PM03 remains the financial owner."""
+        from .pm_checkpoint_paper import consume
+
+        return consume(self, run_id, owner, outcome_id, at_ms=at_ms, policy=policy, catalog=catalog)
+
+    def register_checkpoint_source(self, scope, policy, *, first_checkpoint_ms: int, at_ms: int):
+        from .pm_checkpoint_journal import register
+
+        with self._writer() as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                result = register(db, scope, policy, first_checkpoint_ms, at_ms)
+                db.execute("COMMIT")
+            except BaseException:
+                db.execute("ROLLBACK")
+                raise
+        return result
+
+    def append_checkpoint_sample(self, policy_epoch: str, sample, published_ms: int):
+        from .pm_checkpoint_journal import record, verify_candidate
+
+        proof_valid = verify_candidate(sample, self.root)
+        with self._writer() as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                result = record(db, policy_epoch, sample, published_ms, proof_valid=proof_valid)
+                db.execute("COMMIT")
+            except BaseException:
+                db.execute("ROLLBACK")
+                raise
+        return result
+
+    def checkpoint_history(self, scope, policy_epoch: str):
+        from .pm_checkpoint_journal import history
+
+        with closing(sqlite3.connect(f"file:{self.path}?mode=ro", uri=True)) as db:
+            return history(db, scope, policy_epoch)
+
     def append_stream_event(self, event: dict) -> dict:
         """Persist a transport/gap/checkpoint event without a financial effect."""
         with self._writer() as db:
@@ -287,6 +382,10 @@ class PaperJournal:
     def _apply(account: Account, event: dict) -> dict:
         account._prepare_risk_semantics(event.get("risk_semantics_version", 1))
         kind = event.get("kind")
+        if kind == "CWSA_PAPER_REVIEW":
+            from .pm_checkpoint_paper import apply
+
+            return apply(account, event)
         if kind == "HALT":
             account.latch_halt(event.get("reason") or "PAPER_OPERATOR_HALT")
             return {"status": "HALT_LATCHED"}
@@ -580,6 +679,10 @@ class PaperJournal:
         if row is None:
             raise ValueError("UNKNOWN_PAPER_RUN")
         manifest, snapshot, last_at, cursor, prior_sha = row
+        if event.get("kind") == "CWSA_PAPER_REVIEW":
+            from .pm_checkpoint_paper import validate_binding
+
+            validate_binding(db, run_id, event)
         if event.get("kind", "").startswith("PM04_"):
             saved_manifest = json.loads(manifest)
             if (
@@ -630,7 +733,7 @@ class PaperJournal:
 
     def append(self, run_id: str, event_id: str, event: dict) -> dict:
         self._validate_event(event_id, event)
-        if "source_ref" in event:
+        if "source_ref" in event or event.get("kind") == "CWSA_PAPER_REVIEW":
             raise ValueError("SOURCE_REF_REQUIRES_ATOMIC_CONSUME")
         with self._writer() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -721,7 +824,7 @@ class PaperJournal:
         return self.restore(run_id)
 
     @staticmethod
-    def _verify(db: sqlite3.Connection, run_id: str) -> dict:
+    def _verify(db: sqlite3.Connection, run_id: str, *, on_event=None) -> dict:
         row = db.execute(
             "SELECT manifest,manifest_sha,snapshot,snapshot_sha,last_event_at,cursor FROM runs WHERE run_id=?",
             (run_id,),
@@ -798,12 +901,18 @@ class PaperJournal:
                 or event.get("sealed_policy_sha") != manifest["policy_sha"]
             ):
                 raise ValueError("PM04_MANIFEST_POLICY_MISMATCH")
+            if event.get("kind") == "CWSA_PAPER_REVIEW":
+                from .pm_checkpoint_paper import validate_binding
+
+                validate_binding(db, run_id, event)
             last_result = PaperJournal._apply(account, event)
             expected_post = digest(account.snapshot())
             if after != expected_post or chain_sha != digest(
                 [run_id, seq, event_id, input_sha, before, after]
             ):
                 raise ValueError("PAPER_JOURNAL_DIVERGENCE")
+            if on_event is not None:
+                on_event(event, account.snapshot(), last_result, chain_sha)
             prior_sha = after
             prior_at = at
         funding_claims = db.execute(

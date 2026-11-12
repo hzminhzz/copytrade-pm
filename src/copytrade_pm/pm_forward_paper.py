@@ -121,6 +121,126 @@ class PaperCampaign:
         self._journal.consume_source_effect(run_id, event_id, event)
         return self.status(run_id)
 
+    def record_selected_checkpoint_wave(
+        self, selected, requests: dict, *, at_ms: int, catalog: dict
+    ) -> dict:
+        """Bind the existing SQLite-selected campaign to independently approved runs."""
+        from contextlib import closing
+        import json
+        import sqlite3
+
+        from .pm_copy_mandate import CopyMandate
+        from .pm_v4_sixteen_scenarios import IDENTITIES
+
+        if self._journal is None:
+            raise ValueError("PAPER_JOURNAL_REQUIRED")
+        if set(selected.profiles) != set(IDENTITIES) or set(requests) - set(IDENTITIES):
+            raise ValueError("CHECKPOINT_SELECTED_CAMPAIGN_ROSTER")
+        ready, blocked = {}, {}
+        with closing(sqlite3.connect(f"file:{self._journal.path}?mode=ro", uri=True)) as db:
+            for name, profile in selected.profiles.items():
+                try:
+                    request = requests.get(name)
+                    manifest_row = db.execute(
+                        "SELECT manifest FROM runs WHERE run_id=?", (name,)
+                    ).fetchone()
+                    if not request or manifest_row is None:
+                        raise ValueError("CHECKPOINT_SIGNED_MANDATES_OR_RUN_MISSING")
+                    manifest = json.loads(manifest_row[0])
+                    if manifest["portfolio_sha"] != selected.seals[name]["definition_sha256"]:
+                        raise ValueError("CHECKPOINT_SELECTED_DEFINITION_DRIFT")
+                    rows = request if isinstance(request, list) else [request]
+                    sources = []
+                    for row in rows:
+                        saved = db.execute(
+                            "SELECT mandate FROM copy_mandate_heads WHERE owner=?", (row["owner"],)
+                        ).fetchone()
+                        if saved is None:
+                            raise ValueError("CHECKPOINT_SIGNED_MANDATE_MISSING")
+                        mandate = CopyMandate.model_validate_json(saved[0])
+                        source = mandate.source_id
+                        sources.append(source)
+                        if (
+                            mandate.account_id != manifest["account_id"]
+                            or source not in profile.source_ids
+                            or mandate.source_account_sha != selected.account_hashes[name][source]
+                            or mandate.k != Decimal(profile.k[source])
+                            or Decimal(row["policy"]["pod_loss_limit"])
+                            > Decimal(profile.risk[source])
+                        ):
+                            raise ValueError("CHECKPOINT_SELECTED_MANDATE_OR_RISK_DRIFT")
+                    if len(sources) != len(set(sources)) or set(sources) != set(profile.source_ids):
+                        raise ValueError("CHECKPOINT_SELECTED_MANDATE_COVERAGE")
+                    ready[name] = request
+                except ValueError as exc:
+                    blocked[name] = {
+                        "status": "UNRESOLVED",
+                        "reason": str(exc),
+                        "order_route": "NONE",
+                    }
+        result = self.record_checkpoint_wave(ready, at_ms=at_ms, catalog=catalog)
+        result["portfolios"].update(blocked)
+        return result
+
+    def record_checkpoint_wave(self, requests: dict, *, at_ms: int, catalog: dict) -> dict:
+        """Consume a caller-scheduled canonical wave with independent account commits."""
+        if self._journal is None:
+            raise ValueError("PAPER_JOURNAL_REQUIRED")
+        portfolios = {}
+        for run_id, request in sorted(requests.items()):
+            rows = request if isinstance(request, list) else [request]
+            results = []
+            for row in rows:
+                try:
+                    result = self._journal.consume_checkpoint(
+                        run_id,
+                        row["owner"],
+                        row["outcome_id"],
+                        at_ms=at_ms,
+                        policy=row["policy"],
+                        catalog=catalog,
+                    )
+                except ValueError as exc:
+                    result = {
+                        "status": "UNRESOLVED",
+                        "reason": str(exc),
+                        "outcome_id": row["outcome_id"],
+                        "order_route": "NONE",
+                    }
+                results.append(result)
+            portfolios[run_id] = results[0] if len(results) == 1 else {"consumers": results}
+        return {
+            "schema": "checkpoint_paper_wave_v3",
+            "portfolios": portfolios,
+            "order_route": "NONE",
+            "trading_authorized": False,
+        }
+
+    def checkpoint_status(self, run_id: str) -> dict:
+        if self._journal is None:
+            raise ValueError("PAPER_JOURNAL_REQUIRED")
+        saved = self._journal.restore(run_id)
+        state = saved["account"].get("pm04", {}).get("checkpoint_v3", {})
+        outcomes = state.get("outcomes", {})
+        counts: dict[str, int] = {}
+        for row in outcomes.values():
+            counts[row["status"]] = counts.get(row["status"], 0) + 1
+        coverage = state.get("coverage", {})
+        return {
+            "schema": "checkpoint_paper_status_v3",
+            "run_id": run_id,
+            "coverage": coverage,
+            "coverage_complete": bool(coverage) and all(coverage.values()),
+            "dispositions": counts,
+            "outcomes": outcomes,
+            "account": saved["account"],
+            "journal_head_sha": saved["journal_head_sha"],
+            "cursor": saved["cursor"],
+            "order_route": "NONE",
+            "scientifically_qualified": False,
+            "trading_authorized": False,
+        }
+
     def status(self, run_id: str) -> dict:
         manifest, account = self._runs[run_id]
         persisted = self._journal.restore(run_id) if self._journal is not None else None

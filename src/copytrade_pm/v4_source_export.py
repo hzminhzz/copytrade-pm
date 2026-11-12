@@ -29,6 +29,58 @@ ADDRESS = re.compile(r"0x[0-9a-f]{40}\Z")
 ZERO_SHA = "0" * 64
 
 
+def export_checkpoint_packet(
+    journal,
+    scope,
+    policy,
+    *,
+    signer: Ed25519PrivateKey,
+    after_cursor: int,
+    issued_ms: int,
+) -> dict:
+    """Export the distinct CWSA policy through the existing signed source boundary."""
+    from .pm_v4_evidence import read_wire
+
+    if type(after_cursor) is not int or after_cursor < 0 or type(issued_ms) is not int:
+        raise ValueError("CWSA_EXPORT_CURSOR_OR_CLOCK")
+    path = Path(journal) if isinstance(journal, (str, Path)) else journal.path
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("CWSA_EXPORT_JOURNAL_PATH")
+    from .pm_checkpoint_journal import history as checkpoint_history
+
+    with closing(sqlite3.connect(f"file:{path.resolve()}?mode=ro", uri=True)) as db:
+        db.execute("PRAGMA query_only=ON")
+        db.execute("BEGIN")
+        history = checkpoint_history(db, scope, policy.epoch)
+    if not history or after_cursor > history[-1].sequence:
+        raise ValueError("CWSA_EXPORT_UNKNOWN_HEAD")
+    selected = [item for item in history if item.sequence > after_cursor][:256]
+    if not selected or issued_ms < max(item.at_ms for item in selected):
+        raise ValueError("CWSA_EXPORT_EMPTY_OR_FUTURE")
+    originals = {}
+    for transition in selected:
+        outcome = transition.effect
+        if outcome is None or outcome.sample is None:
+            continue
+        sample = outcome.sample
+        receipts = ((sample.catalog,) if sample.catalog else ()) + sample.receipts
+        for receipt in receipts:
+            originals[receipt.raw_sha] = read_wire(path, receipt.raw_sha)
+    payload = {
+        "schema": "cwsa_checkpoint_packet_v3",
+        "scope": scope.model_dump(mode="json"),
+        "policy": policy.model_dump(mode="json"),
+        "transitions": [t.model_dump(mode="json") for t in selected],
+        "originals": originals,
+        "issued_ms": issued_ms,
+        "trading_authorized": False,
+    }
+    envelope = sign(payload, signer, "cwsa-checkpoint-v3")
+    if len(canonical(envelope)) > 16 * 1024 * 1024:
+        raise ValueError("CWSA_EXPORT_PACKET_LIMIT")
+    return envelope
+
+
 def _millis(value: str) -> int:
     parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     if parsed.tzinfo is None:
