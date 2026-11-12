@@ -1,0 +1,1 @@
+{"ts": "2026-10-20T03:53:05.428000+00:00", "symbol": "xyz:SPCX", "side": "buy", "direction": "buy", "size_token": 0.06, "price": 148.23, "size_usd": 8.8938, "fee": 0.000181, "fee_token": "USDC", "is_maker": true, "crossed": false, "closed_pnl": -0.2328, "order_id": 579986647460, "trade_id": 14318806847495222257, "dex_name": "XYZ"}
