@@ -199,7 +199,10 @@ def _source_facts(db_path: Path) -> dict:
                     key = (stream, transition.effect.checkpoint_ms)
                     if key in validated_outcomes:
                         raise ValueError("CHAPTER2_DUPLICATE_NATIVE_SOURCE_EFFECT")
-                    validated_outcomes[key] = transition.effect.outcome_id
+                    # The outcome table is a projection, not an authority. Bind
+                    # its complete recorded payload to the journal transition,
+                    # including original receipt clocks and position completeness.
+                    validated_outcomes[key] = digest(transition.effect.model_dump(mode="json"))
             scopes[scope.source_id] = stream
             heads_by_wallet[scope.source_id] = head
             policy_epochs_by_wallet[scope.source_id] = policy.epoch
@@ -226,7 +229,7 @@ def _source_facts(db_path: Path) -> dict:
             outcome.checkpoint_ms != cp
             or outcome.source_id not in EXPECTED_WALLETS
             or scopes.get(outcome.source_id) != stream
-            or validated_outcomes.get((stream, cp)) != outcome.outcome_id
+            or validated_outcomes.get((stream, cp)) != digest(outcome.model_dump(mode="json"))
             or outcome.policy_epoch != policy_epochs_by_wallet.get(outcome.source_id)
             or outcome.scope_generation != scope_generations_by_wallet.get(outcome.source_id)
         ):

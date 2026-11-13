@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import UTC, datetime
 import json
 from pathlib import Path
+import sqlite3
 
 import pytest
 
@@ -318,6 +320,49 @@ def test_global_projection_blocks_new_source_risk_only_for_wallet_dependents(ass
     assert result["portfolios"]["B"]["new_risk_source_status"] == "SOURCE_SCOPE_READY"
     assert result["portfolios"]["B"]["shared_account_risk"] == "UNKNOWN"
     assert result["portfolios"]["B"]["trading_authorized"] is False
+
+
+@pytest.mark.parametrize("altered_field", ["published_ms", "receipt_clock", "complete_kind"])
+def test_native_source_projection_rejects_outcome_payload_tampering(
+    monkeypatch, tmp_path, altered_field
+):
+    """The outcome table alone cannot authenticate original receipt clocks or books."""
+    from copytrade_pm.pm_forward_journal import PaperJournal
+    from test_checkpoint_journal import register, sample
+    from test_checkpoint_source import BOUNDARY
+
+    journal = PaperJournal(tmp_path / "source")
+    policy = register(journal)
+    result = journal.append_checkpoint_sample(
+        policy.epoch, sample(journal, BOUNDARY), BOUNDARY + 101
+    )
+    assert result.kind == "BASELINE"
+    monkeypatch.setattr(gate, "EXPECTED_WALLETS", frozenset({"fixture-leader"}))
+    native = gate._source_facts(journal.path)
+    assert native["complete_position_proof_by_wallet"]["fixture-leader"] is True
+    assert native["receipt_first_known_ms_by_wallet"]["fixture-leader"] == result.sample.received_ms
+
+    # Retain outcome_id, policy_epoch and scope_generation. Prior validation
+    # checked these only, so an altered outcome row looked like a complete book.
+    with closing(sqlite3.connect(journal.path)) as db, db:
+        row = db.execute(
+            "SELECT outcome FROM cwsa_outcomes WHERE checkpoint_ms=?", (BOUNDARY,)
+        ).fetchone()
+        original = json.loads(row[0])
+        if altered_field == "published_ms":
+            original["published_ms"] += 1
+        elif altered_field == "receipt_clock":
+            original["sample"]["received_ms"] += 1
+        else:
+            original["kind"] = "UNCHANGED"
+        db.execute(
+            "UPDATE cwsa_outcomes SET outcome=? WHERE checkpoint_ms=?",
+            (json.dumps(original), BOUNDARY),
+        )
+        db.commit()
+
+    with pytest.raises(ValueError, match="CHAPTER2_SOURCE_OUTCOME_DRIFT"):
+        gate._source_facts(journal.path)
 
 
 def test_global_mixed_source_epochs_keep_independent_wallet_scope_eligible(assessment):
