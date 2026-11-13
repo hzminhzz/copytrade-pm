@@ -41,6 +41,55 @@ def full_sha(ref: str) -> str:
     return sha
 
 
+def release_owner_python(release: Path) -> Path:
+    """The owner CLI must use dependencies installed inside this exact release."""
+    return release / ".venv/bin/python"
+
+
+def assert_clean_release(release: Path) -> None:
+    """Never promote local modifications in a reused pinned worktree."""
+    if run("git", "status", "--porcelain", "--untracked-files=all", cwd=release):
+        raise RuntimeError("Pinned Ops release has modified or untracked source files")
+
+
+def prepare_owner_runtime(release: Path) -> Path:
+    """Build and smoke-test the locked read-only owner CLI before any unit change."""
+    run(
+        "uv",
+        "sync",
+        "--locked",
+        "--no-dev",
+        "--no-editable",
+        "--no-progress",
+        cwd=release,
+        timeout=240,
+    )
+    python = release_owner_python(release)
+    if not python.is_file() or not os.access(python, os.X_OK):
+        raise RuntimeError("Release-bound owner interpreter is unavailable")
+    run(
+        str(python),
+        "-c",
+        "import sys, pydantic, copytrade_pm.pm_operations; "
+        f"assert sys.prefix == {str(release / '.venv')!r}; "
+        "assert pydantic.__version__ == '2.14.3'",
+        cwd=release,
+        timeout=30,
+    )
+    run(
+        str(python),
+        "-m",
+        "copytrade_pm.pm_operations",
+        "cwsa",
+        "chapter2",
+        "site-view",
+        "--help",
+        cwd=release,
+        timeout=30,
+    )
+    return python
+
+
 def service_unit(release: Path, sha: str) -> str:
     return f"""[Unit]
 Description=Copytrade Ops Control Center (NO_TRADE pinned {sha[:12]})
@@ -50,6 +99,8 @@ After=network.target
 Type=simple
 WorkingDirectory={release}
 Environment=COPYTRADE_OPS_RELEASE_SHA={sha}
+Environment=COPYTRADE_OPS_OWNER_PYTHON={release_owner_python(release)}
+Environment=PYTHONDONTWRITEBYTECODE=1
 ExecStart=/usr/bin/python3 {release}/scripts/dashboard_server.py --port 8888 --bind 127.0.0.1
 Restart=always
 RestartSec=3
@@ -148,12 +199,15 @@ def deploy(sha: str, apply: bool) -> None:
             raise RuntimeError("Release path exists at a different Git commit")
     else:
         run("git", "worktree", "add", "--detach", str(target), sha, cwd=REPO, timeout=120)
+    assert_clean_release(target)
+    prepare_owner_runtime(target)
     pkg = target / "ops/control-center"
     run("npm", "ci", "--no-audit", "--no-fund", cwd=pkg, timeout=240)
     run("npm", "run", "build", cwd=pkg, timeout=180)
     if not (pkg / "dist/index.html").is_file():
         raise RuntimeError("Missing built index")
     run("node", "ops/control-center/tests/browser.cjs", cwd=target, timeout=180)
+    assert_clean_release(target)
     receipt = activate(service_unit(target, sha), sha)
     print(json.dumps({"action": "deployed", **receipt}))
 
