@@ -355,6 +355,7 @@ def verify_unit_release(
                 release,
                 release / ".venv",
                 release / ".venv/bin",
+                executable.resolve(strict=True),
                 release / "src",
                 release / "src/copytrade_pm",
             )

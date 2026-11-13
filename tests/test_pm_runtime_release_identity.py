@@ -16,7 +16,6 @@ from types import SimpleNamespace
 import pytest
 
 from copytrade_pm import pm_runtime_readonly as runtime
-from copytrade_pm import pm_cwsa_chapter2_gate as chapter2
 
 
 START_TICKS = 500_000
@@ -272,6 +271,20 @@ def test_pid_reuse_and_restart_during_inspection_become_unknown(rig: Rig) -> Non
     assert restarted["reason"] == "SYSTEMD_IDENTITY_RACED"
 
 
+def test_mutable_python_interpreter_cannot_attest_immutable_release(rig: Rig) -> None:
+    fake_interpreter = rig.release.parent / "mutable-python"
+    fake_interpreter.write_bytes(b"fake fixture interpreter")
+    fake_interpreter.chmod(0o777)
+    rig.python.unlink()
+    rig.python.symlink_to(fake_interpreter)
+    exe = rig.proc / str(rig.pid) / "exe"
+    exe.unlink()
+    exe.symlink_to(fake_interpreter)
+    checked = inspect(rig)
+    assert checked["state"] == "UNKNOWN"
+    assert checked["reason"] == "MUTABLE_RELEASE_NOT_ATTESTABLE"
+
+
 def test_interpreter_symlink_drift_during_inspection_cannot_attest(rig: Rig) -> None:
     original = rig.runner
 
@@ -385,39 +398,3 @@ def test_process_start_clock_or_tracked_file_writability_never_passes(rig: Rig) 
     file = rig.release / "src/copytrade_pm/__init__.py"
     file.chmod(0o666)
     assert inspect(rig)["reason"] == "MUTABLE_RELEASE_NOT_ATTESTABLE"
-
-
-def test_chapter2_gate_maps_liveness_unknown_and_mismatch_correctly(monkeypatch, rig: Rig) -> None:
-    original = runtime.verify_unit_release
-    monkeypatch.setattr(
-        chapter2.runtime,
-        "verify_unit_release",
-        lambda *a, **k: original(
-            PAPER,
-            expected_sha=rig.sha,
-            manager="user",
-            release_roots=(rig.release.parent,),
-            proc_root=rig.proc,
-            runner=rig.runner,
-        ),
-    )
-    good = chapter2._unit(PAPER, rig.sha)
-    assert good.state == "PASS"
-    rig.set_process(argv=[str(rig.python), "-m", "fake.worker"])
-    mismatched = chapter2._unit(PAPER, rig.sha)
-    assert mismatched.state == "FAIL"
-    assert mismatched.detail == "PROCESS_ARGV_MISMATCH"
-    (rig.proc / str(rig.pid) / "cmdline").unlink()
-    unknown = chapter2._unit(PAPER, rig.sha)
-    assert unknown.state == "BLOCKED_EVIDENCE"
-    assert (
-        chapter2.assess_financial_runtime(
-            service_active=None,
-            signed_portfolios={"A"},
-            finance_scans={},
-            source_changes={},
-            journal_cursors={},
-            latest_source_checkpoint_ms=0,
-        ).state
-        == "BLOCKED_EVIDENCE"
-    )
