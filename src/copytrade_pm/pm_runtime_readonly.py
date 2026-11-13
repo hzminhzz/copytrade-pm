@@ -389,6 +389,78 @@ def verify_unit_release(
         return done("UNKNOWN", "PROCESS_METADATA_UNAVAILABLE")
 
 
+def observe_unit_liveness(
+    unit: str,
+    *,
+    manager: str = "user",
+    proc_root: Path = Path("/proc"),
+    runner=None,
+) -> dict:
+    """Independently observe a stable systemd process, without claiming release proof.
+
+    A configured active unit or merely existing PID is insufficient. Check the
+    actual process launch, cgroup and birth twice; missing OS evidence is UNKNOWN,
+    not a stopped worker. This does not inspect finance or change any service.
+    """
+    if unit not in _RUNTIME_SCOPES or manager not in _RUNTIME_SCOPES[unit]:
+        raise ValueError("RUNTIME_UNIT_MANAGER_SCOPE_INVALID")
+    runner = subprocess.run if runner is None else runner
+    report = {
+        "state": "UNKNOWN",
+        "reason": "NOT_INSPECTED",
+        "unit": unit,
+        "manager": manager,
+        "pid": None,
+        "process_start_ticks": None,
+        "inspection_at_utc": datetime.now(UTC).isoformat(),
+        "scope": "INDEPENDENT_OS_PROCESS_LIVENESS_ONLY_NOT_RELEASE_OR_FINANCE",
+    }
+
+    def done(state: str, reason: str) -> dict:
+        report["state"], report["reason"] = state, reason
+        return report
+
+    try:
+        first = _unit_properties(runner, unit, manager)
+        if first.get("ActiveState") in ("inactive", "failed") and first.get("MainPID") == "0":
+            if _unit_properties(runner, unit, manager) == first:
+                return done("NOT_RUNNING", "SYSTEMD_UNIT_STOPPED")
+            return done("UNKNOWN", "SYSTEMD_IDENTITY_RACED")
+        if first.get("LoadState") != "loaded" or first.get("ActiveState") != "active":
+            return done("UNKNOWN", "SYSTEMD_UNIT_NOT_STABLE")
+        pid = int(first["MainPID"])
+        start_us = int(first["ExecMainStartTimestampMonotonic"])
+        if pid <= 0 or start_us <= 0 or not first.get("ControlGroup"):
+            return done("UNKNOWN", "SYSTEMD_START_IDENTITY_INCOMPLETE")
+        report["pid"] = pid
+        before = _process_snapshot(proc_root, pid)
+        report["process_start_ticks"] = before["process_start_ticks"]
+        if before["state"] in ("Z", "X", "x"):
+            return done("MISMATCH", "OBSERVED_PROCESS_NOT_RUNNING")
+        executable, configured_argv = _configured_launch(first)
+        if before["argv"] != configured_argv or before["exe"] != str(
+            executable.resolve(strict=True)
+        ):
+            return done("MISMATCH", "PROCESS_LAUNCH_MISMATCH")
+        cgroup = first["ControlGroup"]
+        if not any(
+            path == cgroup or path.startswith(cgroup + "/") for path in before["cgroup_paths"]
+        ):
+            return done("MISMATCH", "PROCESS_CGROUP_MISMATCH")
+        if (
+            abs(before["process_start_ticks"] * 1_000_000 / os.sysconf("SC_CLK_TCK") - start_us)
+            > 2_000_000
+        ):
+            return done("MISMATCH", "PROCESS_START_TIME_MISMATCH")
+        second = _unit_properties(runner, unit, manager)
+        after = _process_snapshot(proc_root, pid)
+        if first != second or before != after:
+            return done("UNKNOWN", "PROCESS_OR_SYSTEMD_IDENTITY_RACED")
+        return done("RUNNING", "PROCESS_BOUND_TO_RUNNING_SYSTEMD_UNIT")
+    except OSError, ValueError, TypeError, KeyError, StopIteration, subprocess.SubprocessError:
+        return done("UNKNOWN", "PROCESS_LIVENESS_UNAVAILABLE")
+
+
 def installed_release(source_root: Path) -> dict:
     """Call the existing release owner's verified action; do not reimplement it."""
     script = Path(source_root) / "scripts" / "registry_release.py"

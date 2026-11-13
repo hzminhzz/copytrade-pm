@@ -22,6 +22,7 @@ from typing import Literal
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 
+from . import pm_runtime_readonly
 from .pm03_account import digest
 from .pm_forward_journal import PaperJournal
 from .pm_cwsa_six_paper import ALL_14_WALLETS, PORTFOLIO_CONFIGS, load_registry_seals
@@ -99,7 +100,7 @@ def assess_portfolio_roster(actual: dict[str, set[str]]) -> GateCheck:
 
 def assess_financial_runtime(
     *,
-    service_active: bool,
+    service_active: bool | None,
     signed_portfolios: set[str],
     finance_scans: dict[str, dict],
     source_changes: dict[str, int],
@@ -112,7 +113,7 @@ def assess_financial_runtime(
     A signed consumer without due changed-event processing is a broken worker.
     A quiet source with no eligible change is explicitly inconclusive, not PASS.
     """
-    if not service_active:
+    if service_active is False:
         return GateCheck("financial_consumer", "FAIL", "PAPER_SERVICE_NOT_RUNNING")
     if not signed_portfolios:
         return GateCheck("financial_consumer", "BLOCKED_EVIDENCE", "NO_SIGNED_FINANCIAL_MANDATES")
@@ -132,6 +133,10 @@ def assess_financial_runtime(
                 "FINANCIAL_CONSUMER_DID_NOT_PROCESS_DUE_CHANGE",
                 {"portfolio": pid, "source_change_ms": change, "financial_scan_ms": scanned},
             )
+    if service_active is None:
+        return GateCheck(
+            "financial_consumer", "BLOCKED_EVIDENCE", "PAPER_PROCESS_LIVENESS_UNVERIFIED"
+        )
     if not source_changes:
         return GateCheck("financial_consumer", "BLOCKED_EVIDENCE", "NO_ELIGIBLE_SOURCE_CHANGES")
     # A baseline writes PM03 events; that is not a modeled fill. Only
@@ -289,79 +294,70 @@ def _paper_facts(root: Path) -> dict:
 
 
 def _unit(name: str, expected_sha: str | None) -> GateCheck:
+    """Translate T05 launch proof into the Chapter 2 gate's three valid states."""
     try:
-        proc = subprocess.run(
-            [
-                "systemctl",
-                "--user",
-                "show",
-                name,
-                "-p",
-                "ActiveState",
-                "-p",
-                "MainPID",
-                "-p",
-                "ExecStart",
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=10,
+        report = pm_runtime_readonly.verify_unit_release(
+            name, expected_sha=expected_sha, manager="user"
         )
-        values = dict(line.split("=", 1) for line in proc.stdout.splitlines() if "=" in line)
-        pid = int(values.get("MainPID", "0"))
-        if values.get("ActiveState") != "active" or pid <= 0 or not Path(f"/proc/{pid}").exists():
-            return GateCheck(name, "FAIL", "SYSTEMD_SERVICE_NOT_ACTIVE_WITH_PID")
-        match = re.search(r"path=(/[^ ;{}]+/\.venv/bin/python)", values.get("ExecStart", ""))
-        if match is None:
-            return GateCheck(name, "FAIL", "UNPINNED_SYSTEMD_EXECUTABLE")
-        executable = Path(match.group(1))
-        release_path = executable.parent.parent.parent
-        if not executable.is_file() or not release_path.is_dir():
-            return GateCheck(name, "FAIL", "INSTALLED_EXECUTABLE_MISSING")
-        # A detached, clean worktree is a pinned release; a branch checkout is not.
-        symbolic = subprocess.run(
-            ["git", "-C", str(release_path), "symbolic-ref", "-q", "HEAD"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if symbolic.returncode != 1:
-            return GateCheck(name, "FAIL", "MUTABLE_BRANCH_NOT_PINNED_RELEASE")
-        dirty = subprocess.run(
-            ["git", "-C", str(release_path), "status", "--porcelain", "--untracked-files=normal"],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        ).stdout
-        if dirty:
-            return GateCheck(name, "FAIL", "DIRTY_INSTALLED_RELEASE")
-        actual_sha = _git(release_path, "HEAD")
-        if not SHA_RE.fullmatch(actual_sha):
-            return GateCheck(name, "FAIL", "INVALID_INSTALLED_RELEASE_SHA")
-        if expected_sha is None:
-            return GateCheck(
-                name,
-                "BLOCKED_EVIDENCE",
-                "EXPECTED_RELEASE_SHA_REQUIRED",
-                {"pid": pid, "sha": actual_sha},
-            )
-        if actual_sha != expected_sha:
-            return GateCheck(
-                name,
-                "FAIL",
-                "INSTALLED_RELEASE_SHA_DRIFT",
-                {"pid": pid, "expected_sha": expected_sha, "sha": actual_sha},
-            )
+    except (OSError, ValueError, TypeError, subprocess.SubprocessError) as exc:
         return GateCheck(
-            name,
-            "PASS",
-            "INSTALLED_SHA_AND_PID_VERIFIED",
-            {"pid": pid, "sha": actual_sha, "release_path": str(release_path)},
+            name, "BLOCKED_EVIDENCE", "SYSTEMD_RELEASE_PROOF_UNAVAILABLE:" + type(exc).__name__
         )
-    except (OSError, ValueError, subprocess.SubprocessError) as exc:
-        return GateCheck(name, "FAIL", "SYSTEMD_RELEASE_PROOF_UNAVAILABLE:" + type(exc).__name__)
+    verdict: Verdict = {
+        "VERIFIED": "PASS",
+        "NOT_RUNNING": "FAIL",
+        "MISMATCH": "FAIL",
+        "UNKNOWN": "BLOCKED_EVIDENCE",
+    }.get(report.get("state"), "BLOCKED_EVIDENCE")
+    return GateCheck(
+        name,
+        verdict,
+        report.get("reason") or "PROCESS_RELEASE_PROOF_UNAVAILABLE",
+        {"process_release_binding": report},
+    )
+
+
+def _paper_process_liveness(paper_unit: GateCheck) -> GateCheck:
+    """Read OS liveness separately; a release-verification failure is not a stop."""
+    try:
+        observed = pm_runtime_readonly.observe_unit_liveness(PAPER_UNIT, manager="user")
+    except OSError, ValueError, TypeError, subprocess.SubprocessError:
+        observed = {"state": "UNKNOWN", "reason": "PROCESS_LIVENESS_UNAVAILABLE"}
+    evidence = {"os_liveness": observed}
+    state = observed.get("state")
+    if state == "RUNNING":
+        # Two independently timed inspections must identify the same birth
+        # when claiming both a verified release and a running paper process.
+        if paper_unit.state == "PASS":
+            bound = (
+                (paper_unit.evidence or {}).get("process_release_binding", {}).get("observed", {})
+            )
+            if (
+                observed.get("pid") != bound.get("pid")
+                or observed.get("process_start_ticks") != bound.get("process_start_ticks")
+                or observed.get("pid") is None
+                or observed.get("process_start_ticks") is None
+            ):
+                return GateCheck(
+                    "paper_process_liveness",
+                    "BLOCKED_EVIDENCE",
+                    "PROCESS_RELEASE_AND_LIVENESS_SNAPSHOTS_DISAGREE",
+                    evidence,
+                )
+        return GateCheck("paper_process_liveness", "PASS", observed["reason"], evidence)
+    if state in ("NOT_RUNNING", "MISMATCH"):
+        return GateCheck(
+            "paper_process_liveness",
+            "FAIL",
+            observed.get("reason", "PROCESS_NOT_RUNNING"),
+            evidence,
+        )
+    return GateCheck(
+        "paper_process_liveness",
+        "BLOCKED_EVIDENCE",
+        observed.get("reason", "PROCESS_LIVENESS_UNAVAILABLE"),
+        evidence,
+    )
 
 
 def _resources() -> GateCheck:
@@ -655,6 +651,8 @@ def verify(args: argparse.Namespace) -> dict:
             paper_unit = _unit(PAPER_UNIT, args.expected_paper_sha)
             checks.append(_unit(SOURCE_UNIT, args.expected_source_sha))
             checks.append(paper_unit)
+            paper_liveness = _paper_process_liveness(paper_unit)
+            checks.append(paper_liveness)
             try:
                 paper = _paper_facts(args.paper_root)
                 checks.append(
@@ -744,7 +742,13 @@ def verify(args: argparse.Namespace) -> dict:
                     )
                 checks.append(
                     assess_financial_runtime(
-                        service_active=paper_unit.state == "PASS",
+                        service_active=(
+                            True
+                            if paper_liveness.state == "PASS"
+                            else False
+                            if paper_liveness.state == "FAIL"
+                            else None
+                        ),
                         signed_portfolios=signed,
                         finance_scans={
                             pid: {"last_checkpoint_ms": x["finance_scan_checkpoint_ms"]}
@@ -775,6 +779,7 @@ def verify(args: argparse.Namespace) -> dict:
     result["candidate_sha"] = sha
     result["financially_active"] = (
         args.stage == "postdeploy"
+        and result["verdict"] == "PASS"
         and next((x.state for x in checks if x.name == "financial_consumer"), None) == "PASS"
     )
     return result

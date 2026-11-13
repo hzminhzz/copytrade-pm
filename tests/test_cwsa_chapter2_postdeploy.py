@@ -27,6 +27,11 @@ def test_postdeploy_active_service_stalled_finance_rejected(monkeypatch, tmp_pat
     )
     monkeypatch.setattr(
         gate,
+        "_paper_process_liveness",
+        lambda paper_unit: GateCheck("paper_process_liveness", "PASS", "controlled OS fixture"),
+    )
+    monkeypatch.setattr(
+        gate,
         "_dashboard",
         lambda *a: GateCheck("dashboard", "BLOCKED_EVIDENCE", "site not published"),
     )
