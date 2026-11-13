@@ -395,6 +395,61 @@ def _verify_coverage_receipt(
     return normalized, start, stop, known, status
 
 
+def sweep_coverage_intervals(
+    spans: list[tuple[datetime, datetime, str]], begin: datetime, end: datetime
+) -> tuple[bool, list[str], list[str]]:
+    """Return (covered, all_overlapping_tags, minimal_covering_tags) over [begin, end)."""
+    cursor = begin
+    all_tags: list[str] = []
+    minimal_tags: list[str] = []
+    for start, stop, tag in sorted(spans):
+        if start >= end:
+            break
+        if start > cursor:
+            return False, [], []
+        if stop > begin:
+            all_tags.append(tag)
+        if stop > cursor and cursor < end:
+            minimal_tags.append(tag)
+            cursor = stop
+    return cursor >= end, all_tags, minimal_tags
+
+
+def verify_coverage_receipt_key(
+    root: Path, key: str
+) -> tuple[dict, datetime, datetime, datetime, str]:
+    """Read and SHA-verify a single `coverage_receipt` entry from ImmutableCache."""
+    if not isinstance(key, str) or not HEX.fullmatch(key):
+        raise ValueError("INVALID_COVERAGE_RECEIPT_KEY")
+    return _verify_coverage_receipt(root, key)
+
+
+def load_verified_coverage_spans(
+    root: Path,
+    receipt_keys: list[str],
+    *,
+    as_of: datetime,
+    input_sha: str,
+    source_sha: str,
+) -> tuple[dict[tuple[str, str], list[tuple[datetime, datetime, str]]], str | None]:
+    """Verify caller-supplied coverage receipts for read-only span lookup."""
+    spans: dict[tuple[str, str], list[tuple[datetime, datetime, str]]] = {}
+    if not root.exists():
+        return spans, None
+    for key in receipt_keys:
+        try:
+            payload, r_start, r_end, r_known, status = verify_coverage_receipt_key(root, key)
+        except ValueError, OSError, TypeError, KeyError, AttributeError:
+            return spans, "CORRUPT_RECEIPT"
+        if r_known > as_of:
+            continue
+        if payload.get("input_sha256") != input_sha or payload.get("source_sha256") != source_sha:
+            continue
+        if status in {"VERIFIED_DATA", "VERIFIED_EMPTY"}:
+            spans.setdefault((payload["wallet"], payload["dex"]), []).append((r_start, r_end, key))
+    return spans, None
+
+
 def _coverage_state(
     root: Path, request: dict, wallets: list[str], dexes: list[str], begin, end, as_of
 ) -> tuple[str | None, str, dict]:
@@ -450,17 +505,10 @@ def _coverage_state(
     coverage_sha = sha256(_canonical(verified_digests)).hexdigest()
     statuses: set[str] = set()
     for spans in by_pair.values():
-        cursor = begin
-        for start, stop, status in sorted(spans):
-            if start >= end:
-                break
-            if start > cursor:
-                return "INCOMPLETE_WALLET_DEX_SCOPE", coverage_sha, summary
-            if stop > begin:
-                statuses.add(status)
-            cursor = max(cursor, stop)
-        if cursor < end:
+        covered, overlap_statuses, _ = sweep_coverage_intervals(spans, begin, end)
+        if not covered:
             return "INCOMPLETE_WALLET_DEX_SCOPE", coverage_sha, summary
+        statuses.update(overlap_statuses)
     if "UNCOLLECTED_OR_BLOCKED" in statuses:
         return "UNCOLLECTED_OR_BLOCKED_PERIOD", coverage_sha, summary
     if statuses == {"VERIFIED_EMPTY"}:

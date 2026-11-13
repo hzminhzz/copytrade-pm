@@ -20,6 +20,7 @@ from . import pm_capabilities as capabilities
 from . import pm_runtime_readonly as runtime
 from . import wallet_registry as registry
 from . import wallet_registry_catalog as catalog
+from .pm_bounded_acquisition import plan_bounded_acquisition
 from .pm_offline_job_catalog import assess_reuse, list_reports
 
 SCHEMA = "copytrade_read_result_v1"
@@ -366,6 +367,8 @@ def _research_preflight(
     request_path: Path | None = None,
     purpose: str | None = None,
     require_pit: bool = False,
+    partition_root: Path | None = None,
+    plan_acquisition: bool = False,
 ) -> dict:
     limitations = [
         "Research reuse preflight checks cache/coverage integrity and PIT scope only; "
@@ -389,12 +392,21 @@ def _research_preflight(
             limitations=["Supply --request PATH to evaluate research reuse", *limitations],
         )
     try:
+        if partition_root is not None and partition_root.is_symlink():
+            raise ValueError("SYMLINK_PARTITION_ROOT")
         req = _load_preflight_request(request_path)
         if purpose is not None:
             req = {**req, "purpose": purpose}
         if require_pit:
             req = {**req, "require_pit": True}
-        payload = assess_reuse(cache_root, req)
+        base_req = {k: v for k, v in req.items() if k != "acquisition"}
+        payload = assess_reuse(cache_root, base_req)
+        acq_plan = None
+        if plan_acquisition or partition_root is not None or "acquisition" in req:
+            acq_plan = plan_bounded_acquisition(
+                cache_root, req, partition_root=partition_root, reuse=payload
+            )
+            payload = {**payload, "acquisition_plan": acq_plan}
     except (ValueError, OSError, TypeError, KeyError, UnicodeDecodeError) as exc:
         return result(
             "research.preflight",
@@ -407,7 +419,9 @@ def _research_preflight(
             ],
         )
     reuse_state = payload["state"]
-    if reuse_state in {"VERIFIED_CACHE_HIT", "VERIFIED_EMPTY"}:
+    if acq_plan is not None and acq_plan["status"] == "BLOCKED":
+        status, error_code = "BLOCKED", acq_plan["error_code"]
+    elif reuse_state in {"VERIFIED_CACHE_HIT", "VERIFIED_EMPTY"}:
         status, error_code = "VERIFIED", None
     elif reuse_state == "CACHE_MISS":
         status, error_code = "UNKNOWN", "CACHE_MISS"
@@ -541,6 +555,8 @@ def dispatch(args: argparse.Namespace) -> dict:
                 request_path=args.request,
                 purpose=args.purpose,
                 require_pit=args.require_pit,
+                partition_root=args.partition_root,
+                plan_acquisition=args.plan_acquisition,
             )
         return _research(
             "research." + args.verb,
@@ -663,6 +679,8 @@ def parser() -> argparse.ArgumentParser:
                 operation.add_argument("--request", type=Path)
                 operation.add_argument("--purpose")
                 operation.add_argument("--require-pit", action="store_true")
+                operation.add_argument("--partition-root", type=Path)
+                operation.add_argument("--plan-acquisition", action="store_true")
     contracts = top.add_parser("contracts", help="Read-only pod portfolio x contract EV screening")
     contract_verbs = contracts.add_subparsers(dest="verb", required=True)
     contract_verbs.add_parser("rules", help="Show the versioned, unverified rule scenarios")
