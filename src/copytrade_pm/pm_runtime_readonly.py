@@ -39,10 +39,47 @@ _RUNTIME_LIMIT = (
     "This independently binds the launch, but loaded application bytes, "
     "dependencies and post-start module changes are not fully attested"
 )
+GIT_LOCAL_ENV_VARS = frozenset(
+    {
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_COMMON_DIR",
+        "GIT_CONFIG",
+        "GIT_CONFIG_COUNT",
+        "GIT_CONFIG_PARAMETERS",
+        "GIT_DIR",
+        "GIT_GRAFT_FILE",
+        "GIT_IMPLICIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_NAMESPACE",
+        "GIT_NO_REPLACE_OBJECTS",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_PREFIX",
+        "GIT_REPLACE_REF_BASE",
+        "GIT_SHALLOW_FILE",
+        "GIT_WORK_TREE",
+    }
+)
+
+
+def clean_git_env(base: dict[str, str] | None = None) -> dict[str, str]:
+    """Return an environment stripped of repository-local GIT_* overrides."""
+    env = dict(os.environ if base is None else base)
+    for key in GIT_LOCAL_ENV_VARS:
+        env.pop(key, None)
+    return env
 
 
 def _readonly_command(runner, args: list[str], *, timeout: int = 8):
-    return runner(args, capture_output=True, text=True, check=False, timeout=timeout)
+    kwargs: dict[str, object] = {
+        "capture_output": True,
+        "text": True,
+        "check": False,
+        "timeout": timeout,
+    }
+    # Real git subprocesses must inspect the target release dir, not an inherited hook env.
+    if runner is subprocess.run and args and args[0] == "git":
+        kwargs["env"] = clean_git_env()
+    return runner(args, **kwargs)
 
 
 def _unit_properties(runner, unit: str, manager: str) -> dict[str, str]:

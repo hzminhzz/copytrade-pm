@@ -7,6 +7,17 @@ LEG="${1:-all}"
 case "$LEG" in core|market|all) ;; *) echo 'Usage: scripts/ci.sh [core|market|all]' >&2; exit 2 ;; esac
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+
+# Ensure inherited git hook environment variables cannot redirect git calls
+# inside CI checks or isolated temporary repositories during pytest runs.
+while IFS= read -r git_var; do
+    [[ -n "$git_var" ]] && unset "$git_var"
+done < <(git rev-parse --local-env-vars 2>/dev/null || true)
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+    GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_PREFIX \
+    GIT_IMPLICIT_WORK_TREE GIT_GRAFT_FILE GIT_SHALLOW_FILE \
+    GIT_NO_REPLACE_OBJECTS GIT_REPLACE_REF_BASE GIT_CONFIG \
+    GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_NAMESPACE || true
 if ! command -v npm >/dev/null 2>&1; then
     echo 'CI_BLOCKED: npm unavailable for ops frontend build' >&2
     exit 2
@@ -83,9 +94,9 @@ for log in "$LOGS"/*.log; do
 done
 
 if [[ "$LEG" == "all" ]]; then
-    GIT_DIR="$(git rev-parse --absolute-git-dir)"
+    CI_GIT_DIR="$(git rev-parse --absolute-git-dir)"
     SHA="$(git rev-parse HEAD)"
-    RECEIPT="$GIT_DIR/local-ci/$SHA-$(date -u +%Y%m%dT%H%M%SZ)-$$.json"
+    RECEIPT="$CI_GIT_DIR/local-ci/$SHA-$(date -u +%Y%m%dT%H%M%SZ)-$$.json"
     status=PASS
     if [[ "$failed" != 0 ]]; then status=FAIL; fi
     if ! "$ROOT/.venv-ci-core/bin/python" -m copytrade_pm.pm_ci_receipt create \

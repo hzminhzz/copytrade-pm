@@ -19,6 +19,17 @@ from copytrade_pm import pm_runtime_readonly as runtime
 
 
 START_TICKS = 500_000
+
+
+def _git(*args: str) -> str:
+    """Run git isolated from inherited caller hook environment variables."""
+    return subprocess.check_output(
+        ["git", *args],
+        text=True,
+        env=runtime.clean_git_env(),
+    ).strip()
+
+
 CGROUP = "/user.slice/user-1001.slice/user@1001.service/app.slice/copytrade-cwsa-5m-paper-chapter2.service"
 PAPER = "copytrade-cwsa-5m-paper-chapter2.service"
 SOURCE = "copytrade-cwsa-5m-source-chapter2.service"
@@ -40,6 +51,8 @@ class Rig:
         argv = list(argv)
         self.calls.append(argv)
         if argv[0] != "systemctl":
+            if argv[0] == "git":
+                kwargs = {**kwargs, "env": runtime.clean_git_env(kwargs.get("env"))}
             return subprocess.run(argv, **kwargs)
         assert "show" in argv and "--no-pager" in argv
         assert all(token not in argv for token in ("start", "stop", "restart", "enable", "sudo"))
@@ -91,32 +104,26 @@ class Rig:
 def rig(tmp_path: Path) -> Rig:
     release = tmp_path / "releases" / "candidate"
     release.mkdir(parents=True)
-    subprocess.run(["git", "init", "-q", str(release)], check=True)
+    _git("init", "-q", str(release))
     (release / ".gitignore").write_text(".venv/\n")
     (release / "src" / "copytrade_pm").mkdir(parents=True)
     (release / "src" / "copytrade_pm" / "__init__.py").write_text("# fixture application\n")
     (release / ".gitignore").chmod(0o644)
     (release / "src" / "copytrade_pm" / "__init__.py").chmod(0o644)
-    subprocess.run(["git", "-C", str(release), "add", "."], check=True)
-    subprocess.run(
-        [
-            "git",
-            "-C",
-            str(release),
-            "-c",
-            "user.name=Test",
-            "-c",
-            "user.email=test@example.invalid",
-            "commit",
-            "-qm",
-            "sealed test fixture",
-        ],
-        check=True,
+    _git("-C", str(release), "add", ".")
+    _git(
+        "-C",
+        str(release),
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.invalid",
+        "commit",
+        "-qm",
+        "sealed test fixture",
     )
-    sha = subprocess.check_output(
-        ["git", "-C", str(release), "rev-parse", "HEAD"], text=True
-    ).strip()
-    subprocess.run(["git", "-C", str(release), "checkout", "-q", "--detach"], check=True)
+    sha = _git("-C", str(release), "rev-parse", "HEAD")
+    _git("-C", str(release), "checkout", "-q", "--detach")
     python = release / ".venv" / "bin" / "python"
     python.parent.mkdir(parents=True)
     python.symlink_to(Path(sys.executable).resolve())
@@ -276,10 +283,10 @@ def test_inaccessible_proc_is_unknown_but_proven_stopped_is_not_running(rig: Rig
 
 
 def test_mutable_branch_and_checkout_location_cannot_attest_release(rig: Rig) -> None:
-    subprocess.run(["git", "-C", str(rig.release), "switch", "-q", "master"], check=True)
+    _git("-C", str(rig.release), "switch", "-q", "master")
     assert inspect(rig)["state"] == "UNKNOWN"
     assert inspect(rig)["reason"] == "MUTABLE_RELEASE_NOT_ATTESTABLE"
-    subprocess.run(["git", "-C", str(rig.release), "checkout", "-q", "--detach"], check=True)
+    _git("-C", str(rig.release), "checkout", "-q", "--detach")
     result = runtime.verify_unit_release(
         PAPER,
         expected_sha=rig.sha,
@@ -456,3 +463,58 @@ def test_process_start_clock_or_tracked_file_writability_never_passes(rig: Rig) 
     file = rig.release / "src/copytrade_pm/__init__.py"
     file.chmod(0o666)
     assert inspect(rig)["reason"] == "MUTABLE_RELEASE_NOT_ATTESTABLE"
+
+
+def test_git_env_pollution_cannot_hijack_canary_repo_or_release_inspection(
+    rig: Rig, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Inherited hook env (GIT_DIR/GIT_INDEX_FILE) must never redirect isolated git ops."""
+    canary = tmp_path / "canary-worktree"
+    canary.mkdir()
+    _git("init", "-q", str(canary))
+    (canary / "canary.txt").write_text("clean\n", encoding="utf-8")
+    _git("-C", str(canary), "add", "canary.txt")
+    _git(
+        "-C",
+        str(canary),
+        "-c",
+        "user.name=Canary",
+        "-c",
+        "user.email=canary@example.invalid",
+        "commit",
+        "-qm",
+        "canary base",
+    )
+    canary_head = _git("-C", str(canary), "rev-parse", "HEAD")
+
+    monkeypatch.setenv("GIT_DIR", str(canary / ".git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(canary))
+    monkeypatch.setenv("GIT_INDEX_FILE", str(canary / ".git" / "index"))
+    monkeypatch.setenv("GIT_OBJECT_DIRECTORY", str(canary / ".git" / "objects"))
+    monkeypatch.setenv("GIT_COMMON_DIR", str(canary / ".git"))
+    monkeypatch.setenv("GIT_PREFIX", "subdir/")
+
+    isolated = tmp_path / "isolated-release"
+    isolated.mkdir()
+    _git("init", "-q", str(isolated))
+    (isolated / "app.py").write_text("x = 1\n", encoding="utf-8")
+    _git("-C", str(isolated), "add", "app.py")
+    _git(
+        "-C",
+        str(isolated),
+        "-c",
+        "user.name=Iso",
+        "-c",
+        "user.email=iso@example.invalid",
+        "commit",
+        "-qm",
+        "isolated commit",
+    )
+    isolated_head = _git("-C", str(isolated), "rev-parse", "HEAD")
+    _git("-C", str(isolated), "checkout", "-q", "--detach")
+
+    assert isolated_head != canary_head
+    assert runtime._git_release(subprocess.run, isolated) == (isolated_head, True)
+    assert inspect(rig)["state"] == "VERIFIED"
+    assert _git("-C", str(canary), "status", "--porcelain") == ""
+    assert _git("-C", str(canary), "rev-parse", "HEAD") == canary_head
