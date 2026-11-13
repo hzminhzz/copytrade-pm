@@ -13,7 +13,7 @@ import pytest
 from copytrade_pm import pm_cwsa_chapter2_gate as gate
 from copytrade_pm import pm_cwsa_six_paper as six
 from copytrade_pm import pm_operations
-from copytrade_pm.pm_cwsa_chapter2_projection import project
+from copytrade_pm.pm_cwsa_chapter2_projection import project, site_owner_view
 
 
 @pytest.fixture
@@ -121,6 +121,107 @@ def assessment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys):
         return path
 
     return source, paper, invoke, save
+
+
+def test_site_owner_view_parity_redaction_and_no_side_effect(assessment, monkeypatch, capsys):
+    source, _, invoke, _ = assessment
+    _, cli_owner = invoke("A")
+    from copytrade_pm import pm_cwsa_chapter2_projection as projection
+
+    # The Site transport is the *same* evaluated CLI owner result, not a
+    # frontend reconstruction or a second source/finance query.
+    view = site_owner_view(cli_owner)
+    assert view["schema"] == "cwsa_chapter2_site_owner_view_v1"
+    assert view["source_schema"] == cli_owner["schema"]
+    for key in ("scope", "generation_consistency", "economics", "prior_to_current"):
+        assert view[key] == cli_owner[key]
+    assert (
+        view["owner_heads"]["source"]["receipt_first_known_ms_by_wallet"]
+        == (cli_owner["owner_heads"]["source"]["receipt_first_known_ms_by_wallet"])
+    )
+    assert view["blockers"] == cli_owner["blockers"]
+    assert view["fault_isolation"] == cli_owner["fault_isolation"]
+    assert view["next_operation"]["effect_class"] == "READ_ONLY"
+    assert view["next_operation"]["auto_dispatched"] is False
+    assert view["economics"]["realized_pnl_usd"] is None
+    assert view["trading_authorized"] is False
+    assert view["order_route"] == "NONE"
+
+    # Inject private evidence into the internal owner result. Only approved
+    # scalar/head keys may leave the Site interface.
+    cli_owner["private_account_key"] = "PRIVATE_CANARY"
+    cli_owner["owner_heads"]["source"]["raw_journal"] = "PRIVATE_CANARY"
+    cli_owner["owner_heads"]["source"]["source_heads_by_wallet"]["W028"] = "PRIVATE_CANARY"
+    cli_owner["owner_heads"]["source"]["source_heads_by_wallet"][
+        "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    ] = "PRIVATE_CANARY"
+    cli_owner["dimensions"]["source_observation"]["evidence"] = {
+        "raw_address": "PRIVATE_CANARY",
+        "secret": "PRIVATE_CANARY",
+    }
+    cli_owner["blockers"].append(
+        {
+            "reason_code": "BLOCKED",
+            "owner": "source",
+            "affected_portfolio": "A",
+            "raw_journal": "PRIVATE_CANARY",
+        }
+    )
+    clean = site_owner_view(cli_owner)
+    assert "PRIVATE_CANARY" not in json.dumps(clean)
+    assert "raw_journal" not in json.dumps(clean)
+    assert "source_observation" in clean["dimensions"]
+
+    # The actual CLI site-view verb uses the owner exactly once.
+    monkeypatch.setattr(projection, "explain_task", lambda args: cli_owner)
+    assert pm_operations.cli(["cwsa", "chapter2", "site-view", "--portfolio", "A"]) == 0
+    routed = json.loads(capsys.readouterr().out)
+    assert routed == clean
+    assert source["head_sha256"] == "a" * 64
+
+
+def test_site_owner_view_scoped_fault_mixed_epoch_and_unknown_finance(assessment):
+    source, _, invoke, save = assessment
+    _, baseline = invoke("A")
+    source["latest_kinds"]["W028"] = "UNAVAILABLE"
+    source["policy_epochs_by_wallet"]["W028"] = "9" * 64
+    _, affected = invoke("A", prior=save(baseline))
+    _, unaffected = invoke("B")
+    a = site_owner_view(affected)
+    b = site_owner_view(unaffected)
+    assert a["generation_consistency"]["state"] == "MIXED"
+    assert a["scope"]["new_risk_source_status"] == "BLOCKED_EVIDENCE"
+    assert b["scope"]["new_risk_source_status"] == "SOURCE_SCOPE_READY"
+    assert a["fault_isolation"]["affected_portfolios"] == ["A", "Combo2"]
+    assert "B" in a["fault_isolation"]["unaffected_source_portfolios"]
+    assert a["fault_isolation"]["shared_account_risk"]["state"] == "UNKNOWN"
+    assert a["prior_to_current"]["changed_wallets"] == ["W028"]
+    assert a["economics"]["realized_pnl_usd"] is None
+    assert b["economics"]["total_costs_usd"] is None
+    assert all(not row["trading_authorized"] for row in (a, b))
+
+
+def test_site_owner_view_rejects_wrong_schema_or_financial_permission():
+    with pytest.raises(ValueError, match="SCHEMA_UNSUPPORTED"):
+        site_owner_view({"schema": "untrusted"})
+    with pytest.raises(ValueError, match="EFFECT_PERMISSION_UNSAFE"):
+        site_owner_view(
+            {
+                "schema": "cwsa_chapter2_task_explanation_v1",
+                "order_route": "PLACE_ORDER",
+                "trading_authorized": True,
+                "scope": {"portfolio": "A"},
+            }
+        )
+    with pytest.raises(ValueError, match="SCOPE_UNVERIFIED"):
+        site_owner_view(
+            {
+                "schema": "cwsa_chapter2_task_explanation_v1",
+                "order_route": "NONE",
+                "trading_authorized": False,
+                "scope": {"portfolio": None},
+            }
+        )
 
 
 def test_identical_original_evidence_does_not_refresh_proofs_or_prior_authorization(assessment):

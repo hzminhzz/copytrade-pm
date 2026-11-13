@@ -520,10 +520,11 @@ def dispatch(args: argparse.Namespace) -> dict:
             from .pm_cwsa_chapter2_projection import build_runtime_projection
 
             return build_runtime_projection(args)
-        if args.verb == "explain":
-            from .pm_cwsa_chapter2_projection import explain_task
+        if args.verb in ("explain", "site-view"):
+            from .pm_cwsa_chapter2_projection import explain_task, site_owner_view
 
-            return explain_task(args)
+            original = explain_task(args)
+            return site_owner_view(original) if args.verb == "site-view" else original
         if args.verb == "recover":
             from .pm_cwsa_chapter2_projection import explain_native_guardian_intent
 
@@ -628,6 +629,13 @@ def parser() -> argparse.ArgumentParser:
         help="Compare with one bounded prior JSON explanation of the same portfolio and inspection",
     )
     add_arguments(explain_cmd)
+    site_cmd = chapter2_sub.add_parser(
+        "site-view", help="Redacted authenticated-Site view of the CLI owner explanation"
+    )
+    site_cmd.add_argument("--portfolio", required=True)
+    site_cmd.add_argument("--inspection", choices=("metadata", "evidence"), default="metadata")
+    site_cmd.add_argument("--prior-snapshot", type=Path)
+    add_arguments(site_cmd)
     recover_cmd = chapter2_sub.add_parser(
         "recover", help="Interpret an original Guardian intent using its read-only owner journal"
     )
@@ -728,7 +736,7 @@ def cli(argv: list[str] | None = None) -> int:
     if args.group == "cwsa":
         if args.verb == "projection":
             return 0
-        if args.verb == "explain":
+        if args.verb in ("explain", "site-view"):
             return 2 if response.get("error_code") else 0
         if args.verb == "recover":
             return 2 if response["dispatch_state"] == "EVIDENCE_UNAVAILABLE" else 0

@@ -30,6 +30,16 @@ node ops/control-center/tests/browser.cjs
 
 The browser suite starts its own loopback canary, probes public mutation denial, checks state against actual registry data, validates main navigation, sorting/search/comparison, light/dark theme, and browser JS errors at 1440×900, 768×1024, and 390×844. `TARGET_URL=https://ops.hzminhzz.space/` checks the active Cloudflare route instead. No trade mutation or hosted-site cookie is used.
 
+## ANOS-12 Chapter 2 owner-view integration (engineering candidate, not deployed)
+
+T12 (#346) uses this existing Ops Control Center instead of ChatGPT Sites. The added `GET /api/owner-view?portfolio=A&inspection=evidence` route is read-only, accepts only one of the six Chapter 2 portfolio IDs and `metadata|evidence`, and delegates directly to `copytrade-pm cwsa chapter2 site-view` / `explain_task`. No visitor-supplied file paths, account selectors, broker routes, journal writes or permission computation. Read results are singleflight-cached for at most eight seconds and preserve original source clocks, independent risk/mandate/finance dimensions and null modeled economics. Unavailable owner evidence returns a redacted 503/UNKNOWN, never an inferred flat, zero P&L or installed revision.
+
+The Gates & blockers page shows these versioned owner fields per portfolio, including affected/unaffected source scopes and non-dispatching READ_ONLY next operation. UI/browser tests use controlled redacted fixtures to verify fidelity, scoped selection, write-method denial, bad-schema/unsafe-permission rejection and `UNKNOWN` display. This is a candidate for a future separately authorized release; the running installed checkout and its uncommitted files must not be modified by this work.
+
+The daemon uses `/usr/bin/python3`, which lacks the owner's Pydantic dependency; it **must not import the owner in-process**. The separate `COPYTRADE_OPS_OWNER_PYTHON` variable must point to an absolute executable path for a pre-provisioned, dependency-complete Python interpreter. The server invokes `python -m copytrade_pm.pm_operations` in a bounded, read-only subprocess with `PYTHONPATH` pinned to its own release's `src/`, a 20-second limit, bounded JSON output, and strict schema/scope/permission validation. If the interpreter is not configured or unavailable, the endpoint fails closed with redacted `503 UNKNOWN`; neither the release nor system Python is modified to install dependencies. Setting the variable and a subsequent rollout require a **separate deployment authorization**.
+
+The server reads the repository's pinned source package from its own checkout; it uses the configured `COPYTRADE_OPS_REGISTRY_DB` and optional private `COPYTRADE_OPS_CWSA_SOURCE_DB`, `COPYTRADE_OPS_CWSA_PAPER_ROOT`, `COPYTRADE_OPS_CWSA_QUOTE_DB`, and `COPYTRADE_OPS_CWSA_EPOCH` values. Never expose these filesystem paths via HTTP or accept them from queries. If original evidence is inaccessible, the owner returns UNKNOWN/BLOCKED. This public viewer does not establish authentication; separately verify Cloudflare Access or another ingress identity control before displaying any data that requires private reader authorization.
+
 ## Deployment and rollback (after verified merge)
 
 Never run the public server from an editable checkout. From a clean source tree containing the deployment script:

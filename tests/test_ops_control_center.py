@@ -176,6 +176,206 @@ def test_concurrent_readers_no_write_or_sqlite_pin(http_server: str, source):
     assert [sha256(path.read_bytes()).hexdigest() for path in source] == before
 
 
+def test_owner_view_http_is_exact_cli_view_and_read_only(source, http_server, monkeypatch):
+    """One bounded portfolio query delegates to the existing CLI decision owner."""
+    from copytrade_pm import pm_operations
+    from copytrade_pm import pm_cwsa_chapter2_projection as projection
+
+    original = {
+        "schema": "cwsa_chapter2_task_explanation_v1",
+        "observed_at": "2026-11-13T00:00:12+00:00",
+        "assessment_asof": "2026-11-13T00:00:12+00:00",
+        "scope": {
+            "operation": "EXPLAIN_CHAPTER2_PORTFOLIO",
+            "portfolio": "A",
+            "inspection": "evidence",
+            "epoch": "epoch-test",
+            "version": 2,
+            "selection_known_at": "2026-11-01T00:00:00Z",
+            "new_risk_source_status": "BLOCKED_EVIDENCE",
+        },
+        "owner_heads": {
+            "registry": {"inventory_sha256": "c" * 64},
+            "source": {
+                "head_sha256": "a" * 64,
+                "source_heads_by_wallet": {"W028": "b" * 64},
+                "receipt_first_known_ms_by_wallet": {"W028": 1794500000123},
+                "original_checkpoint_by_wallet_ms": {"W028": 1794500000000},
+                "published_ms_by_wallet": {"W028": 1794500000130},
+                "policy_epochs_by_wallet": {"W028": "c" * 64},
+            },
+        },
+        "dimensions": {
+            "source_observation": {
+                "state": "BLOCKED_EVIDENCE",
+                "owner": "pm_checkpoint_journal",
+                "evidence": {"private_raw_journal": "PRIVATE_CANARY"},
+            },
+            "paper_finance": {"state": "UNKNOWN", "owner": "pm03_account"},
+            "guardian_authorization": {"state": "UNKNOWN", "owner": "prop-production Guardian"},
+        },
+        "blockers": [
+            {"reason_code": "SOURCE_CHECKPOINT_STALE", "owner": "source", "affected_portfolio": "A"}
+        ],
+        "generation_consistency": {"state": "MIXED", "reasons": ["SOURCE_POLICY_EPOCHS_MIXED"]},
+        "fault_isolation": {
+            "affected_portfolios": ["A", "Combo2"],
+            "unaffected_source_portfolios": ["B", "C"],
+            "shared_account_risk": {"state": "UNKNOWN", "owner": "prop-production Guardian"},
+        },
+        "prior_to_current": None,
+        "economics": {
+            "realized_pnl_usd": None,
+            "total_costs_usd": None,
+            "current_equity_usd": None,
+            "drawdown_usd": None,
+        },
+        "next_operation": {
+            "id": "operations.cwsa.chapter2.explain",
+            "effect_class": "READ_ONLY",
+            "auto_dispatched": False,
+            "required_arguments": ["--inspection evidence"],
+            "owner": "copytrade_pm.pm_cwsa_chapter2_projection",
+        },
+        "trading_authorized": False,
+        "order_route": "NONE",
+        "financially_active": False,
+        "scientifically_qualified": False,
+        "raw_account": "PRIVATE_CANARY",
+    }
+    calls = []
+
+    def fake_explain(args):
+        calls.append((args.verb, args.portfolio, args.inspection, args.registry_db))
+        return original
+
+    monkeypatch.setattr(projection, "explain_task", fake_explain)
+    monkeypatch.setattr(
+        server,
+        "_invoke_owner_cli",
+        lambda argv: pm_operations.dispatch(pm_operations.parser().parse_args(argv)),
+    )
+    expected = pm_operations.dispatch(
+        pm_operations.parser().parse_args(
+            [
+                "cwsa",
+                "chapter2",
+                "site-view",
+                "--portfolio",
+                "A",
+                "--inspection",
+                "evidence",
+                "--registry-db",
+                str(source[0]),
+            ]
+        )
+    )
+    before = [sha256(path.read_bytes()).hexdigest() for path in source]
+    code, headers, raw = request(http_server + "/api/owner-view?portfolio=A&inspection=evidence")
+    assert code == 200
+    assert "Access-Control-Allow-Origin" not in headers
+    assert headers["Cache-Control"].startswith("no-store")
+    assert json.loads(raw) == expected
+    assert calls == [
+        ("site-view", "A", "evidence", source[0]),
+        ("site-view", "A", "evidence", source[0]),
+    ]
+    assert "PRIVATE_CANARY" not in raw.decode()
+    assert json.loads(raw)["economics"]["realized_pnl_usd"] is None
+    assert [sha256(path.read_bytes()).hexdigest() for path in source] == before
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "portfolio=UNKNOWN",
+        "portfolio=0x0123456789abcdef0123456789abcdef01234567",
+        "portfolio=A&portfolio=B",
+        "portfolio=A&inspection=finance",
+        "portfolio=A&inspection=evidence&path=/etc/passwd",
+        "portfolio=A%2FB",
+        "",
+        "portfolio=A&inspection=evidence&inspection=metadata",
+    ],
+)
+def test_owner_view_denies_unbounded_scopes(http_server, query):
+    code, headers, raw = request(http_server + "/api/owner-view?" + query)
+    assert code == 400
+    assert "Access-Control-Allow-Origin" not in headers
+    assert b"/home/quant" not in raw
+
+
+def test_owner_view_fails_closed_when_owner_unavailable(http_server, monkeypatch):
+    def unavailable(_args):
+        raise OSError("PRIVATE_JOURNAL_PATH_MUST_NOT_ESCAPE")
+
+    monkeypatch.setattr(server, "_invoke_owner_cli", unavailable)
+    code, _, raw = request(http_server + "/api/owner-view?portfolio=A&inspection=evidence")
+    assert code == 503
+    assert b"PRIVATE_JOURNAL" not in raw
+    assert json.loads(raw)["status"] == "UNKNOWN"
+    for method in ("POST", "PATCH", "PUT", "DELETE", "OPTIONS"):
+        assert request(http_server + "/api/owner-view?portfolio=A", method, b"{}")[0] == 403
+
+
+def test_owner_view_portfolio_allowlist_is_the_native_owner():
+    from copytrade_pm.pm_cwsa_six_paper import PORTFOLIO_CONFIGS
+
+    assert server._CHAPTER2_PORTFOLIOS == set(PORTFOLIO_CONFIGS)
+
+
+def test_owner_view_uses_explicit_dependency_complete_interpreter(source, monkeypatch):
+    """Actual pinned CLI module runs externally, not in the system Python daemon."""
+    monkeypatch.delenv("COPYTRADE_OPS_OWNER_PYTHON", raising=False)
+    with pytest.raises(FileNotFoundError, match="interpreter"):
+        server._invoke_owner_cli(["cwsa", "chapter2", "site-view", "--portfolio", "A"])
+    monkeypatch.setenv("COPYTRADE_OPS_OWNER_PYTHON", sys.executable)
+    payload = server._invoke_owner_cli(
+        [
+            "cwsa",
+            "chapter2",
+            "site-view",
+            "--portfolio",
+            "A",
+            "--inspection",
+            "metadata",
+            "--registry-db",
+            str(source[0]),
+        ]
+    )
+    assert payload["schema"] == "cwsa_chapter2_site_owner_view_v1"
+    assert payload["scope"]["portfolio"] == "A"
+    assert payload["trading_authorized"] is False
+    assert payload["economics"]["realized_pnl_usd"] is None
+
+
+def test_owner_view_rejects_owner_error_exit_and_untrusted_permission(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setenv("COPYTRADE_OPS_OWNER_PYTHON", sys.executable)
+    result = {
+        "schema": "cwsa_chapter2_site_owner_view_v1",
+        "trading_authorized": False,
+        "order_route": "NONE",
+    }
+
+    def owner_error(*_args, **_kwargs):
+        return SimpleNamespace(returncode=2, stdout=json.dumps(result), stderr="PRIVATE_KEY")
+
+    monkeypatch.setattr(server.subprocess, "run", owner_error)
+    with pytest.raises(OSError, match="inspection failed"):
+        server._invoke_owner_cli(["cwsa", "chapter2", "site-view"])
+
+    result["trading_authorized"] = True
+
+    def unauthorized(*_args, **_kwargs):
+        return SimpleNamespace(returncode=0, stdout=json.dumps(result), stderr="PRIVATE_KEY")
+
+    monkeypatch.setattr(server.subprocess, "run", unauthorized)
+    with pytest.raises(ValueError, match="permission"):
+        server._invoke_owner_cli(["cwsa", "chapter2", "site-view"])
+
+
 def test_missing_authoritative_registry_fails_closed(
     source, monkeypatch: pytest.MonkeyPatch, http_server: str
 ):
