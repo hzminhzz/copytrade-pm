@@ -180,6 +180,64 @@ def test_independent_systemd_process_and_release_are_distinct(rig: Rig) -> None:
     assert all(x[0] in {"systemctl", "git"} for x in rig.calls)
 
 
+def test_independent_os_liveness_observes_real_process_but_not_release(rig: Rig) -> None:
+    seen = runtime.observe_unit_liveness(
+        PAPER, manager="user", proc_root=rig.proc, runner=rig.runner
+    )
+    assert seen["state"] == "RUNNING", seen
+    assert seen["pid"] == rig.pid
+    assert seen["process_start_ticks"] == START_TICKS
+    assert seen["scope"] == "INDEPENDENT_OS_PROCESS_LIVENESS_ONLY_NOT_RELEASE_OR_FINANCE"
+    assert seen["reason"] == "PROCESS_BOUND_TO_RUNNING_SYSTEMD_UNIT"
+
+
+def test_os_liveness_rejects_fake_unrelated_pid_and_stopped_unit(rig: Rig) -> None:
+    rig.set_process(argv=[str(rig.python), "-m", "unrelated.worker"])
+    forged = runtime.observe_unit_liveness(
+        PAPER, manager="user", proc_root=rig.proc, runner=rig.runner
+    )
+    assert forged["state"] == "MISMATCH"
+    assert forged["reason"] == "PROCESS_LAUNCH_MISMATCH"
+    rig.props.update(ActiveState="inactive", MainPID="0")
+    stopped = runtime.observe_unit_liveness(
+        PAPER, manager="user", proc_root=rig.proc, runner=rig.runner
+    )
+    assert stopped["state"] == "NOT_RUNNING"
+    assert stopped["reason"] == "SYSTEMD_UNIT_STOPPED"
+
+
+def test_os_liveness_hidden_metadata_and_restart_remain_unknown(rig: Rig) -> None:
+    (rig.proc / str(rig.pid) / "cmdline").unlink()
+    hidden = runtime.observe_unit_liveness(
+        PAPER, manager="user", proc_root=rig.proc, runner=rig.runner
+    )
+    assert hidden["state"] == "UNKNOWN"
+    rig.set_process()
+    rig.calls.clear()
+    rig.alternate_props = {**rig.props, "InvocationID": "restart-during-query"}
+    raced = runtime.observe_unit_liveness(
+        PAPER, manager="user", proc_root=rig.proc, runner=rig.runner
+    )
+    assert raced["state"] == "UNKNOWN"
+    assert raced["reason"] == "PROCESS_OR_SYSTEMD_IDENTITY_RACED"
+
+
+def test_os_liveness_pid_reuse_during_inspection_is_unknown(rig: Rig) -> None:
+    original = rig.runner
+
+    def reused_pid(argv, **kwargs):
+        result = original(argv, **kwargs)
+        if argv[0] == "systemctl" and sum(x[0] == "systemctl" for x in rig.calls) == 2:
+            rig.set_process(ticks=START_TICKS + 100)
+        return result
+
+    raced = runtime.observe_unit_liveness(
+        PAPER, manager="user", proc_root=rig.proc, runner=reused_pid
+    )
+    assert raced["state"] == "UNKNOWN"
+    assert raced["reason"] == "PROCESS_OR_SYSTEMD_IDENTITY_RACED"
+
+
 def test_counterfeit_configured_release_plus_unrelated_live_pid_is_mismatch(rig: Rig) -> None:
     rig.set_process(argv=[str(rig.python), "-m", "unrelated.worker"])
     result = inspect(rig)
