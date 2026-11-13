@@ -1,6 +1,6 @@
 # CWSA Chapter 2 — six-portfolio paper runtime and release contract
 
-**Role:** CURRENT CHAPTER 2 OPERATING CONTRACT, with dated deployment locators to recheck. The original repair PR #331 merged as `26554dba965def37b1b1932bbbfb4bd7bcdd7eb3`; stage-gate engineering is present in the reviewed `1c4ac38e76dc7ed31e3421273269750b2f03e086` source. This page does not establish what is running now. Independently verify installed release, application-process identity, source and financial evidence. The [agent system plan](AGENT-SYSTEM-DESIGN.md) preserves this runbook as the stage owner and records the process-proof correction still needed.
+**Role:** CURRENT CHAPTER 2 OPERATING CONTRACT, with dated deployment locators to recheck. The original repair PR #331 merged as `26554dba965def37b1b1932bbbfb4bd7bcdd7eb3`; stage-gate engineering is present in the reviewed `1c4ac38e76dc7ed31e3421273269750b2f03e086` source. This page does not establish what is running now. Independently verify installed release, application-process identity, source and financial evidence. The [agent system plan](AGENT-SYSTEM-DESIGN.md) preserves this runbook as the stage owner; the ANOS-05 candidate implements independent process-to-release checks in the [read-only operations owner](AGENT-NATIVE-OPERATIONS.md#runtime-and-observer-diagnostics). Only an exact verified merged/installed revision, not this document, determines which check actually runs.
 
 ## Current research identities and existing service
 

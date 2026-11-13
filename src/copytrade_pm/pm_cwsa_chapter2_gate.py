@@ -22,6 +22,7 @@ from typing import Literal
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 
+from . import pm_runtime_readonly as runtime
 from .pm03_account import digest
 from .pm_forward_journal import PaperJournal
 from .pm_cwsa_six_paper import ALL_14_WALLETS, PORTFOLIO_CONFIGS, load_registry_seals
@@ -99,7 +100,7 @@ def assess_portfolio_roster(actual: dict[str, set[str]]) -> GateCheck:
 
 def assess_financial_runtime(
     *,
-    service_active: bool,
+    service_active: bool | None,
     signed_portfolios: set[str],
     finance_scans: dict[str, dict],
     source_changes: dict[str, int],
@@ -112,6 +113,10 @@ def assess_financial_runtime(
     A signed consumer without due changed-event processing is a broken worker.
     A quiet source with no eligible change is explicitly inconclusive, not PASS.
     """
+    if service_active is None:
+        return GateCheck(
+            "financial_consumer", "BLOCKED_EVIDENCE", "PAPER_PROCESS_RELEASE_IDENTITY_UNPROVED"
+        )
     if not service_active:
         return GateCheck("financial_consumer", "FAIL", "PAPER_SERVICE_NOT_RUNNING")
     if not signed_portfolios:
@@ -289,79 +294,20 @@ def _paper_facts(root: Path) -> dict:
 
 
 def _unit(name: str, expected_sha: str | None) -> GateCheck:
-    try:
-        proc = subprocess.run(
-            [
-                "systemctl",
-                "--user",
-                "show",
-                name,
-                "-p",
-                "ActiveState",
-                "-p",
-                "MainPID",
-                "-p",
-                "ExecStart",
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        values = dict(line.split("=", 1) for line in proc.stdout.splitlines() if "=" in line)
-        pid = int(values.get("MainPID", "0"))
-        if values.get("ActiveState") != "active" or pid <= 0 or not Path(f"/proc/{pid}").exists():
-            return GateCheck(name, "FAIL", "SYSTEMD_SERVICE_NOT_ACTIVE_WITH_PID")
-        match = re.search(r"path=(/[^ ;{}]+/\.venv/bin/python)", values.get("ExecStart", ""))
-        if match is None:
-            return GateCheck(name, "FAIL", "UNPINNED_SYSTEMD_EXECUTABLE")
-        executable = Path(match.group(1))
-        release_path = executable.parent.parent.parent
-        if not executable.is_file() or not release_path.is_dir():
-            return GateCheck(name, "FAIL", "INSTALLED_EXECUTABLE_MISSING")
-        # A detached, clean worktree is a pinned release; a branch checkout is not.
-        symbolic = subprocess.run(
-            ["git", "-C", str(release_path), "symbolic-ref", "-q", "HEAD"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if symbolic.returncode != 1:
-            return GateCheck(name, "FAIL", "MUTABLE_BRANCH_NOT_PINNED_RELEASE")
-        dirty = subprocess.run(
-            ["git", "-C", str(release_path), "status", "--porcelain", "--untracked-files=normal"],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        ).stdout
-        if dirty:
-            return GateCheck(name, "FAIL", "DIRTY_INSTALLED_RELEASE")
-        actual_sha = _git(release_path, "HEAD")
-        if not SHA_RE.fullmatch(actual_sha):
-            return GateCheck(name, "FAIL", "INVALID_INSTALLED_RELEASE_SHA")
-        if expected_sha is None:
-            return GateCheck(
-                name,
-                "BLOCKED_EVIDENCE",
-                "EXPECTED_RELEASE_SHA_REQUIRED",
-                {"pid": pid, "sha": actual_sha},
-            )
-        if actual_sha != expected_sha:
-            return GateCheck(
-                name,
-                "FAIL",
-                "INSTALLED_RELEASE_SHA_DRIFT",
-                {"pid": pid, "expected_sha": expected_sha, "sha": actual_sha},
-            )
-        return GateCheck(
-            name,
-            "PASS",
-            "INSTALLED_SHA_AND_PID_VERIFIED",
-            {"pid": pid, "sha": actual_sha, "release_path": str(release_path)},
-        )
-    except (OSError, ValueError, subprocess.SubprocessError) as exc:
-        return GateCheck(name, "FAIL", "SYSTEMD_RELEASE_PROOF_UNAVAILABLE:" + type(exc).__name__)
+    """Reuse the OS/process/release owner; never infer an app from a live PID."""
+    observed = runtime.verify_unit_release(name, expected_sha=expected_sha, manager="user")
+    state: Verdict = {
+        "VERIFIED": "PASS",
+        "NOT_RUNNING": "FAIL",
+        "MISMATCH": "FAIL",
+        "UNKNOWN": "BLOCKED_EVIDENCE",
+    }[observed["state"]]
+    detail = (
+        "SYSTEMD_SERVICE_NOT_ACTIVE_WITH_PID"
+        if observed["state"] == "NOT_RUNNING"
+        else observed["reason"]
+    )
+    return GateCheck(name, state, detail, observed)
 
 
 def _resources() -> GateCheck:
@@ -744,7 +690,13 @@ def verify(args: argparse.Namespace) -> dict:
                     )
                 checks.append(
                     assess_financial_runtime(
-                        service_active=paper_unit.state == "PASS",
+                        service_active=(
+                            True
+                            if paper_unit.state == "PASS"
+                            else False
+                            if paper_unit.detail == "SYSTEMD_SERVICE_NOT_ACTIVE_WITH_PID"
+                            else None
+                        ),
                         signed_portfolios=signed,
                         finance_scans={
                             pid: {"last_checkpoint_ms": x["finance_scan_checkpoint_ms"]}
