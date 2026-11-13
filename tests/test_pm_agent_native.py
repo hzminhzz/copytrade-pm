@@ -72,7 +72,7 @@ def test_native_portfolio_parity_and_namespace_separation(tmp_path: Path) -> Non
     db, snapshot = _v2_snapshot(tmp_path)
     reg.apply(db, snapshot, AFTER)
     current = ops._read_registry(db, ["portfolio", "--current"], "portfolio.current", AFTER)
-    assert current["status"] in {"VERIFIED", "STALE"}
+    assert current["status"] == "VERIFIED"
     with io.StringIO() as stdout, redirect_stdout(stdout):
         assert reg.cli(["--db", str(db), "portfolio", "--current", "--asof", AFTER]) == 0
         native = json.loads(stdout.getvalue())
@@ -160,7 +160,7 @@ def test_no_private_state_modified_by_readonly_adapter(tmp_path: Path) -> None:
         ["status"],
     ):
         item = ops._read_registry(db, cmd, "test.read")
-        assert item["status"] in {"VERIFIED", "STALE"}
+        assert item["status"] == "VERIFIED"
     assert db.read_bytes() == before
     # SQLite mode=ro can create its own -wal/-shm interprocess sidecars.
     # Those are not application mutations; reject any other new private files.

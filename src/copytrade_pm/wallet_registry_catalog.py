@@ -282,13 +282,22 @@ def store_selection(con: sqlite3.Connection, v2: dict, ids: dict[str, int], when
             con.execute("INSERT INTO research_selections VALUES(?,?,?,?,?,?,?)", expected)
 
 
-def resolve_alias(con: sqlite3.Connection, alias: str, cutoff: str) -> int | None:
-    """As-of alias identity, across namespaces; reject collisions instead of guessing."""
-    rows = con.execute(
-        "SELECT DISTINCT wallet_id FROM wallet_aliases "
-        "WHERE alias=? AND known_at<=? ORDER BY wallet_id LIMIT 2",
-        (alias, cutoff),
-    ).fetchall()
+def resolve_alias(
+    con: sqlite3.Connection, alias: str, cutoff: str, *, namespace: str = "auto"
+) -> int | None:
+    """As-of alias identity, scoped or across namespaces; reject collisions instead of guessing."""
+    if namespace == "auto":
+        rows = con.execute(
+            "SELECT DISTINCT wallet_id FROM wallet_aliases "
+            "WHERE alias=? AND known_at<=? ORDER BY wallet_id LIMIT 2",
+            (alias, cutoff),
+        ).fetchall()
+    else:
+        rows = con.execute(
+            "SELECT DISTINCT wallet_id FROM wallet_aliases "
+            "WHERE namespace=? AND alias=? AND known_at<=? ORDER BY wallet_id LIMIT 2",
+            (namespace, alias, cutoff),
+        ).fetchall()
     if len(rows) > 1:
         raise ValueError("ambiguous canonical wallet alias")
     return rows[0][0] if rows else None
