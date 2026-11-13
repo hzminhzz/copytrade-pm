@@ -270,16 +270,24 @@ class JointBlockBootstrap:
         return self.series[self.starts[day // self.block_days] + day % self.block_days, step]
 
 
+_SELECTION_PROOF_ERRORS = (
+    "unverified research selection provenance",
+    "signed selection stored source SHA drift",
+    "signed selection trusted key fingerprint drift",
+    "signed selection stored signature drift",
+    "signed portfolio absent from immutable source",
+)
+
+
 def _registry_identity(portfolio_id: str, *, db: Path, asof: str | None) -> dict:
-    if (
-        not isinstance(portfolio_id, str)
-        or "/" not in portfolio_id
-        and portfolio_id not in {"P1", "P14", "P16", "Combo2"}
+    parts = portfolio_id.split("/") if isinstance(portfolio_id, str) else []
+    if not isinstance(portfolio_id, str) or not (
+        portfolio_id in {"P1", "P14", "P16", "Combo2"} or (len(parts) == 2 and all(parts))
     ):
         # A bare "B" or "E6" is ambiguous across namespaces.
         raise ValueError("NAMESPACE_QUALIFIED_PORTFOLIO_REQUIRED")
     doctor = operations._doctor(db)
-    if doctor["status"] != "VERIFIED":
+    if not operations._sqlite_integrity_verified(doctor):
         raise ValueError("REGISTRY_SQLITE_INTEGRITY_NOT_VERIFIED")
     generation = operations._generation(db)
     # The last CSV import clock is historical provenance, not a lease on
@@ -289,7 +297,18 @@ def _registry_identity(portfolio_id: str, *, db: Path, asof: str | None) -> dict
     cmd = ["portfolio", portfolio_id]
     if asof is not None:
         cmd += ["--asof", _utc(asof).isoformat()]
-    record = operations._registry_query(db, cmd).get(portfolio_id)
+    try:
+        records = operations._registry_query(db, cmd)
+    except ValueError as exc:
+        if any(msg in str(exc) for msg in _SELECTION_PROOF_ERRORS):
+            raise ValueError("PORTFOLIO_SELECTION_PROOF_BLOCKED") from exc
+        raise
+    record: Any = records.get(portfolio_id) if isinstance(records, dict) else None
+    if record is None and isinstance(records, dict) and len(records) == 1:
+        only = next(iter(records.values()))
+        if isinstance(only, dict):
+            # Scoped lookups like "q3/B" return canonical SQLite key "B".
+            record = only
     if not isinstance(record, dict) or record.get("state") in {
         "UNKNOWN_AT_ASOF",
         "NOT_REGISTERED_AT_ASOF",
@@ -304,7 +323,7 @@ def _registry_identity(portfolio_id: str, *, db: Path, asof: str | None) -> dict
         "version": record["version"],
         "selection_known_at": record["selection_known_at"],
         "registry_generation_sha256": generation["sha"],
-        "registry_inventory_sha256": doctor["data"]["inventory_sha256"],
+        "registry_inventory_sha256": (doctor.get("data") or {}).get("inventory_sha256"),
         "registry_observed_at": generation["observed_at"],
         "registry_state": record.get("state"),
         "trading_authorized": False,

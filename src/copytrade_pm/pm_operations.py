@@ -97,24 +97,37 @@ def _generation(db: Path) -> dict:
 
 
 def _doctor(db: Path) -> dict:
-    """Verify authoritative SQLite integrity; external imports are diagnostic."""
+    """Verify authoritative SQLite integrity independently from blocked selection proof."""
     try:
         sink = io.StringIO()
         with redirect_stdout(sink):
             code = registry.cli(["--db", str(db), "doctor"])
         payload = json.loads(sink.getvalue())
+        selection_integrity = payload.get("research_selection_integrity")
         if (
             code == 0
             and payload.get("authority") == "SQLITE"
             and payload.get("database_integrity") == "VERIFIED"
         ):
             state = "VERIFIED"
+            error_code = None
+        elif (
+            code == 2
+            and payload.get("authority") == "SQLITE"
+            and payload.get("database_integrity") == "VERIFIED"
+            and selection_integrity == "BLOCKED_MISSING_EXTERNAL_PROOF"
+        ):
+            state = "BLOCKED"
+            error_code = "RESEARCH_SELECTION_PROOF_BLOCKED"
         elif code == 2 and payload.get("error_type") == "OperationalError":
             state = "UNKNOWN"  # Missing/unavailable DB is not a stale SQLite snapshot.
+            error_code = None
         elif code == 2 or payload.get("database_integrity") == "FAILED":
             state = "STALE"
+            error_code = "REGISTRY_SQLITE_INTEGRITY_FAILED"
         else:
             state = "UNKNOWN"
+            error_code = None
         # The native doctor does not report a stored index generation clock;
         # that belongs to the independent status query.
         return result(
@@ -122,6 +135,8 @@ def _doctor(db: Path) -> dict:
             state,
             {
                 "database_integrity": payload.get("database_integrity"),
+                "research_selection_integrity": selection_integrity,
+                "current_research_selection": payload.get("current_research_selection"),
                 "inventory_sha256": payload.get("inventory_sha256"),
                 "indexed_import_clock_freshness": payload.get("indexed_import_clock_freshness"),
                 "unverified_cohort_import_provenance": payload.get(
@@ -129,7 +144,7 @@ def _doctor(db: Path) -> dict:
                 ),
             },
             authority="sqlite_wallet_registry",
-            error_code="REGISTRY_SQLITE_INTEGRITY_FAILED" if state == "STALE" else None,
+            error_code=error_code,
         )
     except (ValueError, OSError, KeyError, TypeError, RuntimeError, sqlite3.Error) as exc:
         return result(
@@ -139,6 +154,23 @@ def _doctor(db: Path) -> dict:
             error_code="REGISTRY_DOCTOR_UNAVAILABLE",
             limitations=[type(exc).__name__],
         )
+
+
+def _sqlite_integrity_verified(doctor: dict | None) -> bool:
+    """Return True when doctor attests verified SQLite integrity despite global selection block."""
+    if not isinstance(doctor, dict):
+        return False
+    data = doctor.get("data")
+    if isinstance(data, dict) and data.get("database_integrity") is not None:
+        if data.get("database_integrity") != "VERIFIED":
+            return False
+        if doctor.get("status") == "VERIFIED":
+            return True
+        return (
+            doctor.get("status") == "BLOCKED"
+            and data.get("research_selection_integrity") == "BLOCKED_MISSING_EXTERNAL_PROOF"
+        )
+    return doctor.get("status") == "VERIFIED"
 
 
 def _read_registry(db: Path, command: list[str], capability: str, asof: str | None = None) -> dict:
