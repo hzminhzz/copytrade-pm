@@ -383,6 +383,7 @@ def _score_one(run: dict, catalog: dict[str, dict]) -> dict:
     target = TASK_MAP[task_id]
     discovered = queried = False
     invented = unsafe = duplicate = preflight = preflight_failed = off_target = 0
+    discovery_hops = read_scope_calls = 0
     seen = Counter()
     last_seq = 0
     discovery_seq: int | None = None
@@ -432,12 +433,15 @@ def _score_one(run: dict, catalog: dict[str, dict]) -> dict:
             if code != 0 or status not in {"FOUND", "VERIFIED"}:
                 preflight_failed += 1
         elif kind == "DISCOVERY":
+            if not discovered:
+                discovery_hops += 1
             if cap == target["capability"] and code == 0 and status == "FOUND":
                 discovered = True
                 discovery_seq = seq if discovery_seq is None else discovery_seq
             else:
                 off_target += 1
         elif kind == "QUERY" and target["query_prefix"]:
+            read_scope_calls += 1
             q = target["query_prefix"]
             # Research cache must have a nonempty explicit path, while others
             # may add as-of/limit flags after their exact query prefix.
@@ -483,6 +487,8 @@ def _score_one(run: dict, catalog: dict[str, dict]) -> dict:
         "discovered": discovered,
         "queried": queried,
         "tool_calls": len(calls),
+        "discovery_hops": discovery_hops,
+        "read_scope_calls": read_scope_calls,
         "tool_call_budget_exceeded": len(calls) > PASS_TOOL_CALL_BUDGET,
         "extra_preflight": preflight,
         "failed_preflight": preflight_failed,
@@ -543,6 +549,14 @@ def evaluate(
         "failed_preflight": sum(x["failed_preflight"] for x in reports),
         "unsafe_calls": sum(x["unsafe_calls"] for x in reports),
         "total_calls": sum(x["tool_calls"] for x in reports),
+        "discovery_hops": sum(x["discovery_hops"] for x in reports),
+        "read_scope_calls": sum(x["read_scope_calls"] for x in reports),
+        "repeated_work_calls": sum(x["duplicate_calls"] for x in reports),
+        # The v1 tool-event envelope has no independently measured byte, clock,
+        # or token fields. Unknown is null, never a fabricated zero.
+        "bytes_read": None,
+        "wall_time_ms": None,
+        "context_tokens": None,
         "over_budget_tasks": sum(x["tool_call_budget_exceeded"] for x in reports),
         "scenarios": reports,
         "scientific_qualification": "NOT_ESTABLISHED",
