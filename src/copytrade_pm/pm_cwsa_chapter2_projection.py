@@ -956,6 +956,148 @@ def explain_task(args) -> dict[str, Any]:
     return finish()
 
 
+# Site transport is a strict view of the existing CLI owner assessment, not
+# another decision engine. Never copy arbitrary owner-private evidence fields.
+SITE_SCHEMA = "cwsa_chapter2_site_owner_view_v1"
+_SITE_TOP_FIELDS = (
+    "observed_at",
+    "assessment_asof",
+    "scope",
+    "generation_consistency",
+    "fault_isolation",
+    "prior_to_current",
+    "economics",
+    "blockers",
+    "next_operation",
+    "order_route",
+    "trading_authorized",
+    "scientifically_qualified",
+    "financially_active",
+    "error_code",
+)
+_SITE_HEAD_FIELDS = {
+    "registry": ("inventory_sha256",),
+    "portfolio_seal": ("version", "definition_sha256", "selection_known_at"),
+    "source": (
+        "head_sha256",
+        "source_heads_by_wallet",
+        "policy_epochs_by_wallet",
+        "global_policy_epoch_set",
+        "scope_generations_by_wallet",
+        "original_checkpoint_by_wallet_ms",
+        "receipt_first_known_ms_by_wallet",
+        "published_ms_by_wallet",
+    ),
+    "mandate": ("bundle_sha256", "epoch"),
+    "quote": ("quote_heads_sha256",),
+    "paper_finance": ("journal_head_sha", "wave_head_sha", "financial_cursor"),
+    "guardian": (),
+}
+_SITE_DIMENSION_FIELDS = ("state", "owner", "missing_or_stale_members")
+
+
+def site_owner_view(explanation: dict[str, Any]) -> dict[str, Any]:
+    """Bounded privacy-safe transport of one existing authoritative CLI result.
+
+    This is a *projection*, never a permission or finance verifier. Data from
+    unrecognized or malformed schemas fails closed instead of being serialized.
+    """
+    if explanation.get("schema") != "cwsa_chapter2_task_explanation_v1":
+        raise ValueError("SITE_OWNER_SCHEMA_UNSUPPORTED")
+    if (
+        explanation.get("trading_authorized") is not False
+        or explanation.get("order_route") != "NONE"
+    ):
+        raise ValueError("SITE_OWNER_EFFECT_PERMISSION_UNSAFE")
+    scope = explanation.get("scope")
+    if not isinstance(scope, dict) or not isinstance(scope.get("portfolio"), str):
+        raise ValueError("SITE_OWNER_SCOPE_UNVERIFIED")
+    # No private journal paths, account addresses, secrets or extra fields may
+    # pass through: only known scalar metadata and redacted per-wallet heads.
+    view = {key: explanation.get(key) for key in _SITE_TOP_FIELDS}
+    view["schema"] = SITE_SCHEMA
+    view["source_schema"] = explanation["schema"]
+    view["scope"] = {
+        key: scope.get(key)
+        for key in (
+            "operation",
+            "portfolio",
+            "inspection",
+            "epoch",
+            "version",
+            "selection_known_at",
+            "new_risk_source_status",
+        )
+    }
+    heads = explanation.get("owner_heads") or {}
+    view["owner_heads"] = {
+        owner: {key: (heads.get(owner) or {}).get(key) for key in fields} if fields else None
+        for owner, fields in _SITE_HEAD_FIELDS.items()
+    }
+    view["dimensions"] = {
+        name: {key: data.get(key) for key in _SITE_DIMENSION_FIELDS if key in data}
+        for name, data in (explanation.get("dimensions") or {}).items()
+        if name
+        in (
+            "registry_integrity",
+            "research_selection_proof",
+            "portfolio_seal",
+            "source_observation",
+            "mandate",
+            "independent_executable_quotes",
+            "paper_finance",
+            "risk",
+            "guardian_authorization",
+        )
+        and isinstance(data, dict)
+    }
+    # The owner alone sets economics. Missing or blocked economics must remain
+    # JSON null, even when a heartbeat or source receipt is healthy.
+    economics = explanation.get("economics") or {}
+    view["economics"] = {
+        key: economics.get(key)
+        for key in (
+            "realized_pnl_usd",
+            "total_costs_usd",
+            "current_equity_usd",
+            "drawdown_usd",
+        )
+    }
+    op = explanation.get("next_operation")
+    view["next_operation"] = (
+        {
+            key: op.get(key)
+            for key in (
+                "id",
+                "effect_class",
+                "auto_dispatched",
+                "required_arguments",
+                "owner",
+            )
+        }
+        if isinstance(op, dict)
+        and op.get("effect_class") == "READ_ONLY"
+        and op.get("auto_dispatched") is False
+        else None
+    )
+    # Prohibit caller-provided freeform payloads in blocker details.
+    view["blockers"] = [
+        {key: item.get(key) for key in ("reason_code", "owner", "affected_portfolio")}
+        for item in explanation.get("blockers", [])
+        if isinstance(item, dict)
+    ]
+    view["fault_isolation"] = {
+        "affected_portfolios": (explanation.get("fault_isolation") or {}).get(
+            "affected_portfolios", []
+        ),
+        "unaffected_source_portfolios": (explanation.get("fault_isolation") or {}).get(
+            "unaffected_source_portfolios", []
+        ),
+        "shared_account_risk": {"state": "UNKNOWN", "owner": "prop-production Guardian"},
+    }
+    return view
+
+
 def build_runtime_projection(args) -> dict[str, Any]:
     """Read-only native source and PM03 replay; never use projected JSON as finance."""
     from .pm_cwsa_chapter2_gate import (

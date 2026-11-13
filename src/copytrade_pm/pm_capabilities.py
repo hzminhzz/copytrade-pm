@@ -569,6 +569,33 @@ OPERATIONS_SUBCOMMANDS: dict[str, _OperationsSubcommandSpec] = {
             "Missing evidence never implies Guardian financial or broker authorization",
         ],
     },
+    "cwsa chapter2 site-view": {
+        "id": "operations.cwsa.chapter2.site.view",
+        "owner": "copytrade_pm.pm_cwsa_chapter2_projection",
+        "family": "operations",
+        "classification": "READ_ONLY",
+        "authority": "CWSA_CHAPTER2_EVIDENCE_PROJECTION",
+        "documentation": "docs/AGENT-NATIVE-OPERATIONS.md",
+        "required_arguments": ["--portfolio PORTFOLIO"],
+        "runtime_required_arguments": [],
+        "access": _access_entry(
+            [
+                "private_sqlite_registry",
+                "optional_private_cwsa_source_sqlite",
+                "optional_single_pm03_journal",
+                "optional_private_quote_sqlite",
+                "optional_signed_paper_release",
+                "optional_qualification_attestation",
+            ],
+            [],
+            privacy="OWNER_PRIVATE_REDACTED",
+        ),
+        "limitations": [
+            "Returns a strict subset of the same existing Chapter 2 owner explanation as the CLI",
+            "No site transport, authentication, publisher or deployed Site is established by this command",
+            "No financial effects or Guardian permission",
+        ],
+    },
     "cwsa chapter2 recover": {
         "id": "operations.cwsa.chapter2.recover",
         "owner": "copytrade_pm.pm_cwsa_chapter2_projection",

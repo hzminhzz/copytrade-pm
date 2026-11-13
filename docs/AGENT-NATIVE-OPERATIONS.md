@@ -116,7 +116,9 @@ Discover `paper.observer.preflight`, `paper.observer.continuous`, `paper.observe
 
 The intended operator UI is the authenticated Site. Its current Chapter 2 evidence/lineage/unknown-value contract belongs to [the Chapter 2 runbook](CWSA-CHAPTER2-20261112.md). Historical [dashboard phase 3](DASHBOARD-PHASE3.md) and [audit](DASHBOARD-FINAL-AUDIT-20261107.md) document an earlier implementation, not current Site acceptance.
 
-Preserve bounded scalar filters, privacy-safe native projections, source clocks and evidence grades. Read saturation must remain unavailable, and unknown P&L remains null. The target CLI/Site parity is part of D4; neither a local status file nor an HTTP 200 independently proves deployed publisher lineage.
+Preserve bounded scalar filters, privacy-safe native projections, source clocks and evidence grades. Read saturation must remain unavailable, and unknown P&L remains null. **ANOS-12 candidate (not published):** `copytrade-pm cwsa chapter2 site-view --portfolio A --inspection evidence` is a privacy-bounded, read-only transport view derived from the same `explain_task` assessment as `copytrade-pm cwsa chapter2 explain`. The `cwsa_chapter2_site_owner_view_v1` response carries original source/checkpoint/first-known clocks, separate dimensions, scoped blockers, unaffected source scopes, causal deltas, null economics, and only a non-dispatching READ_ONLY next operation. The frontend must consume this owner output without recomputing admission. `site-view` has no HTTP transport, authentication, publisher installation, Site integration or deployment attestation of its own. The untracked primary `dashboard/` source remains outside this Git tree; its publisher/receiver/hosted Site parity still needs independent integration evidence before #346 can be accepted.
+
+The target CLI/Site parity is part of D4; neither a local status file nor an HTTP 200 independently proves deployed publisher lineage.
 
 ## Bounded causal evidence comparisons (ANOS-10)
 
