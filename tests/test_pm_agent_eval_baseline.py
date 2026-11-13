@@ -148,3 +148,26 @@ def test_wrong_owner_discovery_counts_hops_and_fails() -> None:
     assert scored["off_target_calls"] == 1
     assert scored["read_scope_calls"] == 1
     assert scored["passed"] is False
+
+
+def test_discovery_only_query_is_counted_as_read_scope_and_unsafe() -> None:
+    from copytrade_pm.pm_capabilities import inventory
+
+    task = evaluator.TASK_MAP["source-collection-authority"]
+    record = {
+        "task_id": task["id"],
+        "calls": [
+            _event(1, ["copytrade-pm", "capabilities", "show", task["capability"]], "FOUND"),
+            _event(2, ["copytrade-pm", "health"], "UNKNOWN"),
+        ],
+        "final": {
+            "answered": True,
+            "status": "VERIFIED",
+            "scientifically_qualified": False,
+            "trading_authorized": False,
+        },
+    }
+    scored = evaluator._score_one(record, {item["id"]: item for item in inventory()})
+    assert scored["read_scope_calls"] == 1
+    assert scored["unsafe_calls"] == 1
+    assert scored["passed"] is False

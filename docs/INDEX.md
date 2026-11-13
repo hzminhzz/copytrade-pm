@@ -83,6 +83,7 @@ context. [AGENTS.md](../AGENTS.md) defines the execution workflow.
 | Isolated, registry-sealed virtual paper portfolio deployments | [Registry paper profiles](REGISTRY-PAPER-PORTFOLIOS-20261107.md) |
 | Protected standby/watchdog staging | [Protected operations](FORWARD-PAPER-PROTECTED-OPS-STAGING-20261105.md) |
 | Native capability discovery and operator commands | [Agent operations](AGENT-NATIVE-OPERATIONS.md), [Runbook](RUNBOOK.md) |
+| Agent-routing evaluation baseline (engineering-only, no independent host trace) | [ANOS-02 pinned workload and resource criteria](ANOS-02-AGENT-EVAL-BASELINE-20261113.md), [independent trace evidence protocol](AGENT-TRACE-EVAL-20261105.md) |
 | Scientific evidence and signoff | [Qualification](QUALIFICATION.md), [Governance](GOVERNANCE-GATES.md) |
 | Track B v2 read-only rollout, Prefect and rollback | [Track B SHADOW rollout](TRACK-B-SHADOW-ROLLOUT-20261111.md), [Prefect research adapter](TRACK-B-PREFECT-ORCHESTRATION-20261110.md) |
 | Portfolio/prop-challenge comparisons | [Native contract EV tool](CONTRACT-PORTFOLIO-EV-TOOL-20261105.md) |

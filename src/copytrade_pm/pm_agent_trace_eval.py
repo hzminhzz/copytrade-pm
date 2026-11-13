@@ -424,6 +424,10 @@ def _score_one(run: dict, catalog: dict[str, dict]) -> dict:
         seen[command] += 1
         duplicate += seen[command] > 1
         kind, cap = _classify(argv, catalog)
+        # Every native query attempt consumes read scope, including an
+        # impermissible query under a discovery-only task.
+        if kind == "QUERY":
+            read_scope_calls += 1
         if kind == "INVENTED":
             invented += 1
         elif kind == "UNSAFE":
@@ -441,7 +445,6 @@ def _score_one(run: dict, catalog: dict[str, dict]) -> dict:
             else:
                 off_target += 1
         elif kind == "QUERY" and target["query_prefix"]:
-            read_scope_calls += 1
             q = target["query_prefix"]
             # Research cache must have a nonempty explicit path, while others
             # may add as-of/limit flags after their exact query prefix.
