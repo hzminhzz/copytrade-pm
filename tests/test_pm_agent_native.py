@@ -366,7 +366,7 @@ def test_registry_validator_catches_unlisted_changed_leaves_and_unsafe_apply(
     assert any("native exclude --apply" in err for err in res_unsafe["errors"])
     monkeypatch.undo()
 
-    # 6. T08 expansion deferral: uncataloged copytrade-pm leaves do not fail T07.
+    # 6. T08 enforcement: uncataloged copytrade-pm leaves fail closed.
     repo_ops = _copy_repo(tmp_path, "ops_t08")
     ops_file = repo_ops / "src/copytrade_pm/pm_operations.py"
     ops_file.write_text(
@@ -376,7 +376,9 @@ def test_registry_validator_catches_unlisted_changed_leaves_and_unsafe_apply(
             1,
         )
     )
-    assert cap.validate(repo_ops)["status"] == "VERIFIED"
+    res_ops = cap.validate(repo_ops)
+    assert res_ops["status"] == "BLOCKED"
+    assert "UNLISTED_OPERATIONS_LEAF:t08-preview" in res_ops["errors"]
 
 
 def test_registry_required_args_dispatch_and_unsupported_ast_fail_closed(
@@ -572,3 +574,561 @@ def test_registry_cli_parser_matches_catalog_required_flags(
         reg.cli(["--db", str(db), "paper", "--apply"])
     with pytest.raises(ValueError, match="requires independent signed evidence"):
         reg.cli(["--db", str(db), "qualification", "--apply"])
+
+
+def test_operations_subcommands_and_group_modes_cataloged() -> None:
+    entries = {item["id"]: item for item in cap.inventory(ROOT)}
+
+    # Already-cataloged copytrade-pm leaves retain NATIVE kind/IDs without duplicate SUBCOMMAND rows.
+    for existing_native_id in (
+        "wallet.inventory",
+        "wallet.lookup",
+        "portfolio.current",
+        "portfolio.show",
+        "research.report.catalog",
+        "paper.status",
+        "research.contract_selector",
+        "runtime.health",
+    ):
+        assert entries[existing_native_id]["kind"] == "NATIVE"
+
+    # Missing copytrade-pm leaves are cataloged as SUBCOMMAND with stable IDs and verified access.
+    expected_ops = {
+        "operations.cwsa.chapter2.verify": (["--stage STAGE"], True, True),
+        "operations.cwsa.chapter2.projection": (["--release-sha SHA40"], False, False),
+        "operations.capabilities.list": ([], False, False),
+        "operations.capabilities.show": (["ID"], False, False),
+        "operations.capabilities.validate": ([], False, False),
+        "portfolio.list": ([], False, False),
+        "research.show": (["ID"], False, False),
+        "research.contract_selector.rules": ([], False, False),
+        "operations.status": ([], False, False),
+    }
+    for cap_id, (req_args, net, creds) in expected_ops.items():
+        item = entries[cap_id]
+        assert item["kind"] == "SUBCOMMAND"
+        assert item["classification"] == "READ_ONLY"
+        assert item["required_arguments"] == req_args
+        assert item["access"]["write_targets"] == []
+        assert item["access"]["network"] is net
+        assert item["access"]["credentials"] is creds
+        assert "UNKNOWN" not in item["access"].values()
+
+    # Argparse-required vs conditional runtime-required distinction.
+    assert entries["research.show"]["required_arguments"] == ["ID"]
+    assert entries["research.show"]["runtime_required_arguments"] == ["--cache-root PATH"]
+    assert entries["research.contract_selector"]["required_arguments"] == [
+        "--portfolio NAMESPACE/ID"
+    ]
+    assert entries["research.contract_selector"]["runtime_required_arguments"] == [
+        "--tape PRIVATE_TAPE"
+    ]
+    assert entries["research.report.catalog"]["required_arguments"] == []
+    assert entries["research.report.catalog"]["runtime_required_arguments"] == ["--cache-root PATH"]
+    assert (
+        "--receipt PATH" in entries["operations.cwsa.chapter2.verify"]["runtime_required_arguments"]
+    )
+
+    # Conservative parent GROUPS classifications remain intact while mode variants expose real effects.
+    assert entries["paper.public_unit"]["classification"] == "PROTECTED_MUTATION"
+    assert entries["paper.public_unit.preview"]["kind"] == "SUBCOMMAND"
+    assert entries["paper.public_unit.preview"]["classification"] == "READ_ONLY"
+    assert entries["paper.public_unit.preview"]["access"]["write_targets"] == []
+    assert entries["paper.public_unit.apply"]["kind"] == "SUBCOMMAND"
+    assert entries["paper.public_unit.apply"]["classification"] == "PROTECTED_MUTATION"
+    assert "systemd_user_unit_file" in entries["paper.public_unit.apply"]["access"]["write_targets"]
+
+    assert entries["source.public_trades"]["classification"] == "PROTECTED_MUTATION"
+    assert entries["source.public_trades.observe"]["classification"] == "PROTECTED_MUTATION"
+    assert entries["source.public_trades.observe"]["access"]["network"] is True
+    assert entries["source.public_trades.plan"]["classification"] == "PROTECTED_MUTATION"
+    assert entries["source.public_trades.plan"]["access"]["network"] is False
+    assert entries["source.public_trades.plan"]["access"]["write_targets"] == [
+        "private_observer_journal"
+    ]
+
+    assert entries["source.receipts"]["classification"] == "PROTECTED_MUTATION"
+    assert entries["source.receipts.inspect"]["classification"] == "READ_ONLY"
+    assert entries["source.receipts.inspect"]["runtime_required_arguments"] == ["--asof UTC"]
+    assert entries["source.receipts.ingest"]["classification"] == "PROTECTED_MUTATION"
+    assert entries["source.receipts.ingest"]["runtime_required_arguments"] == ["--receipts PATH"]
+    for action in ("init", "audit", "outcome"):
+        assert entries[f"source.receipts.{action}"]["classification"] == "PROTECTED_MUTATION"
+
+    assert entries["account.pm03.simulate"]["classification"] == "LOCAL_MUTATION"
+    for action in ("compare", "compare_pm04", "replay"):
+        assert entries[f"account.pm03.simulate.{action}"]["kind"] == "SUBCOMMAND"
+        assert entries[f"account.pm03.simulate.{action}"]["classification"] == "LOCAL_MUTATION"
+
+    assert entries["paper.unit_bundle"]["classification"] == "LOCAL_MUTATION"
+    assert entries["paper.unit_bundle.verify"]["classification"] == "READ_ONLY"
+    assert entries["paper.unit_bundle.stage"]["classification"] == "LOCAL_MUTATION"
+    assert entries["paper.unit_bundle.stage"]["runtime_required_arguments"] == ["--revision SHA40"]
+
+    assert entries["production.export.cli"]["classification"] == "LOCAL_MUTATION"
+    assert entries["production.export.cli.stdout"]["classification"] == "READ_ONLY"
+    assert entries["production.export.cli.write"]["classification"] == "LOCAL_MUTATION"
+    assert entries["production.export.cli.write"]["runtime_required_arguments"] == [
+        "--private-output PATH"
+    ]
+    assert entries["paper.observer.diagnose_preflight"]["classification"] == "READ_ONLY"
+    assert entries["paper.standby.worker"]["classification"] == "PROTECTED_MUTATION"
+    assert entries["paper.standby.watchdog"]["classification"] == "PROTECTED_MUTATION"
+    assert entries["paper.observed_execution.l2"]["access"]["network"] is True
+    assert entries["paper.observed_execution.vike_minute"]["access"]["network"] is False
+    assert entries["agent.trace.eval.list_tasks"]["classification"] == "READ_ONLY"
+    assert entries["agent.trace.eval.trace"]["runtime_required_arguments"] == ["--trace PATH"]
+
+
+def test_operations_and_group_validators_fail_closed_on_drift_and_unsupported_ast(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    baseline = cap.validate(ROOT)
+    assert baseline["status"] == "VERIFIED", baseline["errors"]
+    assert any("pm03_cli" in note for note in baseline["limitations"])
+    assert any("production_economics" in note for note in baseline["limitations"])
+
+    # 1. Renamed/removed copytrade-pm leaf fails closed.
+    repo_rename = _copy_repo(tmp_path, "ops_rename")
+    ops_rename = repo_rename / "src/copytrade_pm/pm_operations.py"
+    ops_rename.write_text(
+        ops_rename.read_text().replace(
+            'top.add_parser("status")', 'top.add_parser("ops-status")', 1
+        )
+    )
+    res_rename = cap.validate(repo_rename)
+    assert res_rename["status"] == "BLOCKED"
+    assert "UNLISTED_OPERATIONS_LEAF:ops-status" in res_rename["errors"]
+    assert "STALE_OPERATIONS_LEAF:status" in res_rename["errors"]
+
+    # 2. Drift in imported pm_cwsa_chapter2_gate.add_arguments fails closed.
+    repo_cwsa = _copy_repo(tmp_path, "ops_cwsa")
+    cwsa_file = repo_cwsa / "src/copytrade_pm/pm_cwsa_chapter2_gate.py"
+    cwsa_file.write_text(
+        cwsa_file.read_text().replace(
+            "def add_arguments(p: argparse.ArgumentParser) -> None:\n",
+            "def add_arguments(p: argparse.ArgumentParser) -> None:\n"
+            '    p.add_argument("--new-token", required=True)\n',
+            1,
+        )
+    )
+    res_cwsa = cap.validate(repo_cwsa)
+    assert res_cwsa["status"] == "BLOCKED"
+    assert "MISSING_OPERATIONS_REQUIRED_ARG:cwsa chapter2 verify:--new-token" in res_cwsa["errors"]
+    assert (
+        "MISSING_OPERATIONS_REQUIRED_ARG:cwsa chapter2 projection:--new-token" in res_cwsa["errors"]
+    )
+
+    # 3. Confusing argparse-required with runtime-required arguments fails closed.
+    monkeypatch.setitem(
+        cap.NATIVE_REQUIRED_ARGUMENTS, "research.report.catalog", ["--cache-root PATH"]
+    )
+    res_confused_native = cap.validate(ROOT)
+    assert res_confused_native["status"] == "BLOCKED"
+    assert any("--cache-root" in err for err in res_confused_native["errors"])
+    monkeypatch.undo()
+
+    bad_cwsa_spec = dict(cap.OPERATIONS_SUBCOMMANDS["cwsa chapter2 verify"])
+    bad_cwsa_spec["runtime_required_arguments"] = ["--stage STAGE"]
+    monkeypatch.setitem(cap.OPERATIONS_SUBCOMMANDS, "cwsa chapter2 verify", bad_cwsa_spec)
+    res_confused_ops = cap.validate(ROOT)
+    assert res_confused_ops["status"] == "BLOCKED"
+    assert any("cwsa chapter2 verify" in err for err in res_confused_ops["errors"])
+    monkeypatch.undo()
+
+    # 4. Unsafe classification or uncataloged --apply on copytrade-pm fails closed.
+    repo_ops_apply = _copy_repo(tmp_path, "ops_apply")
+    ops_apply = repo_ops_apply / "src/copytrade_pm/pm_operations.py"
+    ops_apply.write_text(
+        ops_apply.read_text().replace(
+            '    top.add_parser("health")\n',
+            '    health_cmd = top.add_parser("health")\n'
+            '    health_cmd.add_argument("--apply", action="store_true")\n',
+            1,
+        )
+    )
+    res_ops_apply = cap.validate(repo_ops_apply)
+    assert res_ops_apply["status"] == "BLOCKED"
+    assert any("health" in err for err in res_ops_apply["errors"])
+
+    # 5. GROUPS mode drift: uncataloged --apply, choice addition/removal, unsafe READ_ONLY inheritance.
+    def _replace_once(file_path: Path, target: str, replacement: str) -> None:
+        text = file_path.read_text()
+        assert target in text, target
+        file_path.write_text(text.replace(target, replacement, 1))
+
+    repo_grp_apply = _copy_repo(tmp_path, "grp_apply")
+    _replace_once(
+        repo_grp_apply / "src/copytrade_pm/pm_forward_release_candidate.py",
+        "    args = parser.parse_args()\n",
+        '    parser.add_argument("--apply", action="store_true")\n    args = parser.parse_args()\n',
+    )
+    res_grp_apply = cap.validate(repo_grp_apply)
+    assert res_grp_apply["status"] == "BLOCKED"
+    assert (
+        "UNLISTED_GROUP_MODE_FLAG:copytrade-pm-paper-candidate-verify:--apply"
+        in res_grp_apply["errors"]
+    )
+
+    repo_choice = _copy_repo(tmp_path, "grp_choice")
+    _replace_once(
+        repo_choice / "src/copytrade_pm/pm_prospective_cli.py",
+        '("init", "ingest", "audit", "outcome", "inspect")',
+        '("init", "ingest", "audit", "outcome", "inspect", "purge")',
+    )
+    res_choice = cap.validate(repo_choice)
+    assert res_choice["status"] == "BLOCKED"
+    assert "UNLISTED_GROUP_MODE_CHOICE:copytrade-pm-receipts:action:purge" in res_choice["errors"]
+
+    repo_drop = _copy_repo(tmp_path, "grp_drop")
+    _replace_once(
+        repo_drop / "src/copytrade_pm/pm_forward_public_trades.py",
+        'choices=("observe", "plan")',
+        'choices=("observe",)',
+    )
+    res_drop = cap.validate(repo_drop)
+    assert res_drop["status"] == "BLOCKED"
+    assert "STALE_GROUP_MODE_CHOICE:copytrade-pm-public-trades:--mode:plan" in res_drop["errors"]
+
+    bad_apply = dict(cap.GROUP_OPERATIONS["paper.public_unit.apply"])
+    bad_apply["classification"] = "READ_ONLY"
+    monkeypatch.setitem(cap.GROUP_OPERATIONS, "paper.public_unit.apply", bad_apply)
+    res_unsafe_apply = cap.validate(ROOT)
+    assert res_unsafe_apply["status"] == "BLOCKED"
+    assert any("paper.public_unit.apply" in err for err in res_unsafe_apply["errors"])
+    monkeypatch.undo()
+
+    monkeypatch.setitem(
+        cap.GROUPS,
+        "copytrade-pm-public-observer-unit",
+        ("paper.public_unit", "paper", "READ_ONLY"),
+    )
+    res_unsafe_parent = cap.validate(ROOT)
+    assert res_unsafe_parent["status"] == "BLOCKED"
+    assert (
+        "UNSAFE_GROUP_CLASSIFICATION:copytrade-pm-public-observer-unit"
+        in res_unsafe_parent["errors"]
+    )
+    monkeypatch.undo()
+
+    # 6. GROUPS required_arguments vs runtime_required_arguments drift fails closed.
+    bad_inspect = dict(cap.GROUP_OPERATIONS["source.receipts.inspect"])
+    bad_inspect["required_arguments"] = [
+        "--auditor-public-key PATH",
+        "--research-root PATH",
+        "--asof UTC",
+    ]
+    monkeypatch.setitem(cap.GROUP_OPERATIONS, "source.receipts.inspect", bad_inspect)
+    res_grp_req = cap.validate(ROOT)
+    assert res_grp_req["status"] == "BLOCKED"
+    assert any("source.receipts.inspect" in err for err in res_grp_req["errors"])
+    monkeypatch.undo()
+
+    # 7. pm03_cli dynamic JSON dispatch drift and unsupported pattern fail closed.
+    repo_pm03 = _copy_repo(tmp_path, "pm03_add")
+    _replace_once(
+        repo_pm03 / "src/copytrade_pm/pm03_cli.py",
+        '    else:\n        raise ValueError("UNKNOWN_PM03_ACTION")\n',
+        '    elif spec.get("action") == "liquidate":\n        result = {}\n'
+        '    else:\n        raise ValueError("UNKNOWN_PM03_ACTION")\n',
+    )
+    res_pm03 = cap.validate(repo_pm03)
+    assert res_pm03["status"] == "BLOCKED"
+    assert "UNLISTED_PM03_ACTION:liquidate" in res_pm03["errors"]
+
+    repo_pm03_dyn = _copy_repo(tmp_path, "pm03_dyn")
+    _replace_once(
+        repo_pm03_dyn / "src/copytrade_pm/pm03_cli.py",
+        '    if spec.get("action") == "compare":\n',
+        '    handlers = {}\n    if handlers[spec.get("action")]:\n',
+    )
+    res_pm03_dyn = cap.validate(repo_pm03_dyn)
+    assert res_pm03_dyn["status"] == "BLOCKED"
+    assert any(
+        err.startswith("UNSUPPORTED_PM03_DISPATCH_CONSTRUCT:") for err in res_pm03_dyn["errors"]
+    )
+
+    # 8. Unsupported parser AST constructs fail closed rather than silently certifying completeness.
+    repo_ops_dyn = _copy_repo(tmp_path, "ops_dyn")
+    _replace_once(
+        repo_ops_dyn / "src/copytrade_pm/pm_operations.py",
+        '    top.add_parser("health")\n',
+        '    for extra in list(["health"]):\n        top.add_parser(extra)\n',
+    )
+    res_ops_dyn = cap.validate(repo_ops_dyn)
+    assert res_ops_dyn["status"] == "BLOCKED"
+    assert any(
+        err.startswith("UNSUPPORTED_OPERATIONS_PARSER_CONSTRUCT:") for err in res_ops_dyn["errors"]
+    )
+
+    repo_grp_loop = _copy_repo(tmp_path, "grp_loop")
+    _replace_once(
+        repo_grp_loop / "src/copytrade_pm/pm_forward_status.py",
+        "    args = parser.parse_args()\n",
+        '    for opt in ("--extra",):\n        parser.add_argument(opt)\n'
+        "    args = parser.parse_args()\n",
+    )
+    res_grp_loop = cap.validate(repo_grp_loop)
+    assert res_grp_loop["status"] == "BLOCKED"
+    assert any(
+        err.startswith("UNSUPPORTED_GROUP_PARSER_CONSTRUCT:copytrade-pm-paper-status:")
+        for err in res_grp_loop["errors"]
+    )
+
+    repo_grp_sub = _copy_repo(tmp_path, "grp_sub")
+    _replace_once(
+        repo_grp_sub / "src/copytrade_pm/pm_forward_status.py",
+        "    args = parser.parse_args()\n",
+        '    parser.add_subparsers(dest="cmd")\n    args = parser.parse_args()\n',
+    )
+    res_grp_sub = cap.validate(repo_grp_sub)
+    assert res_grp_sub["status"] == "BLOCKED"
+    assert (
+        "UNSUPPORTED_GROUP_PARSER_CONSTRUCT:copytrade-pm-paper-status:unexpected_subparsers"
+        in res_grp_sub["errors"]
+    )
+
+    # 9. cwsa_chapter2_gate.add_arguments loop AST and GROUP runtime arg drift fail closed.
+    repo_cwsa_loop = _copy_repo(tmp_path, "cwsa_loop")
+    _replace_once(
+        repo_cwsa_loop / "src/copytrade_pm/pm_cwsa_chapter2_gate.py",
+        "def add_arguments(p: argparse.ArgumentParser) -> None:\n",
+        "def add_arguments(p: argparse.ArgumentParser) -> None:\n"
+        '    for opt in ("--extra",):\n        p.add_argument(opt)\n',
+    )
+    res_cwsa_loop = cap.validate(repo_cwsa_loop)
+    assert res_cwsa_loop["status"] == "BLOCKED"
+    assert any(
+        err.startswith("UNSUPPORTED_OPERATIONS_PARSER_CONSTRUCT:cwsa_")
+        for err in res_cwsa_loop["errors"]
+    )
+
+    bad_runtime_grp = dict(cap.GROUP_OPERATIONS["source.receipts.ingest"])
+    bad_runtime_grp["runtime_required_arguments"] = ["--nonexistent PATH"]
+    monkeypatch.setitem(cap.GROUP_OPERATIONS, "source.receipts.ingest", bad_runtime_grp)
+    res_stale_rt = cap.validate(ROOT)
+    assert res_stale_rt["status"] == "BLOCKED"
+    assert "STALE_GROUP_RUNTIME_ARG:source.receipts.ingest:--nonexistent" in res_stale_rt["errors"]
+    monkeypatch.undo()
+
+
+def test_public_cli_capabilities_and_no_new_optional_imports_or_writes(tmp_path: Path) -> None:
+    # Public CLI list / show / validate on new SUBCOMMAND and GROUP mode entries.
+    code_list, payload_list = _run(["capabilities", "list", "--json"])
+    assert code_list == 0
+    assert payload_list["schema"] == "copytrade_capability_list_v1"
+    listed_ids = {item["id"] for item in payload_list["capabilities"]}
+    assert {
+        "operations.cwsa.chapter2.verify",
+        "operations.capabilities.show",
+        "portfolio.list",
+        "research.show",
+        "paper.public_unit.preview",
+        "account.pm03.simulate.compare",
+    } <= listed_ids
+
+    for target_id in (
+        "operations.cwsa.chapter2.verify",
+        "research.show",
+        "paper.public_unit.preview",
+        "account.pm03.simulate.compare",
+    ):
+        code_show, detail = _run(["capabilities", "show", target_id, "--json"])
+        assert code_show == 0, (target_id, detail)
+        assert detail["id"] == target_id
+        assert detail["kind"] == "SUBCOMMAND"
+        assert "required_arguments" in detail
+        assert "runtime_required_arguments" in detail
+        assert "UNKNOWN" not in detail["access"].values()
+
+    code_val, payload_val = _run(["capabilities", "validate", "--json"])
+    assert code_val == 0
+    assert payload_val["status"] == "VERIFIED"
+    assert payload_val["errors"] == []
+    assert payload_val["limitations"]
+
+    # Subprocess public CLI check: no new optional provider imports, network, credential reads, or writes.
+    repo = _copy_repo(tmp_path, "cli_readonly")
+    before = {
+        str(p.relative_to(repo)): p.read_bytes() for p in sorted(repo.rglob("*")) if p.is_file()
+    }
+    home_missing = tmp_path / "no_credentials_home"
+    script = """
+import io, json, os, socket, sys
+import urllib.request
+from contextlib import redirect_stdout
+from pathlib import Path
+
+def _forbid_network(*args, **kwargs):
+    raise AssertionError("NETWORK_ACCESS_FORBIDDEN")
+
+socket.socket.__init__ = _forbid_network
+socket.create_connection = _forbid_network
+socket.getaddrinfo = _forbid_network
+urllib.request.urlopen = _forbid_network
+
+from copytrade_pm import pm_operations as ops
+
+root = sys.argv[1]
+results = []
+for argv in (
+    ["--root", root, "capabilities", "list", "--json"],
+    ["--root", root, "capabilities", "show", "operations.cwsa.chapter2.verify", "--json"],
+    ["--root", root, "capabilities", "show", "paper.public_unit.preview", "--json"],
+    ["--root", root, "capabilities", "validate", "--json"],
+):
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        code = ops.cli(argv)
+    results.append((code, json.loads(buf.getvalue())))
+
+new_forbidden = [
+    m for m in ("polars", "ccxt", "websockets", "prefect", "httpx") if m in sys.modules
+]
+print(json.dumps({
+    "codes": [c for c, _ in results],
+    "validate_status": results[-1][1]["status"],
+    "show_ops_req": results[1][1]["required_arguments"],
+    "show_ops_rt": results[1][1]["runtime_required_arguments"],
+    "new_forbidden": new_forbidden,
+}))
+"""
+    env = {"PATH": "", "HOME": str(home_missing)}
+    proc = subprocess.run(
+        [sys.executable, "-c", script, str(repo)],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    payload = json.loads(proc.stdout)
+    assert payload["codes"] == [0, 0, 0, 0]
+    assert payload["validate_status"] == "VERIFIED"
+    assert payload["show_ops_req"] == ["--stage STAGE"]
+    assert "--receipt PATH" in payload["show_ops_rt"]
+    assert payload["new_forbidden"] == []
+    after = {
+        str(p.relative_to(repo)): p.read_bytes() for p in sorted(repo.rglob("*")) if p.is_file()
+    }
+    assert after == before
+
+
+def test_operations_and_group_owner_parser_dispatch_parity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from copytrade_pm import pm03_cli
+    from copytrade_pm import pm_forward_protected_units as protected_units
+    from copytrade_pm import pm_forward_public_unit as public_unit
+    from copytrade_pm import pm_prospective_cli as prospective_cli
+    from test_pm03_extended import book
+
+    # 1. pm_operations parser enforces required_arguments vs optional runtime_required_arguments.
+    p = ops.parser()
+    for bad_argv in (
+        ["cwsa", "chapter2", "verify"],
+        ["cwsa", "chapter2", "projection"],
+        ["research", "show"],
+        ["contracts", "compare"],
+    ):
+        with pytest.raises(SystemExit) as exc:
+            p.parse_args(bad_argv)
+        assert exc.value.code == 2
+
+    args_show = p.parse_args(["research", "show", "job-1"])
+    assert args_show.id == "job-1" and args_show.cache_root is None
+    args_rules = p.parse_args(["contracts", "rules"])
+    assert args_rules.group == "contracts" and args_rules.verb == "rules"
+    code_rules, rules_payload = _run(["contracts", "rules"])
+    assert code_rules == 0
+    assert rules_payload["contracts"]
+
+    # 2. pm_prospective_cli distinguishes parser-required flags from runtime-required per action.
+    with pytest.raises(SystemExit) as exc_prosp:
+        prospective_cli.run(["inspect"])
+    assert exc_prosp.value.code == 2
+
+    class _NoWriteLedger:
+        head_sha = "0" * 64
+
+    monkeypatch.setattr(prospective_cli, "open_ledger", lambda **_: _NoWriteLedger())
+    key_file = tmp_path / "pub.key"
+    key_file.write_bytes(b"k" * 32)
+    base_prosp = [
+        "--research-root",
+        str(tmp_path / "research"),
+        "--ledger",
+        str(tmp_path / "ledger"),
+        "--auditor-public-key",
+        str(key_file),
+    ]
+    with pytest.raises(ValueError, match="MISSING_PRODUCER_RECEIPTS_DIRECTORY"):
+        prospective_cli.run(["ingest", *base_prosp])
+    with pytest.raises(ValueError, match="ASOF_REQUIRED"):
+        prospective_cli.run(["inspect", *base_prosp])
+    with pytest.raises(ValueError, match="MISSING_SIGNED_ATTESTATION_FILE"):
+        prospective_cli.run(["audit", *base_prosp])
+    assert not (tmp_path / "ledger").exists()
+
+    # 3. pm_forward_protected_units separates argparse --out from runtime --revision / --verify.
+    monkeypatch.setattr(sys, "argv", ["copytrade-pm-paper-unit-bundle"])
+    with pytest.raises(SystemExit) as exc_units_req:
+        protected_units.main()
+    assert exc_units_req.value.code == 2
+
+    bundle_dir = tmp_path / "unused_bundle"
+    monkeypatch.setattr(sys, "argv", ["copytrade-pm-paper-unit-bundle", "--out", str(bundle_dir)])
+    with pytest.raises(SystemExit) as exc_units_rt:
+        protected_units.main()
+    assert exc_units_rt.value.code == 2
+    assert not bundle_dir.exists()
+
+    # 4. pm_forward_public_unit omits install() cleanly when --apply is absent.
+    install_called = False
+
+    def _forbid_install(*args: object, **kwargs: object) -> str:
+        nonlocal install_called
+        install_called = True
+        raise AssertionError("install() must not run without --apply")
+
+    monkeypatch.setattr(
+        public_unit,
+        "plan",
+        lambda **_: (
+            {"schema": "preview", "status": "PLANNED", "unit_path": str(tmp_path / "u")},
+            "unit",
+        ),
+    )
+    monkeypatch.setattr(public_unit, "install", _forbid_install)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "copytrade-pm-public-observer-unit",
+            "--revision",
+            "a" * 40,
+            "--registry",
+            str(tmp_path / "r.sqlite"),
+            "--primary-dir",
+            str(tmp_path / "p"),
+            "--secondary-dir",
+            str(tmp_path / "s"),
+            "--state-root",
+            str(tmp_path / "st"),
+        ],
+    )
+    public_unit.main()
+    assert install_called is False
+
+    # 5. pm03_cli.execute fails closed on unknown dynamic JSON action without writing reports.
+    out_dir = tmp_path / "pm03_out"
+    with pytest.raises(ValueError, match="UNKNOWN_PM03_ACTION"):
+        pm03_cli.execute(
+            {
+                "schema": "pm03_cli_input_v1",
+                "action": "bogus",
+                "mode": "RESEARCH_SYNTHETIC",
+                "rulebook": book().to_dict(),
+            },
+            out_dir,
+        )
+    assert not out_dir.exists()
