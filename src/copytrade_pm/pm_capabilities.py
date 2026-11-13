@@ -484,7 +484,6 @@ REGISTRY_ACCESS = {
         [
             "private_sqlite_registry",
             "private_evidence_archive",
-            "optional_private_paper_journal",
             "decision_repo",
             "optional_legacy_import_sources",
             "optional_tracker_env_config",

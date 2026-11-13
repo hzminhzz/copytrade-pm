@@ -259,19 +259,15 @@ def test_registry_exclude_required_flags_and_access_metadata() -> None:
     entries = {item["id"]: item for item in cap.inventory(ROOT)}
     for cap_id in (
         "registry.operation.status",
-        "registry.operation.doctor",
         "registry.operation.report.redacted",
     ):
         reads = set(entries[cap_id]["access"]["read_targets"])
         assert {"optional_private_paper_journal", "decision_repo"} <= reads, cap_id
-    assert (
-        "private_evidence_archive"
-        in entries["registry.operation.native.status"]["access"]["read_targets"]
-    )
-    assert (
-        "optional_private_paper_journal"
-        not in entries["registry.operation.native.status"]["access"]["read_targets"]
-    )
+    for cap_id in ("registry.operation.native.status", "registry.operation.doctor"):
+        reads = set(entries[cap_id]["access"]["read_targets"])
+        assert "private_evidence_archive" in reads, cap_id
+        assert "optional_private_paper_journal" not in reads, cap_id
+    assert "decision_repo" in entries["registry.operation.doctor"]["access"]["read_targets"]
     assert "decision_repo" in entries["registry.operation.portfolio"]["access"]["read_targets"]
     assert (
         "optional_auditor_public_key"
