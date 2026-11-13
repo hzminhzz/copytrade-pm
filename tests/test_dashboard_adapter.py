@@ -407,3 +407,47 @@ def test_decimal_and_clock_boundaries():
     assert safe_decimal(float("inf")) is None
     assert parse_utc("2026-11-07T07:00:00+07:00") is None
     assert parse_utc("2026-11-07T00:00:00Z") is not None
+
+
+def test_dashboard_wallets_continues_when_sqlite_verifies_despite_blocked_selection_proof(
+    tmp_path, monkeypatch
+):
+    """Seam 3 (dashboard wallet parity): catches over-blocking on selection-proof block; misses CLI contract comparison."""
+    from contextlib import closing
+    from hashlib import sha256
+    from test_wallet_registry_catalog import AFTER, _v2_snapshot
+    from copytrade_pm import pm_operations as operations
+    from copytrade_pm import wallet_registry as native_registry
+    from copytrade_pm import wallet_registry_catalog as native_catalog
+
+    whale = "0x5f94" + "0" * 36
+    monkeypatch.setattr(native_catalog, "WHALE_ADDRESS_SHA256", sha256(whale.encode()).hexdigest())
+    db, snapshot = _v2_snapshot(tmp_path)
+    native_registry.apply(db, snapshot, AFTER)
+    with closing(native_registry.connect(db, True)) as con, con:
+        con.execute("UPDATE research_selections SET source_sha256=?", ("a" * 64,))
+
+    doctor = operations._doctor(db)
+    assert doctor["status"] == "BLOCKED"
+    assert doctor["data"]["database_integrity"] == "VERIFIED"
+    assert doctor["data"]["research_selection_integrity"] == "BLOCKED_MISSING_EXTERNAL_PROOF"
+
+    app = DashboardReader(db=db, clock=lambda: datetime.now(UTC), cache=SmallTTLCache())
+    found = app.wallets(query="W083", asof=AFTER, limit=1)
+    assert found["status"] == "VERIFIED"
+    assert found["data"]["total"] == 1
+    assert found["data"]["addresses_redacted"] is True
+
+    monkeypatch.setattr(
+        operations,
+        "_doctor",
+        lambda _: {
+            "status": "STALE",
+            "error_code": "REGISTRY_SQLITE_INTEGRITY_FAILED",
+            "data": {"database_integrity": "FAILED"},
+        },
+    )
+    stale_app = DashboardReader(db=db, clock=lambda: datetime.now(UTC), cache=SmallTTLCache())
+    stale = stale_app.wallets(query="W083", asof=AFTER, limit=1)
+    assert stale["status"] == "STALE"
+    assert stale["error_code"] == "REGISTRY_PARITY_UNVERIFIED"

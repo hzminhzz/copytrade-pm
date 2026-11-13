@@ -477,3 +477,130 @@ def test_slice3_unmocked_subprocess_cli_verified(tmp_path: Path) -> None:
     )
     assert cap_proc.returncode == 0, cap_proc.stderr
     assert json.loads(cap_proc.stdout)["status"] == "VERIFIED"
+
+
+def test_anos04_doctor_separates_sqlite_integrity_from_selection_proof(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Seam 1 (doctor/health parity): catches exit-2 SQLite vs selection-proof split; misses contract compare & dashboard."""
+    healthy_dir = tmp_path / "healthy"
+    healthy_dir.mkdir(mode=0o700)
+    healthy_db = _locked_registry_db(healthy_dir)
+    blocked_dir = tmp_path / "blocked"
+    blocked_dir.mkdir(mode=0o700)
+    blocked_db = _locked_registry_db(
+        blocked_dir,
+        before_lock=lambda con: con.execute(
+            "UPDATE research_selections SET source_sha256=?", ("a" * 64,)
+        ),
+    )
+    missing_db = tmp_path / "does_not_exist.sqlite"
+    corrupt_db = tmp_path / "corrupt.sqlite"
+    corrupt_db.write_bytes(b"not sqlite format")
+
+    with _forbid_broad_and_finance_readers(monkeypatch, allow_selection=True):
+        healthy_doc = ops._doctor(healthy_db)
+        assert healthy_doc["status"] == "VERIFIED"
+        assert healthy_doc["error_code"] is None
+        assert healthy_doc["data"]["database_integrity"] == "VERIFIED"
+        assert healthy_doc["data"]["research_selection_integrity"] == "VERIFIED"
+        assert ops._sqlite_integrity_verified(healthy_doc) is True
+
+        blocked_doc = ops._doctor(blocked_db)
+        assert blocked_doc["status"] == "BLOCKED"
+        assert blocked_doc["error_code"] != "REGISTRY_SQLITE_INTEGRITY_FAILED"
+        assert blocked_doc["error_code"] == "RESEARCH_SELECTION_PROOF_BLOCKED"
+        assert blocked_doc["data"]["database_integrity"] == "VERIFIED"
+        assert (
+            blocked_doc["data"]["research_selection_integrity"] == "BLOCKED_MISSING_EXTERNAL_PROOF"
+        )
+        assert (
+            blocked_doc["data"]["current_research_selection"] == "UNVERIFIED_SELECTION_PROVENANCE"
+        )
+        assert blocked_doc["data"]["inventory_sha256"]
+        assert ops._sqlite_integrity_verified(blocked_doc) is True
+
+        missing_doc = ops._doctor(missing_db)
+        assert missing_doc["status"] == "UNKNOWN"
+        assert missing_doc["data"]["database_integrity"] == "FAILED"
+        assert missing_doc["data"]["research_selection_integrity"] is None
+        assert ops._sqlite_integrity_verified(missing_doc) is False
+
+        corrupt_doc = ops._doctor(corrupt_db)
+        assert corrupt_doc["status"] == "STALE"
+        assert corrupt_doc["error_code"] == "REGISTRY_SQLITE_INTEGRITY_FAILED"
+        assert corrupt_doc["data"]["database_integrity"] == "FAILED"
+        assert corrupt_doc["data"]["research_selection_integrity"] is None
+        assert ops._sqlite_integrity_verified(corrupt_doc) is False
+
+    health_code, health = _call_cli(["--db", str(blocked_db), "health"])
+    assert health_code == 0
+    parity = health["data"]["components"]["registry_source_parity"]
+    assert parity["status"] == "BLOCKED"
+    assert parity["error_code"] != "REGISTRY_SQLITE_INTEGRITY_FAILED"
+    assert parity["error_code"] == "RESEARCH_SELECTION_PROOF_BLOCKED"
+    assert parity["data"]["database_integrity"] == "VERIFIED"
+    assert parity["data"]["research_selection_integrity"] == "BLOCKED_MISSING_EXTERNAL_PROOF"
+    assert health["data"]["components"]["registry"]["status"] == "BLOCKED"
+    assert health["status"] == "DEGRADED"
+    assert health["trading_authorized"] is False
+    assert health["scientifically_qualified"] is False
+
+
+def test_anos04_selector_identity_and_blocked_compare_without_numpy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Seam 2/3 core-CI check (no numpy): catches _registry_identity & no-tape compare_portfolios regressions without actuary extra."""
+    from copytrade_pm import pm_contract_selector as selector
+
+    def _setup(con: sqlite3.Connection) -> None:
+        con.execute("UPDATE research_selections SET source_sha256=?", ("a" * 64,))
+        con.execute(
+            "INSERT INTO portfolio_versions VALUES(?,?,?,?,?,?)",
+            ("gemini.phase9/UNSEALED", 1, "RESEARCH_ONLY", "docs/u.md", AFTER, "NON_EXECUTABLE"),
+        )
+        con.execute(
+            "INSERT INTO portfolio_versions VALUES(?,?,?,?,?,?)",
+            (
+                "gemini.phase9/UNPROVED_SEAL",
+                1,
+                "RESEARCH_SELECTION_ONLY",
+                "docs/p.md",
+                AFTER,
+                "NON_EXECUTABLE",
+            ),
+        )
+        con.execute(
+            "INSERT INTO portfolio_seals VALUES(?,?,?,?,?,?)",
+            ("gemini.phase9/UNPROVED_SEAL", 1, "c" * 64, "d" * 64, "0" * 40, AFTER),
+        )
+
+    blocked_db = _locked_registry_db(tmp_path, before_lock=_setup)
+    before_bytes = blocked_db.read_bytes()
+
+    with _forbid_broad_and_finance_readers(monkeypatch, allow_selection=True):
+        q3_b = selector._registry_identity("q3/B", db=blocked_db, asof=NATIVE_AT)
+        assert q3_b["portfolio_id"] == "q3/B"
+        assert q3_b["members"] == ["CA-005", "W031", "W044"]
+        assert q3_b["trading_authorized"] is False
+
+        p16 = selector._registry_identity("P16", db=blocked_db, asof=NATIVE_AT)
+        assert p16["portfolio_id"] == "P16"
+        assert p16["trading_authorized"] is False
+
+        # Without --tape, sealed portfolios advance past identity check to tape check;
+        # unsealed and unproved portfolios stay BLOCKED at their own error code.
+        no_tape = selector.compare_portfolios(
+            ["q3/B", "gemini.phase9/UNSEALED", "gemini.phase9/UNPROVED_SEAL"],
+            None,
+            db=blocked_db,
+            asof=NATIVE_AT,
+        )
+        assert no_tape["status"] == "BLOCKED"
+        assert no_tape["comparisons"][0]["error_code"] == "MISSING_COMPLETE_NET_FOLLOWER_MTM_TAPE"
+        assert no_tape["comparisons"][1]["error_code"] == "PORTFOLIO_SOURCE_NOT_SEALED"
+        assert no_tape["comparisons"][2]["error_code"] == "PORTFOLIO_SELECTION_PROOF_BLOCKED"
+        assert no_tape["scientifically_qualified"] is False
+        assert no_tape["trading_authorized"] is False
+
+    assert blocked_db.read_bytes() == before_bytes

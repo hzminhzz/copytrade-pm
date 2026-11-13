@@ -824,7 +824,7 @@ class DashboardReader:
             )
         except RuntimeError:
             doctor = None
-        if not isinstance(doctor, dict) or doctor.get("status") != "VERIFIED":
+        if not isinstance(doctor, dict) or not operations._sqlite_integrity_verified(doctor):
             answer.update(status="STALE", error_code="REGISTRY_PARITY_UNVERIFIED")
         elif doctor.get("data", {}).get("inventory_sha256") != answer["inventory_sha256"]:
             answer.update(status="STALE", error_code="REGISTRY_GENERATION_MISMATCH")
