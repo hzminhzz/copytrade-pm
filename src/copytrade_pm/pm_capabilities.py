@@ -724,14 +724,18 @@ OPERATIONS_SUBCOMMANDS: dict[str, _OperationsSubcommandSpec] = {
             [
                 "sha_verified_immutable_offline_job_cache",
                 "private_research_preflight_request_json",
+                "optional_local_immutable_partitions",
             ],
             [],
             privacy="OWNER_PRIVATE_REDACTED",
         ),
         "limitations": [
-            "Read-only reuse preflight checks bounded SHA-verified job reports, coverage receipts, "
-            "and PIT scope metadata; never supplies fresh balances, quotes, HALT clearance, "
-            "Copy Mandates, paper financial proof, or trading authorization",
+            "Read-only reuse & bounded-acquisition preflight checks SHA-verified job reports, "
+            "coverage receipts, optional --partition-root immutable partitions, remote object/column/row-group "
+            "cost budgets (via pm_bounded_acquisition.plan_bounded_acquisition; fails closed with "
+            "REMOTE_METADATA_UNAVAILABLE when missing unit metadata is absent), and PIT/holdout bounds; "
+            "performs zero remote scans or credential collection and never supplies fresh balances, "
+            "quotes, HALT clearance, Copy Mandates, paper financial proof, or trading authorization",
             "--cache-root PATH and --request PATH are runtime-required for VERIFIED results",
         ],
     },
@@ -1651,6 +1655,7 @@ NATIVE_ACCESS = {
     "paper.identity_reseal_preview": _access_entry(["private_sqlite_registry", "source_dirs"], []),
 }
 EXTRA_MODULES = {
+    "pm_bounded_acquisition": ("research.bounded_acquisition", "research", "LOCAL_MUTATION"),
     "pm_offline_benchmark": ("research.benchmark", "research", "LOCAL_MUTATION"),
     "pm_offline_hot_market": ("market.hot_week", "market", "LOCAL_MUTATION"),
     "pm_forward_admission": ("paper.admission", "paper", "READ_ONLY"),

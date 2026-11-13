@@ -158,6 +158,23 @@ class ImmutableCache:
             raise ManifestInvalid("INSECURE_CACHE_FOLDER")
         return folder / f"{key}.data", folder / f"{key}.manifest.json"
 
+    def has_unsealed_payload(
+        self, kind: str, dependencies: dict[str, str], *, version: str
+    ) -> bool:
+        """Report whether `.data` exists (or is a symlink) without a sealed regular manifest."""
+        key = self.identity(kind, dependencies, version=version)
+        namespace = self.root / kind
+        if namespace.is_symlink():
+            return True
+        folder = namespace / key[:2]
+        if folder.is_symlink():
+            return True
+        data_path = folder / f"{key}.data"
+        manifest_path = folder / f"{key}.manifest.json"
+        return (data_path.exists() or data_path.is_symlink()) and not (
+            manifest_path.exists() and not manifest_path.is_symlink()
+        )
+
     def load(self, kind: str, dependencies: dict[str, str], *, version: str) -> bytes | None:
         key = self.identity(kind, dependencies, version=version)
         content_path, metadata_path = self._paths(kind, key)
