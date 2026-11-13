@@ -50,6 +50,21 @@ An absent, late, future-clocked or incomplete source wallet never becomes a flat
 
 `generation_consistency` and the aggregate projection `snapshot_coherence` are `MIXED` for detected conflicting native source policy epochs, otherwise `UNVERIFIED`: independently timed code, mandate, L2 quote, source, paper and protected Guardian heads are not one atomic globally verified generation. Even unchanged source and financial journal heads cannot be renewed by a fresh display timestamp, service heartbeat or new candidate code SHA. Every outcome remains paper-only, with no automatic next operation, broker route or trading authority.
 
+## ANOS-11: interrupted action interpretation (read-only virtual paper)
+
+`copytrade_pm.pm_cwsa_chapter2_projection.explain_interrupted_paper` accepts the original versioned `PaperOpportunity` owned by PM04 and an explicit inspection time. Its output schema is `cwsa_chapter2_interrupted_paper_explanation_v1`. A pending opportunity without an attempted timestamp is `NOT_DISPATCHED` **in virtual-paper semantics only**; an attempted modeled fill, partial fill or rejection is `POSSIBLY_DISPATCHED` for native broker purposes until Guardian's original durable intent and broker receipts can be independently reconciled. Missing owner evidence is `EVIDENCE_UNAVAILABLE`, not a fresh opportunity. Expired or canceled paper opportunities never reopen. The result always has `order_route=NONE`, `retry_authorized=false` and `trading_authorized=false`; unrelated read-only work can continue.
+
+The PM04 helper does **not** read or verify a protected Guardian journal. It therefore cannot emit a verified broker completion or rejection, prove account reservations/HALT, or bind a signed mandate generation. The original intent ID, first-known clock, deadline and frozen paper k are carried from PM04; unavailable mandate generation, reservations and Guardian authorization remain explicit unknowns. Do not pass a copied JSON/status projection off as authenticated Guardian evidence. Future effective k research cannot modify the pending opportunity. New-k activation still requires a separately signed Copy Mandate, independent consumer admission and Guardian authority; cancellation, restart and rollback do not erase old financial exposure, trust floors or unknown obligations.
+
+For optional original-owner Guardian interpretation, with explicit owner-private access, run:
+
+```bash
+copytrade-pm cwsa chapter2 recover --guardian-journal /private/guardian.sqlite \\
+  --intent-id ORIGINAL_GUARDIAN_INTENT_ID --observed-at-ms CURRENT_UTC_EPOCH_MS
+```
+
+This separate `cwsa_chapter2_guardian_recovery_v1` output delegates to **`prop_production.journal.Journal.read`** (read-only full-chain verification), then the owner's `operator.intent`, `operator.risk`, and `operator.broker` projections from the *same* verified in-memory snapshot. The optional compatible `prop-production` package must be installed in the caller environment; otherwise the command returns `EVIDENCE_UNAVAILABLE` (exit 2). It never invokes the owner writer, dispatch, cancellation, permission mutation or broker transport. `QUEUED` with no send clock is `NOT_DISPATCHED`; `DISPATCHING`, uncertain, ACK and cancel/reject-pending states are `POSSIBLY_DISPATCHED`; Guardian journal-reconciled terminal statuses retain their original completion/rejection distinction. A terminal recorded journal outcome does not establish a presently coherent account: original HALTs, reservation and daily/trailing floors remain visible, and `broker_certainty=UNKNOWN` blocks new-risk inference. Inconsistent, absent or mismatched owner results do not become approvals. This interface is for read-only SHADOW investigation only, not an account-trading route.
+
 ## Durable source-wave projection
 
 The paper supervisor reads the canonical source database read-only. Each portfolio stores its own `chapter2_wave_receipts` chain, including original outcome IDs, source clocks, wave membership, evidence hashes and missing-wallet disposition.

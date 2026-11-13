@@ -569,6 +569,30 @@ OPERATIONS_SUBCOMMANDS: dict[str, _OperationsSubcommandSpec] = {
             "Missing evidence never implies Guardian financial or broker authorization",
         ],
     },
+    "cwsa chapter2 recover": {
+        "id": "operations.cwsa.chapter2.recover",
+        "owner": "copytrade_pm.pm_cwsa_chapter2_projection",
+        "family": "operations",
+        "classification": "READ_ONLY",
+        "authority": "OPTIONAL_PROP_PRODUCTION_GUARDIAN_OWNER",
+        "documentation": "docs/CWSA-CHAPTER2-20261112.md",
+        "required_arguments": [
+            "--guardian-journal PATH",
+            "--intent-id INTENT_ID",
+            "--observed-at-ms UTC_EPOCH_MS",
+        ],
+        "runtime_required_arguments": [],
+        "access": _access_entry(
+            ["optional_original_guardian_journal_sqlite_via_read_only_owner"],
+            [],
+            privacy="OWNER_PRIVATE_REDACTED",
+        ),
+        "limitations": [
+            "Requires the optional compatible prop-production owner package and explicit private journal path",
+            "Original Guardian Journal.read verifies the hash chain; no direct broker or Guardian mutations",
+            "Missing owner evidence remains UNKNOWN; results never grant dispatch, retry, or trading authorization",
+        ],
+    },
     "cwsa chapter2 projection": {
         "id": "operations.cwsa.chapter2.projection",
         "owner": "copytrade_pm.pm_cwsa_chapter2_projection",

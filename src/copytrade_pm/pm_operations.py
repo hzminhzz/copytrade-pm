@@ -510,6 +510,14 @@ def dispatch(args: argparse.Namespace) -> dict:
             from .pm_cwsa_chapter2_projection import explain_task
 
             return explain_task(args)
+        if args.verb == "recover":
+            from .pm_cwsa_chapter2_projection import explain_native_guardian_intent
+
+            return explain_native_guardian_intent(
+                journal_path=args.guardian_journal,
+                intent_id=args.intent_id,
+                observed_at_ms=args.observed_at_ms,
+            )
         from .pm_cwsa_chapter2_gate import verify
 
         return verify(args)
@@ -604,6 +612,12 @@ def parser() -> argparse.ArgumentParser:
         help="Compare with one bounded prior JSON explanation of the same portfolio and inspection",
     )
     add_arguments(explain_cmd)
+    recover_cmd = chapter2_sub.add_parser(
+        "recover", help="Interpret an original Guardian intent using its read-only owner journal"
+    )
+    recover_cmd.add_argument("--guardian-journal", type=Path, required=True)
+    recover_cmd.add_argument("--intent-id", required=True)
+    recover_cmd.add_argument("--observed-at-ms", type=int, required=True)
     cap = top.add_parser("capabilities")
     sub = cap.add_subparsers(dest="verb", required=True)
     cap_list = sub.add_parser("list")
@@ -698,6 +712,8 @@ def cli(argv: list[str] | None = None) -> int:
             return 0
         if args.verb == "explain":
             return 2 if response.get("error_code") else 0
+        if args.verb == "recover":
+            return 2 if response["dispatch_state"] == "EVIDENCE_UNAVAILABLE" else 0
         return {"PASS": 0, "BLOCKED_EVIDENCE": 2, "FAIL": 1}[response["verdict"]]
     if args.group == "capabilities":
         return 2 if response.get("status") in ("BLOCKED", "UNKNOWN") else 0
