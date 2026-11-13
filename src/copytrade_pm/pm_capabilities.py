@@ -14,7 +14,7 @@ import json
 from pathlib import Path
 import re
 import tomllib
-from typing import NotRequired, TypedDict
+from typing import TypedDict
 
 ROOT = Path(__file__).resolve().parents[2]
 DOC = "docs/AGENT-NATIVE-OPERATIONS.md"
@@ -442,10 +442,7 @@ class _AccessDict(TypedDict):
     privacy: str
 
 
-class _SubcommandSpec(TypedDict):
-    id: NotRequired[str]
-    script: NotRequired[str]
-    interface: NotRequired[str]
+class _BaseCommandSpec(TypedDict):
     owner: str
     family: str
     classification: str
@@ -455,6 +452,20 @@ class _SubcommandSpec(TypedDict):
     runtime_required_arguments: list[str]
     access: _AccessDict
     limitations: list[str]
+
+
+class _OperationsSubcommandSpec(_BaseCommandSpec):
+    id: str
+
+
+class _GroupOperationSpec(_BaseCommandSpec):
+    script: str
+    interface: str
+
+
+class _GroupModeContract(TypedDict):
+    store_true: frozenset[str]
+    choices: dict[str, tuple[str, ...] | str]
 
 
 # Registry access schema reused across reviewed subcommand and mode records.
@@ -492,7 +503,7 @@ def _registry_access_entry(
 
 # Reviewed subcommands for copytrade-pm (pm_operations.py) not already covered
 # by existing NATIVE capability IDs. Already-cataloged leaves remain in NATIVE.
-OPERATIONS_SUBCOMMANDS: dict[str, _SubcommandSpec] = {
+OPERATIONS_SUBCOMMANDS: dict[str, _OperationsSubcommandSpec] = {
     "cwsa chapter2 verify": {
         "id": "operations.cwsa.chapter2.verify",
         "owner": "copytrade_pm.pm_cwsa_chapter2_gate",
@@ -750,7 +761,7 @@ OPERATIONS_SUBCOMMANDS: dict[str, _SubcommandSpec] = {
 
 # Reviewed GROUPS mode variants that distinguish READ_ONLY vs MUTATION/network/dispatch
 # modes while retaining conservative parent GROUPS classifications.
-GROUP_OPERATIONS: dict[str, _SubcommandSpec] = {
+GROUP_OPERATIONS: dict[str, _GroupOperationSpec] = {
     "source.public_trades.observe": {
         "script": "copytrade-pm-public-trades",
         "owner": "copytrade_pm.pm_forward_public_trades",
@@ -1666,11 +1677,11 @@ def _required_cli_args(module: str, root: Path) -> list[str] | None:
             continue
         option = value.value
         flags = {keyword.arg: keyword.value for keyword in node.keywords}
-        mandatory_flag = isinstance(flags.get("required"), ast.Constant) and (
-            flags["required"].value is True
-        )
+        req_node = flags.get("required")
+        mandatory_flag = isinstance(req_node, ast.Constant) and req_node.value is True
+        nargs_node = flags.get("nargs")
         positional = not option.startswith("-") and not (
-            isinstance(flags.get("nargs"), ast.Constant) and flags["nargs"].value in ("?", "*")
+            isinstance(nargs_node, ast.Constant) and nargs_node.value in ("?", "*")
         )
         if mandatory_flag or positional:
             required.add(option)
@@ -1809,9 +1820,9 @@ def inventory(root: Path = ROOT) -> list[dict]:
                 limitations=list(spec["limitations"]),
             )
         )
-    for cap_id, spec in sorted(GROUP_OPERATIONS.items()):
-        owner = str(spec["owner"])
-        script_name = str(spec["script"])
+    for cap_id, group_spec in sorted(GROUP_OPERATIONS.items()):
+        owner = str(group_spec["owner"])
+        script_name = str(group_spec["script"])
         script_invocation = scripts.get(script_name)
         script_module = script_invocation.split(":", 1)[0] if script_invocation else owner
         results.append(
@@ -1819,14 +1830,14 @@ def inventory(root: Path = ROOT) -> list[dict]:
                 cap_id=cap_id,
                 description=f"Mode variant for {script_name}",
                 owner=owner,
-                interface=str(spec["interface"]),
-                classification=str(spec["classification"]),
-                authority=str(spec["authority"]),
-                access=spec["access"],
-                required_arguments=list(spec["required_arguments"]),
-                runtime_required_arguments=list(spec["runtime_required_arguments"]),
+                interface=str(group_spec["interface"]),
+                classification=str(group_spec["classification"]),
+                authority=str(group_spec["authority"]),
+                access=group_spec["access"],
+                required_arguments=list(group_spec["required_arguments"]),
+                runtime_required_arguments=list(group_spec["runtime_required_arguments"]),
                 preflight=[],
-                documentation=str(spec["documentation"]),
+                documentation=str(group_spec["documentation"]),
                 available=(
                     script_name in scripts
                     and _module_available(script_module, root)
@@ -1835,7 +1846,7 @@ def inventory(root: Path = ROOT) -> list[dict]:
                         script_name not in installed or installed[script_name] == script_invocation
                     )
                 ),
-                limitations=list(spec["limitations"]),
+                limitations=list(group_spec["limitations"]),
             )
         )
     for cap, (module, invocation, family, safety, authority) in NATIVE.items():
@@ -2096,7 +2107,7 @@ def _inspect_registry_parser(registry_path: Path) -> tuple[dict[str, dict], list
 
     parser_vars: dict[str, tuple[str, ...]] = {}
     subparser_vars: dict[str, tuple[str, ...]] = {}
-    group_vars: dict[str, tuple[tuple[str, ...], int, bool]] = {}
+    group_vars: dict[str, tuple[tuple[str, ...], int | None, bool]] = {}
     nodes: dict[tuple[str, ...], dict] = {}
     visited_calls: set[int] = set()
     errors: list[str] = []
@@ -2365,12 +2376,12 @@ def _validate_registry_operations(root: Path) -> list[str]:
 
     for op, leaf in op_to_leaf.items():
         spec = leaves[leaf]
-        mode_flags = set(op.split()[len(leaf.split()) :])
+        op_mode_flags = set(op.split()[len(leaf.split()) :])
         parser_required: set[str] = set()
         for opt, meta in spec["options"].items():
-            in_selected_group = meta["group_idx"] is not None and opt in mode_flags
+            in_selected_group = meta["group_idx"] is not None and opt in op_mode_flags
             if (meta["required"] or in_selected_group) and not (
-                meta["flag_only"] and opt in mode_flags
+                meta["flag_only"] and opt in op_mode_flags
             ):
                 parser_required.add(opt)
         for pos, meta in spec["positionals"].items():
@@ -2474,7 +2485,7 @@ _GROUP_NATIVE_SCRIPTS = {
     "market.continuous_canary": "copytrade-pm-market-ccxt",
     "paper.identity_reseal_preview": "copytrade-pm-paper-registry-audit",
 }
-_GROUP_SCRIPT_MODE_CONTRACTS: dict[str, dict[str, object]] = {
+_GROUP_SCRIPT_MODE_CONTRACTS: dict[str, _GroupModeContract] = {
     "copytrade-pm-actuary": {"store_true": frozenset(), "choices": {}},
     "copytrade-pm-agent-eval": {"store_true": frozenset({"--list-tasks"}), "choices": {}},
     "copytrade-pm-combo2-paper": {"store_true": frozenset(), "choices": {}},
@@ -2689,7 +2700,7 @@ def _apply_loop_add_parser(
     ):
         return False, None
     recv_name = call.func.value.id if isinstance(call.func.value, ast.Name) else None
-    if recv_name not in subparser_vars:
+    if recv_name is None or recv_name not in subparser_vars:
         return True, missing_recv_code
     visited_calls.add(id(call))
     child = (*subparser_vars[recv_name], val)
@@ -3268,8 +3279,8 @@ def _validate_group_scripts(root: Path, scripts: dict[str, str]) -> list[str]:
         if contract is None:
             problems.append(f"UNREVIEWED_GROUP_MODE_CONTRACT:{name}")
             continue
-        expected_store_true: frozenset[str] = contract["store_true"]  # type: ignore[assignment]
-        expected_choices: dict[str, object] = contract["choices"]  # type: ignore[assignment]
+        expected_store_true = contract["store_true"]
+        expected_choices = contract["choices"]
 
         actual_store_true = {
             opt for opt, meta in spec["options"].items() if meta["action"] == "store_true"
