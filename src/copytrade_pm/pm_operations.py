@@ -434,6 +434,10 @@ def dispatch(args: argparse.Namespace) -> dict:
             from .pm_cwsa_chapter2_projection import build_runtime_projection
 
             return build_runtime_projection(args)
+        if args.verb == "explain":
+            from .pm_cwsa_chapter2_projection import explain_task
+
+            return explain_task(args)
         from .pm_cwsa_chapter2_gate import verify
 
         return verify(args)
@@ -510,6 +514,12 @@ def parser() -> argparse.ArgumentParser:
     )
     add_arguments(projection_cmd)
     projection_cmd.add_argument("--release-sha", required=True)
+    explain_cmd = chapter2_sub.add_parser(
+        "explain", help="Explain one portfolio's independent source and paper blockers"
+    )
+    explain_cmd.add_argument("--portfolio", required=True)
+    explain_cmd.add_argument("--inspection", choices=("metadata", "evidence"), default="metadata")
+    add_arguments(explain_cmd)
     cap = top.add_parser("capabilities")
     sub = cap.add_subparsers(dest="verb", required=True)
     cap_list = sub.add_parser("list")
@@ -598,6 +608,8 @@ def cli(argv: list[str] | None = None) -> int:
     if args.group == "cwsa":
         if args.verb == "projection":
             return 0
+        if args.verb == "explain":
+            return 2 if response.get("error_code") else 0
         return {"PASS": 0, "BLOCKED_EVIDENCE": 2, "FAIL": 1}[response["verdict"]]
     if args.group == "capabilities":
         return 2 if response.get("status") in ("BLOCKED", "UNKNOWN") else 0

@@ -107,15 +107,24 @@ ALL_14_WALLETS = (
 )
 
 
-def load_registry_seals(registry_db: Path) -> dict[str, dict]:
-    """Read version 2 seals and memberships directly from SQLite authority."""
+def load_registry_seals(
+    registry_db: Path, *, portfolios: tuple[str, ...] | None = None
+) -> dict[str, dict]:
+    """Read version 2 seals and memberships directly from SQLite authority.
+
+    Scoped diagnostics may request one portfolio without querying unrelated seals.
+    """
+    selected = portfolios if portfolios is not None else tuple(PORTFOLIO_CONFIGS)
+    if not selected or any(pid not in PORTFOLIO_CONFIGS for pid in selected):
+        raise ValueError("UNKNOWN_CHAPTER2_PORTFOLIO")
     if not registry_db.is_file():
         raise ValueError(f"REGISTRY_DB_NOT_FOUND: {registry_db}")
     seals: dict[str, dict] = {}
     with closing(sqlite3.connect(f"file:{registry_db.resolve()}?mode=ro", uri=True)) as con:
         con.row_factory = sqlite3.Row
         cur = con.cursor()
-        for pid, cfg in PORTFOLIO_CONFIGS.items():
+        for pid in selected:
+            cfg = PORTFOLIO_CONFIGS[pid]
             row = cur.execute(
                 "SELECT portfolio_id, version, definition_sha256, selection_known_at FROM portfolio_seals WHERE portfolio_id=? AND version=2",
                 (pid,),

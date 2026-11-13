@@ -531,6 +531,33 @@ OPERATIONS_SUBCOMMANDS: dict[str, _SubcommandSpec] = {
             "postdeploy optionally queries HTTPS dashboard using a bearer token file"
         ],
     },
+    "cwsa chapter2 explain": {
+        "id": "operations.cwsa.chapter2.explain",
+        "owner": "copytrade_pm.pm_cwsa_chapter2_projection",
+        "family": "operations",
+        "classification": "READ_ONLY",
+        "authority": "CWSA_CHAPTER2_EVIDENCE_PROJECTION",
+        "documentation": "docs/CWSA-CHAPTER2-20261112.md",
+        "required_arguments": ["--portfolio PORTFOLIO"],
+        "runtime_required_arguments": [],
+        "access": _access_entry(
+            [
+                "private_sqlite_registry",
+                "optional_private_cwsa_source_sqlite",
+                "optional_single_pm03_journal",
+                "optional_private_quote_sqlite",
+                "optional_signed_paper_release",
+                "optional_qualification_attestation",
+            ],
+            [],
+            privacy="OWNER_PRIVATE_REDACTED",
+        ),
+        "limitations": [
+            "Metadata mode reads only scoped SQLite seals and native doctor; "
+            "--inspection evidence additionally reads Chapter 2 source, single-portfolio PM03 and optional quote chains",
+            "Missing evidence never implies Guardian financial or broker authorization",
+        ],
+    },
     "cwsa chapter2 projection": {
         "id": "operations.cwsa.chapter2.projection",
         "owner": "copytrade_pm.pm_cwsa_chapter2_projection",
