@@ -32,6 +32,24 @@ The versioned `cwsa_chapter2_task_explanation_v1` output separates physical SQLi
 
 Each result names a task-specific reason, affected portfolio and next *catalogued* read-only operation with effect class. It does not execute the recommendation. Inspect metadata before requesting broader native evidence. The output is a reusable owner projection for later CLI/Site consumption; the Site must not recalculate finance or permission.
 
+## ANOS-10: causal source-head deltas and wallet-local fault isolation
+
+The same `cwsa chapter2 explain` read-only command accepts **`--prior-snapshot PATH`** for one caller-provided prior JSON explanation with the same portfolio and inspection level. It reads at most **1,000,000 bytes**; invalid paths, symlinks, oversized files, schema or scope mismatch return a structured blocker. The CLI never writes or loads a persistent prior-status database.
+
+```bash
+copytrade-pm cwsa chapter2 explain --portfolio A --inspection evidence \
+  --registry-db /private/registry.sqlite \
+  --source-db /private/source/paper-events.sqlite3 \
+  --paper-root /private/paper-root \
+  --prior-snapshot /private/prior-A-evidence.json
+```
+
+The `cwsa_chapter2_task_explanation_v1` read result now exposes `assessment_asof`, registry inventory and selected seal identity, independently replayed source and paper heads/cursors, native policy epochs/generations, source checkpoint time, original complete-position receipt first-known and publication clocks. Its optional `prior_to_current` delta names **changed scoped owner facts**, changed selected wallets, and the conclusions requiring re-evaluation. The aggregate 14-wallet head may advance when an unrelated wallet changes; that does **not** refresh or invalidate the selected wallet's original source proof. A caller-provided prior snapshot is a comparison input, not an independently authenticated receipt.
+
+An absent, late, future-clocked or incomplete source wallet never becomes a flat position or an earlier actionable entry. It blocks `new_risk_source_status` for every dependent portfolio, while other portfolios with independently complete original wallet proof retain `SOURCE_SCOPE_READY` *only in the source dimension*. `fault_isolation.unaffected_source_portfolios` is **not** an account-risk clearance: Guardian/shared account risk remains `UNKNOWN`. The companion `cwsa_chapter2_evidence_projection_v1` exposes the same per-portfolio new-risk source status, distinct from prior modeled PM03 journal evidence.
+
+`generation_consistency` and the aggregate projection `snapshot_coherence` are `MIXED` for detected conflicting native source policy epochs, otherwise `UNVERIFIED`: independently timed code, mandate, L2 quote, source, paper and protected Guardian heads are not one atomic globally verified generation. Even unchanged source and financial journal heads cannot be renewed by a fresh display timestamp, service heartbeat or new candidate code SHA. Every outcome remains paper-only, with no automatic next operation, broker route or trading authority.
+
 ## Durable source-wave projection
 
 The paper supervisor reads the canonical source database read-only. Each portfolio stores its own `chapter2_wave_receipts` chain, including original outcome IDs, source clocks, wave membership, evidence hashes and missing-wallet disposition.

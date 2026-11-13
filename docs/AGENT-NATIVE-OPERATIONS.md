@@ -117,6 +117,12 @@ The intended operator UI is the authenticated Site. Its current Chapter 2 eviden
 
 Preserve bounded scalar filters, privacy-safe native projections, source clocks and evidence grades. Read saturation must remain unavailable, and unknown P&L remains null. The target CLI/Site parity is part of D4; neither a local status file nor an HTTP 200 independently proves deployed publisher lineage.
 
+## Bounded causal evidence comparisons (ANOS-10)
+
+For one Chapter 2 portfolio, `copytrade-pm cwsa chapter2 explain --portfolio A --inspection evidence` exposes original native source checkpoint/receipt clocks and owner-specific heads. Optionally add `--prior-snapshot PATH` to compare against a previous JSON explanation for **the same portfolio and inspection**. This opens only one bounded caller-selected prior file (maximum 1,000,000 bytes); it never creates a shared status store or renews stale evidence. The causal delta distinguishes changed selected-wallet evidence from an unrelated 14-wallet aggregate head advance.
+
+Use `scope.new_risk_source_status` to see portfolio-local complete-position source readiness, and read `fault_isolation` to identify additional affected source portfolios. These are **not** Guardian account-risk or broker permissions. The separate Chapter 2 Site projection carries the same new-risk source distinction and preserves owner-paper history. Mixed native source policy epochs produce `MIXED`; independently sampled release/quote/mandate/Guardian generations remain `UNVERIFIED` absent external cross-owner proofs. Neither outcome is a globally VERIFIED snapshot. See [Chapter 2 runbook](CWSA-CHAPTER2-20261112.md#anos-10-causal-source-head-deltas-and-wallet-local-fault-isolation).
+
 ## Recovery and proof of improvement
 
 Use [blocker recovery](BLOCKER-RECOVERY.md) and retain the exact affected authority and reason. Continue independent authorized work. A saved portfolio, zero indexed runs or missing known service does not establish that every possible external program is absent.

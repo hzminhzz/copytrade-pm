@@ -183,6 +183,9 @@ def _source_facts(db_path: Path) -> dict:
         scopes = {}
         graces = set()
         heads = []
+        heads_by_wallet = {}
+        policy_epochs_by_wallet = {}
+        scope_generations_by_wallet = {}
         validated_outcomes = {}
         for stream, raw_scope, raw_policy, head in streams:
             scope = CheckpointScope.model_validate_json(raw_scope)
@@ -198,6 +201,9 @@ def _source_facts(db_path: Path) -> dict:
                         raise ValueError("CHAPTER2_DUPLICATE_NATIVE_SOURCE_EFFECT")
                     validated_outcomes[key] = transition.effect.outcome_id
             scopes[scope.source_id] = stream
+            heads_by_wallet[scope.source_id] = head
+            policy_epochs_by_wallet[scope.source_id] = policy.epoch
+            scope_generations_by_wallet[scope.source_id] = scope.generation
             graces.add(policy.limits.publication_grace_ms)
             heads.append((stream, head))
         if set(scopes) != EXPECTED_WALLETS or len(graces) != 1:
@@ -211,6 +217,9 @@ def _source_facts(db_path: Path) -> dict:
     changes: dict[str, int] = {}
     kinds: dict[str, str] = {}
     wallet_checkpoints: dict[str, int] = {}
+    publication_ms_by_wallet: dict[str, int] = {}
+    receipt_first_known_ms_by_wallet: dict[str, int | None] = {}
+    complete_position_proof_by_wallet: dict[str, bool] = {}
     for stream, cp, raw in rows:
         outcome = CheckpointOutcome.model_validate_json(raw)
         if (
@@ -218,10 +227,22 @@ def _source_facts(db_path: Path) -> dict:
             or outcome.source_id not in EXPECTED_WALLETS
             or scopes.get(outcome.source_id) != stream
             or validated_outcomes.get((stream, cp)) != outcome.outcome_id
+            or outcome.policy_epoch != policy_epochs_by_wallet.get(outcome.source_id)
+            or outcome.scope_generation != scope_generations_by_wallet.get(outcome.source_id)
         ):
             raise ValueError("CHAPTER2_SOURCE_OUTCOME_DRIFT")
         kinds.setdefault(outcome.source_id, outcome.kind)
-        wallet_checkpoints.setdefault(outcome.source_id, cp)
+        if outcome.source_id not in wallet_checkpoints:
+            wallet_checkpoints[outcome.source_id] = cp
+            publication_ms_by_wallet[outcome.source_id] = outcome.published_ms
+            receipt_first_known_ms_by_wallet[outcome.source_id] = (
+                outcome.sample.received_ms if outcome.sample is not None else None
+            )
+            complete_position_proof_by_wallet[outcome.source_id] = (
+                outcome.kind in ("BASELINE", "UNCHANGED", "CHANGED", "RECOVERY_BASELINE")
+                and outcome.sample is not None
+                and outcome.sample.kind == "COMPLETE"
+            )
         if outcome.kind == "CHANGED":
             changes.setdefault(outcome.source_id, cp)
     return {
@@ -231,6 +252,12 @@ def _source_facts(db_path: Path) -> dict:
         "head_sha256": digest(["cwsa_source_head_set_v1", sorted(heads)]),
         "latest_kinds": kinds,
         "checkpoint_ms_by_wallet": wallet_checkpoints,
+        "published_ms_by_wallet": publication_ms_by_wallet,
+        "receipt_first_known_ms_by_wallet": receipt_first_known_ms_by_wallet,
+        "complete_position_proof_by_wallet": complete_position_proof_by_wallet,
+        "source_heads_by_wallet": heads_by_wallet,
+        "policy_epochs_by_wallet": policy_epochs_by_wallet,
+        "scope_generations_by_wallet": scope_generations_by_wallet,
         "changed_sources": changes,
     }
 
@@ -403,26 +430,35 @@ def _market_evidence(quote_db: Path | None, source_db: Path) -> GateCheck:
             )
         count = 0
         latest = 0
+        heads = []
         for instrument in instruments:
             status = PaperJournal.market_quote_file_status(quote_db, instrument)
             if status["cursor"] < 1 or not status["last_quote_known_at"]:
                 raise ValueError("EMPTY_OR_UNTIMED_L2_CHAIN")
             count += status["cursor"]
+            heads.append((instrument, status["cursor"], status["journal_head_sha"]))
             known = int(datetime.fromisoformat(status["last_quote_known_at"]).timestamp() * 1000)
             latest = max(latest, known)
+        evidence = {
+            "instrument_count": len(instruments),
+            "quote_count": count,
+            "quote_heads_sha256": digest(["cwsa_quote_head_set_v1", sorted(heads)]),
+            "original_latest_quote_known_ms": latest,
+        }
         age = int(time.time() * 1000) - latest
+        evidence["latest_age_ms"] = age
         if not 0 <= age <= 900_000:
             return GateCheck(
                 "independent_executable_quotes",
                 "BLOCKED_EVIDENCE",
                 "NATIVE_L2_CHAINS_VERIFIED_BUT_STALE",
-                {"quote_count": count, "latest_age_ms": age},
+                evidence,
             )
         return GateCheck(
             "independent_executable_quotes",
             "PASS",
             "NATIVE_L2_PAYLOAD_CLOCK_AND_COMPLETE_CHAINS_VERIFIED",
-            {"instrument_count": len(instruments), "quote_count": count, "latest_age_ms": age},
+            evidence,
         )
     except (ValueError, OSError, sqlite3.Error, KeyError, TypeError) as exc:
         return GateCheck(
@@ -521,12 +557,39 @@ def verify(args: argparse.Namespace) -> dict:
             checks.append(GateCheck("six_sealed_portfolio_identities", "FAIL", type(exc).__name__))
         try:
             source = _source_facts(args.source_db)
+            epochs = source.get("policy_epochs_by_wallet") or {}
+            checkpoints = source.get("checkpoint_ms_by_wallet") or {}
+            complete = source.get("complete_position_proof_by_wallet") or {}
+            latest_cp = source["latest_checkpoint_ms"]
+            grace = source["policy_grace_ms"]
+            consistent = set(epochs) == EXPECTED_WALLETS and len(set(epochs.values())) == 1
+            covered = all(
+                complete.get(member) is True
+                and isinstance(checkpoints.get(member), int)
+                and latest_cp - grace <= checkpoints[member] <= latest_cp
+                for member in EXPECTED_WALLETS
+            )
             checks.append(
                 GateCheck(
                     "canonical_source",
-                    "PASS",
-                    "NATIVE_14_SOURCE_POLICY_REGISTERED",
-                    {"source_count": source["source_count"], "grace_ms": source["policy_grace_ms"]},
+                    "PASS" if consistent and covered else "BLOCKED_EVIDENCE",
+                    "NATIVE_14_SOURCE_POLICY_REGISTERED"
+                    if consistent and covered
+                    else "SOURCE_POLICY_GENERATIONS_OR_COMPLETE_POSITION_PROOF_UNVERIFIED",
+                    {
+                        "source_count": source["source_count"],
+                        "grace_ms": grace,
+                        "source_heads_sha256": source["head_sha256"],
+                        "policy_epochs_by_wallet": epochs,
+                        "unproved_wallets": sorted(
+                            member
+                            for member in EXPECTED_WALLETS
+                            if complete.get(member) is not True
+                            or not isinstance(checkpoints.get(member), int)
+                            or checkpoints[member] < latest_cp - grace
+                            or checkpoints[member] > latest_cp
+                        ),
+                    },
                 )
             )
             age = int(time.time() * 1000) - source["latest_checkpoint_ms"]
