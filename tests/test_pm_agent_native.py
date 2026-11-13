@@ -672,6 +672,43 @@ def test_operations_subcommands_and_group_modes_cataloged() -> None:
         "--private-output PATH"
     ]
     assert entries["paper.observer.diagnose_preflight"]["classification"] == "READ_ONLY"
+    assert entries["paper.observer.diagnose_preflight"]["runtime_required_arguments"] == [
+        "--continuous-config PATH",
+        "--diagnose-preflight",
+        "--preflight-only",
+    ]
+    assert entries["paper.observer.finite"]["classification"] == "PROTECTED_MUTATION"
+    assert entries["paper.observer_health"]["classification"] == "LOCAL_MUTATION"
+    assert entries["paper.observer_health.heartbeat"]["classification"] == "READ_ONLY"
+    assert entries["paper.identity.audit"]["classification"] == "READ_ONLY"
+    assert entries["market.ccxt.probe"]["classification"] == "READ_ONLY"
+    assert entries["market.ccxt.probe"]["access"]["network"] is True
+    assert entries["market.ccxt.record"]["classification"] == "LOCAL_MUTATION"
+    assert entries["market.ccxt.record"]["access"]["write_targets"] == [
+        "private_market_canary_record"
+    ]
+    assert entries["paper.observer.preflight"]["runtime_required_arguments"] == [
+        "--continuous-config PATH",
+        "--preflight-only",
+    ]
+    assert entries["paper.observer.continuous_health"]["runtime_required_arguments"] == [
+        "--continuous"
+    ]
+    assert entries["paper.observer.continuous_watchdog"]["runtime_required_arguments"] == [
+        "--continuous",
+        "--watch",
+    ]
+    assert entries["paper.observer.shadow_report"]["runtime_required_arguments"] == [
+        "--shadow-report"
+    ]
+    assert entries["market.continuous_canary"]["runtime_required_arguments"] == [
+        "--ack-shared-ip-connection-budget",
+        "--continuous-canary-seconds SECONDS",
+        "--record-root PATH",
+    ]
+    assert entries["paper.identity_reseal_preview"]["runtime_required_arguments"] == [
+        "--prospective-reseal-preview"
+    ]
     assert entries["paper.standby.worker"]["classification"] == "PROTECTED_MUTATION"
     assert entries["paper.standby.watchdog"]["classification"] == "PROTECTED_MUTATION"
     assert entries["paper.observed_execution.l2"]["access"]["network"] is True
@@ -809,6 +846,41 @@ def test_operations_and_group_validators_fail_closed_on_drift_and_unsupported_as
         "UNSAFE_GROUP_CLASSIFICATION:copytrade-pm-public-observer-unit"
         in res_unsafe_parent["errors"]
     )
+    monkeypatch.undo()
+
+    monkeypatch.setitem(
+        cap.GROUPS,
+        "copytrade-pm-paper-observer-health",
+        ("paper.observer_health", "paper", "READ_ONLY"),
+    )
+    res_unsafe_native_parent = cap.validate(ROOT)
+    assert res_unsafe_native_parent["status"] == "BLOCKED"
+    assert (
+        "UNSAFE_GROUP_CLASSIFICATION:copytrade-pm-paper-observer-health"
+        in res_unsafe_native_parent["errors"]
+    )
+    monkeypatch.undo()
+
+    monkeypatch.setitem(
+        cap.GROUP_OPERATIONS,
+        "paper.synthetic.apply",
+        {
+            "script": "copytrade-pm-paper-status",
+            "owner": "copytrade_pm.pm_forward_status",
+            "family": "paper",
+            "interface": "copytrade-pm-paper-status --apply",
+            "classification": "READ_ONLY",
+            "authority": "SYNTHETIC_TEST",
+            "documentation": "docs/AGENT-NATIVE-OPERATIONS.md",
+            "required_arguments": ["--state-root PATH"],
+            "runtime_required_arguments": [],
+            "access": cap._access_entry([], []),
+            "limitations": [],
+        },
+    )
+    res_synthetic_apply = cap.validate(ROOT)
+    assert res_synthetic_apply["status"] == "BLOCKED"
+    assert "UNSAFE_GROUP_CLASSIFICATION:paper.synthetic.apply" in res_synthetic_apply["errors"]
     monkeypatch.undo()
 
     # 6. GROUPS required_arguments vs runtime_required_arguments drift fails closed.

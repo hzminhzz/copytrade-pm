@@ -7,12 +7,14 @@ reviewed operation metadata; unknown operations fail closed.
 
 from __future__ import annotations
 
-from importlib import metadata
 import ast
+from collections.abc import Mapping, Sequence
+from importlib import metadata
 import json
 from pathlib import Path
 import re
 import tomllib
+from typing import NotRequired, TypedDict
 
 ROOT = Path(__file__).resolve().parents[2]
 DOC = "docs/AGENT-NATIVE-OPERATIONS.md"
@@ -61,7 +63,7 @@ GROUPS = {
     "copytrade-pm-paper-observed": ("paper.observed_execution", "paper", "LOCAL_MUTATION"),
     "copytrade-pm-vike-minute": ("market.vike_minute", "market", "LOCAL_MUTATION"),
     "copytrade-pm-vike-fills": ("source.vike_selected_fills", "source", "LOCAL_MUTATION"),
-    "copytrade-pm-paper-observer-health": ("paper.observer_health", "paper", "READ_ONLY"),
+    "copytrade-pm-paper-observer-health": ("paper.observer_health", "paper", "LOCAL_MUTATION"),
     "copytrade-pm-public-observer-unit": ("paper.public_unit", "paper", "PROTECTED_MUTATION"),
     "copytrade-pm": ("operations.cli", "operations", "READ_ONLY"),
     "copytrade-pm-agent-eval": ("agent.trace.eval", "operations", "READ_ONLY"),
@@ -432,6 +434,29 @@ UNKNOWN_ACCESS = {
 }
 
 
+class _AccessDict(TypedDict):
+    read_targets: list[str]
+    write_targets: list[str]
+    network: bool
+    credentials: bool
+    privacy: str
+
+
+class _SubcommandSpec(TypedDict):
+    id: NotRequired[str]
+    script: NotRequired[str]
+    interface: NotRequired[str]
+    owner: str
+    family: str
+    classification: str
+    authority: str
+    documentation: str
+    required_arguments: list[str]
+    runtime_required_arguments: list[str]
+    access: _AccessDict
+    limitations: list[str]
+
+
 # Registry access schema reused across reviewed subcommand and mode records.
 def _access_entry(
     read_targets: list[str],
@@ -440,7 +465,7 @@ def _access_entry(
     network: bool = False,
     credentials: bool = False,
     privacy: str = "OWNER_PRIVATE_REDACTED",
-) -> dict[str, object]:
+) -> _AccessDict:
     return {
         "read_targets": read_targets,
         "write_targets": write_targets,
@@ -455,7 +480,7 @@ def _registry_access_entry(
     write_targets: list[str],
     *,
     privacy: str = "OWNER_PRIVATE_REDACTED",
-) -> dict[str, object]:
+) -> _AccessDict:
     return _access_entry(
         read_targets,
         write_targets,
@@ -467,7 +492,7 @@ def _registry_access_entry(
 
 # Reviewed subcommands for copytrade-pm (pm_operations.py) not already covered
 # by existing NATIVE capability IDs. Already-cataloged leaves remain in NATIVE.
-OPERATIONS_SUBCOMMANDS: dict[str, dict[str, object]] = {
+OPERATIONS_SUBCOMMANDS: dict[str, _SubcommandSpec] = {
     "cwsa chapter2 verify": {
         "id": "operations.cwsa.chapter2.verify",
         "owner": "copytrade_pm.pm_cwsa_chapter2_gate",
@@ -674,7 +699,7 @@ OPERATIONS_SUBCOMMANDS: dict[str, dict[str, object]] = {
 
 # Reviewed GROUPS mode variants that distinguish READ_ONLY vs MUTATION/network/dispatch
 # modes while retaining conservative parent GROUPS classifications.
-GROUP_OPERATIONS: dict[str, dict[str, object]] = {
+GROUP_OPERATIONS: dict[str, _SubcommandSpec] = {
     "source.public_trades.observe": {
         "script": "copytrade-pm-public-trades",
         "owner": "copytrade_pm.pm_forward_public_trades",
@@ -1177,7 +1202,11 @@ GROUP_OPERATIONS: dict[str, dict[str, object]] = {
             "--secondary-dir PATH",
             "--state-root PATH",
         ],
-        "runtime_required_arguments": ["--continuous-config PATH", "--preflight-only"],
+        "runtime_required_arguments": [
+            "--continuous-config PATH",
+            "--diagnose-preflight",
+            "--preflight-only",
+        ],
         "access": _access_entry(
             [
                 "private_sqlite_registry",
@@ -1189,8 +1218,99 @@ GROUP_OPERATIONS: dict[str, dict[str, object]] = {
             privacy="OWNER_PRIVATE_REDACTED",
         ),
         "limitations": [
-            "Read-only budget diagnostic; requires --continuous-config and --preflight-only at runtime"
+            "Read-only budget diagnostic; requires --continuous-config, --preflight-only, and --diagnose-preflight"
         ],
+    },
+    "paper.observer.finite": {
+        "script": "copytrade-pm-paper-observe",
+        "owner": "copytrade_pm.pm_forward_observer",
+        "family": "paper",
+        "interface": "copytrade-pm-paper-observe",
+        "classification": "PROTECTED_MUTATION",
+        "authority": "PUBLIC_ONLY_FINITE_OBSERVER_JOURNAL",
+        "documentation": "docs/FORWARD-PAPER-CHECKPOINT-20261104.md",
+        "required_arguments": [
+            "--primary-dir PATH",
+            "--registry PATH",
+            "--secondary-dir PATH",
+            "--state-root PATH",
+        ],
+        "runtime_required_arguments": [],
+        "access": _access_entry(
+            [
+                "private_sqlite_registry",
+                "source_dirs",
+                "pinned_release_dir",
+                "public_hyperliquid_api",
+            ],
+            ["private_observer_journal"],
+            network=True,
+            privacy="OWNER_PRIVATE_REDACTED",
+        ),
+        "limitations": ["Finite shared observer mode when --continuous-config is omitted"],
+    },
+    "paper.observer_health.heartbeat": {
+        "script": "copytrade-pm-paper-observer-health",
+        "owner": "copytrade_pm.pm_forward_observer_health",
+        "family": "paper",
+        "interface": "copytrade-pm-paper-observer-health --state-root ROOT",
+        "classification": "READ_ONLY",
+        "authority": "INDEPENDENT_OBSERVER_HEARTBEAT",
+        "documentation": "docs/FORWARD-PAPER-CHECKPOINT-20261104.md",
+        "required_arguments": ["--state-root PATH"],
+        "runtime_required_arguments": [],
+        "access": _access_entry(["private_observer_journal"], []),
+        "limitations": ["Default single-run heartbeat check without --continuous or --watch"],
+    },
+    "paper.identity.audit": {
+        "script": "copytrade-pm-paper-registry-audit",
+        "owner": "copytrade_pm.pm_forward_registry_identity",
+        "family": "paper",
+        "interface": "copytrade-pm-paper-registry-audit --portfolio P1|P14",
+        "classification": "READ_ONLY",
+        "authority": "PINNED_REGISTRY_IDENTITY_AUDIT",
+        "documentation": "docs/FORWARD-PAPER-CHECKPOINT-20261104.md",
+        "required_arguments": [
+            "--portfolio P1|P14",
+            "--primary-dir PATH",
+            "--registry PATH",
+            "--secondary-dir PATH",
+        ],
+        "runtime_required_arguments": [],
+        "access": _access_entry(["private_sqlite_registry", "source_dirs"], []),
+        "limitations": ["Read-only portfolio identity audit without --prospective-reseal-preview"],
+    },
+    "market.ccxt.probe": {
+        "script": "copytrade-pm-market-ccxt",
+        "owner": "copytrade_pm.pm_forward_ccxt_market",
+        "family": "market",
+        "interface": "copytrade-pm-market-ccxt --instrument SYMBOL",
+        "classification": "READ_ONLY",
+        "authority": "PUBLIC_CCXT_L2_PROBE",
+        "documentation": "docs/DATA-ACQUISITION.md",
+        "required_arguments": ["--instrument SYMBOL"],
+        "runtime_required_arguments": [],
+        "access": _access_entry(["public_hyperliquid_api"], [], network=True),
+        "limitations": [
+            "Read-only public L2 quote probe when --record-root and --continuous-canary-seconds are omitted"
+        ],
+    },
+    "market.ccxt.record": {
+        "script": "copytrade-pm-market-ccxt",
+        "owner": "copytrade_pm.pm_forward_ccxt_market",
+        "family": "market",
+        "interface": "copytrade-pm-market-ccxt --instrument SYMBOL --record-root PATH",
+        "classification": "LOCAL_MUTATION",
+        "authority": "PRIVATE_CCXT_QUOTE_RECORD",
+        "documentation": "docs/DATA-ACQUISITION.md",
+        "required_arguments": ["--instrument SYMBOL"],
+        "runtime_required_arguments": ["--record-root PATH"],
+        "access": _access_entry(
+            ["public_hyperliquid_api"],
+            ["private_market_canary_record"],
+            network=True,
+        ),
+        "limitations": ["Appends L2 quote receipts to PaperJournal when --record-root is supplied"],
     },
 }
 
@@ -1361,9 +1481,17 @@ NATIVE_RUNTIME_REQUIRED_ARGUMENTS = {
     "research.catalog": ["--cache-root PATH"],
     "research.contract_selector": ["--tape PRIVATE_TAPE"],
     "runtime.market_observer": ["--observer-state-root PATH"],
-    "paper.observer.preflight": ["--continuous-config PATH"],
+    "paper.observer.preflight": ["--continuous-config PATH", "--preflight-only"],
     "paper.observer.continuous": ["--continuous-config PATH"],
-    "market.continuous_canary": ["--continuous-canary-seconds SECONDS", "--record-root PATH"],
+    "paper.observer.continuous_health": ["--continuous"],
+    "paper.observer.continuous_watchdog": ["--continuous", "--watch"],
+    "paper.observer.shadow_report": ["--shadow-report"],
+    "market.continuous_canary": [
+        "--ack-shared-ip-connection-budget",
+        "--continuous-canary-seconds SECONDS",
+        "--record-root PATH",
+    ],
+    "paper.identity_reseal_preview": ["--prospective-reseal-preview"],
 }
 NATIVE_ACCESS = {
     "wallet.inventory": _access_entry(["private_sqlite_registry"], []),
@@ -1504,7 +1632,7 @@ def _module_available(module: str, root: Path) -> bool:
     return (root / "src" / Path(*module.split("."))).with_suffix(".py").is_file()
 
 
-def _copy_access(entry: dict[str, object]) -> dict[str, object]:
+def _copy_access(entry: Mapping[str, object]) -> dict[str, object]:
     return {key: list(value) if isinstance(value, list) else value for key, value in entry.items()}
 
 
@@ -1516,7 +1644,7 @@ def _subcommand_entry(
     interface: str,
     classification: str,
     authority: str,
-    access: dict[str, object],
+    access: Mapping[str, object],
     required_arguments: list[str],
     runtime_required_arguments: list[str],
     preflight: list[str],
@@ -1620,14 +1748,14 @@ def inventory(root: Path = ROOT) -> list[dict]:
                 interface=f"copytrade-pm {subcmd}",
                 classification=str(spec["classification"]),
                 authority=str(spec["authority"]),
-                access=spec["access"],  # type: ignore[arg-type]
-                required_arguments=list(spec["required_arguments"]),  # type: ignore[arg-type]
-                runtime_required_arguments=list(spec["runtime_required_arguments"]),  # type: ignore[arg-type]
+                access=spec["access"],
+                required_arguments=list(spec["required_arguments"]),
+                runtime_required_arguments=list(spec["runtime_required_arguments"]),
                 preflight=[],
                 documentation=str(spec["documentation"]),
                 available=_module_available("copytrade_pm.pm_operations", root)
                 and _module_available(owner, root),
-                limitations=list(spec["limitations"]),  # type: ignore[arg-type]
+                limitations=list(spec["limitations"]),
             )
         )
     for cap_id, spec in sorted(GROUP_OPERATIONS.items()):
@@ -1643,9 +1771,9 @@ def inventory(root: Path = ROOT) -> list[dict]:
                 interface=str(spec["interface"]),
                 classification=str(spec["classification"]),
                 authority=str(spec["authority"]),
-                access=spec["access"],  # type: ignore[arg-type]
-                required_arguments=list(spec["required_arguments"]),  # type: ignore[arg-type]
-                runtime_required_arguments=list(spec["runtime_required_arguments"]),  # type: ignore[arg-type]
+                access=spec["access"],
+                required_arguments=list(spec["required_arguments"]),
+                runtime_required_arguments=list(spec["runtime_required_arguments"]),
                 preflight=[],
                 documentation=str(spec["documentation"]),
                 available=(
@@ -1656,7 +1784,7 @@ def inventory(root: Path = ROOT) -> list[dict]:
                         script_name not in installed or installed[script_name] == script_invocation
                     )
                 ),
-                limitations=list(spec["limitations"]),  # type: ignore[arg-type]
+                limitations=list(spec["limitations"]),
             )
         )
     for cap, (module, invocation, family, safety, authority) in NATIVE.items():
@@ -1866,6 +1994,39 @@ def _register_registry_argument(
     return None
 
 
+def _new_parser_node() -> dict:
+    return {
+        "has_subparsers": False,
+        "options": {},
+        "positionals": {},
+        "required_groups": [],
+    }
+
+
+def _has_parent_node_constraint(spec: dict) -> bool:
+    return (
+        any(meta["required"] for meta in spec["options"].values())
+        or "--apply" in spec["options"]
+        or any(meta["required"] for meta in spec["positionals"].values())
+        or bool(spec["required_groups"])
+    )
+
+
+def _assignment_target_call(stmt: ast.stmt) -> tuple[str | None, ast.Call | None, bool]:
+    """Return (target_name, call, is_valid_statement) for Assign/Expr parser statements."""
+    if (
+        isinstance(stmt, ast.Assign)
+        and len(stmt.targets) == 1
+        and isinstance(stmt.targets[0], ast.Name)
+    ):
+        if isinstance(stmt.value, ast.Call):
+            return stmt.targets[0].id, stmt.value, True
+        return stmt.targets[0].id, None, False
+    if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
+        return None, stmt.value, True
+    return None, None, False
+
+
 def _inspect_registry_parser(registry_path: Path) -> tuple[dict[str, dict], list[str]]:
     """Small, registry-specific AST inspector; fails closed on unsupported constructs."""
     if not registry_path.is_file():
@@ -1889,14 +2050,6 @@ def _inspect_registry_parser(registry_path: Path) -> tuple[dict[str, dict], list
     visited_calls: set[int] = set()
     errors: list[str] = []
     saw_parse_args = False
-
-    def _new_node() -> dict:
-        return {
-            "has_subparsers": False,
-            "options": {},
-            "positionals": {},
-            "required_groups": [],
-        }
 
     for stmt in cli_defs[0].body:
         target: str | None = None
@@ -1928,7 +2081,7 @@ def _inspect_registry_parser(registry_path: Path) -> tuple[dict[str, dict], list
                 and target is not None
                 and () not in nodes
             ):
-                nodes[()] = _new_node()
+                nodes[()] = _new_parser_node()
                 parser_vars[target] = ()
             else:
                 errors.append("UNSUPPORTED_REGISTRY_PARSER_CONSTRUCT:ArgumentParser")
@@ -1951,7 +2104,7 @@ def _inspect_registry_parser(registry_path: Path) -> tuple[dict[str, dict], list
                 if child in nodes:
                     errors.append("UNSUPPORTED_REGISTRY_PARSER_CONSTRUCT:duplicate_parser")
                 else:
-                    nodes[child] = _new_node()
+                    nodes[child] = _new_parser_node()
                     if target is not None:
                         parser_vars[target] = child
         elif attr == "add_mutually_exclusive_group":
@@ -1995,13 +2148,7 @@ def _inspect_registry_parser(registry_path: Path) -> tuple[dict[str, dict], list
     for path, spec in nodes.items():
         if path and not spec["has_subparsers"]:
             continue
-        has_parent_constraint = (
-            any(meta["required"] for meta in spec["options"].values())
-            or "--apply" in spec["options"]
-            or any(meta["required"] for meta in spec["positionals"].values())
-            or bool(spec["required_groups"])
-        )
-        if has_parent_constraint:
+        if _has_parent_node_constraint(spec):
             errors.append("UNSUPPORTED_REGISTRY_PARSER_CONSTRUCT:parent_node_constraint")
 
     leaves = {
@@ -2011,7 +2158,7 @@ def _inspect_registry_parser(registry_path: Path) -> tuple[dict[str, dict], list
 
 
 def _validate_access_entry(
-    access: dict[str, object] | None,
+    access: Mapping[str, object] | None,
     *,
     safety: str,
     missing_code: str,
@@ -2043,6 +2190,53 @@ def _validate_access_entry(
         and not access["write_targets"]
     ):
         problems.append(inconsistent_code)
+    return problems
+
+
+def _validate_declared_contract(
+    *,
+    tag: str,
+    target: str,
+    cap_id: str,
+    safety: str,
+    parser_spec: dict | None,
+    required_arguments: Sequence[str],
+    runtime_required_arguments: Sequence[str],
+    access: Mapping[str, object] | None,
+    mismatch_code: str,
+    ignore_positionals: frozenset[str] = frozenset(),
+    check_groups: bool = False,
+    ignore_runtime_prefix: str | None = None,
+) -> list[str]:
+    """Validate required args, runtime required args, and access metadata for one capability."""
+    problems: list[str] = []
+    if parser_spec is not None:
+        p_opts, p_pos, p_groups = _parser_required_sets(
+            parser_spec, ignore_positionals=ignore_positionals
+        )
+        d_opts, d_pos, d_groups = _split_declared_required_args(list(required_arguments))
+        for missing in sorted(p_opts - d_opts):
+            problems.append(f"MISSING_{tag}_REQUIRED_ARG:{target}:{missing}")
+        for extra in sorted(d_opts - p_opts):
+            problems.append(f"STALE_{tag}_REQUIRED_ARG:{target}:{extra}")
+        if d_pos != p_pos or (check_groups and sorted(d_groups) != sorted(p_groups)):
+            problems.append(f"{mismatch_code}:{target}")
+        for rtok in runtime_required_arguments:
+            if ignore_runtime_prefix and rtok.startswith(ignore_runtime_prefix):
+                continue
+            rflag = rtok.split()[0]
+            if rflag not in parser_spec["options"] or rflag in p_opts:
+                problems.append(f"STALE_{tag}_RUNTIME_ARG:{target}:{rflag}")
+    problems.extend(
+        _validate_access_entry(
+            access,
+            safety=safety,
+            missing_code=f"MISSING_{tag}_ACCESS:{cap_id}",
+            invalid_code=f"INVALID_ACCESS_SCHEMA:{cap_id}",
+            unverified_code=f"UNVERIFIED_{tag}_ACCESS:{cap_id}",
+            inconsistent_code=f"INCONSISTENT_{tag}_ACCESS:{cap_id}",
+        )
+    )
     return problems
 
 
@@ -2213,8 +2407,10 @@ _NON_READ_ONLY_GROUP_MODES = frozenset(
         "paper.standby.watchdog",
         "paper.observed_execution.l2",
         "paper.observed_execution.vike_minute",
+        "paper.observer.finite",
         "paper.observer.continuous",
         "paper.observer.continuous_watchdog",
+        "market.ccxt.record",
         "market.continuous_canary",
     }
 )
@@ -2406,6 +2602,51 @@ def _inspect_cwsa_add_arguments(root: Path, target_node: dict) -> list[str]:
     return []
 
 
+def _extract_op_map(dict_node: ast.Dict) -> dict[str, tuple[str, ...]] | None:
+    op_map: dict[str, tuple[str, ...]] = {}
+    for k_node, v_node in zip(dict_node.keys, dict_node.values, strict=True):
+        k_str = _const_str(k_node) if k_node is not None else None
+        v_tup = _const_str_tuple(v_node)
+        if k_str is None or v_tup is None:
+            return None
+        op_map[k_str] = v_tup
+    return op_map
+
+
+def _apply_loop_add_parser(
+    stmt: ast.stmt,
+    *,
+    var_name: str,
+    val: str,
+    parser_vars: dict[str, tuple[str, ...]],
+    subparser_vars: Mapping[str, tuple[str, ...]],
+    nodes: dict[tuple[str, ...], dict],
+    visited_calls: set[int],
+    missing_recv_code: str,
+) -> tuple[bool, str | None]:
+    """Match `tgt = sp.add_parser(var_name)` inside bounded domain/op loops."""
+    tgt, call, valid_call = _assignment_target_call(stmt)
+    if (
+        not valid_call
+        or tgt is None
+        or call is None
+        or not isinstance(call.func, ast.Attribute)
+        or call.func.attr != "add_parser"
+        or len(call.args) != 1
+        or not isinstance(call.args[0], ast.Name)
+        or call.args[0].id != var_name
+    ):
+        return False, None
+    recv_name = call.func.value.id if isinstance(call.func.value, ast.Name) else None
+    if recv_name not in subparser_vars:
+        return True, missing_recv_code
+    visited_calls.add(id(call))
+    child = (*subparser_vars[recv_name], val)
+    nodes[child] = _new_parser_node()
+    parser_vars[tgt] = child
+    return True, None
+
+
 def _inspect_operations_parser(root: Path) -> tuple[dict[str, dict], list[str]]:
     """Bounded AST inspector for pm_operations.parser() and pm_cwsa_chapter2_gate.add_arguments."""
     ops_path = root / "src/copytrade_pm/pm_operations.py"
@@ -2429,14 +2670,6 @@ def _inspect_operations_parser(root: Path) -> tuple[dict[str, dict], list[str]]:
     nodes: dict[tuple[str, ...], dict] = {}
     visited_calls: set[int] = set()
     errors: list[str] = []
-
-    def _new_node() -> dict:
-        return {
-            "has_subparsers": False,
-            "options": {},
-            "positionals": {},
-            "required_groups": [],
-        }
 
     def _handle_parser_call(
         call: ast.Call,
@@ -2467,7 +2700,7 @@ def _inspect_operations_parser(root: Path) -> tuple[dict[str, dict], list[str]]:
 
         if attr == "ArgumentParser":
             if isinstance(recv, ast.Name) and recv.id == "argparse" and target and () not in nodes:
-                nodes[()] = _new_node()
+                nodes[()] = _new_parser_node()
                 local_parsers[target] = ()
             else:
                 errors.append("UNSUPPORTED_OPERATIONS_PARSER_CONSTRUCT:ArgumentParser")
@@ -2493,7 +2726,7 @@ def _inspect_operations_parser(root: Path) -> tuple[dict[str, dict], list[str]]:
                 if child in nodes:
                     errors.append("UNSUPPORTED_OPERATIONS_PARSER_CONSTRUCT:duplicate_parser")
                 else:
-                    nodes[child] = _new_node()
+                    nodes[child] = _new_parser_node()
                     if target is not None:
                         local_parsers[target] = child
         elif attr == "add_argument":
@@ -2512,6 +2745,86 @@ def _inspect_operations_parser(root: Path) -> tuple[dict[str, dict], list[str]]:
         else:
             errors.append(f"UNSUPPORTED_OPERATIONS_PARSER_CONSTRUCT:{attr}")
 
+    def _run_op_if(
+        stmt: ast.If,
+        env: dict[str, str],
+        op_p: dict[str, tuple[str, ...]],
+        op_s: dict[str, tuple[str, ...]],
+    ) -> bool:
+        if stmt.orelse:
+            errors.append("UNSUPPORTED_OPERATIONS_PARSER_CONSTRUCT:loop_op_stmt")
+            return False
+        cond = _eval_static_condition(stmt.test, env)
+        if cond is None:
+            errors.append("UNSUPPORTED_OPERATIONS_PARSER_CONSTRUCT:dynamic_condition")
+            return False
+        for b_stmt in stmt.body:
+            if not (isinstance(b_stmt, ast.Expr) and isinstance(b_stmt.value, ast.Call)):
+                errors.append("UNSUPPORTED_OPERATIONS_PARSER_CONSTRUCT:if_body_stmt")
+                return False
+            if cond:
+                _handle_parser_call(b_stmt.value, None, op_p, op_s)
+            elif _call_name(b_stmt.value) in PARSER_CALL_NAMES:
+                visited_calls.add(id(b_stmt.value))
+        return True
+
+    def _run_op_loop(
+        loop_stmt: ast.For,
+        domain: str,
+        domain_var: str,
+        loc_p: dict[str, tuple[str, ...]],
+        loc_s: dict[str, tuple[str, ...]],
+    ) -> bool:
+        is_domain_dict = (
+            isinstance(loop_stmt.target, ast.Name)
+            and not loop_stmt.orelse
+            and isinstance(loop_stmt.iter, ast.Subscript)
+            and isinstance(loop_stmt.iter.value, ast.Dict)
+            and isinstance(loop_stmt.iter.slice, ast.Name)
+            and loop_stmt.iter.slice.id == domain_var
+        )
+        if not is_domain_dict:
+            errors.append("UNSUPPORTED_OPERATIONS_PARSER_CONSTRUCT:loop_body_stmt")
+            return False
+        assert isinstance(loop_stmt.target, ast.Name)
+        assert isinstance(loop_stmt.iter, ast.Subscript)
+        assert isinstance(loop_stmt.iter.value, ast.Dict)
+        op_map = _extract_op_map(loop_stmt.iter.value)
+        if op_map is None:
+            errors.append("UNSUPPORTED_OPERATIONS_PARSER_CONSTRUCT:loop_op_map")
+            return False
+        if domain not in op_map:
+            errors.append("UNSUPPORTED_OPERATIONS_PARSER_CONSTRUCT:missing_domain_key")
+            return False
+        op_var = loop_stmt.target.id
+        for op_val in op_map[domain]:
+            env = {domain_var: domain, op_var: op_val}
+            op_p = dict(loc_p)
+            op_s = dict(loc_s)
+            for op_stmt in loop_stmt.body:
+                matched, err = _apply_loop_add_parser(
+                    op_stmt,
+                    var_name=op_var,
+                    val=op_val,
+                    parser_vars=op_p,
+                    subparser_vars=op_s,
+                    nodes=nodes,
+                    visited_calls=visited_calls,
+                    missing_recv_code="UNSUPPORTED_OPERATIONS_PARSER_CONSTRUCT:loop_op_parser",
+                )
+                if matched:
+                    if err:
+                        errors.append(err)
+                        return False
+                    continue
+                if isinstance(op_stmt, ast.If):
+                    if not _run_op_if(op_stmt, env, op_p, op_s):
+                        return False
+                    continue
+                errors.append("UNSUPPORTED_OPERATIONS_PARSER_CONSTRUCT:loop_op_stmt")
+                return False
+        return True
+
     def _run_domain_loop(loop_stmt: ast.For) -> None:
         domains = _const_str_tuple(loop_stmt.iter)
         if not isinstance(loop_stmt.target, ast.Name) or domains is None or loop_stmt.orelse:
@@ -2522,125 +2835,29 @@ def _inspect_operations_parser(root: Path) -> tuple[dict[str, dict], list[str]]:
             loc_p = dict(parser_vars)
             loc_s = dict(subparser_vars)
             for inner in loop_stmt.body:
-                if (
-                    isinstance(inner, ast.Assign)
-                    and len(inner.targets) == 1
-                    and isinstance(inner.targets[0], ast.Name)
-                ):
-                    tgt = inner.targets[0].id
-                    call = inner.value if isinstance(inner.value, ast.Call) else None
-                    if call and isinstance(call.func, ast.Attribute):
-                        if (
-                            call.func.attr == "add_parser"
-                            and len(call.args) == 1
-                            and isinstance(call.args[0], ast.Name)
-                            and call.args[0].id == domain_var
-                        ):
-                            recv_n = (
-                                call.func.value.id
-                                if isinstance(call.func.value, ast.Name)
-                                else None
-                            )
-                            if recv_n not in loc_s:
-                                errors.append(
-                                    "UNSUPPORTED_OPERATIONS_PARSER_CONSTRUCT:loop_add_parser"
-                                )
-                                return
-                            visited_calls.add(id(call))
-                            child = (*loc_s[recv_n], domain)
-                            nodes[child] = _new_node()
-                            loc_p[tgt] = child
-                            continue
-                        _handle_parser_call(call, tgt, loc_p, loc_s)
-                        continue
-                elif (
-                    isinstance(inner, ast.For)
-                    and isinstance(inner.target, ast.Name)
-                    and not inner.orelse
-                ):
-                    op_var = inner.target.id
-                    if (
-                        isinstance(inner.iter, ast.Subscript)
-                        and isinstance(inner.iter.value, ast.Dict)
-                        and isinstance(inner.iter.slice, ast.Name)
-                        and inner.iter.slice.id == domain_var
-                    ):
-                        op_map: dict[str, tuple[str, ...]] = {}
-                        for k_node, v_node in zip(
-                            inner.iter.value.keys, inner.iter.value.values, strict=True
-                        ):
-                            k_str = _const_str(k_node) if k_node is not None else None
-                            v_tup = _const_str_tuple(v_node)
-                            if k_str is None or v_tup is None:
-                                errors.append("UNSUPPORTED_OPERATIONS_PARSER_CONSTRUCT:loop_op_map")
-                                return
-                            op_map[k_str] = v_tup
-                        if domain not in op_map:
-                            errors.append(
-                                "UNSUPPORTED_OPERATIONS_PARSER_CONSTRUCT:missing_domain_key"
-                            )
-                            return
-                        for op_val in op_map[domain]:
-                            env = {domain_var: domain, op_var: op_val}
-                            op_p = dict(loc_p)
-                            op_s = dict(loc_s)
-                            for op_stmt in inner.body:
-                                if (
-                                    isinstance(op_stmt, ast.Assign)
-                                    and len(op_stmt.targets) == 1
-                                    and isinstance(op_stmt.targets[0], ast.Name)
-                                    and isinstance(op_stmt.value, ast.Call)
-                                ):
-                                    c = op_stmt.value
-                                    if (
-                                        isinstance(c.func, ast.Attribute)
-                                        and c.func.attr == "add_parser"
-                                        and len(c.args) == 1
-                                        and isinstance(c.args[0], ast.Name)
-                                        and c.args[0].id == op_var
-                                    ):
-                                        rn = (
-                                            c.func.value.id
-                                            if isinstance(c.func.value, ast.Name)
-                                            else None
-                                        )
-                                        if rn not in op_s:
-                                            errors.append(
-                                                "UNSUPPORTED_OPERATIONS_PARSER_CONSTRUCT:loop_op_parser"
-                                            )
-                                            return
-                                        visited_calls.add(id(c))
-                                        child = (*op_s[rn], op_val)
-                                        nodes[child] = _new_node()
-                                        op_p[op_stmt.targets[0].id] = child
-                                        continue
-                                if isinstance(op_stmt, ast.If) and not op_stmt.orelse:
-                                    cond = _eval_static_condition(op_stmt.test, env)
-                                    if cond is None:
-                                        errors.append(
-                                            "UNSUPPORTED_OPERATIONS_PARSER_CONSTRUCT:dynamic_condition"
-                                        )
-                                        return
-                                    for b_stmt in op_stmt.body:
-                                        if not (
-                                            isinstance(b_stmt, ast.Expr)
-                                            and isinstance(b_stmt.value, ast.Call)
-                                        ):
-                                            errors.append(
-                                                "UNSUPPORTED_OPERATIONS_PARSER_CONSTRUCT:if_body_stmt"
-                                            )
-                                            return
-                                        if cond:
-                                            _handle_parser_call(b_stmt.value, None, op_p, op_s)
-                                        else:
-                                            if _call_name(b_stmt.value) in PARSER_CALL_NAMES:
-                                                visited_calls.add(id(b_stmt.value))
-                                    continue
-                                errors.append(
-                                    "UNSUPPORTED_OPERATIONS_PARSER_CONSTRUCT:loop_op_stmt"
-                                )
-                                return
-                        continue
+                matched, err = _apply_loop_add_parser(
+                    inner,
+                    var_name=domain_var,
+                    val=domain,
+                    parser_vars=loc_p,
+                    subparser_vars=loc_s,
+                    nodes=nodes,
+                    visited_calls=visited_calls,
+                    missing_recv_code="UNSUPPORTED_OPERATIONS_PARSER_CONSTRUCT:loop_add_parser",
+                )
+                if matched:
+                    if err:
+                        errors.append(err)
+                        return
+                    continue
+                tgt, call, valid_call = _assignment_target_call(inner)
+                if valid_call and tgt is not None and call and isinstance(call.func, ast.Attribute):
+                    _handle_parser_call(call, tgt, loc_p, loc_s)
+                    continue
+                if isinstance(inner, ast.For):
+                    if not _run_op_loop(inner, domain, domain_var, loc_p, loc_s):
+                        return
+                    continue
                 errors.append("UNSUPPORTED_OPERATIONS_PARSER_CONSTRUCT:loop_body_stmt")
                 return
 
@@ -2650,17 +2867,12 @@ def _inspect_operations_parser(root: Path) -> tuple[dict[str, dict], list[str]]:
                 "add_arguments"
             ]:
                 errors.append("UNSUPPORTED_OPERATIONS_PARSER_CONSTRUCT:unexpected_import")
-        elif (
-            isinstance(stmt, ast.Assign)
-            and len(stmt.targets) == 1
-            and isinstance(stmt.targets[0], ast.Name)
-        ):
-            if not isinstance(stmt.value, ast.Call):
-                errors.append("UNSUPPORTED_OPERATIONS_PARSER_CONSTRUCT:non_call_assign")
-            else:
-                _handle_parser_call(stmt.value, stmt.targets[0].id, parser_vars, subparser_vars)
-        elif isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
-            _handle_parser_call(stmt.value, None, parser_vars, subparser_vars)
+            continue
+        tgt, call, valid_call = _assignment_target_call(stmt)
+        if tgt is not None and not valid_call:
+            errors.append("UNSUPPORTED_OPERATIONS_PARSER_CONSTRUCT:non_call_assign")
+        elif valid_call and call is not None:
+            _handle_parser_call(call, tgt, parser_vars, subparser_vars)
         elif isinstance(stmt, ast.For):
             _run_domain_loop(stmt)
         elif (
@@ -2678,13 +2890,7 @@ def _inspect_operations_parser(root: Path) -> tuple[dict[str, dict], list[str]]:
     for path, spec in nodes.items():
         if path and not spec["has_subparsers"]:
             continue
-        has_parent_constraint = (
-            any(meta["required"] for meta in spec["options"].values())
-            or "--apply" in spec["options"]
-            or any(meta["required"] for meta in spec["positionals"].values())
-            or bool(spec["required_groups"])
-        )
-        if has_parent_constraint:
+        if _has_parent_node_constraint(spec):
             errors.append("UNSUPPORTED_OPERATIONS_PARSER_CONSTRUCT:parent_node_constraint")
 
     leaves = {
@@ -2703,64 +2909,64 @@ def _validate_operations_cli(root: Path) -> list[str]:
     for dup in sorted(native_set & subcmd_set):
         problems.append(f"DUPLICATE_OPERATIONS_CATALOG:{dup}")
 
-    cataloged_leaves: dict[str, tuple[str, dict[str, object]]] = {}
-    for leaf, cap_id in _OPERATIONS_NATIVE_LEAVES.items():
-        if cap_id not in NATIVE:
-            problems.append(f"STALE_OPERATIONS_NATIVE_CAP:{cap_id}")
-            continue
-        _, _, _, safety, _ = NATIVE[cap_id]
-        cataloged_leaves[leaf] = (
-            cap_id,
-            {
-                "classification": safety,
-                "required_arguments": NATIVE_REQUIRED_ARGUMENTS.get(cap_id, []),
-                "runtime_required_arguments": NATIVE_RUNTIME_REQUIRED_ARGUMENTS.get(cap_id, []),
-                "access": NATIVE_ACCESS.get(cap_id),
-            },
-        )
-    for leaf, spec in OPERATIONS_SUBCOMMANDS.items():
-        cataloged_leaves[leaf] = (str(spec["id"]), spec)
-
-    for leaf in sorted(set(leaves) - set(cataloged_leaves)):
+    cataloged_leaves: set[str] = native_set | subcmd_set
+    for leaf in sorted(set(leaves) - cataloged_leaves):
         problems.append(f"UNLISTED_OPERATIONS_LEAF:{leaf}")
-    for leaf in sorted(set(cataloged_leaves) - set(leaves)):
+    for leaf in sorted(cataloged_leaves - set(leaves)):
         problems.append(f"STALE_OPERATIONS_LEAF:{leaf}")
 
-    def _check_entry(leaf: str, spec: dict, cap_id: str, meta: dict[str, object]) -> None:
-        safety = str(meta["classification"])
-        if safety != "READ_ONLY" or "--apply" in spec["options"]:
+    def _check_entry(
+        leaf: str,
+        parser_spec: dict,
+        cap_id: str,
+        *,
+        safety: str,
+        required_arguments: Sequence[str],
+        runtime_required_arguments: Sequence[str],
+        access: Mapping[str, object] | None,
+    ) -> None:
+        if safety != "READ_ONLY" or "--apply" in parser_spec["options"]:
             problems.append(f"UNSAFE_OPERATIONS_CLASSIFICATION:{leaf}")
-
-        parser_req_opts, parser_req_pos, _ = _parser_required_sets(spec)
-        decl_req_opts, decl_req_pos, _ = _split_declared_required_args(
-            list(meta.get("required_arguments") or [])  # type: ignore[arg-type]
-        )
-        for missing in sorted(parser_req_opts - decl_req_opts):
-            problems.append(f"MISSING_OPERATIONS_REQUIRED_ARG:{leaf}:{missing}")
-        for extra in sorted(decl_req_opts - parser_req_opts):
-            problems.append(f"STALE_OPERATIONS_REQUIRED_ARG:{leaf}:{extra}")
-        if decl_req_pos != parser_req_pos:
-            problems.append(f"OPERATIONS_POSITIONAL_MISMATCH:{leaf}")
-
-        for rtok in list(meta.get("runtime_required_arguments") or []):  # type: ignore[arg-type]
-            flag = rtok.split()[0]
-            if flag not in spec["options"] or flag in parser_req_opts:
-                problems.append(f"STALE_OPERATIONS_RUNTIME_ARG:{leaf}:{flag}")
-
         problems.extend(
-            _validate_access_entry(
-                meta.get("access"),  # type: ignore[arg-type]
+            _validate_declared_contract(
+                tag="OPERATIONS",
+                target=leaf,
+                cap_id=cap_id,
                 safety=safety,
-                missing_code=f"MISSING_OPERATIONS_ACCESS:{cap_id}",
-                invalid_code=f"INVALID_ACCESS_SCHEMA:{cap_id}",
-                unverified_code=f"UNVERIFIED_OPERATIONS_ACCESS:{cap_id}",
-                inconsistent_code=f"INCONSISTENT_OPERATIONS_ACCESS:{cap_id}",
+                parser_spec=parser_spec,
+                required_arguments=required_arguments,
+                runtime_required_arguments=runtime_required_arguments,
+                access=access,
+                mismatch_code="OPERATIONS_POSITIONAL_MISMATCH",
             )
         )
 
-    for leaf, (cap_id, meta) in sorted(cataloged_leaves.items()):
+    for leaf, cap_id in sorted(_OPERATIONS_NATIVE_LEAVES.items()):
+        if cap_id not in NATIVE:
+            problems.append(f"STALE_OPERATIONS_NATIVE_CAP:{cap_id}")
+            continue
         if leaf in leaves:
-            _check_entry(leaf, leaves[leaf], cap_id, meta)
+            _, _, _, safety, _ = NATIVE[cap_id]
+            _check_entry(
+                leaf,
+                leaves[leaf],
+                cap_id,
+                safety=safety,
+                required_arguments=NATIVE_REQUIRED_ARGUMENTS.get(cap_id, []),
+                runtime_required_arguments=NATIVE_RUNTIME_REQUIRED_ARGUMENTS.get(cap_id, []),
+                access=NATIVE_ACCESS.get(cap_id),
+            )
+    for leaf, spec in sorted(OPERATIONS_SUBCOMMANDS.items()):
+        if leaf in leaves:
+            _check_entry(
+                leaf,
+                leaves[leaf],
+                str(spec["id"]),
+                safety=str(spec["classification"]),
+                required_arguments=spec["required_arguments"],
+                runtime_required_arguments=spec["runtime_required_arguments"],
+                access=spec["access"],
+            )
     for mirror_id, leaf in _OPERATIONS_NATIVE_MIRRORS:
         if leaf in leaves and mirror_id in NATIVE:
             _, _, _, safety, _ = NATIVE[mirror_id]
@@ -2768,14 +2974,10 @@ def _validate_operations_cli(root: Path) -> list[str]:
                 leaf,
                 leaves[leaf],
                 mirror_id,
-                {
-                    "classification": safety,
-                    "required_arguments": NATIVE_REQUIRED_ARGUMENTS.get(mirror_id, []),
-                    "runtime_required_arguments": NATIVE_RUNTIME_REQUIRED_ARGUMENTS.get(
-                        mirror_id, []
-                    ),
-                    "access": NATIVE_ACCESS.get(mirror_id),
-                },
+                safety=safety,
+                required_arguments=NATIVE_REQUIRED_ARGUMENTS.get(mirror_id, []),
+                runtime_required_arguments=NATIVE_RUNTIME_REQUIRED_ARGUMENTS.get(mirror_id, []),
+                access=NATIVE_ACCESS.get(mirror_id),
             )
     return sorted(set(problems))
 
@@ -3065,40 +3267,49 @@ def _validate_group_scripts(root: Path, scripts: dict[str, str]) -> list[str]:
     for cap_id, meta in GROUP_OPERATIONS.items():
         script_name = str(meta["script"])
         safety = str(meta["classification"])
+        interface = str(meta["interface"])
+        if (
+            cap_id in _NON_READ_ONLY_GROUP_MODES or "--apply" in interface.split()
+        ) and safety == "READ_ONLY":
+            problems.append(f"UNSAFE_GROUP_CLASSIFICATION:{cap_id}")
+        parent_max_rank[script_name] = max(
+            parent_max_rank.get(script_name, -1), _CLASS_RANK.get(safety, 99)
+        )
+        problems.extend(
+            _validate_declared_contract(
+                tag="GROUP",
+                target=cap_id,
+                cap_id=cap_id,
+                safety=safety,
+                parser_spec=parsed_scripts.get(script_name),
+                required_arguments=meta["required_arguments"],
+                runtime_required_arguments=meta["runtime_required_arguments"],
+                access=meta["access"],
+                ignore_positionals=_GROUP_MODE_POSITIONALS.get(script_name, frozenset()),
+                mismatch_code="GROUP_REQUIRED_GROUP_OR_POSITIONAL_MISMATCH",
+                check_groups=True,
+                ignore_runtime_prefix="spec.",
+            )
+        )
+
+    for cap_id, script_name in _GROUP_NATIVE_SCRIPTS.items():
+        _, _, _, safety, _ = NATIVE[cap_id]
         if cap_id in _NON_READ_ONLY_GROUP_MODES and safety == "READ_ONLY":
             problems.append(f"UNSAFE_GROUP_CLASSIFICATION:{cap_id}")
         parent_max_rank[script_name] = max(
             parent_max_rank.get(script_name, -1), _CLASS_RANK.get(safety, 99)
         )
-        script_spec = parsed_scripts.get(script_name)
-        if script_spec is not None:
-            p_opts, p_pos, p_groups = _parser_required_sets(
-                script_spec,
-                ignore_positionals=_GROUP_MODE_POSITIONALS.get(script_name, frozenset()),
-            )
-            d_opts, d_pos, d_groups = _split_declared_required_args(
-                list(meta["required_arguments"])  # type: ignore[arg-type]
-            )
-            for missing in sorted(p_opts - d_opts):
-                problems.append(f"MISSING_GROUP_REQUIRED_ARG:{cap_id}:{missing}")
-            for extra in sorted(d_opts - p_opts):
-                problems.append(f"STALE_GROUP_REQUIRED_ARG:{cap_id}:{extra}")
-            if d_pos != p_pos or sorted(d_groups) != sorted(p_groups):
-                problems.append(f"GROUP_REQUIRED_GROUP_OR_POSITIONAL_MISMATCH:{cap_id}")
-            for rtok in list(meta["runtime_required_arguments"]):  # type: ignore[arg-type]
-                if rtok.startswith("spec."):
-                    continue
-                rflag = rtok.split()[0]
-                if rflag not in script_spec["options"] or rflag in p_opts:
-                    problems.append(f"STALE_GROUP_RUNTIME_ARG:{cap_id}:{rflag}")
         problems.extend(
-            _validate_access_entry(
-                meta.get("access"),  # type: ignore[arg-type]
+            _validate_declared_contract(
+                tag="NATIVE",
+                target=cap_id,
+                cap_id=cap_id,
                 safety=safety,
-                missing_code=f"MISSING_GROUP_ACCESS:{cap_id}",
-                invalid_code=f"INVALID_ACCESS_SCHEMA:{cap_id}",
-                unverified_code=f"UNVERIFIED_GROUP_ACCESS:{cap_id}",
-                inconsistent_code=f"INCONSISTENT_GROUP_ACCESS:{cap_id}",
+                parser_spec=parsed_scripts.get(script_name),
+                required_arguments=NATIVE_REQUIRED_ARGUMENTS.get(cap_id, []),
+                runtime_required_arguments=NATIVE_RUNTIME_REQUIRED_ARGUMENTS.get(cap_id, []),
+                access=NATIVE_ACCESS.get(cap_id),
+                mismatch_code="NATIVE_POSITIONAL_MISMATCH",
             )
         )
 
@@ -3106,37 +3317,6 @@ def _validate_group_scripts(root: Path, scripts: dict[str, str]) -> list[str]:
         parent_desc = GROUPS.get(script_name)
         if parent_desc is not None and _CLASS_RANK.get(parent_desc[2], -1) < max_child_rank:
             problems.append(f"UNSAFE_GROUP_CLASSIFICATION:{script_name}")
-
-    for cap_id, script_name in _GROUP_NATIVE_SCRIPTS.items():
-        _, _, _, safety, _ = NATIVE[cap_id]
-        if cap_id in _NON_READ_ONLY_GROUP_MODES and safety == "READ_ONLY":
-            problems.append(f"UNSAFE_GROUP_CLASSIFICATION:{cap_id}")
-        script_spec = parsed_scripts.get(script_name)
-        if script_spec is not None:
-            p_opts, p_pos, _ = _parser_required_sets(script_spec)
-            d_opts, d_pos, _ = _split_declared_required_args(
-                list(NATIVE_REQUIRED_ARGUMENTS.get(cap_id, []))
-            )
-            for missing in sorted(p_opts - d_opts):
-                problems.append(f"MISSING_NATIVE_REQUIRED_ARG:{cap_id}:{missing}")
-            for extra in sorted(d_opts - p_opts):
-                problems.append(f"STALE_NATIVE_REQUIRED_ARG:{cap_id}:{extra}")
-            if d_pos != p_pos:
-                problems.append(f"NATIVE_POSITIONAL_MISMATCH:{cap_id}")
-            for rtok in NATIVE_RUNTIME_REQUIRED_ARGUMENTS.get(cap_id, []):
-                rflag = rtok.split()[0]
-                if rflag not in script_spec["options"] or rflag in p_opts:
-                    problems.append(f"STALE_NATIVE_RUNTIME_ARG:{cap_id}:{rflag}")
-        problems.extend(
-            _validate_access_entry(
-                NATIVE_ACCESS.get(cap_id),
-                safety=safety,
-                missing_code=f"MISSING_NATIVE_ACCESS:{cap_id}",
-                invalid_code=f"INVALID_ACCESS_SCHEMA:{cap_id}",
-                unverified_code=f"UNVERIFIED_NATIVE_ACCESS:{cap_id}",
-                inconsistent_code=f"INCONSISTENT_NATIVE_ACCESS:{cap_id}",
-            )
-        )
 
     return sorted(set(problems))
 
