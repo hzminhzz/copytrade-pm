@@ -1,0 +1,37 @@
+/* Additive Chapter 2 owner-evidence section; retains the existing Ops UI system. */
+.owner-evidence { padding: 18px; margin-bottom: 14px; }
+.owner-evidence-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 15px; }
+.owner-evidence-header h3 { margin: 0 0 5px; font-size: 15px; }
+.owner-evidence-header p { margin: 0; font-size: 12px; opacity: .75; line-height: 1.5; }
+.owner-evidence-controls { display: flex; align-items: center; gap: 9px; flex-shrink: 0; }
+.owner-evidence-controls label { font-size: 12px; }
+.owner-evidence-controls select { max-width: 220px; min-height: 38px; padding: 0 8px; border: 1px solid var(--border); border-radius: 7px; color: inherit; background: var(--card); }
+.owner-evidence-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 9px; margin-bottom: 12px; }
+.owner-cell, .owner-dimension { display: flex; flex-direction: column; justify-content: space-between; gap: 8px; min-width: 0; padding: 11px; border: 1px solid var(--border); border-radius: 8px; }
+.owner-cell > span, .owner-dimension > span { font-size: 11px; opacity: .7; line-height: 1.4; text-transform: capitalize; }
+.owner-cell > strong { font-family: var(--font-mono, ui-monospace,monospace); font-size: 12px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.owner-dimension > .badge { align-self: flex-start; max-width: 100%; white-space: normal; }
+.owner-evidence-states { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 9px; margin-bottom: 13px; }
+.owner-evidence-states > div { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.owner-evidence-states span:first-child { font-size: 12px; }
+.owner-evidence-section { margin: 15px 0; }
+.owner-evidence-section h4 { margin: 0 0 9px; font-size: 13px; }
+.owner-evidence-section p { margin: 6px 0; font-size: 12px; overflow-wrap: anywhere; }
+.owner-clock-table { min-width: 650px; }
+.owner-clock-table th, .owner-clock-table td { font-size: 11px; font-variant-numeric: tabular-nums; }
+.owner-clock-table td { height: auto; padding: 10px; }
+.owner-clock-table td.owner-hash { max-width: 190px; overflow-wrap: anywhere; white-space: normal; font-family: var(--font-mono, ui-monospace,monospace); }
+.owner-blockers { max-height: 155px; padding-left: 20px; overflow-y: auto; }
+.owner-blockers li { margin: 5px 0; font-size: 12px; overflow-wrap: anywhere; }
+.owner-next-operation { padding: 11px; border: 1px dashed var(--border); border-radius: 8px; font-size: 12px; overflow-wrap: anywhere; }
+.owner-empty { padding: 20px; font-size: 13px; opacity: .8; }
+.owner-evidence .record-readonly { display: block; margin-top: 12px; }
+@media (max-width: 980px) {
+  .owner-evidence-grid, .owner-evidence-states { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .owner-evidence-header { flex-wrap: wrap; }
+}
+@media (max-width: 520px) {
+  .owner-evidence-grid, .owner-evidence-states { grid-template-columns: 1fr; }
+  .owner-evidence-controls { width: 100%; flex-wrap: wrap; }
+  .owner-evidence-controls select { flex: 1; min-width: 0; }
+}

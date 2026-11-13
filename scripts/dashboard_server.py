@@ -17,10 +17,11 @@ import os
 from pathlib import Path
 import re
 import sqlite3
+import subprocess
 import sys
 import threading
 import time
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 WORKSPACE = Path(__file__).resolve().parents[1]
 DIST = WORKSPACE / "ops" / "control-center" / "dist"
@@ -46,6 +47,13 @@ HASHED_ASSET = re.compile(r"^/assets/[\w.-]+-[A-Za-z0-9_-]{8,}\.(?:js|css|svg|wo
 _STATE_CACHE: tuple[float, str, dict] | None = None
 _STATE_CACHE_LOCK = threading.Lock()
 _STATE_CACHE_SECONDS = 8.0
+_OWNER_VIEW_CACHE: dict[tuple[str, str, str], tuple[float, dict]] = {}
+_OWNER_VIEW_CACHE_LOCK = threading.Lock()
+_OWNER_VIEW_CACHE_SECONDS = 8.0
+# Fixed read-only input selectors; assert parity with PORTFOLIO_CONFIGS in tests.
+_CHAPTER2_PORTFOLIOS = frozenset(
+    {"A", "B", "C", "Combo2", "regime.macro/TriadA", "regime.macro/TriadChop"}
+)
 
 
 def utc_now() -> str:
@@ -297,14 +305,101 @@ def cached_sqlite_state() -> dict:
         return state
 
 
+def _invoke_owner_cli(argv: list[str]) -> dict:
+    """Invoke pinned source with a configured dependency-complete Python.
+
+    The Ops HTTP daemon intentionally uses system Python without Pydantic.
+    Never install packages or create a venv in the immutable running release.
+    """
+    configured = os.environ.get("COPYTRADE_OPS_OWNER_PYTHON")
+    if not configured:
+        raise FileNotFoundError("Owner interpreter not configured")
+    python = Path(configured)
+    if not python.is_absolute() or not python.is_file() or not os.access(python, os.X_OK):
+        raise OSError("Owner interpreter unavailable")
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(WORKSPACE / "src")
+    try:
+        completed = subprocess.run(
+            [str(python), "-m", "copytrade_pm.pm_operations", *argv],
+            cwd=WORKSPACE,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise OSError("Owner inspection timed out") from exc
+    # Exit 2 means the owner could not complete the requested read, even when
+    # it printed a structured error projection. Never promote that to HTTP 200.
+    if completed.returncode != 0 or len(completed.stdout) > 256_000:
+        raise OSError("Owner inspection failed")
+    payload = json.loads(completed.stdout)
+    if (
+        not isinstance(payload, dict)
+        or payload.get("schema") != "cwsa_chapter2_site_owner_view_v1"
+        or payload.get("trading_authorized") is not False
+        or payload.get("order_route") != "NONE"
+    ):
+        raise ValueError("Owner permission or schema unsupported")
+    return payload
+
+
+def chapter2_owner_view(portfolio: str, inspection: str) -> dict:
+    """One bounded, redacted owner read; no HTTP caller file paths or mutation."""
+    if not REGISTRY_DB.is_file():
+        raise FileNotFoundError("Registry owner unavailable")
+    argv = [
+        "cwsa",
+        "chapter2",
+        "site-view",
+        "--portfolio",
+        portfolio,
+        "--inspection",
+        inspection,
+        "--registry-db",
+        str(REGISTRY_DB),
+    ]
+    for flag, name in (
+        ("--source-db", "COPYTRADE_OPS_CWSA_SOURCE_DB"),
+        ("--paper-root", "COPYTRADE_OPS_CWSA_PAPER_ROOT"),
+        ("--quote-db", "COPYTRADE_OPS_CWSA_QUOTE_DB"),
+        ("--epoch", "COPYTRADE_OPS_CWSA_EPOCH"),
+    ):
+        configured = os.environ.get(name)
+        if configured:
+            argv.extend((flag, configured))
+    result = _invoke_owner_cli(argv)
+    if (result.get("scope") or {}).get("portfolio") != portfolio:
+        raise ValueError("Owner scope mismatch")
+    return result
+
+
+def cached_chapter2_owner_view(portfolio: str, inspection: str) -> dict:
+    """Singleflight bounded read prevents repeated public HTTP from pinning WAL."""
+    key = (str(REGISTRY_DB.resolve()), portfolio, inspection)
+    with _OWNER_VIEW_CACHE_LOCK:
+        now = time.monotonic()
+        hit = _OWNER_VIEW_CACHE.get(key)
+        if hit is not None and now - hit[0] < _OWNER_VIEW_CACHE_SECONDS:
+            return hit[1]
+        value = chapter2_owner_view(portfolio, inspection)
+        # At most six selected portfolio keys x two inspection modes.
+        if len(_OWNER_VIEW_CACHE) >= 12:
+            _OWNER_VIEW_CACHE.clear()
+        _OWNER_VIEW_CACHE[key] = (time.monotonic(), value)
+        return value
+
+
 class DashboardHandler(SimpleHTTPRequestHandler):
     """No write methods, CORS entitlement, directory listing or private keys."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(DIST), **kwargs)
 
-    def log_message(self, fmt: str, *args: object) -> None:
-        print("[ops] " + fmt % args, file=sys.stderr)
+    def log_message(self, format: str, *args: object) -> None:
+        print("[ops] " + format % args, file=sys.stderr)
 
     def end_headers(self) -> None:
         self.send_header("X-Content-Type-Options", "nosniff")
@@ -337,7 +432,41 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         self.wfile.write(raw)
 
     def do_GET(self) -> None:
-        path = urlsplit(self.path).path
+        parsed = urlsplit(self.path)
+        path = parsed.path
+        if path == "/api/owner-view":
+            # Only a fixed Chapter 2 portfolio and inspection can be requested.
+            # Reject repeated/extra parameters and caller-provided file paths.
+            query = parse_qs(parsed.query, keep_blank_values=True)
+            if (
+                len(parsed.query) > 240
+                or not set(query) <= {"portfolio", "inspection"}
+                or len(query.get("portfolio", [])) != 1
+                or len(query.get("inspection", ["evidence"])) != 1
+                or query["portfolio"][0] not in _CHAPTER2_PORTFOLIOS
+                or query.get("inspection", ["evidence"])[0] not in ("metadata", "evidence")
+            ):
+                self.send_json({"error": "Invalid owner-view scope"}, status=HTTPStatus.BAD_REQUEST)
+                return
+            try:
+                view = cached_chapter2_owner_view(
+                    query["portfolio"][0], query.get("inspection", ["evidence"])[0]
+                )
+                self.send_json(view)
+            except (
+                OSError,
+                ValueError,
+                TypeError,
+                KeyError,
+                sqlite3.Error,
+                json.JSONDecodeError,
+            ) as exc:
+                print(f"[ops] owner view unavailable: {type(exc).__name__}", file=sys.stderr)
+                self.send_json(
+                    {"status": "UNKNOWN", "error": "Owner evidence unavailable"},
+                    status=HTTPStatus.SERVICE_UNAVAILABLE,
+                )
+            return
         if path == "/api/health":
             self.send_json(
                 {

@@ -164,11 +164,11 @@ def project(
             "frozen_k_qualified": pid in qualified_k,
             "financial_admission": "PROSPECTIVE_MODELED_PAPER" if modeled else "BLOCKED_EVIDENCE",
             "model_financial_basis": "CWSA_5M_PROSPECTIVE" if modeled else None,
-            "positions_count": current.get("positions_count") if modeled else None,
-            "realized_pnl_usd": current.get("realized_pnl") if modeled else None,
-            "total_costs_usd": current.get("costs") if modeled else None,
-            "current_equity_usd": current.get("current_equity") if modeled else None,
-            "drawdown_usd": current.get("drawdown") if modeled else None,
+            "positions_count": current.get("positions_count") if modeled and current else None,
+            "realized_pnl_usd": current.get("realized_pnl") if modeled and current else None,
+            "total_costs_usd": current.get("costs") if modeled and current else None,
+            "current_equity_usd": current.get("current_equity") if modeled and current else None,
+            "drawdown_usd": current.get("drawdown") if modeled and current else None,
             "blockers": sorted(set(reasons)),
             "broker_orders": None,
             "trading_authorized": False,
@@ -1010,7 +1010,7 @@ def site_owner_view(explanation: dict[str, Any]) -> dict[str, Any]:
     ):
         raise ValueError("SITE_OWNER_EFFECT_PERMISSION_UNSAFE")
     scope = explanation.get("scope")
-    if not isinstance(scope, dict) or not isinstance(scope.get("portfolio"), str):
+    if not isinstance(scope, dict) or scope.get("portfolio") not in PORTFOLIO_CONFIGS:
         raise ValueError("SITE_OWNER_SCOPE_UNVERIFIED")
     # No private journal paths, account addresses, secrets or extra fields may
     # pass through: only known scalar metadata and redacted per-wallet heads.
@@ -1030,12 +1030,77 @@ def site_owner_view(explanation: dict[str, Any]) -> dict[str, Any]:
         )
     }
     heads = explanation.get("owner_heads") or {}
-    view["owner_heads"] = {
-        owner: {key: (heads.get(owner) or {}).get(key) for key in fields} if fields else None
-        for owner, fields in _SITE_HEAD_FIELDS.items()
-    }
+    members = set(PORTFOLIO_CONFIGS[scope["portfolio"]]["members"])
+
+    def sha_or_none(value: object) -> str | None:
+        return (
+            value
+            if isinstance(value, str)
+            and len(value) == 64
+            and all(char in "0123456789abcdefABCDEF" for char in value)
+            else None
+        )
+
+    def wallet_head_map(value: object, *, clocks: bool) -> dict[str, str | int | None]:
+        if not isinstance(value, dict):
+            return {}
+        return {
+            member: (
+                (value[member] if type(value[member]) is int and value[member] >= 0 else None)
+                if clocks
+                else sha_or_none(value[member])
+            )
+            for member in sorted(members & value.keys())
+        }
+
+    clean_heads: dict[str, dict | None] = {}
+    for owner, fields in _SITE_HEAD_FIELDS.items():
+        original = heads.get(owner) or {}
+        clean: dict[str, Any] = {}
+        for key in fields:
+            value = original.get(key) if isinstance(original, dict) else None
+            if key in (
+                "source_heads_by_wallet",
+                "policy_epochs_by_wallet",
+                "scope_generations_by_wallet",
+            ):
+                clean[key] = wallet_head_map(value, clocks=False)
+            elif key in (
+                "original_checkpoint_by_wallet_ms",
+                "receipt_first_known_ms_by_wallet",
+                "published_ms_by_wallet",
+            ):
+                clean[key] = wallet_head_map(value, clocks=True)
+            elif key == "global_policy_epoch_set":
+                clean[key] = (
+                    [safe for item in value if (safe := sha_or_none(item)) is not None]
+                    if isinstance(value, list)
+                    else []
+                )
+            elif key in (
+                "inventory_sha256",
+                "definition_sha256",
+                "head_sha256",
+                "bundle_sha256",
+                "quote_heads_sha256",
+                "journal_head_sha",
+                "wave_head_sha",
+            ):
+                clean[key] = sha_or_none(value)
+            else:
+                clean[key] = value
+        clean_heads[owner] = clean if fields else None
+    view["owner_heads"] = clean_heads
     view["dimensions"] = {
-        name: {key: data.get(key) for key in _SITE_DIMENSION_FIELDS if key in data}
+        name: {
+            key: (
+                sorted(members & set(data[key]))
+                if key == "missing_or_stale_members" and isinstance(data[key], list)
+                else data[key]
+            )
+            for key in _SITE_DIMENSION_FIELDS
+            if key in data
+        }
         for name, data in (explanation.get("dimensions") or {}).items()
         if name
         in (

@@ -9,6 +9,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import OwnerEvidencePanel from "./owner-evidence";
 
 type SectionId = "overview" | "wallets" | "portfolios" | "execution" | "gates" | "release" | "evidence" | "playbook";
 type Basis = "historical" | "prospective" | "paper" | "unknown";
@@ -552,6 +553,7 @@ function GatesPage({ records, onOpen, onStatus }: { records: OpsRecord[]; onOpen
   const gates = records.filter((r) => r.category === "acceptance_gate"); const blockers = records.filter((r) => r.category === "blocker" && !["verified", "archived", "passed"].includes(r.status));
   return <>
     <PageHeading eyebrow="ACCEPTANCE / 05" title="Gates & blockers" description="Track acceptance evidence, failed checks, owners, and the next recovery action." actions={<><Button variant="secondary" icon={FileCheck2} onClick={() => onOpen("test_result")}>Record test result</Button><Button icon={Plus} onClick={() => onOpen("acceptance_gate")}>Add gate</Button></>} />
+    <OwnerEvidencePanel />
     <div className="split-panels">
       <section className="panel list-panel"><div className="table-toolbar"><div><h3>Acceptance checklist</h3><p>Close gates only when the linked receipt supports it.</p></div><Badge tone={gates.length ? "blue" : "warn"}>{gates.length} tracked</Badge></div>
         {gates.length ? <div className="ops-record-list">{gates.map((record) => <OpsRecordRow key={record.id} record={record} onStatus={onStatus} />)}</div> : <EmptyState title="No acceptance gates recorded" detail="Add evidence gates for source capture, live market data, batching, sizing, risk limits, reconciliation, and restart recovery." />}

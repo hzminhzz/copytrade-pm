@@ -151,6 +151,10 @@ def test_site_owner_view_parity_redaction_and_no_side_effect(assessment, monkeyp
     # scalar/head keys may leave the Site interface.
     cli_owner["private_account_key"] = "PRIVATE_CANARY"
     cli_owner["owner_heads"]["source"]["raw_journal"] = "PRIVATE_CANARY"
+    cli_owner["owner_heads"]["source"]["source_heads_by_wallet"]["W028"] = "PRIVATE_CANARY"
+    cli_owner["owner_heads"]["source"]["source_heads_by_wallet"][
+        "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    ] = "PRIVATE_CANARY"
     cli_owner["dimensions"]["source_observation"]["evidence"] = {
         "raw_address": "PRIVATE_CANARY",
         "secret": "PRIVATE_CANARY",
