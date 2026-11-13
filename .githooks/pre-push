@@ -8,4 +8,16 @@ if [[ "${SKIP_CI:-0}" == "1" ]]; then
     exit 0
 fi
 
-exec "$(git rev-parse --show-toplevel)/scripts/ci.sh" all
+# Strip caller Git hook env vars (GIT_DIR, GIT_INDEX_FILE, etc.) so pytest's
+# isolated git fixtures cannot hijack the pushing worktree or its index.
+while IFS= read -r git_var; do
+    [[ -n "$git_var" ]] && unset "$git_var"
+done < <(git rev-parse --local-env-vars 2>/dev/null || true)
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+    GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_PREFIX \
+    GIT_IMPLICIT_WORK_TREE GIT_GRAFT_FILE GIT_SHALLOW_FILE \
+    GIT_NO_REPLACE_OBJECTS GIT_REPLACE_REF_BASE GIT_CONFIG \
+    GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_NAMESPACE || true
+
+TOPLEVEL="$(git rev-parse --show-toplevel 2>/dev/null || (cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd))"
+exec "$TOPLEVEL/scripts/ci.sh" all
