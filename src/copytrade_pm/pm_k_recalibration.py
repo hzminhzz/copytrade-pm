@@ -6,6 +6,7 @@ financial simulator, risk permit, paper-journal writer or active policy loader.
 
 from __future__ import annotations
 
+from contextlib import closing
 from decimal import Decimal
 from math import sqrt
 from statistics import NormalDist
@@ -630,7 +631,9 @@ def offline_preflight(
 
             try:
                 db = Path(registry_path)
-                with sqlite3.connect(f"file:{db.resolve(strict=True)}?mode=ro", uri=True) as con:
+                with closing(
+                    sqlite3.connect(f"file:{db.resolve(strict=True)}?mode=ro", uri=True)
+                ) as con:
                     con.execute("PRAGMA query_only=ON")
                     sealed = select_asof(
                         con, registry_portfolio_id, candidate.proposed_at, version=registry_version

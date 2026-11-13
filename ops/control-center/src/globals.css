@@ -395,8 +395,8 @@ th { letter-spacing:.11em; font-size:10px; } td { font-size:12px; }
 @media (max-width: 760px) {
   .page-container { padding: 26px 16px 48px; }.page-heading h1 { font-size:32px; }
   .stat-grid { gap:1px; }.stat-card { min-height:145px; }.stat-label { position:static; margin:0; }.stat-value { margin-top:12px; font-size:25px; }
-  .overview-grid { grid-template-columns:1fr; }.theme-toggle span { display:none; }.theme-toggle { width:34px; justify-content:center; padding:0; }
-  .topbar { gap:5px; }.topbar-actions { gap:5px; }.connection-chip { font-size:10px; }
+  .overview-grid { grid-template-columns:1fr; }.theme-toggle span { display:none; }.theme-toggle { width:34px; justify-content:center; padding:0; flex-shrink:0; }
+  .topbar { max-width:100%; padding-inline:12px; gap:6px; }.breadcrumbs { min-width:0; overflow:hidden; }.breadcrumbs strong { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.topbar-actions { min-width:0; gap:5px; }.connection-chip { min-width:0; max-width:100%; font-size:10px; white-space:nowrap; }.connection-chip .pulse-dot { flex-shrink:0; }.mobile-menu, .icon-button { flex-shrink:0; }
 }
 .app-shell[data-theme="dark"] .runtime-banner { background:#13262a; border-color:#304649; }
 .app-shell[data-theme="dark"] .runtime-symbol { background:#203b35; color:#a4d8bd; }
