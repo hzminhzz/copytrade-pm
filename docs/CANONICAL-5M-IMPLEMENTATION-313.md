@@ -1,9 +1,8 @@
 # Canonical checkpoint implementation — #313
 
-Implementation integration branch: `integration/cwsa-313-20261112`.
-Approved design: [Q1–Q24](decisions/2026-11-11-canonical-5m-checkpoint-grill.md).
-Current work is nonactivating engineering. Legacy T0+300, installed services,
-original journals, HALTs and broker permissions retain their existing contracts.
+**Role:** DATED IMPLEMENTATION LEDGER for the original `integration/cwsa-313-20261112` program. Preserve the individual evidence and acceptance scope below. [Parent #313](https://github.com/hzminhzz/copytrade-pm/issues/313) and the [versioned dossier](evidence/CWSA-313-DOSSIER-v1-20261112.md) distinguish completed engineering from prospective/economic/release blockers; recheck live issue state. [Chapter 2](CWSA-CHAPTER2-20261112.md) owns its separate current operating procedure. The [agent system plan](AGENT-SYSTEM-DESIGN.md) deepens existing diagnostics/discovery and does not reopen completed domain implementation or replace the original sixteen-portfolio acceptance.
+
+Approved design: [Q1–Q24](decisions/2026-11-11-canonical-5m-checkpoint-grill.md). Engineering evidence below does not independently establish installed policy, financial admission, scientific qualification or broker permission.
 
 ## #314 — native checkpoint candidate
 

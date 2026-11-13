@@ -4,9 +4,7 @@ Research, public observation and deterministic shadow accounting for wallet
 copytrading. This package does not hold broker credentials, submit real orders
 or authorize trading.
 
-Start with [AGENTS.md](AGENTS.md), then [the canonical navigation directory](docs/INDEX.md), the owning source module, and behavioral tests. For new wallet ingestion, [Vike-first is the approved future transport](docs/decisions/2026-11-11-vike-first-wallet-source.md); current V4 complete-position authority is still [official Hyperliquid](docs/decisions/2026-11-08-position-first-t300.md) until a replacement qualifies. The 14-wallet continuity gap is not fixed by documentation.
-Dated studies retain their original assumptions and evidence; inspect live Git,
-SQLite and deployments before claiming current state.
+Start with [AGENTS.md](AGENTS.md), [INDEX](docs/INDEX.md) and the [domain glossary](CONTEXT.md), then the owning source module and public behavioral tests. [Architecture](docs/ARCHITECTURE.md) explains the connected system; [Agent system design](docs/AGENT-SYSTEM-DESIGN.md) owns the proposed interaction model and staged plan. For source work, select the actual policy: [V4 official complete-position T0+300](docs/decisions/2026-11-08-position-first-t300.md) and [CWSA sampled five-minute checkpoints](docs/CWSA-CHAPTER2-20261112.md) have distinct source/timing contracts. [Vike-first](docs/decisions/2026-11-11-vike-first-wallet-source.md) is a separate future transport direction. Dated studies retain their original assumptions; recheck the owning evidence for current state, and distinguish merged/released revisions from edited or untracked worktrees.
 
 ## System ownership
 
@@ -16,7 +14,7 @@ SQLite and deployments before claiming current state.
 | trading-connector | Independent provider transports, normalization and optional ML4T bridges |
 | prop-production | Guardian follower finance, risk permits, durable production intents and SHADOW services |
 | Private source records and financial journals | Actual observations and account state; never inferred from Git |
-| Deployment metadata | Installed revision and verified contract pins; may intentionally differ from development HEAD |
+| Deployment evidence | Configured/installed revision, independently bound application-process identity and contract pins; each may differ from development HEAD |
 
 The source baseline is reviewed GitHub `main`. Fetch before comparison; preserve
 dirty primary checkouts and other sessions. Use a clean isolated checkout for
@@ -69,9 +67,12 @@ checkouts. Passing tests proves engineering behavior, not economic qualification
 
 For wallet/portfolio questions, follow the
 [registry-first workflow](docs/WALLET-REGISTRY-AGENT-WORKFLOW.md).
-Run `doctor`, `status`, `native status` and installed-release verification.
-A physically valid SQLite database can still contain a blocked unsigned research
-selection. Preserve that distinction and never rewrite history to make it pass.
+Use native `doctor` and the scoped metadata reader for the requested identity;
+add `native status` for writer-lock/native-state questions. Aggregate status and
+release/process/financial checks apply only to their corresponding claims.
+Read the [known facade limitations](docs/AGENT-NATIVE-OPERATIONS.md) before using
+unified status. A physically valid SQLite database can contain blocked unsigned
+selection proof; preserve those separate dimensions and historical evidence.
 
 For source acquisition and bounded public observation, follow
 [DATA-ACQUISITION](docs/DATA-ACQUISITION.md) and

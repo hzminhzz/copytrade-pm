@@ -2,6 +2,15 @@
 
 Canonical domain meanings. This glossary does not specify implementation or storage.
 
+## Agent operation and evidence
+
+- **Operation capability**: A supported software operation and its input/effect contract, distinct from provider execution capability and permission to act.
+- **Operation assessment**: An evidence-based account of whether one requested action's applicable prerequisites are satisfied within a declared identity, scope and time; it does not itself grant authority.
+- **Evidence dependency**: A specific original observation, owned state or policy on which a claim or decision depends; a change invalidates affected conclusions without rewriting their historical basis.
+- **Action plan**: A bounded proposed change with an expected predecessor, permitted effect, verification condition and recovery meaning; separate from authorization and any committed financial intent.
+- **Verified postcondition**: Independently checked evidence that the intended owned effect occurred or was rejected; command success alone is insufficient.
+- **Reusable finding**: A retained conclusion with reproducible inputs, scope, assumptions and limitations, including negative or inconclusive outcomes; repetition does not create independent evidence.
+
 ## Source observation
 
 - **Selected account**: The exact authorized-for-observation source account and perp-market scope; parent and subaccounts are independent selections unless explicitly included.
