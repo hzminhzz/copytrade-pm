@@ -19,3 +19,9 @@ Judgment standards for engineering changes and code review. Mechanical formattin
 
 - **Model distinct record schemas with distinct `TypedDict`s:** Split subclasses from a shared base (such as `_OperationsSubcommandSpec` and `_GroupOperationSpec` inheriting `_BaseCommandSpec`) rather than marking required family keys `NotRequired` or suppressing mismatches with `# type: ignore` casts.
 - **Verify touched Python modules with `pyright` and `mypy`:** Keep edited modules error-free under strict checking before committing, and do not add type-checking or lint packages to `uv.lock` without explicit approval.
+
+## CLI Contracts and Verification
+
+- **Reject deprecated aliases fail-closed:** When replacing or tightening an input flag or field contract (for example `--input` vs `--request`), reject legacy aliases explicitly rather than silently accepting both.
+- **Keep catalog, parser, and ops docs in three-way parity:** Update [pm_capabilities.py](src/copytrade_pm/pm_capabilities.py), [pm_operations.py](src/copytrade_pm/pm_operations.py), and [docs/AGENT-NATIVE-OPERATIONS.md](docs/AGENT-NATIVE-OPERATIONS.md) together whenever subcommands, flags, or modes change, verified with `copytrade-pm capabilities validate`.
+- **Test CLI wiring end-to-end with positive and falsifier cases:** Exercise added flags and error codes directly through `copytrade_pm.pm_operations.main` alongside targeted falsifier assertions rather than testing helpers in isolation.
