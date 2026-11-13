@@ -1,6 +1,6 @@
 """Independent official multi-DEX source census is strictly non-actionable."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
 import stat
@@ -178,9 +178,17 @@ def test_independent_census_detects_event_disagreement_without_admitting_exit():
 def test_stale_or_future_vendor_events_cannot_be_reinterpreted_as_source_entry():
     snapshot = independent_official_census(ADDRESS, info=provider())
     late = event()
-    late["ts"] = (datetime.now(UTC) - timedelta(minutes=5)).isoformat()
+    # Use the fixture's fixed provider clock, not wall time after earlier
+    # tests: a long suite run can otherwise shift this event inside 120 s.
+    late["ts"] = datetime.fromtimestamp((NOW_MS - 300_000) / 1000, UTC).isoformat()
+    late_result = check_single_vike_event_against_official(late, snapshot)
+    assert late_result["status"] == "INDETERMINATE_TEMPORAL_SCOPE"
+    assert late_result["provider_delta_ms"] == 300_000
+
+    future = event()
+    future["ts"] = datetime.fromtimestamp((NOW_MS + 1_000) / 1000, UTC).isoformat()
     assert (
-        check_single_vike_event_against_official(late, snapshot)["status"]
+        check_single_vike_event_against_official(future, snapshot)["status"]
         == "INDETERMINATE_TEMPORAL_SCOPE"
     )
 
