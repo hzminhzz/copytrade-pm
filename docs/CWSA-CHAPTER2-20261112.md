@@ -14,6 +14,24 @@ The SQLite sealed registry, not this page, owns the selected membership and vers
 
 A six-portfolio SQLite seal is **not** a signed CWSA copy mandate. Source checkpoint collection can operate safely with `BLOCKED_EVIDENCE` financial admission. No modeled fills are claimed merely because journal objects and service processes exist.
 
+## ANOS-09: scoped read-only blocker explanation
+
+Use the native owner facade for one Chapter 2 portfolio, not a global readiness score:
+
+```bash
+copytrade-pm cwsa chapter2 explain --portfolio A --inspection metadata
+copytrade-pm cwsa chapter2 explain --portfolio A --inspection evidence \\
+  --registry-db /private/registry.sqlite \\
+  --source-db /private/source/paper-events.sqlite3 \\
+  --paper-root /private/paper-root
+```
+
+The default `metadata` mode reads only the registry doctor and the requested portfolio's version-2 SQLite seal. It does not open source, market, or PM03 finance journals, inspect systemd, probe Guardian, or dispatch actions. `evidence` mode explicitly requests one source-owner chain verification, one portfolio PM03 replay and optional independently verified L2 quotes and signed release/qualification. All original owner checks retain authority; this read-only explanation never replaces the Chapter 2 stage gate or authorizes financial activation.
+
+The versioned `cwsa_chapter2_task_explanation_v1` output separates physical SQLite integrity, global research-selection provenance, requested seal, source OBSERVE status, signed paper release, independent L2, native modeled finance, protected Guardian risk and account authorization. An unrelated unsigned research priority may be BLOCKED even when the requested SQLite seal is verified. A current source checkpoint can be OBSERVE-ready while paper is evidence-blocked. Financial fields remain JSON `null` unless native PM03 replay has independently verified eligible modeled effects with the required paper-only inputs; an empty journal, fake zero economics, or running PID cannot fill them. Source checkpoint clocks, original heads, portfolio seal SHA and journal cursor/head remain attached to their producing owners. Guardian risk/authorization are UNKNOWN here, and all responses preserve `order_route=NONE`, `trading_authorized=false` and `scientifically_qualified=false`.
+
+Each result names a task-specific reason, affected portfolio and next *catalogued* read-only operation with effect class. It does not execute the recommendation. Inspect metadata before requesting broader native evidence. The output is a reusable owner projection for later CLI/Site consumption; the Site must not recalculate finance or permission.
+
 ## Durable source-wave projection
 
 The paper supervisor reads the canonical source database read-only. Each portfolio stores its own `chapter2_wave_receipts` chain, including original outcome IDs, source clocks, wave membership, evidence hashes and missing-wallet disposition.

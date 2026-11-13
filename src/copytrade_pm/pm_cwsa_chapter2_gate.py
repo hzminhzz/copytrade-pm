@@ -210,6 +210,7 @@ def _source_facts(db_path: Path) -> dict:
     latest = max((cp for _, cp, _ in rows), default=0)
     changes: dict[str, int] = {}
     kinds: dict[str, str] = {}
+    wallet_checkpoints: dict[str, int] = {}
     for stream, cp, raw in rows:
         outcome = CheckpointOutcome.model_validate_json(raw)
         if (
@@ -220,6 +221,7 @@ def _source_facts(db_path: Path) -> dict:
         ):
             raise ValueError("CHAPTER2_SOURCE_OUTCOME_DRIFT")
         kinds.setdefault(outcome.source_id, outcome.kind)
+        wallet_checkpoints.setdefault(outcome.source_id, cp)
         if outcome.kind == "CHANGED":
             changes.setdefault(outcome.source_id, cp)
     return {
@@ -228,6 +230,7 @@ def _source_facts(db_path: Path) -> dict:
         "source_count": len(scopes),
         "head_sha256": digest(["cwsa_source_head_set_v1", sorted(heads)]),
         "latest_kinds": kinds,
+        "checkpoint_ms_by_wallet": wallet_checkpoints,
         "changed_sources": changes,
     }
 
@@ -246,13 +249,17 @@ def _verified_finance_scan(db: sqlite3.Connection, pid: str) -> tuple[int, int]:
     return len(scans), max((cp for _, cp, _, _ in scans), default=0)
 
 
-def _paper_facts(root: Path) -> dict:
+def _paper_facts(root: Path, *, portfolios: tuple[str, ...] | None = None) -> dict:
     from .pm_cwsa_chapter2_waves import SCHEMA as _wave_schema
 
     # Schema name is referenced to guarantee the native owner is imported.
     assert "chapter2_wave_receipts" in _wave_schema
     results = {}
-    for pid, cfg in PORTFOLIO_CONFIGS.items():
+    selected = portfolios if portfolios is not None else tuple(PORTFOLIO_CONFIGS)
+    if not selected or any(pid not in PORTFOLIO_CONFIGS for pid in selected):
+        raise ValueError("UNKNOWN_CHAPTER2_PORTFOLIO")
+    for pid in selected:
+        cfg = PORTFOLIO_CONFIGS[pid]
         db_path = root / cfg["folder"] / "paper-events.sqlite3"
         with closing(_ro(db_path)) as db:
             if db.execute("PRAGMA quick_check").fetchone() != ("ok",):
