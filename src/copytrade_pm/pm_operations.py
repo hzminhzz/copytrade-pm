@@ -20,7 +20,7 @@ from . import pm_capabilities as capabilities
 from . import pm_runtime_readonly as runtime
 from . import wallet_registry as registry
 from . import wallet_registry_catalog as catalog
-from .pm_offline_job_catalog import list_reports
+from .pm_offline_job_catalog import assess_reuse, list_reports
 
 SCHEMA = "copytrade_read_result_v1"
 ROOT = Path(__file__).resolve().parents[2]
@@ -351,6 +351,78 @@ def _research(
         )
 
 
+def _load_preflight_request(path: Path) -> dict:
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > 2 * 1024 * 1024:
+        raise ValueError("UNSAFE_OR_OVERSIZED_PREFLIGHT_REQUEST")
+    parsed = json.loads(path.read_bytes())
+    if not isinstance(parsed, dict):
+        raise ValueError("INVALID_PREFLIGHT_REQUEST_OBJECT")
+    return parsed
+
+
+def _research_preflight(
+    *,
+    cache_root: Path | None = None,
+    request_path: Path | None = None,
+    purpose: str | None = None,
+    require_pit: bool = False,
+) -> dict:
+    limitations = [
+        "Research reuse preflight checks cache/coverage integrity and PIT scope only; "
+        "never supplies fresh balances, quotes, HALT clearance, Copy Mandates, "
+        "paper financial proof, scientific qualification, or trading authorization"
+    ]
+    if cache_root is None:
+        return result(
+            "research.preflight",
+            "UNKNOWN",
+            authority="immutable_offline_job_cache",
+            error_code="EXPLICIT_RESEARCH_CACHE_ROOT_REQUIRED",
+            limitations=["Supply --cache-root PATH and --request PATH", *limitations],
+        )
+    if request_path is None:
+        return result(
+            "research.preflight",
+            "UNKNOWN",
+            authority="sha_verified_immutable_offline_job_cache",
+            error_code="EXPLICIT_PREFLIGHT_REQUEST_PATH_REQUIRED",
+            limitations=["Supply --request PATH to evaluate research reuse", *limitations],
+        )
+    try:
+        req = _load_preflight_request(request_path)
+        if purpose is not None:
+            req = {**req, "purpose": purpose}
+        if require_pit:
+            req = {**req, "require_pit": True}
+        payload = assess_reuse(cache_root, req)
+    except (ValueError, OSError, TypeError, KeyError, UnicodeDecodeError) as exc:
+        return result(
+            "research.preflight",
+            "BLOCKED",
+            authority="sha_verified_immutable_offline_job_cache",
+            error_code="RESEARCH_PREFLIGHT_REQUEST_OR_CACHE_FAILURE",
+            limitations=[
+                str(exc) if isinstance(exc, ValueError) else type(exc).__name__,
+                *limitations,
+            ],
+        )
+    reuse_state = payload["state"]
+    if reuse_state in {"VERIFIED_CACHE_HIT", "VERIFIED_EMPTY"}:
+        status, error_code = "VERIFIED", None
+    elif reuse_state == "CACHE_MISS":
+        status, error_code = "UNKNOWN", "CACHE_MISS"
+    else:
+        status, error_code = "BLOCKED", reuse_state
+    return result(
+        "research.preflight",
+        status,
+        payload,
+        authority="sha_verified_immutable_offline_job_cache",
+        error_code=error_code,
+        limitations=limitations,
+    )
+
+
 def _health(db: Path, root: Path, observer_root: Path | None = None) -> dict:
     parts: dict[str, dict] = {}
     try:
@@ -455,6 +527,13 @@ def dispatch(args: argparse.Namespace) -> dict:
             return _read_registry(db, ["portfolio", "--current"], "portfolio.current", args.asof)
         return _read_registry(db, ["portfolio", args.id], "portfolio.show", args.asof)
     if args.group == "research":
+        if args.verb == "preflight":
+            return _research_preflight(
+                cache_root=args.cache_root,
+                request_path=args.request,
+                purpose=args.purpose,
+                require_pit=args.require_pit,
+            )
         return _research(
             "research." + args.verb,
             getattr(args, "id", None),
@@ -535,7 +614,7 @@ def parser() -> argparse.ArgumentParser:
         for op in {
             "wallets": ("list", "show"),
             "portfolios": ("list", "current", "show"),
-            "research": ("list", "show"),
+            "research": ("list", "show", "preflight"),
             "paper": ("status",),
         }[domain]:
             operation = verbs.add_parser(op)
@@ -561,6 +640,10 @@ def parser() -> argparse.ArgumentParser:
                 operation.add_argument("--cache-key")
                 operation.add_argument("--limit", type=int, default=100)
                 operation.add_argument("--offset", type=int, default=0)
+            if domain == "research" and op == "preflight":
+                operation.add_argument("--request", type=Path)
+                operation.add_argument("--purpose")
+                operation.add_argument("--require-pit", action="store_true")
     contracts = top.add_parser("contracts", help="Read-only pod portfolio x contract EV screening")
     contract_verbs = contracts.add_subparsers(dest="verb", required=True)
     contract_verbs.add_parser("rules", help="Show the versioned, unverified rule scenarios")
