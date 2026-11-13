@@ -7,6 +7,9 @@ import io
 import json
 from pathlib import Path
 from hashlib import sha256
+import shutil
+import subprocess
+import sys
 
 import pytest
 
@@ -204,3 +207,372 @@ def test_required_native_first_agent_instructions() -> None:
     agents = (ROOT / "AGENTS.md").read_text()
     for instruction in ("capabilities list", "capabilities show", "capabilities validate"):
         assert instruction in agents
+
+
+EXPECTED_NATIVE_EXCLUDE_FLAGS = {
+    "--expected-inventory-sha",
+    "--expected-manifest-sha",
+    "--manifest",
+}
+
+
+def test_registry_exclude_required_flags_and_access_metadata() -> None:
+    code_preview, preview = _run(["capabilities", "show", "registry.operation.native.exclude"])
+    code_apply, apply_entry = _run(
+        ["capabilities", "show", "registry.operation.native.exclude.apply"]
+    )
+    assert code_preview == 0 and code_apply == 0
+    assert preview["classification"] == "READ_ONLY"
+    assert apply_entry["classification"] == "PROTECTED_MUTATION"
+    assert {item.split()[0] for item in preview["required_arguments"]} == (
+        EXPECTED_NATIVE_EXCLUDE_FLAGS
+    )
+    assert {item.split()[0] for item in apply_entry["required_arguments"]} == (
+        EXPECTED_NATIVE_EXCLUDE_FLAGS
+    )
+    assert preview["access"] == {
+        "read_targets": [
+            "private_sqlite_registry",
+            "private_evidence_archive",
+            "private_exclusion_manifest",
+        ],
+        "write_targets": [],
+        "network": False,
+        "credentials": False,
+        "privacy": "OWNER_PRIVATE_REDACTED",
+    }
+    assert apply_entry["access"] == {
+        "read_targets": [
+            "private_sqlite_registry",
+            "private_evidence_archive",
+            "private_exclusion_manifest",
+        ],
+        "write_targets": [
+            "private_sqlite_registry",
+            "private_sqlite_backup",
+            "private_evidence_archive",
+        ],
+        "network": False,
+        "credentials": False,
+        "privacy": "OWNER_PRIVATE_REDACTED",
+    }
+    entries = {item["id"]: item for item in cap.inventory(ROOT)}
+    for cap_id in (
+        "registry.operation.status",
+        "registry.operation.doctor",
+        "registry.operation.report.redacted",
+    ):
+        reads = set(entries[cap_id]["access"]["read_targets"])
+        assert {"optional_private_paper_journal", "decision_repo"} <= reads, cap_id
+    assert (
+        "private_evidence_archive"
+        in entries["registry.operation.native.status"]["access"]["read_targets"]
+    )
+    assert (
+        "optional_private_paper_journal"
+        not in entries["registry.operation.native.status"]["access"]["read_targets"]
+    )
+    assert "decision_repo" in entries["registry.operation.portfolio"]["access"]["read_targets"]
+    assert (
+        "optional_auditor_public_key"
+        in entries["registry.operation.qualification"]["access"]["read_targets"]
+    )
+    # Unverified CLI/NATIVE entries remain explicitly UNKNOWN without classification inference.
+    _, replay = _run(["capabilities", "show", "historical.replay"])
+    _, pm03 = _run(["capabilities", "show", "account.pm03"])
+    assert replay["classification"] == "LOCAL_MUTATION"
+    assert replay["access"] == {
+        "read_targets": "UNKNOWN",
+        "write_targets": "UNKNOWN",
+        "network": "UNKNOWN",
+        "credentials": "UNKNOWN",
+        "privacy": "UNKNOWN",
+    }
+    assert pm03["access"] == replay["access"]
+
+
+def _copy_repo(tmp_path: Path, name: str = "repo") -> Path:
+    repo = tmp_path / name
+    shutil.copytree(ROOT / "src", repo / "src", ignore=shutil.ignore_patterns("__pycache__"))
+    shutil.copytree(ROOT / "docs", repo / "docs")
+    shutil.copytree(
+        ROOT / "scripts", repo / "scripts", ignore=shutil.ignore_patterns("__pycache__")
+    )
+    shutil.copy2(ROOT / "pyproject.toml", repo / "pyproject.toml")
+    return repo
+
+
+def test_registry_validator_catches_unlisted_changed_leaves_and_unsafe_apply(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 1. Unlisted top-level registry leaf fails closed.
+    repo_top = _copy_repo(tmp_path, "top")
+    reg_top = repo_top / "src/copytrade_pm/wallet_registry.py"
+    reg_top.write_text(
+        reg_top.read_text().replace(
+            '    sub.add_parser("runtime")\n',
+            '    sub.add_parser("runtime")\n    sub.add_parser("prune")\n',
+            1,
+        )
+    )
+    res_top = cap.validate(repo_top)
+    assert res_top["status"] == "BLOCKED"
+    assert any("prune" in err for err in res_top["errors"])
+
+    # 2. Unlisted nested native leaf fails closed.
+    repo_nested = _copy_repo(tmp_path, "nested")
+    reg_nested = repo_nested / "src/copytrade_pm/wallet_registry.py"
+    reg_nested.write_text(
+        reg_nested.read_text().replace(
+            '    native_sub.add_parser("status")\n',
+            '    native_sub.add_parser("status")\n    native_sub.add_parser("prune")\n',
+            1,
+        )
+    )
+    res_nested = cap.validate(repo_nested)
+    assert res_nested["status"] == "BLOCKED"
+    assert any("native prune" in err for err in res_nested["errors"])
+
+    # 3. Renamed nested leaf catches both stale catalog leaf and unlisted leaf.
+    repo_renamed = _copy_repo(tmp_path, "renamed")
+    reg_renamed = repo_renamed / "src/copytrade_pm/wallet_registry.py"
+    reg_renamed.write_text(
+        reg_renamed.read_text().replace(
+            '    native_exclude = native_sub.add_parser(\n        "exclude",',
+            '    native_exclude = native_sub.add_parser(\n        "omit",',
+            1,
+        )
+    )
+    res_renamed = cap.validate(repo_renamed)
+    assert res_renamed["status"] == "BLOCKED"
+    assert any("native exclude" in err for err in res_renamed["errors"])
+    assert any("native omit" in err for err in res_renamed["errors"])
+
+    # 4. Adding --apply to a registry leaf without a cataloged --apply operation fails closed.
+    repo_apply = _copy_repo(tmp_path, "apply_flag")
+    reg_apply = repo_apply / "src/copytrade_pm/wallet_registry.py"
+    reg_apply.write_text(
+        reg_apply.read_text().replace(
+            '    sub.add_parser("runtime")\n',
+            '    runtime_cmd = sub.add_parser("runtime")\n'
+            '    runtime_cmd.add_argument("--apply", action="store_true")\n',
+            1,
+        )
+    )
+    res_apply = cap.validate(repo_apply)
+    assert res_apply["status"] == "BLOCKED"
+    assert any("runtime --apply" in err for err in res_apply["errors"])
+
+    # 5. Unsafe READ_ONLY classification on --apply fails closed.
+    monkeypatch.setitem(cap.REGISTRY_OPERATIONS, "native exclude --apply", "READ_ONLY")
+    res_unsafe = cap.validate(ROOT)
+    assert res_unsafe["status"] == "BLOCKED"
+    assert any("native exclude --apply" in err for err in res_unsafe["errors"])
+    monkeypatch.undo()
+
+    # 6. T08 expansion deferral: uncataloged copytrade-pm leaves do not fail T07.
+    repo_ops = _copy_repo(tmp_path, "ops_t08")
+    ops_file = repo_ops / "src/copytrade_pm/pm_operations.py"
+    ops_file.write_text(
+        ops_file.read_text().replace(
+            '    top.add_parser("health")\n',
+            '    top.add_parser("health")\n    top.add_parser("t08-preview")\n',
+            1,
+        )
+    )
+    assert cap.validate(repo_ops)["status"] == "VERIFIED"
+
+
+def test_registry_required_args_dispatch_and_unsupported_ast_fail_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 1. Adding a parser-required flag without updating REGISTRY_REQUIRED_ARGUMENTS fails.
+    repo_req = _copy_repo(tmp_path, "req_add")
+    reg_req = repo_req / "src/copytrade_pm/wallet_registry.py"
+    reg_req.write_text(
+        reg_req.read_text().replace(
+            '    native_exclude.add_argument("--apply", action="store_true")\n',
+            '    native_exclude.add_argument("--reason", required=True)\n'
+            '    native_exclude.add_argument("--apply", action="store_true")\n',
+            1,
+        )
+    )
+    res_req = cap.validate(repo_req)
+    assert res_req["status"] == "BLOCKED"
+    assert "MISSING_REGISTRY_REQUIRED_ARG:native exclude:--reason" in res_req["errors"]
+
+    # 2. Dropping a parser-required flag from REGISTRY_REQUIRED_ARGUMENTS fails.
+    monkeypatch.setitem(
+        cap.REGISTRY_REQUIRED_ARGUMENTS,
+        "native exclude",
+        ["--expected-inventory-sha SHA256", "--manifest PRIVATE_PATH"],
+    )
+    res_missing = cap.validate(ROOT)
+    assert res_missing["status"] == "BLOCKED"
+    assert (
+        "MISSING_REGISTRY_REQUIRED_ARG:native exclude:--expected-manifest-sha"
+        in res_missing["errors"]
+    )
+    monkeypatch.undo()
+
+    # 3. Extra/stale flag in REGISTRY_REQUIRED_ARGUMENTS fails.
+    monkeypatch.setitem(
+        cap.REGISTRY_REQUIRED_ARGUMENTS,
+        "native exclude",
+        [
+            "--expected-inventory-sha SHA256",
+            "--expected-manifest-sha SHA256",
+            "--manifest PRIVATE_PATH",
+            "--bogus VALUE",
+        ],
+    )
+    res_stale = cap.validate(ROOT)
+    assert res_stale["status"] == "BLOCKED"
+    assert "STALE_REGISTRY_REQUIRED_ARG:native exclude:--bogus" in res_stale["errors"]
+    monkeypatch.undo()
+
+    # 4. Dispatch-level required flags stay distinct from parser-required flags and validate option presence.
+    entries = {item["id"]: item for item in cap.inventory(ROOT)}
+    assert set(entries["registry.operation.paper.apply"]["required_arguments"]) == {
+        "--run-dir PATH",
+        "--portfolio NAME",
+    }
+    monkeypatch.setitem(
+        cap.REGISTRY_DISPATCH_REQUIRED_ARGUMENTS,
+        "paper --apply",
+        ("--run-dir", "--portfolio", "--bogus"),
+    )
+    res_dispatch = cap.validate(ROOT)
+    assert res_dispatch["status"] == "BLOCKED"
+    assert "STALE_REGISTRY_DISPATCH_ARG:paper --apply:--bogus" in res_dispatch["errors"]
+    monkeypatch.undo()
+    monkeypatch.setitem(cap.REGISTRY_REQUIRED_ARGUMENTS, "paper --apply", ["--run-dir PATH"])
+    res_dispatch_missing = cap.validate(ROOT)
+    assert res_dispatch_missing["status"] == "BLOCKED"
+    assert (
+        "MISSING_REGISTRY_DISPATCH_ARG:paper --apply:--portfolio" in res_dispatch_missing["errors"]
+    )
+    monkeypatch.undo()
+
+    # 5. Unsupported parser constructs fail closed with explicit error codes.
+    unsupported_cases = [
+        (
+            "loop_parser",
+            '    sub.add_parser("runtime")\n',
+            '    for name in ("runtime",):\n        sub.add_parser(name)\n',
+        ),
+        (
+            "dynamic_parser",
+            '    sub.add_parser("runtime")\n',
+            '    cmd = "runtime"\n    sub.add_parser(cmd)\n',
+        ),
+        (
+            "kwargs_arg",
+            '    native_exclude.add_argument("--apply", action="store_true")\n',
+            '    extra = {"action": "store_true"}\n    native_exclude.add_argument("--apply", **extra)\n',
+        ),
+        (
+            "deep_subparsers",
+            '    native_exclude.add_argument("--apply", action="store_true")\n',
+            '    native_exclude.add_argument("--apply", action="store_true")\n'
+            '    deep_sub = native_exclude.add_subparsers(dest="deep")\n',
+        ),
+        (
+            "parent_required",
+            '    sub = parser.add_subparsers(dest="command", required=True)\n',
+            '    parser.add_argument("--secret", required=True)\n'
+            '    sub = parser.add_subparsers(dest="command", required=True)\n',
+        ),
+        (
+            "parser_aliases",
+            '    sub.add_parser("runtime")\n',
+            '    sub.add_parser("runtime", aliases=("rt",))\n',
+        ),
+    ]
+    for case_name, target, replacement in unsupported_cases:
+        repo_bad = _copy_repo(tmp_path, case_name)
+        reg_bad = repo_bad / "src/copytrade_pm/wallet_registry.py"
+        reg_bad.write_text(reg_bad.read_text().replace(target, replacement, 1))
+        res_bad = cap.validate(repo_bad)
+        assert res_bad["status"] == "BLOCKED", case_name
+        assert any(
+            err.startswith("UNSUPPORTED_REGISTRY_PARSER_CONSTRUCT:") for err in res_bad["errors"]
+        ), (case_name, res_bad["errors"])
+
+
+def test_capability_discovery_performs_no_optional_imports_or_writes(tmp_path: Path) -> None:
+    repo = _copy_repo(tmp_path, "readonly_check")
+    before = {
+        str(p.relative_to(repo)): p.read_bytes() for p in sorted(repo.rglob("*")) if p.is_file()
+    }
+    script = """
+import json, sys
+from pathlib import Path
+from copytrade_pm import pm_capabilities as cap
+root = Path(sys.argv[1])
+inv = cap.inventory(root)
+val = cap.validate(root)
+forbidden = [
+    m for m in (
+        "copytrade_pm.wallet_registry",
+        "polars",
+        "ccxt",
+        "websockets",
+        "prefect",
+        "httpx",
+    )
+    if m in sys.modules
+]
+print(json.dumps({"status": val["status"], "count": len(inv), "forbidden": forbidden}))
+"""
+    proc = subprocess.run(
+        [sys.executable, "-c", script, str(repo)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    payload = json.loads(proc.stdout)
+    assert payload["status"] == "VERIFIED"
+    assert payload["forbidden"] == []
+    after = {
+        str(p.relative_to(repo)): p.read_bytes() for p in sorted(repo.rglob("*")) if p.is_file()
+    }
+    assert after == before
+
+
+def test_registry_cli_parser_matches_catalog_required_flags(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _fail_connect(*args: object, **kwargs: object) -> object:
+        raise AssertionError("DB connect should not be called during parser validation")
+
+    monkeypatch.setattr(reg, "connect", _fail_connect)
+    db = tmp_path / "unused.sqlite"
+
+    for cap_id, mode_flags in (
+        ("registry.operation.native.exclude", []),
+        ("registry.operation.native.exclude.apply", ["--apply"]),
+    ):
+        code, detail = _run(["capabilities", "show", cap_id])
+        assert code == 0
+        required_flags = [tok.split()[0] for tok in detail["required_arguments"]]
+        assert set(required_flags) == EXPECTED_NATIVE_EXCLUDE_FLAGS
+        base_values = {
+            "--expected-inventory-sha": "a" * 64,
+            "--expected-manifest-sha": "b" * 64,
+            "--manifest": str(tmp_path / "exclude.json"),
+        }
+        for omitted in required_flags:
+            argv = ["--db", str(db), "native", "exclude", *mode_flags]
+            for flag in required_flags:
+                if flag != omitted:
+                    argv.extend([flag, base_values[flag]])
+            with pytest.raises(SystemExit) as exc:
+                reg.cli(argv)
+            assert exc.value.code == 2
+
+    # Dispatch-level --apply flags pass argparse parse time and fail at dispatch before DB access.
+    with pytest.raises(ValueError, match="requires an explicit private run directory"):
+        reg.cli(["--db", str(db), "paper", "--apply"])
+    with pytest.raises(ValueError, match="requires independent signed evidence"):
+        reg.cli(["--db", str(db), "qualification", "--apply"])
