@@ -380,6 +380,16 @@ REGISTRY_REQUIRED_ARGUMENTS = {
     "native lock --apply": ["--expected-inventory-sha SHA256"],
     "native register": ["--manifest PRIVATE_PATH", "--expected-inventory-sha SHA256"],
     "native register --apply": ["--manifest PRIVATE_PATH", "--expected-inventory-sha SHA256"],
+    "native exclude": [
+        "--expected-inventory-sha SHA256",
+        "--expected-manifest-sha SHA256",
+        "--manifest PRIVATE_PATH",
+    ],
+    "native exclude --apply": [
+        "--expected-inventory-sha SHA256",
+        "--expected-manifest-sha SHA256",
+        "--manifest PRIVATE_PATH",
+    ],
     "wallet --alias": ["--alias ALIAS"],
     "wallet --address": ["--address ADDRESS"],
     "cohort": ["NAME"],
@@ -402,6 +412,162 @@ REGISTRY_REQUIRED_ARGUMENTS = {
         "--evidence-file PATH",
         "--auditor-public-key-file PATH",
     ],
+}
+# Dispatch-enforced requirements for --apply modes whose flags are optional at
+# argparse parse time because the preview/list mode omits them.
+REGISTRY_DISPATCH_REQUIRED_ARGUMENTS = {
+    "paper --apply": ("--run-dir", "--portfolio"),
+    "qualification --apply": (
+        "--attestation-file",
+        "--evidence-file",
+        "--auditor-public-key-file",
+    ),
+}
+UNKNOWN_ACCESS = {
+    "read_targets": "UNKNOWN",
+    "write_targets": "UNKNOWN",
+    "network": "UNKNOWN",
+    "credentials": "UNKNOWN",
+    "privacy": "UNKNOWN",
+}
+
+
+def _registry_access_entry(
+    read_targets: list[str],
+    write_targets: list[str],
+    *,
+    privacy: str = "OWNER_PRIVATE_REDACTED",
+) -> dict[str, object]:
+    return {
+        "read_targets": read_targets,
+        "write_targets": write_targets,
+        "network": False,
+        "credentials": False,
+        "privacy": privacy,
+    }
+
+
+REGISTRY_ACCESS = {
+    "status": _registry_access_entry(
+        ["private_sqlite_registry", "optional_private_paper_journal", "decision_repo"],
+        [],
+    ),
+    "native status": _registry_access_entry(
+        ["private_sqlite_registry", "private_evidence_archive"],
+        [],
+    ),
+    "native lock": _registry_access_entry(
+        ["private_sqlite_registry", "private_evidence_archive"],
+        [],
+    ),
+    "native lock --apply": _registry_access_entry(
+        ["private_sqlite_registry", "private_evidence_archive"],
+        ["private_sqlite_registry", "private_sqlite_backup"],
+    ),
+    "native register": _registry_access_entry(
+        ["private_sqlite_registry", "private_evidence_archive", "private_cohort_manifest"],
+        [],
+    ),
+    "native register --apply": _registry_access_entry(
+        ["private_sqlite_registry", "private_evidence_archive", "private_cohort_manifest"],
+        ["private_sqlite_registry", "private_sqlite_backup", "private_evidence_archive"],
+    ),
+    "native exclude": _registry_access_entry(
+        ["private_sqlite_registry", "private_evidence_archive", "private_exclusion_manifest"],
+        [],
+    ),
+    "native exclude --apply": _registry_access_entry(
+        ["private_sqlite_registry", "private_evidence_archive", "private_exclusion_manifest"],
+        ["private_sqlite_registry", "private_sqlite_backup", "private_evidence_archive"],
+    ),
+    "doctor": _registry_access_entry(
+        [
+            "private_sqlite_registry",
+            "private_evidence_archive",
+            "optional_private_paper_journal",
+            "decision_repo",
+            "optional_legacy_import_sources",
+            "optional_tracker_env_config",
+            "optional_tracker_subscription_sqlite",
+            "optional_observation_ledger_sqlite",
+        ],
+        [],
+    ),
+    "runtime": _registry_access_entry(
+        ["tracker_env_config", "tracker_subscription_sqlite", "observation_ledger_sqlite"],
+        [],
+    ),
+    "backup --to": _registry_access_entry(
+        ["private_sqlite_registry"],
+        ["private_sqlite_backup"],
+        privacy="OWNER_PRIVATE",
+    ),
+    "report --redacted": _registry_access_entry(
+        ["private_sqlite_registry", "optional_private_paper_journal", "decision_repo"],
+        [],
+    ),
+    "wallet --alias": _registry_access_entry(["private_sqlite_registry"], []),
+    "wallet --address": _registry_access_entry(["private_sqlite_registry"], []),
+    "cohort": _registry_access_entry(["private_sqlite_registry"], []),
+    "portfolio": _registry_access_entry(["private_sqlite_registry", "decision_repo"], []),
+    "portfolio --current": _registry_access_entry(
+        ["private_sqlite_registry", "decision_repo"],
+        [],
+    ),
+    "paper": _registry_access_entry(
+        ["private_sqlite_registry", "decision_repo", "optional_private_paper_journal"],
+        [],
+    ),
+    "paper --apply": _registry_access_entry(
+        ["private_sqlite_registry", "decision_repo", "private_paper_journal"],
+        ["private_sqlite_registry"],
+    ),
+    "qualification": _registry_access_entry(
+        [
+            "private_sqlite_registry",
+            "optional_signed_negative_evidence",
+            "optional_auditor_public_key",
+        ],
+        [],
+    ),
+    "qualification --apply": _registry_access_entry(
+        ["private_sqlite_registry", "signed_negative_evidence", "auditor_public_key"],
+        ["private_sqlite_registry"],
+    ),
+    "sync --dry-run": _registry_access_entry(
+        [
+            "legacy_import_sources",
+            "tracker_env_config",
+            "tracker_subscription_sqlite",
+            "observation_ledger_sqlite",
+            "decision_repo",
+        ],
+        [],
+    ),
+    "sync --apply": _registry_access_entry(
+        [
+            "private_sqlite_registry",
+            "legacy_import_sources",
+            "tracker_env_config",
+            "tracker_subscription_sqlite",
+            "observation_ledger_sqlite",
+            "decision_repo",
+        ],
+        ["private_sqlite_registry"],
+    ),
+    "signed-selection": _registry_access_entry(
+        ["signed_selection_manifest", "detached_signature", "trusted_public_key"],
+        [],
+    ),
+    "signed-selection --apply": _registry_access_entry(
+        [
+            "private_sqlite_registry",
+            "signed_selection_manifest",
+            "detached_signature",
+            "trusted_public_key",
+        ],
+        ["private_sqlite_registry", "private_sqlite_backup"],
+    ),
 }
 NATIVE_REQUIRED_ARGUMENTS = {
     "wallet.inventory": [],
@@ -483,6 +649,10 @@ def _module_available(module: str, root: Path) -> bool:
     return (root / "src" / Path(*module.split("."))).with_suffix(".py").is_file()
 
 
+def _copy_access(entry: dict[str, object]) -> dict[str, object]:
+    return {key: list(value) if isinstance(value, list) else value for key, value in entry.items()}
+
+
 def inventory(root: Path = ROOT) -> list[dict]:
     scripts = _declared_scripts(root)
     installed = _installed_scripts()
@@ -504,6 +674,7 @@ def inventory(root: Path = ROOT) -> list[dict]:
                 "entry_point": invocation,
                 "classification": safety,
                 "authority": family.upper(),
+                "access": _copy_access(UNKNOWN_ACCESS),
                 "dependencies": [],
                 "required_arguments": _required_cli_args(module, root),
                 "preflight": [],
@@ -531,6 +702,7 @@ def inventory(root: Path = ROOT) -> list[dict]:
                 "interface": "copytrade-wallet-registry " + op,
                 "classification": safety,
                 "authority": "PRIVATE_VERSIONED_WALLET_REGISTRY",
+                "access": _copy_access(REGISTRY_ACCESS.get(op, UNKNOWN_ACCESS)),
                 "dependencies": [],
                 "required_arguments": REGISTRY_REQUIRED_ARGUMENTS.get(op, []),
                 "preflight": ["registry.doctor"] if op not in ("doctor", "status") else [],
@@ -551,6 +723,7 @@ def inventory(root: Path = ROOT) -> list[dict]:
                 "interface": invocation,
                 "classification": safety,
                 "authority": authority,
+                "access": _copy_access(UNKNOWN_ACCESS),
                 "dependencies": [],
                 "required_arguments": NATIVE_REQUIRED_ARGUMENTS.get(cap),
                 "preflight": [],
@@ -577,6 +750,7 @@ def inventory(root: Path = ROOT) -> list[dict]:
                 "interface": "copytrade_pm." + module,
                 "classification": safety,
                 "authority": family.upper(),
+                "access": _copy_access(UNKNOWN_ACCESS),
                 "dependencies": [],
                 "required_arguments": None,
                 "preflight": [],
@@ -587,6 +761,352 @@ def inventory(root: Path = ROOT) -> list[dict]:
             }
         )
     return sorted(results, key=lambda item: item["id"])
+
+
+PARSER_CALL_NAMES = frozenset(
+    {
+        "ArgumentParser",
+        "add_subparsers",
+        "add_parser",
+        "add_mutually_exclusive_group",
+        "add_argument",
+        "add_argument_group",
+        "set_defaults",
+        "parse_known_args",
+    }
+)
+ACCESS_KEYS = frozenset({"read_targets", "write_targets", "network", "credentials", "privacy"})
+
+
+def _call_name(call: ast.Call) -> str | None:
+    if isinstance(call.func, ast.Attribute):
+        return call.func.attr
+    if isinstance(call.func, ast.Name):
+        return call.func.id
+    return None
+
+
+def _const_str(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value:
+        return node.value
+    return None
+
+
+def _keyword_map(call: ast.Call) -> dict[str, ast.AST] | None:
+    if any(isinstance(arg, ast.Starred) for arg in call.args):
+        return None
+    mapping: dict[str, ast.AST] = {}
+    for kw in call.keywords:
+        if kw.arg is None:
+            return None
+        mapping[kw.arg] = kw.value
+    return mapping
+
+
+def _register_registry_argument(
+    node: dict,
+    call: ast.Call,
+    *,
+    group_idx: int | None,
+    group_required: bool,
+) -> str | None:
+    kwargs = _keyword_map(call)
+    if kwargs is None or not call.args:
+        return "dynamic_add_argument"
+    options = [_const_str(arg) for arg in call.args]
+    if any(opt is None for opt in options):
+        return "dynamic_add_argument"
+    option_names = [opt for opt in options if opt is not None]
+    option = next((opt for opt in option_names if opt.startswith("--")), option_names[0])
+    req_node = kwargs.get("required")
+    if req_node is not None and not (
+        isinstance(req_node, ast.Constant) and isinstance(req_node.value, bool)
+    ):
+        return "dynamic_required"
+    action_node = kwargs.get("action")
+    if action_node is not None and not (
+        isinstance(action_node, ast.Constant) and isinstance(action_node.value, str)
+    ):
+        return "dynamic_action"
+    nargs_node = kwargs.get("nargs")
+    if nargs_node is not None and not (
+        isinstance(nargs_node, ast.Constant) and isinstance(nargs_node.value, (str, int))
+    ):
+        return "dynamic_nargs"
+    action = action_node.value if isinstance(action_node, ast.Constant) else None
+    nargs = nargs_node.value if isinstance(nargs_node, ast.Constant) else None
+    if option.startswith("-"):
+        required = bool(req_node.value) if isinstance(req_node, ast.Constant) else False
+        flag_only = action in {"store_true", "store_false", "count"}
+        node["options"][option] = {
+            "required": required,
+            "flag_only": flag_only,
+            "group_idx": group_idx,
+        }
+        if group_idx is not None and group_required:
+            node["required_groups"][group_idx].append(option)
+    else:
+        pos_required = nargs not in {"?", "*"} and nargs != 0
+        node["positionals"][option] = {"required": pos_required}
+    return None
+
+
+def _inspect_registry_parser(registry_path: Path) -> tuple[dict[str, dict], list[str]]:
+    """Small, registry-specific AST inspector; fails closed on unsupported constructs."""
+    if not registry_path.is_file():
+        return {}, ["MISSING_ENTRY_MODULE:copytrade-wallet-registry"]
+    tree = ast.parse(registry_path.read_text(encoding="utf-8"))
+    all_parser_calls = {
+        id(node)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and _call_name(node) in PARSER_CALL_NAMES
+    }
+    cli_defs = [
+        node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "cli"
+    ]
+    if len(cli_defs) != 1:
+        return {}, ["UNSUPPORTED_REGISTRY_PARSER_CONSTRUCT:missing_cli"]
+
+    parser_vars: dict[str, tuple[str, ...]] = {}
+    subparser_vars: dict[str, tuple[str, ...]] = {}
+    group_vars: dict[str, tuple[tuple[str, ...], int, bool]] = {}
+    nodes: dict[tuple[str, ...], dict] = {}
+    visited_calls: set[int] = set()
+    errors: list[str] = []
+    saw_parse_args = False
+
+    def _new_node() -> dict:
+        return {
+            "has_subparsers": False,
+            "options": {},
+            "positionals": {},
+            "required_groups": [],
+        }
+
+    for stmt in cli_defs[0].body:
+        target: str | None = None
+        if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1:
+            if isinstance(stmt.targets[0], ast.Name):
+                target = stmt.targets[0].id
+            call = stmt.value if isinstance(stmt.value, ast.Call) else None
+        elif isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
+            call = stmt.value
+        else:
+            continue
+        if call is None or not isinstance(call.func, ast.Attribute):
+            continue
+        attr = call.func.attr
+        if attr == "parse_args" and isinstance(call.func.value, ast.Name):
+            if parser_vars.get(call.func.value.id) == ():
+                saw_parse_args = True
+                break
+        if attr not in PARSER_CALL_NAMES:
+            continue
+        visited_calls.add(id(call))
+        recv = call.func.value
+        recv_name = recv.id if isinstance(recv, ast.Name) else None
+
+        if attr == "ArgumentParser":
+            if (
+                isinstance(recv, ast.Name)
+                and recv.id == "argparse"
+                and target is not None
+                and () not in nodes
+            ):
+                nodes[()] = _new_node()
+                parser_vars[target] = ()
+            else:
+                errors.append("UNSUPPORTED_REGISTRY_PARSER_CONSTRUCT:ArgumentParser")
+        elif attr == "add_subparsers":
+            if recv_name not in parser_vars or target is None or len(parser_vars[recv_name]) > 1:
+                errors.append("UNSUPPORTED_REGISTRY_PARSER_CONSTRUCT:add_subparsers")
+            else:
+                path = parser_vars[recv_name]
+                nodes[path]["has_subparsers"] = True
+                subparser_vars[target] = path
+        elif attr == "add_parser":
+            kwargs = _keyword_map(call)
+            name = _const_str(call.args[0]) if call.args else None
+            if recv_name not in subparser_vars or kwargs is None or name is None:
+                errors.append("UNSUPPORTED_REGISTRY_PARSER_CONSTRUCT:add_parser")
+            elif not set(kwargs) <= {"help", "description"}:
+                errors.append("UNSUPPORTED_REGISTRY_PARSER_CONSTRUCT:add_parser_kwargs")
+            else:
+                child = (*subparser_vars[recv_name], name)
+                if child in nodes:
+                    errors.append("UNSUPPORTED_REGISTRY_PARSER_CONSTRUCT:duplicate_parser")
+                else:
+                    nodes[child] = _new_node()
+                    if target is not None:
+                        parser_vars[target] = child
+        elif attr == "add_mutually_exclusive_group":
+            kwargs = _keyword_map(call)
+            req = kwargs.get("required") if kwargs is not None else None
+            req_valid = req is None or (
+                isinstance(req, ast.Constant) and isinstance(req.value, bool)
+            )
+            if recv_name not in parser_vars or target is None or kwargs is None or not req_valid:
+                errors.append("UNSUPPORTED_REGISTRY_PARSER_CONSTRUCT:add_mutually_exclusive_group")
+            else:
+                path = parser_vars[recv_name]
+                req_flag = bool(req.value) if isinstance(req, ast.Constant) else False
+                idx: int | None = None
+                if req_flag:
+                    idx = len(nodes[path]["required_groups"])
+                    nodes[path]["required_groups"].append([])
+                group_vars[target] = (path, idx, req_flag)
+        elif attr == "add_argument":
+            if recv_name in parser_vars:
+                err = _register_registry_argument(
+                    nodes[parser_vars[recv_name]], call, group_idx=None, group_required=False
+                )
+            elif recv_name in group_vars:
+                path, idx, required = group_vars[recv_name]
+                err = _register_registry_argument(
+                    nodes[path], call, group_idx=idx, group_required=required
+                )
+            else:
+                err = "untracked_add_argument"
+            if err:
+                errors.append(f"UNSUPPORTED_REGISTRY_PARSER_CONSTRUCT:{err}")
+        else:
+            errors.append(f"UNSUPPORTED_REGISTRY_PARSER_CONSTRUCT:{attr}")
+
+    if not saw_parse_args:
+        errors.append("UNSUPPORTED_REGISTRY_PARSER_CONSTRUCT:missing_parse_args")
+    if visited_calls != all_parser_calls:
+        errors.append("UNSUPPORTED_REGISTRY_PARSER_CONSTRUCT:non_linear_parser_call")
+
+    for path, spec in nodes.items():
+        if path and not spec["has_subparsers"]:
+            continue
+        has_parent_constraint = (
+            any(meta["required"] for meta in spec["options"].values())
+            or "--apply" in spec["options"]
+            or any(meta["required"] for meta in spec["positionals"].values())
+            or bool(spec["required_groups"])
+        )
+        if has_parent_constraint:
+            errors.append("UNSUPPORTED_REGISTRY_PARSER_CONSTRUCT:parent_node_constraint")
+
+    leaves = {
+        " ".join(path): spec for path, spec in nodes.items() if path and not spec["has_subparsers"]
+    }
+    return leaves, errors
+
+
+def _validate_registry_operations(root: Path) -> list[str]:
+    """Validate copytrade-wallet-registry leaves, --apply modes, required flags and access.
+
+    T08 expansion seam (#342): add analogous parser-leaf and mode checks for
+    copytrade-pm (pm_operations.py) and GROUPS scripts in a separate validator
+    without weakening these registry checks.
+    """
+    leaves, problems = _inspect_registry_parser(root / "src/copytrade_pm/wallet_registry.py")
+    if problems:
+        return problems
+
+    op_to_leaf: dict[str, str] = {}
+    covered_leaves: set[str] = set()
+    for op, safety in REGISTRY_OPERATIONS.items():
+        parts = op.split()
+        leaf = None
+        for size in range(len(parts), 0, -1):
+            candidate = " ".join(parts[:size])
+            if candidate in leaves:
+                leaf = candidate
+                break
+        if leaf is None:
+            problems.append(f"STALE_REGISTRY_OP:{op}")
+            continue
+        mode_flags = parts[len(leaf.split()) :]
+        options = leaves[leaf]["options"]
+        if any(flag not in options for flag in mode_flags):
+            problems.append(f"STALE_REGISTRY_OP:{op}")
+            continue
+        op_to_leaf[op] = leaf
+        covered_leaves.add(leaf)
+        if "--apply" in mode_flags and safety == "READ_ONLY":
+            problems.append(f"UNSAFE_REGISTRY_CLASSIFICATION:{op}")
+
+    for leaf, spec in leaves.items():
+        required_groups = [opts for opts in spec["required_groups"] if opts]
+        if required_groups:
+            for opts in required_groups:
+                for opt in opts:
+                    op_name = f"{leaf} {opt}"
+                    if op_name not in op_to_leaf:
+                        problems.append(f"UNLISTED_REGISTRY_OP:{op_name}")
+        elif leaf not in covered_leaves:
+            problems.append(f"UNLISTED_REGISTRY_OP:{leaf}")
+        if "--apply" in spec["options"] and f"{leaf} --apply" not in op_to_leaf:
+            problems.append(f"MISSING_REGISTRY_APPLY_OP:{leaf} --apply")
+
+    for op, leaf in op_to_leaf.items():
+        spec = leaves[leaf]
+        mode_flags = set(op.split()[len(leaf.split()) :])
+        parser_required: set[str] = set()
+        for opt, meta in spec["options"].items():
+            in_selected_group = meta["group_idx"] is not None and opt in mode_flags
+            if (meta["required"] or in_selected_group) and not (
+                meta["flag_only"] and opt in mode_flags
+            ):
+                parser_required.add(opt)
+        for pos, meta in spec["positionals"].items():
+            if meta["required"]:
+                parser_required.add(pos.lower())
+
+        declared = {
+            tok.split()[0] if tok.startswith("-") else tok.split()[0].lower()
+            for tok in REGISTRY_REQUIRED_ARGUMENTS.get(op, [])
+        }
+        for missing in sorted(parser_required - declared):
+            problems.append(f"MISSING_REGISTRY_REQUIRED_ARG:{op}:{missing}")
+
+        dispatch_reqs = set(REGISTRY_DISPATCH_REQUIRED_ARGUMENTS.get(op, ()))
+        for flag in sorted(dispatch_reqs):
+            if flag not in spec["options"] or flag in parser_required:
+                problems.append(f"STALE_REGISTRY_DISPATCH_ARG:{op}:{flag}")
+        for missing in sorted(dispatch_reqs - declared):
+            problems.append(f"MISSING_REGISTRY_DISPATCH_ARG:{op}:{missing}")
+        for extra in sorted(declared - parser_required - dispatch_reqs):
+            problems.append(f"STALE_REGISTRY_REQUIRED_ARG:{op}:{extra}")
+
+        access = REGISTRY_ACCESS.get(op)
+        if access is None or set(access) != ACCESS_KEYS:
+            problems.append(f"MISSING_REGISTRY_ACCESS:{op}")
+        else:
+            valid_types = (
+                isinstance(access["read_targets"], list)
+                and all(isinstance(x, str) and x for x in access["read_targets"])
+                and isinstance(access["write_targets"], list)
+                and all(isinstance(x, str) and x for x in access["write_targets"])
+                and isinstance(access["network"], bool)
+                and isinstance(access["credentials"], bool)
+                and isinstance(access["privacy"], str)
+                and bool(access["privacy"])
+            )
+            if not valid_types:
+                problems.append(f"INVALID_ACCESS_SCHEMA:{op}")
+            if any(access[k] == "UNKNOWN" for k in ACCESS_KEYS):
+                problems.append(f"UNVERIFIED_REGISTRY_ACCESS:{op}")
+            safety = REGISTRY_OPERATIONS[op]
+            if safety == "READ_ONLY" and access["write_targets"] != []:
+                problems.append(f"INCONSISTENT_REGISTRY_ACCESS:{op}")
+            if (
+                safety in {"LOCAL_MUTATION", "PROTECTED_MUTATION", "BROKER_OR_TRADING"}
+                and not access["write_targets"]
+            ):
+                problems.append(f"INCONSISTENT_REGISTRY_ACCESS:{op}")
+
+    for op in set(REGISTRY_ACCESS) - set(REGISTRY_OPERATIONS):
+        problems.append(f"STALE_REGISTRY_ACCESS:{op}")
+    for op in set(REGISTRY_REQUIRED_ARGUMENTS) - set(REGISTRY_OPERATIONS):
+        problems.append(f"STALE_REGISTRY_REQUIRED_ARG_ENTRY:{op}")
+    for op in set(REGISTRY_DISPATCH_REQUIRED_ARGUMENTS) - set(REGISTRY_OPERATIONS):
+        problems.append(f"STALE_REGISTRY_DISPATCH_ARG_ENTRY:{op}")
+
+    return problems
 
 
 def validate(root: Path = ROOT) -> dict:
@@ -610,6 +1130,8 @@ def validate(root: Path = ROOT) -> dict:
             problems.append(f"MISSING_DOC:{item['id']}")
         if item["schema_version"] != 1:
             problems.append(f"INVALID_SCHEMA:{item['id']}")
+        if set(item.get("access", {})) != ACCESS_KEYS:
+            problems.append(f"INVALID_ACCESS_SCHEMA:{item['id']}")
     for name, entry in declared.items():
         if ":" not in entry or entry.rsplit(":", 1)[1] != "main":
             problems.append(f"INVALID_ENTRY_POINT:{name}")
@@ -625,15 +1147,9 @@ def validate(root: Path = ROOT) -> dict:
                     for x in tree.body
                 ):
                     problems.append(f"MISSING_MAIN:{name}")
-    registry = root / "src/copytrade_pm/wallet_registry.py"
-    body = registry.read_text()
-    for op in REGISTRY_OPERATIONS:
-        cmd = op.split()[0]
-        if (
-            f'sub.add_parser("{cmd}"' not in body
-            and f'sub.add_parser(\n        "{cmd}"' not in body
-        ):
-            problems.append(f"STALE_REGISTRY_OP:{op}")
+    # T07 enforces parser leaf/flag/--apply validation solely for copytrade-wallet-registry;
+    # T08 (#342) expands analogous leaf/mode checks to copytrade-pm and GROUPS entrypoints.
+    problems.extend(_validate_registry_operations(root))
     return {
         "schema": "copytrade_capability_validation_v1",
         "status": "VERIFIED" if not problems else "BLOCKED",
