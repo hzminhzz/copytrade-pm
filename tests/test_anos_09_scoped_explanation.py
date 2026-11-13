@@ -23,6 +23,14 @@ def explained(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys):
         "head_sha256": "a" * 64,
         "latest_kinds": {member: "BASELINE" for member in gate.EXPECTED_WALLETS},
         "checkpoint_ms_by_wallet": {member: checkpoint for member in gate.EXPECTED_WALLETS},
+        "published_ms_by_wallet": {member: checkpoint + 1500 for member in gate.EXPECTED_WALLETS},
+        "receipt_first_known_ms_by_wallet": {
+            member: checkpoint + 1000 for member in gate.EXPECTED_WALLETS
+        },
+        "complete_position_proof_by_wallet": {member: True for member in gate.EXPECTED_WALLETS},
+        "source_heads_by_wallet": {member: "1" * 64 for member in gate.EXPECTED_WALLETS},
+        "policy_epochs_by_wallet": {member: "2" * 64 for member in gate.EXPECTED_WALLETS},
+        "scope_generations_by_wallet": {member: "3" * 64 for member in gate.EXPECTED_WALLETS},
         "changed_sources": {},
     }
     paper = {

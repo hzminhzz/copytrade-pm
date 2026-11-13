@@ -598,6 +598,11 @@ def parser() -> argparse.ArgumentParser:
     )
     explain_cmd.add_argument("--portfolio", required=True)
     explain_cmd.add_argument("--inspection", choices=("metadata", "evidence"), default="metadata")
+    explain_cmd.add_argument(
+        "--prior-snapshot",
+        type=Path,
+        help="Compare with one bounded prior JSON explanation of the same portfolio and inspection",
+    )
     add_arguments(explain_cmd)
     cap = top.add_parser("capabilities")
     sub = cap.add_subparsers(dest="verb", required=True)

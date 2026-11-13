@@ -28,6 +28,9 @@ def chapter2(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys):
         "source_count": 14,
         "head_sha256": "d" * 64,
         "latest_kinds": {wallet: "CHANGED" for wallet in gate.EXPECTED_WALLETS},
+        "checkpoint_ms_by_wallet": {wallet: latest for wallet in gate.EXPECTED_WALLETS},
+        "complete_position_proof_by_wallet": {wallet: True for wallet in gate.EXPECTED_WALLETS},
+        "policy_epochs_by_wallet": {wallet: "7" * 64 for wallet in gate.EXPECTED_WALLETS},
         "changed_sources": {wallet: changed for wallet in gate.EXPECTED_WALLETS},
     }
     paper = {
@@ -139,6 +142,25 @@ def chapter2(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys):
         return code, response
 
     return runtime, paper, source, invoke
+
+
+def test_public_postdeploy_mixed_source_policy_epoch_blocks_canonical_proof(chapter2):
+    _, _, source, invoke = chapter2
+    _, baseline = invoke("postdeploy")
+    prior_checks = {item["name"]: item for item in baseline["checks"]}
+    assert prior_checks["canonical_source"]["state"] == "PASS"
+
+    source["policy_epochs_by_wallet"]["W028"] = "9" * 64
+    code, report = invoke("postdeploy")
+    checks = {item["name"]: item for item in report["checks"]}
+    assert code == 2
+    assert report["verdict"] == "BLOCKED_EVIDENCE"
+    assert checks["canonical_source"]["state"] == "BLOCKED_EVIDENCE"
+    assert checks["canonical_source"]["detail"] == (
+        "SOURCE_POLICY_GENERATIONS_OR_COMPLETE_POSITION_PROOF_UNVERIFIED"
+    )
+    assert report["financially_active"] is False
+    assert report["trading_authorized"] is False
 
 
 def test_public_postdeploy_active_but_unproved_process_is_evidence_blocked(chapter2):
