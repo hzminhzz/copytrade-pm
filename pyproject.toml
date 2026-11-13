@@ -73,7 +73,34 @@ line-length = 100
 src = ["src", "tests"]
 
 [tool.ruff.lint]
-select = ["E4", "E7", "E9", "F"]
+select = [
+    "E4",
+    "E7",
+    "E9",
+    "F",
+    "B006",
+    "B011",
+    "B012",
+    "B015",
+    "B018",
+    "B021",
+    "B026",
+    "B028",
+    "B029",
+    "B032",
+    "B033",
+    "B034",
+    "PGH003",
+    "PGH004",
+    "PGH005",
+    "PLE",
+    "RUF006",
+    "RUF013",
+    "RUF016",
+    "RUF020",
+    "RUF024",
+    "RUF026",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
