@@ -344,9 +344,148 @@ def scan_snapshots(
     return frame.filter(selector)
 
 
+def verify_frozen_catalog(folder: Path, cohort: str = "monitored_plus_six") -> dict[str, Any]:
+    """Verify immutable completion evidence offline, without AWS or live roster.
+
+    A transient systemd unit disappears after success; this catalog is the
+    durable completion authority. The historical roster is pinned in the
+    private preflight manifests, not recomputed from today's subscriptions.
+    """
+    if cohort != "monitored_plus_six":
+        raise ValueError("OFFLINE_STATUS_ONLY_FOR_MONITORED_COHORT")
+    path = folder / "catalog.json"
+    index = read_manifest(path)
+    dates = days_between(START, END)
+    if (
+        index.get("schema") != "reservoir_two_dex_catalog_v3"
+        or index.get("cohort") != cohort
+        or index.get("start") != str(START)
+        or index.get("end") != str(END)
+        or index.get("dates") != dates
+        or index.get("allowed_dexes") != sorted(ALLOWED_DEXES)
+        or index.get("scope", {}).get("cohort") != cohort
+        or index["scope"].get("wallet_count") != 269
+        or not index["scope"].get("wallet_set_sha256")
+        or index.get("source_status") != "HISTORICAL_SELECTED_WALLET_STAGED_ONLY"
+        or any(
+            index.get(flag) is not False
+            for flag in (
+                "historical_first_known",
+                "scientifically_qualified",
+                "paper_admitted",
+                "trading_authorized",
+            )
+        )
+    ):
+        raise ValueError("FROZEN_CATALOG_SCOPE_OR_STATUS_MISMATCH")
+    roots = window_sources(cohort)
+    expected = {(dex, day) for dex in ALLOWED_DEXES for day in dates}
+    if len(index.get("entries", [])) != len(expected):
+        raise ValueError("FROZEN_CATALOG_ENTRY_COUNT_MISMATCH")
+    seen: set[tuple[str, str]] = set()
+    states: dict[str, dict[str, tuple[int, int]]] = {day: {} for day in dates}
+    totals: dict[str, Counter[str]] = {dex: Counter() for dex in ALLOWED_DEXES}
+    verified = 0
+    for entry in index["entries"]:
+        dex, day = entry["dex"], entry["day"]
+        key = (dex, day)
+        if key not in expected or key in seen:
+            raise ValueError("FROZEN_CATALOG_DUPLICATE_OR_UNAPPROVED_DAY")
+        seen.add(key)
+        root = roots[key]
+        preflight_path = root / "preflight.json"
+        preflight = read_manifest(preflight_path)
+        if (
+            sha256(preflight_path.read_bytes()).hexdigest() != entry["preflight_sha256"]
+            or preflight.get("scope") != index["scope"]
+            or preflight.get("dex") != dex
+            or preflight.get("snapshot_scope") != "dex"
+            or day not in preflight.get("days", [])
+        ):
+            raise ValueError("FROZEN_CATALOG_PREFLIGHT_PROVENANCE_MISMATCH")
+        artifacts = entry["artifacts"]
+        if len(artifacts) != 2 or {a["kind"] for a in artifacts} != {"fills", "position_snapshot"}:
+            raise ValueError("FROZEN_CATALOG_ARTIFACT_SET_MISMATCH")
+        for artifact in artifacts:
+            kind = artifact["kind"]
+            matches = [
+                item
+                for item in preflight["objects"]
+                if item["type"] == kind and f"date={day}/" in item["key"]
+            ]
+            if len(matches) != 1:
+                raise ValueError("FROZEN_CATALOG_SOURCE_OBJECT_MISMATCH")
+            obj = matches[0]
+            expected_path = root / kind / f"day={day}" / "data.parquet"
+            provenance_path = expected_path.with_name("provenance.json")
+            if (
+                Path(artifact["path"]) != expected_path
+                or expected_path.is_symlink()
+                or provenance_path.is_symlink()
+                or not expected_path.resolve().is_relative_to(PRIVATE_RESEARCH_ROOT.resolve())
+            ):
+                raise ValueError("FROZEN_CATALOG_PATH_ESCAPE_OR_SYMLINK")
+            receipt = verify_artifact(
+                expected_path.parent, obj["etag"], index["scope"]["wallet_set_sha256"]
+            )
+            if receipt is None:
+                raise ValueError("FROZEN_CATALOG_MISSING_ARTIFACT")
+            if (
+                receipt["sha256"] != artifact["parquet_sha256"]
+                or receipt["rows"] != artifact["rows_staged"]
+                or receipt["source_key"] != obj["key"]
+                or artifact["source_key"] != obj["key"]
+                or artifact["source_etag"] != obj["etag"]
+                or artifact["source_object_bytes"] != obj["bytes"]
+                or pq.read_metadata(expected_path).num_rows != receipt["rows"]
+            ):
+                raise ValueError("FROZEN_CATALOG_ARTIFACT_PROVENANCE_MISMATCH")
+            # All monitored cohort snapshots are from exact per-DEX sources;
+            # there are no global snapshot rows to remove.
+            if artifact["rows_within_scope"] != receipt["rows"]:
+                raise ValueError("FROZEN_CATALOG_SCOPE_ROW_COUNT_MISMATCH")
+            if kind == "fills":
+                totals[dex]["fills"] += receipt["rows"]
+            else:
+                if (
+                    artifact["source_state_block"] != obj["block"]
+                    or artifact["source_state_ts_ms"] != obj["state_ts_ms"]
+                ):
+                    raise ValueError("FROZEN_CATALOG_STATE_ID_MISMATCH")
+                states[day][dex] = (obj["block"], obj["state_ts_ms"])
+                totals[dex]["snapshot_position_rows"] += receipt["rows"]
+            verified += 1
+    if seen != expected:
+        raise ValueError("FROZEN_CATALOG_MISSING_DAY")
+    if any(
+        set(state) != ALLOWED_DEXES or state["hyperliquid"] != state["xyz"]
+        for state in states.values()
+    ):
+        raise ValueError("FROZEN_CATALOG_CROSS_DEX_STATE_MISMATCH")
+    for dex in ALLOWED_DEXES:
+        totals[dex]["verified_dates"] = len(dates)
+    if {dex: dict(counter) for dex, counter in totals.items()} != index["counts"]:
+        raise ValueError("FROZEN_CATALOG_AGGREGATE_MISMATCH")
+    return {
+        "status": "HISTORICAL_SOURCE_COMPLETE_VERIFIED_OFFLINE",
+        "cohort": cohort,
+        "start": str(START),
+        "end": str(END),
+        "wallets": 269,
+        "dates": len(dates),
+        "artifacts_verified": verified,
+        "catalog_sha256": sha256(path.read_bytes()).hexdigest(),
+        "counts": index["counts"],
+        "aws_login_required": False,
+        "scientifically_qualified": False,
+        "paper_admitted": False,
+        "trading_authorized": False,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("build", "verify", "counts"))
+    parser.add_argument("mode", choices=("build", "verify", "counts", "offline-status"))
     parser.add_argument(
         "--cohort", choices=("sealed_six", "monitored_plus_six"), default="sealed_six"
     )
@@ -354,6 +493,9 @@ def main() -> None:
     args = parser.parse_args()
     if args.out is None:
         args.out = MONITORED_CATALOG_ROOT if args.cohort == "monitored_plus_six" else CATALOG_ROOT
+    if args.mode == "offline-status":
+        print(jdump(verify_frozen_catalog(args.out, args.cohort)))
+        return
     index = build_index(args.cohort)
     if args.mode in ("build", "verify"):
         if args.mode == "build":

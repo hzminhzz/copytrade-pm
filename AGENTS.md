@@ -32,7 +32,7 @@ This repository owns **research, original source observation, and virtual paper*
 - The distinct canonical five-minute CWSA policy uses official REST original-backed checkpoints, independent wallet waves, explicit source/mandate transitions, immutable freeze, and no implied state machine. It does not silently replace V4. See [checkpoint ADR](docs/decisions/2026-11-11-canonical-5m-checkpoint-grill.md) and [CWSA Chapter 2 runbook](docs/CWSA-CHAPTER2-20261112.md).
 - Default sizing is FIXED_K_NATIVE_QUANTITY; historical NAV-relative assumptions remain historical. Never infer executable P&L from market mids, historical leader fills, or a healthy service. See [risk-budgeted k](docs/RISK-BUDGETED-K-SIZING-20261106.md), [qualification](docs/QUALIFICATION.md), and [PM03](docs/PM-03-shadow-account.md).
 
-**Reservoir retrospective research:** for wallet-scoped S3 queries, use the [two-DEX DuckDB plan](docs/RESERVOIR-WALLET-DUCKDB-PLAN-20261112.md) and [269-wallet monitored-plus-six cohort runbook](docs/RESERVOIR-MONITORED-PLUS-SIX-269-20261112.md). The new 269-wallet data acquisition is blocked on AWS login; old 14-wallet evidence is a separate narrower cohort. Historical exchange time is not local first-known or paper admission.
+**Reservoir retrospective research:** for wallet-scoped S3 queries and completed 269-wallet backfill checks, read the [two-DEX DuckDB plan](docs/RESERVOIR-WALLET-DUCKDB-PLAN-20261112.md) and [frozen cohort/runbook](docs/RESERVOIR-MONITORED-PLUS-SIX-269-20261112.md). Use the offline catalog verifier, **not transient systemd service presence**, to assess completion after AWS credentials expire; the 14-wallet pilot is a separate cohort. Historical exchange time is not local first-known or paper admission.
 
 ## Operations and release
 

@@ -121,6 +121,171 @@ def test_snapshot_reader_filters_global_main_vs_xyz(monkeypatch, tmp_path: Path)
     assert xyz["market"].to_list() == ["xyz:AAPL", "xyz:TSLA"]
 
 
+def frozen_offline_fixture(monkeypatch, tmp_path: Path) -> tuple[Path, Path]:
+    """One UTC day for two DEXes, preserving the same pinned source structure."""
+    import hashlib
+    import json
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    monkeypatch.setattr(catalog, "START", date(2026, 7, 1))
+    monkeypatch.setattr(catalog, "END", date(2026, 7, 1))
+    monkeypatch.setattr(catalog, "PRIVATE_RESEARCH_ROOT", tmp_path)
+    roots = {(dex, "2026-07-01"): tmp_path / dex for dex in ("hyperliquid", "xyz")}
+    monkeypatch.setattr(catalog, "window_sources", lambda cohort: roots)
+    monkeypatch.setattr(
+        catalog,
+        "scope_from_registry",
+        lambda _cohort: (_ for _ in ()).throw(
+            AssertionError("Offline status consulted live registry")
+        ),
+    )
+    scope = {
+        "cohort": "monitored_plus_six",
+        "wallet_count": 269,
+        "wallet_set_sha256": "a" * 64,
+    }
+    entries = []
+    for dex in ("hyperliquid", "xyz"):
+        root = roots[(dex, "2026-07-01")]
+        objects = []
+        artifacts = []
+        for kind in ("fills", "position_snapshot"):
+            folder = root / kind / "day=2026-07-01"
+            folder.mkdir(parents=True)
+            file_path = folder / "data.parquet"
+            pq.write_table(pa.table({"value": [1]}), file_path)
+            sha = hashlib.sha256(file_path.read_bytes()).hexdigest()
+            key = f"by_dex/{dex}/{kind}/date=2026-07-01/test.parquet"
+            record = {
+                "type": kind,
+                "key": key,
+                "etag": "etag-pinned",
+                "bytes": 200,
+                "block": 123,
+                "state_ts_ms": 1782864000000,
+            }
+            objects.append(record)
+            (folder / "provenance.json").write_text(
+                json.dumps(
+                    {
+                        "source_etag": record["etag"],
+                        "wallet_set_sha256": scope["wallet_set_sha256"],
+                        "source_key": key,
+                        "sha256": sha,
+                        "rows": 1,
+                    }
+                )
+            )
+            artifacts.append(
+                {
+                    "kind": kind,
+                    "path": str(file_path),
+                    "parquet_sha256": sha,
+                    "rows_staged": 1,
+                    "rows_within_scope": 1,
+                    "source_key": key,
+                    "source_etag": record["etag"],
+                    "source_object_bytes": record["bytes"],
+                    "source_state_block": record["block"] if kind == "position_snapshot" else None,
+                    "source_state_ts_ms": (
+                        record["state_ts_ms"] if kind == "position_snapshot" else None
+                    ),
+                }
+            )
+        preflight_path = root / "preflight.json"
+        preflight_path.write_text(
+            json.dumps(
+                {
+                    "scope": scope,
+                    "dex": dex,
+                    "snapshot_scope": "dex",
+                    "days": ["2026-07-01"],
+                    "objects": objects,
+                }
+            )
+        )
+        entries.append(
+            {
+                "day": "2026-07-01",
+                "dex": dex,
+                "preflight_sha256": hashlib.sha256(preflight_path.read_bytes()).hexdigest(),
+                "artifacts": artifacts,
+            }
+        )
+    folder = tmp_path / "catalog"
+    folder.mkdir()
+    saved = {
+        "schema": "reservoir_two_dex_catalog_v3",
+        "cohort": "monitored_plus_six",
+        "start": "2026-07-01",
+        "end": "2026-07-01",
+        "dates": ["2026-07-01"],
+        "allowed_dexes": ["hyperliquid", "xyz"],
+        "scope": scope,
+        "source_status": "HISTORICAL_SELECTED_WALLET_STAGED_ONLY",
+        "historical_first_known": False,
+        "scientifically_qualified": False,
+        "paper_admitted": False,
+        "trading_authorized": False,
+        "entries": entries,
+        "counts": {
+            dex: {
+                "fills": 1,
+                "snapshot_position_rows": 1,
+                "verified_dates": 1,
+            }
+            for dex in ("hyperliquid", "xyz")
+        },
+    }
+    (folder / "catalog.json").write_text(json.dumps(saved))
+    return folder, roots[("xyz", "2026-07-01")] / "fills" / "day=2026-07-01" / "data.parquet"
+
+
+def test_offline_status_verifies_completion_without_aws_or_live_registry(
+    monkeypatch, tmp_path: Path
+):
+    folder, _ = frozen_offline_fixture(monkeypatch, tmp_path)
+    receipt = catalog.verify_frozen_catalog(folder)
+    assert receipt["status"] == "HISTORICAL_SOURCE_COMPLETE_VERIFIED_OFFLINE"
+    assert receipt["artifacts_verified"] == 4
+    assert receipt["counts"]["xyz"]["fills"] == 1
+    assert receipt["aws_login_required"] is False
+    assert receipt["scientifically_qualified"] is False
+
+
+def test_offline_status_rejects_mutated_artifact(monkeypatch, tmp_path: Path):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    folder, path = frozen_offline_fixture(monkeypatch, tmp_path)
+    pq.write_table(pa.table({"value": [9999]}), path)
+    with pytest.raises(ValueError, match="BLOCKED_STAGED_SHA_MISMATCH"):
+        catalog.verify_frozen_catalog(folder)
+
+
+def test_offline_status_rejects_false_catalog_aggregate(monkeypatch, tmp_path: Path):
+    import json
+
+    folder, _ = frozen_offline_fixture(monkeypatch, tmp_path)
+    catalog_path = folder / "catalog.json"
+    saved = json.loads(catalog_path.read_text())
+    saved["counts"]["xyz"]["fills"] = 9
+    catalog_path.write_text(json.dumps(saved))
+    with pytest.raises(ValueError, match="FROZEN_CATALOG_AGGREGATE_MISMATCH"):
+        catalog.verify_frozen_catalog(folder)
+
+
+def test_offline_status_rejects_unknown_or_missing_cohort(monkeypatch, tmp_path: Path):
+    folder, _ = frozen_offline_fixture(monkeypatch, tmp_path)
+    with pytest.raises(ValueError, match="OFFLINE_STATUS_ONLY_FOR_MONITORED_COHORT"):
+        catalog.verify_frozen_catalog(folder, "sealed_six")
+    (folder / "catalog.json").unlink()
+    with pytest.raises(ValueError, match="MISSING_OR_SYMLINKED_EVIDENCE"):
+        catalog.verify_frozen_catalog(folder)
+
+
 def test_catalog_immutability(tmp_path: Path):
     index = {
         "scope": {"wallet_set_sha256": "e" * 64},

@@ -1,6 +1,6 @@
 # Reservoir 269-wallet acquisition — monitored roster plus six paper portfolios
 
-**As-of:** 2026-11-12 16:30 UTC. **State:** COHORT FROZEN + SOURCE METADATA 32/40 BATCHES VERIFIED. **269-WALLET FILL DOWNLOAD BLOCKED BY EXPIRED AWS LOGIN.** Not paper admission, scientific qualification, canonical ingest, or trading authorization.
+**Verified completion:** 2026-11-13 07:15:38 UTC. **State: HISTORICAL SOURCE COMPLETE (134/134 dates, 536/536 immutable artifacts, two DEXes, 269 wallets).** Final catalog SHA-256: `11a706c7849fa8118d33d926d41dd2572b1a9fc74e9f47fb0c92b586a7b91ee7`. Independent offline verification passed. This is **not** point-in-time selection, canonical ingestion, financial paper admission, scientific qualification, or trading authorization.
 
 ## 1. Why 269 rather than 200 or 264?
 
@@ -18,56 +18,38 @@ Do **not** use the broader 502-wallet identity registry or 284-wallet research r
 
 This is network-efficient at Parquet column-chunk granularity: the source objects must be read regardless of whether the wallet filter has 14 or 269 addresses, because the sampled source lacks wallet-address row-group statistics. Output volume, CPU and validation scale with actual matched rows. This does **not** mean 269-wallet extraction is zero additional S3 traffic for dates already queried for 14 wallets; rereading those source object column chunks is necessary to acquire the additional wallets, but the new broader scope avoids a third separate S3 scan.
 
-## 3. Completed offline preparation and actual blocker
+## 3. Verified completion and authentication incidents
 
-- Frozen 269-wallet set validated by SQLite read-only integrity; 264 subscribed/monitored + 14 sealed, 9 overlap, 5 preserved outsiders.
-- The shared collector and per-day preflight enforce the roster generation, explicit AWS billing profile, hard 2-DEX allowlist, per-batch 2,000 MB projected source-column cap, and **50,000 MB whole-history projected cap**.
-- **32/40** DEX-week manifests recreated **without any new S3 footer retrieval**, reusing exact source metadata from earlier 14-wallet immutable preflights. Their combined projected compressed-column footprint is **23,501.6 MB**. The other 8 DEX-week manifests require fresh metadata from S3; total final budget is UNKNOWN until they are checked.
-- **0/536** expected per-day dataset artifacts for the new 269-wallet cohort have been fetched. Prior 14-wallet evidence is in separate paths and remains immutable.
-- Both `default` and `mgmt` AWS sessions expired at approximately 2026-11-12 16:27 UTC; read-only AWS STS and signed S3 calls failed, even with the saved credential configuration. **Do not try anonymous, untrusted, alternative-account or unapproved credential workarounds.**
-- AWS profile `mgmt` is a distinct account from `default`; it had previously worked and was recorded as the requester-pays billing identity for the new 269-wallet preflights. An authenticated `mgmt` login must be explicitly restored before any further S3 request.
+- Frozen 269-wallet scope: 264 subscribed/monitored plus 14 sealed, 9 overlap and 5 preserved outsiders. November's roster projected back to July is retrospective, not a historical subscription series.
+- **40/40** source preflights completed; projected compressed source-column scan: **29,709.796 MB**, below the approved 50,000 MB guard. This is not actual network traffic or AWS invoice.
+- **536/536** source artifacts verified (268 fills and 268 daily per-DEX position snapshots). Dates: **2026-07-01 through 2026-11-11**, 134/134 on each of `hyperliquid` and `xyz`.
+- `hyperliquid`: **1,970,537 fills**, **140,912 position rows**. `xyz`: **586,311 fills**, **51,288 position rows**. Total **2,556,848 fills**, **192,200 position rows**.
+- Final private catalog: `/home/quant/.local/share/copytrade/research/reservoir-monitored-plus-six-20260701-20261111/catalog.json`, SHA-256 `11a706c7849fa8118d33d926d41dd2572b1a9fc74e9f47fb0c92b586a7b91ee7`.
+- AWS `mgmt` login expired during earlier attempts; after interactive reauthentication the bounded resumable systemd job finished successfully at **2026-11-13 07:15:38 UTC**. Its transient `systemd-run --collect` unit then disappeared **by design**. Missing process/unit after this receipt is **COMPLETED**, not disconnected.
+- `mgmt` is the requester-pays billing identity; no permanent programmatic credentials were provisioned. Existing narrower 14-wallet source files were not changed.
 
-## 4. Reauthenticate and resume safely
+## 4. Durable status, verification, and future credentials
 
-The AWS account owner must run this in the VPS terminal or authorized DevSpace session (requires interactive browser approval):
-
-~~~bash
-aws login --profile mgmt --remote --region ap-northeast-1
-aws sts get-caller-identity --profile mgmt --region ap-northeast-1
-~~~
-
-Then resume the pinned research-only task from the **isolated checkout containing this implementation**:
+**To check whether the historical backfill finished, use the catalog, not `systemctl is-active`.** The exact command below verifies the archived cohort, 268 date/DEX entries, 536 immutable Parquet hashes, frozen source ETags/state IDs, daily cross-DEX source state alignment and aggregate row totals. It works **without valid AWS credentials and without consulting the current mutable monitored registry**:
 
 ~~~bash
 cd /home/quant/.devspace/worktrees/copytrade-pm-6e037206
-export RESERVOIR_AWS_PROFILE=mgmt
 /home/quant/dev/quant-lab/.venv/bin/python \
-  scripts/backfill_reservoir_six_from_july.py resume \
-  --cohort monitored_plus_six \
-  --max-batch-mb 2000 --max-total-mb 50000 \
-  --max-fetch-batches 4
-~~~
-
-Repeat `resume` for subsequent bounded foreground batches; it reuses already verified private Parquet and source manifests, never deletes or overwrites them. For a single long foreground run, `--max-fetch-batches 0` can process all remaining batches after preflight. It must **finish source preflight and check the whole-history projected budget before any S3 fill acquisition**. Recompute S3 ETag/size before reading, fail closed on revision, and retain exact error evidence. No background service is installed.
-
-**After full completion only:**
-
-~~~bash
-/home/quant/dev/quant-lab/.venv/bin/python \
-  scripts/catalog_reservoir_six_portfolios.py build \
-  --cohort monitored_plus_six
-/home/quant/dev/quant-lab/.venv/bin/python \
-  scripts/catalog_reservoir_six_portfolios.py verify \
+  scripts/catalog_reservoir_six_portfolios.py offline-status \
   --cohort monitored_plus_six
 ~~~
 
-Private 269-wallet evidence roots: `/home/quant/.local/share/copytrade/research/reservoir-monitored-plus-six-{dex}-{date-window}/`. Final catalog target: `/home/quant/.local/share/copytrade/research/reservoir-monitored-plus-six-20260701-20261111/catalog.json`. Old 14-wallet catalog and source files are independent and remain untouched.
+**Expected:** `status=HISTORICAL_SOURCE_COMPLETE_VERIFIED_OFFLINE`, `artifacts_verified=536`, `dates=134`, `wallets=269`, and the pinned catalog SHA above. Exit 2 means evidence validation failed; do not interpret a missing catalog or changed checksum as completion. The existing `verify` command also checks content against the *current* live roster, which may legitimately change after November 2026; use `offline-status` for the **frozen historical cohort**.
+
+The earlier AWS login issue is a **future unattended-acquisition concern**, not a remaining blocker for this finished dataset. AWS's interactive `aws login` refreshes short-lived credentials only within the finite console session (up to 12 hours). On the Contabo VPS, genuinely unattended repeated S3 acquisitions require a separate narrowly scoped workload identity, preferably **IAM Roles Anywhere** with a CA trust anchor, certificate rotation and an IAM role allowing only the needed S3 requester-pays reads. Read [AWS Roles Anywhere documentation](https://docs.aws.amazon.com/rolesanywhere/latest/userguide/credential-helper.html) before establishing that identity. On 2026-11-13, the `mgmt` account had **zero** Roles Anywhere trust anchors/profiles; none were silently created. Do not automate interactive `aws login`, embed permanent broad `AccountFullAccessRole` credentials, or install a permanent data-writing service just to monitor a completed historical backfill.
+
+The former one-shot job was `copytrade-reservoir-269-resume2-20261113.service` and exited successfully; `systemd-run --collect` discards the transient unit after exit. Private 269-wallet evidence remains under `/home/quant/.local/share/copytrade/research/reservoir-monitored-plus-six-{dex}-{date-window}/`; the older 14-wallet catalog and all canonical wallet-store/Guardian/paper state remain independent.
 
 ## 5. Acceptance and non-qualification
 
-**Engineering DONE only when:** 40/40 frozen preflights, 536/536 SHA-verified source fill/snapshot Parquet artifacts, full 134/134 main and xyz days, exact 269-wallet frozen scope, final aggregate row counts by DEX, and independently matching source-state timestamps. All source-only/local-only trade-ID discrepancies, zero-row days and position gaps must be labeled explicitly.
+**Historical acquisition COMPLETE / VERIFIED:** 40/40 frozen preflights, 536/536 SHA-verified source fill/snapshot Parquet artifacts, 134/134 dates on both DEXes, frozen 269-wallet scope, exact counts by DEX, and matching cross-DEX source block/time identities. **Separate, not completed by acquisition:** full historical wallet-to-local trade-ID discrepancy audit, intraday position-path reconstruction, zero-fill-day interpretation, per-wallet contiguous episode validity, source-to-follower economic replay, and PIT/scientific admission. Do not promote acquisition checks to those gates.
 
-**Research validity:** A November-fixed wallet universe projected backward is a retrospective cohort; not survivorship-bias-free discovery. Native simultaneous fills can lack causal intra-millisecond order; daily delta agreement proves endpoints only, not continuous position books. Historical vendor execution time is not actual local first-known source-observation time. Net follower economics, spread, slippage, funding and frozen-k admission require independent qualification.
+**Research validity:** A November-fixed wallet universe projected backward is a retrospective cohort, not survivorship-bias-free discovery. Native simultaneous fills can lack causal intra-millisecond order. Cross-DEX source-state alignment is verified; **269-wallet consecutive-day fill-delta parity has not been independently reported**, and daily snapshots alone do not prove continuous position books. Historical vendor execution time is not actual locally first-known source-observation time. Net follower economics, spread, slippage, funding and frozen-k admission require independent qualification.
 
 **Operations:** No source-registry mutation, no canonical wallet-store ingestion, no CWSA/paper worker restart, no Guardian or broker change, and absolutely no trading authorization. Existing six paper portfolios remain separate from this wider research data acquisition.
 

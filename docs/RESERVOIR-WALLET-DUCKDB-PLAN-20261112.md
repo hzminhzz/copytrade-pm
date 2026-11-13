@@ -1,6 +1,6 @@
 # Reservoir: wallet-scoped DuckDB acquisition and PIT backtest plan
 
-**Status:** 14-wallet, 31-day two-DEX source staging **completed** ([evidence](RESERVOIR-SIX-PORTFOLIO-BACKFILL-20261112.md)); wider **269-wallet, July 1–November 11** historical acquisition **metadata prepared but fills BLOCKED by expired AWS authentication** ([current runbook](RESERVOIR-MONITORED-PLUS-SIX-269-20261112.md)). Only `hyperliquid` + `xyz`; no canonical-store ingestion, paper financial admission or trading authorization.
+**Status:** 14-wallet, 31-day pilot **completed** ([evidence](RESERVOIR-SIX-PORTFOLIO-BACKFILL-20261112.md)); wider **269-wallet, July 1–November 11, 2026** historical two-DEX acquisition **COMPLETED** (2,556,848 fills, 536/536 verified Parquet artifacts) and independently [offline verified](RESERVOIR-MONITORED-PLUS-SIX-269-20261112.md). Only `hyperliquid` + `xyz`; no canonical-store ingestion, first-known receipts, paper financial admission or trading authorization.
 **Evidence reviewed:** 2026-11-12 10:32–10:50 UTC, source docs fetched 2026-11-12.
 **Working checkout inspected:** /home/quant/dev/copytrade-pm, HEAD 6c07cc6d; checkout dirty and behind remote. These are dated observations, not current source-of-truth service status.
 
