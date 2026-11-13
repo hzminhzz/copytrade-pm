@@ -88,18 +88,11 @@ def _registry_query(db: Path, command: list[str]) -> object:
 
 def _generation(db: Path) -> dict:
     """The live SQLite inventory hash, never the age of the legacy importer."""
-    info = _registry_query(db, ["status"])
     verified = registry.db_authority_health(db)
     return {
-        "status": "VERIFIED",
+        "status": verified["database_integrity"],
         "sha": verified["inventory_sha256"],
-        "observed_at": (
-            info["generation"].get("sqlite_native_updated_at")
-            or info["generation"].get("legacy_import_locked_at")
-            or info["generation"].get("observed_at")
-        ),
-        "legacy_import_freshness": info["freshness"],
-        "counts": info["counts"],
+        "observed_at": verified["observed_at"],
     }
 
 
@@ -155,7 +148,7 @@ def _read_registry(db: Path, command: list[str], capability: str, asof: str | No
         if asof:
             args.extend(["--asof", asof])
         payload = _registry_query(db, args)
-        status = "STALE" if gen["status"] != "CURRENT" else "VERIFIED"
+        status = "STALE" if gen["status"] != "VERIFIED" else "VERIFIED"
         if command[:2] == ["portfolio", "--current"]:
             if payload.get("selection_state") in (
                 "NOT_REGISTERED_AT_ASOF",
@@ -258,7 +251,7 @@ def _wallets(db: Path, args: argparse.Namespace) -> dict:
             )
         return result(
             "wallet.list",
-            "VERIFIED" if generation["status"] == "CURRENT" else "STALE",
+            "VERIFIED" if generation["status"] == "VERIFIED" else "STALE",
             payload,
             authority="wallet_registry",
             version="sqlite_v8",
@@ -414,7 +407,10 @@ def dispatch(args: argparse.Namespace) -> dict:
         return verify(args)
     if args.group == "wallets":
         if args.verb == "show":
-            return _read_registry(db, ["wallet", "--alias", args.id], "wallet.lookup", args.asof)
+            command = ["wallet", "--alias", args.id]
+            if args.namespace != "auto":
+                command.extend(["--namespace", args.namespace])
+            return _read_registry(db, command, "wallet.lookup", args.asof)
         return _wallets(db, args)
     if args.group == "portfolios":
         if args.verb == "list":
@@ -505,6 +501,12 @@ def parser() -> argparse.ArgumentParser:
                 operation.add_argument("id")
             if domain in ("wallets", "portfolios"):
                 operation.add_argument("--asof")
+            if domain == "wallets" and op == "show":
+                operation.add_argument(
+                    "--namespace",
+                    default="auto",
+                    choices=registry.ALIAS_NAMESPACES,
+                )
             if domain == "wallets" and op == "list":
                 operation.add_argument("--query")
                 operation.add_argument("--cohort")

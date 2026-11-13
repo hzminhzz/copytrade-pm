@@ -75,7 +75,7 @@ def test_native_portfolio_parity_and_namespace_separation(tmp_path: Path) -> Non
     db, snapshot = _v2_snapshot(tmp_path)
     reg.apply(db, snapshot, AFTER)
     current = ops._read_registry(db, ["portfolio", "--current"], "portfolio.current", AFTER)
-    assert current["status"] in {"VERIFIED", "STALE"}
+    assert current["status"] == "VERIFIED"
     with io.StringIO() as stdout, redirect_stdout(stdout):
         assert reg.cli(["--db", str(db), "portfolio", "--current", "--asof", AFTER]) == 0
         native = json.loads(stdout.getvalue())
@@ -163,7 +163,7 @@ def test_no_private_state_modified_by_readonly_adapter(tmp_path: Path) -> None:
         ["status"],
     ):
         item = ops._read_registry(db, cmd, "test.read")
-        assert item["status"] in {"VERIFIED", "STALE"}
+        assert item["status"] == "VERIFIED"
     assert db.read_bytes() == before
     # SQLite mode=ro can create its own -wal/-shm interprocess sidecars.
     # Those are not application mutations; reject any other new private files.
@@ -259,19 +259,15 @@ def test_registry_exclude_required_flags_and_access_metadata() -> None:
     entries = {item["id"]: item for item in cap.inventory(ROOT)}
     for cap_id in (
         "registry.operation.status",
-        "registry.operation.doctor",
         "registry.operation.report.redacted",
     ):
         reads = set(entries[cap_id]["access"]["read_targets"])
         assert {"optional_private_paper_journal", "decision_repo"} <= reads, cap_id
-    assert (
-        "private_evidence_archive"
-        in entries["registry.operation.native.status"]["access"]["read_targets"]
-    )
-    assert (
-        "optional_private_paper_journal"
-        not in entries["registry.operation.native.status"]["access"]["read_targets"]
-    )
+    for cap_id in ("registry.operation.native.status", "registry.operation.doctor"):
+        reads = set(entries[cap_id]["access"]["read_targets"])
+        assert "private_evidence_archive" in reads, cap_id
+        assert "optional_private_paper_journal" not in reads, cap_id
+    assert "decision_repo" in entries["registry.operation.doctor"]["access"]["read_targets"]
     assert "decision_repo" in entries["registry.operation.portfolio"]["access"]["read_targets"]
     assert (
         "optional_auditor_public_key"

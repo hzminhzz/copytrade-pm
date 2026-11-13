@@ -61,6 +61,7 @@ PORTFOLIO_DOCS = {
     "C": "docs/Q3-SPARSE-EQUITY-PORTFOLIO-EXECUTION-20261102.md",
     "Combo2": "docs/COMBO2-PAPER.md",
 }
+ALIAS_NAMESPACES = ("auto", "frozen_pm01", "research_v2", "sqlite_primary")
 DDL = """
 CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS import_runs(
@@ -870,6 +871,74 @@ AUTHORITATIVE_INVENTORY_TABLES = (
 )
 
 
+def _authority_health_in_tx(db: Path, con: sqlite3.Connection) -> dict:
+    """Inspect authoritative SQLite integrity inside an open BEGIN read transaction."""
+    fingerprint = sha256()
+    if con.execute("PRAGMA query_only").fetchone()[0] != 1:
+        raise ValueError("REGISTRY_MUST_BE_QUERY_ONLY")
+    if con.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+        raise ValueError("REGISTRY_SQLITE_INTEGRITY_FAILED")
+    if con.execute("PRAGMA foreign_key_check").fetchone() is not None:
+        raise ValueError("REGISTRY_FOREIGN_KEYS_FAILED")
+    schema = con.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0]
+    if schema != 8:
+        raise ValueError("REGISTRY_SCHEMA_UNSUPPORTED")
+
+    cohorts = con.execute(
+        "SELECT cohort_id, version, source_sha256 FROM cohorts "
+        "WHERE version=(SELECT MAX(version) FROM cohorts c2 "
+        "WHERE c2.cohort_id=cohorts.cohort_id) ORDER BY cohort_id"
+    ).fetchall()
+    if not cohorts or any(not row[2] or row[1] < 1 for row in cohorts):
+        raise ValueError("REGISTRY_COHORT_PROVENANCE_EMPTY")
+    unverified = [row[0] for row in cohorts if re.fullmatch(r"[0-9a-f]{64}", row[2]) is None]
+    counts = {
+        row[0]: con.execute(
+            "SELECT COUNT(*) FROM cohort_memberships WHERE cohort_id=? AND version=?",
+            (row[0], row[1]),
+        ).fetchone()[0]
+        for row in cohorts
+    }
+    if any(count == 0 for count in counts.values()):
+        raise ValueError("REGISTRY_EMPTY_REGISTERED_COHORT")
+    native.locked(con)  # Verify all protective triggers when legacy writes are disabled.
+    native.verify_native_cohort_archives(db, con)
+    native.verify_exclusion_archives(db, con)
+    for table in AUTHORITATIVE_INVENTORY_TABLES:
+        records = con.execute(f"SELECT * FROM {table}").fetchall()
+        encoded = sorted(
+            (json.dumps(row, sort_keys=True, separators=(",", ":")) for row in records)
+        )
+        fingerprint.update(table.encode("ascii"))
+        fingerprint.update(b"\0")
+        for row in encoded:
+            fingerprint.update(row.encode("utf-8"))
+            fingerprint.update(b"\n")
+    imported = dict(con.execute("SELECT key,value FROM snapshot_meta"))
+    seals = con.execute("SELECT COUNT(*) FROM portfolio_seals").fetchone()[0]
+    return {
+        "schema": "wallet_registry_sqlite_authority_v1",
+        "authority": "SQLITE",
+        "database_integrity": "VERIFIED",
+        "schema_version": schema,
+        "inventory_sha256": fingerprint.hexdigest(),
+        "research_cohorts": counts,
+        "unverified_cohort_import_provenance": unverified,
+        "sealed_portfolio_definitions": seals,
+        "observed_at": (
+            imported.get("sqlite_native_updated_at")
+            or imported.get("legacy_import_locked_at")
+            or imported.get("observed_at")
+        ),
+        "sqlite_native_updated_at": imported.get("sqlite_native_updated_at"),
+        "legacy_import_locked_at": imported.get("legacy_import_locked_at"),
+        "last_legacy_import_sha256": imported.get("manifest_sha256"),
+        "last_legacy_import_observed_at": imported.get("observed_at"),
+        "scientifically_qualified": False,
+        "trading_authorized": False,
+    }
+
+
 def db_authority_health(db: Path) -> dict:
     """Read-only SQLite integrity and content identity, independent of CSV imports.
 
@@ -877,65 +946,66 @@ def db_authority_health(db: Path) -> dict:
     to delete the cohort from the authoritative registry. Never promote such
     cohorts to scientific qualification.
     """
-    fingerprint = sha256()
     with closing(connect(db, False)) as con:
         con.execute("BEGIN")  # Stable snapshot across the entire inspection.
-        if con.execute("PRAGMA query_only").fetchone()[0] != 1:
-            raise ValueError("REGISTRY_MUST_BE_QUERY_ONLY")
-        if con.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
-            raise ValueError("REGISTRY_SQLITE_INTEGRITY_FAILED")
-        if con.execute("PRAGMA foreign_key_check").fetchone() is not None:
-            raise ValueError("REGISTRY_FOREIGN_KEYS_FAILED")
-        schema = con.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0]
-        if schema != 8:
-            raise ValueError("REGISTRY_SCHEMA_UNSUPPORTED")
+        return _authority_health_in_tx(db, con)
 
-        cohorts = con.execute(
-            "SELECT cohort_id, version, source_sha256 FROM cohorts "
-            "WHERE version=(SELECT MAX(version) FROM cohorts c2 "
-            "WHERE c2.cohort_id=cohorts.cohort_id) ORDER BY cohort_id"
-        ).fetchall()
-        if not cohorts or any(not row[2] or row[1] < 1 for row in cohorts):
-            raise ValueError("REGISTRY_COHORT_PROVENANCE_EMPTY")
-        unverified = [row[0] for row in cohorts if re.fullmatch(r"[0-9a-f]{64}", row[2]) is None]
-        counts = {
-            row[0]: con.execute(
-                "SELECT COUNT(*) FROM cohort_memberships WHERE cohort_id=? AND version=?",
-                (row[0], row[1]),
-            ).fetchone()[0]
-            for row in cohorts
-        }
-        if any(count == 0 for count in counts.values()):
-            raise ValueError("REGISTRY_EMPTY_REGISTERED_COHORT")
-        native.locked(con)  # Verify all protective triggers when legacy writes are disabled.
-        native.verify_native_cohort_archives(db, con)
-        native.verify_exclusion_archives(db, con)
-        for table in AUTHORITATIVE_INVENTORY_TABLES:
-            records = con.execute(f"SELECT * FROM {table}").fetchall()
-            encoded = sorted(
-                (json.dumps(row, sort_keys=True, separators=(",", ":")) for row in records)
-            )
-            fingerprint.update(table.encode("ascii"))
-            fingerprint.update(b"\0")
-            for row in encoded:
-                fingerprint.update(row.encode("utf-8"))
-                fingerprint.update(b"\n")
-        imported = dict(con.execute("SELECT key,value FROM snapshot_meta"))
-        seals = con.execute("SELECT COUNT(*) FROM portfolio_seals").fetchone()[0]
+
+def _legacy_import_freshness(observed: str | None) -> str:
+    """Classify the non-authoritative legacy import clock without failing closed."""
+    if observed is None:
+        return "UNKNOWN"
+    try:
+        age = (datetime.now(timezone.utc) - datetime.fromisoformat(observed)).total_seconds()
+        return "CURRENT" if 0 <= age <= 86400 else "STALE"
+    except TypeError, ValueError:
+        return "UNKNOWN"
+
+
+def _research_unique_count(con: sqlite3.Connection) -> int:
+    """Count distinct wallet IDs across the latest version of each cohort."""
+    return con.execute(
+        "SELECT COUNT(DISTINCT m.wallet_id) FROM cohort_memberships m "
+        "WHERE m.version=(SELECT MAX(c.version) FROM cohorts c "
+        "WHERE c.cohort_id=m.cohort_id)"
+    ).fetchone()[0]
+
+
+def _evidence_source_shas(con: sqlite3.Connection) -> dict[str, str]:
+    """Read recorded artifact SHA-256 digests from SQLite provenance storage."""
+    return {
+        key: value for key, value in con.execute("SELECT source_key,sha256 FROM evidence_artifacts")
+    }
+
+
+def _selection_state(con: sqlite3.Connection, cutoff: str) -> dict:
+    """Resolve current research selection state without crashing on missing proof."""
+    try:
+        return catalog.list_selection(con, cutoff)
+    except ValueError as exc:
+        if str(exc) != "unverified research selection provenance":
+            raise
         return {
-            "schema": "wallet_registry_sqlite_authority_v1",
-            "authority": "SQLITE",
-            "database_integrity": "VERIFIED",
-            "schema_version": schema,
-            "inventory_sha256": fingerprint.hexdigest(),
-            "research_cohorts": counts,
-            "unverified_cohort_import_provenance": unverified,
-            "sealed_portfolio_definitions": seals,
-            "last_legacy_import_sha256": imported.get("manifest_sha256"),
-            "last_legacy_import_observed_at": imported.get("observed_at"),
-            "scientifically_qualified": False,
-            "trading_authorized": False,
+            "selection_state": "UNVERIFIED_SELECTION_PROVENANCE",
+            "portfolios": [],
         }
+
+
+def _doctor_snapshot(db: Path, *, include_source_shas: bool = False) -> tuple[dict, dict]:
+    """Read doctor authority health and scoped metadata in one BEGIN snapshot."""
+    with closing(connect(db, False)) as con:
+        con.execute("BEGIN")
+        authority = _authority_health_in_tx(db, con)
+        selection = _selection_state(con, datetime.now(timezone.utc).isoformat())
+        indexed = {
+            "counts": {
+                "research_unique": _research_unique_count(con),
+                "current_research_selection": selection["selection_state"],
+            },
+            "freshness": _legacy_import_freshness(authority["last_legacy_import_observed_at"]),
+            "source_shas": _evidence_source_shas(con) if include_source_shas else {},
+        }
+        return authority, indexed
 
 
 def db_status(db: Path) -> dict:
@@ -950,11 +1020,7 @@ def db_status(db: Path) -> dict:
         }
         rows = con.execute("SELECT key,value FROM snapshot_meta")
         meta = dict(rows)
-        counts["research_unique"] = con.execute(
-            "SELECT COUNT(DISTINCT m.wallet_id) FROM cohort_memberships m "
-            "WHERE m.version=(SELECT MAX(c.version) FROM cohorts c "
-            "WHERE c.cohort_id=m.cohort_id)"
-        ).fetchone()[0]
+        counts["research_unique"] = _research_unique_count(con)
         counts["desired"] = con.execute(
             "SELECT COUNT(*) FROM monitoring WHERE configured=1"
         ).fetchone()[0]
@@ -981,10 +1047,7 @@ def db_status(db: Path) -> dict:
                 "WHERE c.cohort_id=m.cohort_id)"
             ).fetchone()[0]
         counts["runtime_admitted"] = "UNKNOWN"
-        sources = {
-            key: value
-            for key, value in con.execute("SELECT source_key,sha256 FROM evidence_artifacts")
-        }
+        sources = _evidence_source_shas(con)
         counts["paper_running"] = "UNKNOWN"
         paper_reports = registered_paper_status(con)
         counts["registered_paper_runs"] = len(paper_reports)
@@ -997,27 +1060,14 @@ def db_status(db: Path) -> dict:
         # Missing proof for an *unrelated future research selection* does not
         # corrupt the owner-private SQLite inventory. Keep metadata inspectable,
         # but never promote the unverified source to a current portfolio.
-        try:
-            selection = catalog.list_selection(con, datetime.now(timezone.utc).isoformat())
-        except ValueError as exc:
-            if str(exc) != "unverified research selection provenance":
-                raise
-            selection = {
-                "selection_state": "UNVERIFIED_SELECTION_PROVENANCE",
-                "portfolios": [],
-            }
+        selection = _selection_state(con, datetime.now(timezone.utc).isoformat())
         counts["current_research_selection"] = selection["selection_state"]
         counts["current_research_portfolios"] = len(selection["portfolios"])
         qualified = qualification_contract.status(con)
         counts["scientifically_qualified"] = qualified["scientifically_qualified"]
         counts["trading_authorized"] = "NOT_ESTABLISHED"
         counts["qualification_integrity"] = qualified["registry_science_integrity"]
-        observed = meta.get("observed_at")
-        try:
-            age = (datetime.now(timezone.utc) - datetime.fromisoformat(observed)).total_seconds()
-            freshness = "CURRENT" if 0 <= age <= 86400 else "STALE"
-        except TypeError, ValueError:
-            freshness = "UNKNOWN"
+        freshness = _legacy_import_freshness(meta.get("observed_at"))
         return {
             "counts": counts,
             "generation": meta,
@@ -1108,9 +1158,7 @@ def cli(argv: list[str] | None = None) -> int:
     lookup = wallet.add_mutually_exclusive_group(required=True)
     lookup.add_argument("--address")
     lookup.add_argument("--alias")
-    wallet.add_argument(
-        "--namespace", default="auto", choices=("auto", "frozen_pm01", "research_v2")
-    )
+    wallet.add_argument("--namespace", default="auto", choices=ALIAS_NAMESPACES)
     wallet.add_argument("--asof", help="UTC as-known cutoff")
     cohort = sub.add_parser("cohort")
     cohort.add_argument("name", help="Any cohort registered in authoritative SQLite")
@@ -1207,8 +1255,7 @@ def cli(argv: list[str] | None = None) -> int:
             )
     elif args.command == "doctor":
         try:
-            authority = db_authority_health(args.db)
-            indexed = db_status(args.db)
+            authority, indexed = _doctor_snapshot(args.db, include_source_shas=args.legacy_audit)
             audit = {"status": "NOT_REQUESTED", "authoritative": False}
             if args.legacy_audit:
                 try:
@@ -1335,17 +1382,7 @@ def cli(argv: list[str] | None = None) -> int:
                     (normalize(args.address),),
                 ).fetchone()
             else:
-                if args.namespace == "auto":
-                    wallet_id = catalog.resolve_alias(con, args.alias, cutoff)
-                else:
-                    matches = con.execute(
-                        "SELECT DISTINCT wallet_id FROM wallet_aliases "
-                        "WHERE namespace=? AND alias=? AND known_at<=?",
-                        (args.namespace, args.alias, cutoff),
-                    ).fetchall()
-                    if len(matches) > 1:
-                        raise ValueError("ambiguous alias, fail closed")
-                    wallet_id = matches[0][0] if matches else None
+                wallet_id = catalog.resolve_alias(con, args.alias, cutoff, namespace=args.namespace)
                 row = (wallet_id,) if wallet_id is not None else None
             if not row:
                 print(json.dumps({"found": False}))

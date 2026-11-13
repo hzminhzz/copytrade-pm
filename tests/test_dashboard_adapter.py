@@ -358,7 +358,7 @@ def test_actual_sqlite_readonly_pagination_asof_and_zero_write(tmp_path, monkeyp
     # once the test date has passed; synthetic capture tests still use T0.
     app = DashboardReader(db=db, clock=lambda: datetime.now(UTC), cache=SmallTTLCache())
     found = app.wallets(query="W083", asof=AFTER, limit=1)
-    assert found["status"] in {"VERIFIED", "STALE"}
+    assert found["status"] == "VERIFIED"
     assert found["data"]["total"] == 1
     assert found["data"]["addresses_redacted"] is True
     assert "W083" in [a["alias"] for a in found["data"]["wallets"][0]["aliases"]]

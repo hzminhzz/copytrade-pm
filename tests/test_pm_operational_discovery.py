@@ -74,7 +74,7 @@ def _call(argv: list[str]) -> tuple[int, dict]:
 def test_wallet_inventory_is_private_and_asof(verified_wallets: Path) -> None:
     args = ["--db", str(verified_wallets), "wallets", "list", "--query", "W083"]
     code, data = _call(args)
-    assert code == 0 and data["status"] in {"VERIFIED", "STALE"}
+    assert code == 0 and data["status"] == "VERIFIED"
     view = data["data"]
     assert view["total"] == 1
     row = view["wallets"][0]
