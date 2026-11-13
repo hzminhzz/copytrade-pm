@@ -4,11 +4,11 @@ This repository owns **research, original source observation, and virtual paper*
 
 ## First inspection
 
-1. Read [docs/INDEX.md](docs/INDEX.md), the owning architecture decision, and the canonical runbook for the task.
-2. Inspect current origin/main, actual GitHub issues/PRs, branch, worktrees, dirty and untracked files, installed service PIDs, release SHAs, and real SQLite journals. Never reset, clean, overwrite, or commandeer another session's work. Use an isolated worktree.
-3. Run OptMem wake and recall for context; repository, original receipts, SQLite, and live OS facts override memory. Do not use dated status notes as current truth.
-4. Discover existing CLI capabilities before adding a module: `copytrade-pm capabilities list`, `copytrade-pm capabilities show`, and `copytrade-pm capabilities validate`. See [agent-native operations](docs/AGENT-NATIVE-OPERATIONS.md).
-5. Run the existing `scripts/ci.sh all` / `.githooks/pre-push` gate and verify its exact-commit receipt. Passing CI does not prove an installed release, financial admission, or trading authorization.
+1. State the requested outcome, exact target and authorized read/write scope. Use [docs/INDEX.md](docs/INDEX.md) to reach its owner; read [architecture](docs/ARCHITECTURE.md) for cross-boundary work and [the system design](docs/AGENT-SYSTEM-DESIGN.md) when changing agent workflows.
+2. Inspect current GitHub branch/issues/PRs, local HEAD, worktrees and dirty/untracked work. Preserve other sessions' changes; use an isolated worktree. Inspect installed services and private journals only when the requested runtime/financial claim needs them and access is authorized.
+3. Recall relevant durable OptMem context when useful and follow its pagination protocol; verify facts against their current owner. Memory and dated reports are navigation, not live truth.
+4. Before adding an operation/module or starting data acquisition, replay or backtest, use `copytrade-pm capabilities list`, `copytrade-pm capabilities show <id>`, and `copytrade-pm capabilities validate`, then inspect the public owner and tests. [Agent operations](docs/AGENT-NATIVE-OPERATIONS.md) records current discovery/diagnostic limitations.
+5. Verify the requested change with relevant checks. Documentation-only work checks links, contract consistency and diff; it does not claim runtime tests. Engineering merge/push still requires the existing `scripts/ci.sh all` / `.githooks/pre-push` exact-commit gate. CI does not prove deployment or authority, and an edited worktree is not a merged or released revision.
 
 ## Independent authorities
 
@@ -21,9 +21,10 @@ This repository owns **research, original source observation, and virtual paper*
 | Frozen k research | Track C PIT/OOS originals; research is not permission |
 | Signed paper-only authority | Independently verified Copy Mandates and new epoch |
 | Protected native trading | Guardian in prop-production; broker adapter in trading-connector |
-| Deployment and dashboard | Actual service PID, executable SHA, authenticated Site revision and publisher proof |
+| Cross-repository companion pins | `prop-production:src/prop_production/compatibility.json` — sole pin authority; never copy source SHAs as live pins |
+| Deployment and dashboard | Independently bound application process/release evidence, authenticated Site revision and publisher proof; a PID/configuration alone is insufficient |
 
-**MANDATORY REGISTRY-FIRST:** For any portfolio/paper question, verify the registry with `copytrade-wallet-registry doctor`, `copytrade-wallet-registry status`, `copytrade-wallet-registry native status`, and `scripts/registry_release.py verify`. Resolve the SQLite **source generation** (manifest SHA/as-of), namespace/version/as-of, and authoritative source receipts. [WALLET-STATUS.md](docs/WALLET-STATUS.md) is dated historical evidence, not current truth. An unsigned seal, research portfolio, or healthy observer does **not** establish signed financial admission.
+**MANDATORY REGISTRY-FIRST:** Wallet/portfolio identity comes from native SQLite integrity, `inventory_sha256` (with recorded source generation lineage), qualified namespace/version and known-at under the [registry workflow](docs/WALLET-REGISTRY-AGENT-WORKFLOW.md). Use scoped native readers; metadata-only work does not require financial journals or aggregate health. Keep database integrity separate from blocked selection proof; historical import SHA is lineage, not the current roster. [WALLET-STATUS.md](docs/WALLET-STATUS.md) is dated evidence. Verify independent release/runtime/finance only for the corresponding claim. An unsigned seal or healthy observer does **not** establish signed financial admission.
 
 ## Source and timing boundaries
 
@@ -35,11 +36,12 @@ This repository owns **research, original source observation, and virtual paper*
 ## Operations and release
 
 - **Single Chapter 2 owner:** [CWSA Chapter 2 runbook](docs/CWSA-CHAPTER2-20261112.md). It owns premerge/predeploy/postdeploy acceptance, unsigned research-to-paper release discipline, CI receipts, nonfinancial observation fallback, and rollback. Report PASS, BLOCKED_EVIDENCE, or FAIL without promoting an empty financial journal.
-- **Current intended operator UI:** the user-facing Site source in /home/quant/dev/copytrade-pm/dashboard/. It is untracked in the main checkout and belongs to another session until ownership is verified. Grafana and Marimo are historical/retired operator interfaces. The older ops-control-center service is a read-only sidecar; a running sidecar is not proof that the Site projection is deployed.
-- Review [RUNBOOK](docs/RUNBOOK.md), [governance](docs/GOVERNANCE-GATES.md), [merge-versus-deployment ADR](docs/decisions/2026-11-10-merge-vs-runtime-promotion.md), and [blocker recovery](docs/BLOCKER-RECOVERY.md) before any mutation. Never change protected Guardian/broker or existing journals for an observer deployment.
+- **Current intended operator UI:** the user-facing Site source in `/home/quant/dev/copytrade-pm/dashboard/` (untracked in the primary checkout). Inspect current Git status and ownership before editing; preserve concurrent or untracked frontend work. Grafana and Marimo are historical/retired operator interfaces. The older `ops-control-center` service is a read-only sidecar; a running sidecar is not proof that the Site projection is deployed.
+- **Concurrent unmerged candidate work:** Primary-checkout untracked paths (`wallet_store`, Reservoir docs, Site `dashboard/`, `docs/agents/`) and open [PR #332](https://github.com/hzminhzz/copytrade-pm/pull/332) are unmerged candidate artifacts, not merged `main` or installed authority; see [INDEX](docs/INDEX.md#current-specialist-contracts) for the inventory and preserve them without resetting or overwriting other sessions' work.
+- Review [RUNBOOK](docs/RUNBOOK.md), [governance](docs/GOVERNANCE-GATES.md), [merge-versus-deployment ADR](docs/decisions/2026-11-10-merge-vs-runtime-promotion.md), and [blocker recovery](docs/BLOCKER-RECOVERY.md) before a registry, service or financial mutation. Never change protected Guardian/broker or existing journals for an observer deployment.
 - Prefect is opt-in Track B research orchestration only; never a hot source, financial, or order authority. See [Prefect](docs/TRACK-B-PREFECT-ORCHESTRATION-20261110.md).
 - **MANDATORY contract EV tool:** use native `research.contract_selector` with `copytrade-pm contracts rules` and `copytrade-pm contracts compare --portfolio NAMESPACE/ID --tape PRIVATE_TAPE`. Resolve the portfolio from SQLite and require genuine matched **net follower** evidence. Missing tape means BLOCKED; synthetic EV means SCENARIO_ONLY; neither gives permission to trade. See [contract EV](docs/CONTRACT-PORTFOLIO-EV-TOOL-20261105.md).
 
 ## Engineering documentation
 
-Update one canonical owner, docs/INDEX.md navigation and the relevant ADR when contracts change. Preserve historical reports and negative evidence. Confirm cross-repository consumer pins when changed. Keep ephemeral processes, balances, resource values, and P&L out of permanent instructions. Report **IMPLEMENTED / TESTED / MERGED / DEPLOYED / PROSPECTIVE_PAPER_ACTIVE / ECONOMICALLY_QUALIFIED / SCIENTIFICALLY_QUALIFIED / TRADING_AUTHORIZED** as separate states with exact supporting receipts.
+Update one canonical owner, docs/INDEX.md navigation, affected capability/tests, and a scoped ADR when a consequential contract decision changes. Keep current contracts, design targets and dated evidence distinct. Retain the smallest reproducible lesson; reuse verified immutable work and recheck mutable preconditions. Preserve historical reports and negative evidence. Confirm cross-repository consumer pins when changed. Keep ephemeral processes, balances, resource values, and P&L out of permanent instructions. Report **IMPLEMENTED / ENGINEERING_VERIFIED / MERGED / DEPLOYED / PROSPECTIVE_PAPER_ACTIVE / ECONOMICALLY_QUALIFIED / SCIENTIFICALLY_QUALIFIED / TRADING_AUTHORIZED** as separate states with exact supporting receipts.
