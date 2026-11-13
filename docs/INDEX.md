@@ -48,7 +48,7 @@ Software capability, installed release, source health, financial admission, econ
 | Track C immutable k proposals | [Recalibration contract](TRACK-C-K-RECALIBRATION-20261110.md) |
 | Historical screening and shortlist handoff | [Fast Polars screening](V4-FAST-POLARS-SCREENING-20261110.md), [screening ADR](decisions/2026-11-09-v4-aligned-fast-wallet-screening.md) |
 | Contract-level follower EV and scenario research | [Native contract EV](CONTRACT-PORTFOLIO-EV-TOOL-20261105.md), [actuarial scenarios](CONTRACT-ACTUARY-RESEARCH-20261105.md) |
-| Independent agent-behavior measurement | [Host trace evaluation](AGENT-TRACE-EVAL-20261105.md); fixtures and CLI smoke are not observed model behavior |
+| Independent agent-behavior measurement | [ANOS-02 pinned engineering-only baseline](ANOS-02-AGENT-EVAL-BASELINE-20261113.md), [independent host trace protocol](AGENT-TRACE-EVAL-20261105.md); fixtures and CLI smoke do not establish model behavior |
 | Typed domain-contract maintenance | [Pydantic acceptance](PYDANTIC-NATIVE-ACCEPTANCE-RESULTS-20261109.md), [cross-repository compatibility](PYDANTIC-CROSS-REPOSITORY-COMPATIBILITY-20261109.md), [engineering record](PYDANTIC-NATIVE-ENGINEERING-20261109.md) |
 
 The authenticated Site is the intended operator interface. Inspect ownership of the frontend source before editing concurrent/untracked work. The [Ops Control Center](OPS-CONTROL-CENTER-20261111.md) is an older read-only sidecar, not proof of deployed Site parity. Grafana/Marimo documents below preserve historical work. The Chapter 2 runbook owns its actual deployment and dashboard acceptance.

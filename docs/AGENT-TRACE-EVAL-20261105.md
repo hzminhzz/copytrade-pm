@@ -36,6 +36,11 @@ task coverage, correct route count, duplicate calls, off-target lookups,
 invented operations, unsafe operations and total calls. No raw wallet
 addresses, tool output or secret arguments appear in the report.
 
+For ANOS-02 reproducible pre-change inputs, fixed 13-task and eight-scenario
+workloads, resource metrics and preregistered comparison gates, see
+[the pinned agent evaluation baseline](ANOS-02-AGENT-EVAL-BASELINE-20261113.md).
+Engineering fixture scores are never independent agent observations.
+
 ## Trusted evidence collection — what is required
 
 The *independent ChatGPT/MCP host collector* must be the source of truth.
