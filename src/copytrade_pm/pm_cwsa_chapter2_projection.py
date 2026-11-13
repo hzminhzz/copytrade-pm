@@ -348,6 +348,189 @@ def _prior_delta(prior: dict, current: dict) -> dict:
     }
 
 
+def explain_native_guardian_intent(
+    *, journal_path, intent_id: str, observed_at_ms: int
+) -> dict[str, Any]:
+    """Read original Guardian's verified journal using its own read-only API.
+
+    Optional companion integration: no new Guardian parser, transaction, retry,
+    broker command or synthetic trust fallback exists here. A verified journal
+    terminal is distinct from a coherent *current* broker account snapshot.
+    """
+    from pathlib import Path
+
+    if (
+        not isinstance(intent_id, str)
+        or len(intent_id) != 64
+        or any(c not in "0123456789abcdef" for c in intent_id)
+        or type(observed_at_ms) is not int
+        or observed_at_ms < 0
+    ):
+        raise ValueError("INVALID_GUARDIAN_INTENT_QUERY")
+    result = {
+        "schema": "cwsa_chapter2_guardian_recovery_v1",
+        "owner": "PROP_PRODUCTION_GUARDIAN",
+        "intent_id": intent_id,
+        "observed_at_ms": observed_at_ms,
+        "dispatch_state": "EVIDENCE_UNAVAILABLE",
+        "original_status": None,
+        "journal_sequence": None,
+        "release_sha": None,
+        "original_deadline_ms": None,
+        "reservation_id": None,
+        "reservation_active": None,
+        "reservation": None,
+        "halt_reasons": None,
+        "risk_floors": None,
+        "broker_certainty": "UNKNOWN",
+        "mandate_generation": None,
+        "next_operation": "prop-production intent --journal PATH --intent-id ID",
+        "next_operation_effect_class": "READ_ONLY",
+        "next_action": "READ_ORIGINAL_GUARDIAN_EVIDENCE",
+        "unrelated_read_only_work_allowed": True,
+        "original_obligation_preserved": True,
+        "retry_authorized": False,
+        "order_route": "NONE",
+        "trading_authorized": False,
+        "limitations": [
+            "Only prop-production can verify its original journal and broker outcomes",
+            "Original signed Copy Mandate generation is not present in Guardian intent v1",
+            "Read-only projection never grants new risk, retries, or HALT clearance",
+        ],
+    }
+    try:
+        # Import the optional protected owner only when explicitly requested.
+        from prop_production.journal import Journal
+        from prop_production.operator import project_state
+
+        state = Journal.read(Path(journal_path))
+        intent = project_state(state, "intent", observed_at_ms, intent_id=intent_id)
+        risk = project_state(state, "risk", observed_at_ms)
+        broker = project_state(state, "broker", observed_at_ms)
+    except ImportError, OSError, ValueError, RuntimeError, KeyError, TypeError:
+        return result  # No downgrade to unverified local JSON or status files.
+    if (
+        state.get("schema") != "guardian_journal_v1"
+        or intent.get("schema") != "operator_intent_v1"
+        or risk.get("schema") != "operator_risk_v1"
+        or broker.get("schema") != "operator_broker_v1"
+        or any(
+            view.get("journal_sequence") != state.get("sequence")
+            or view.get("release_sha") != state.get("active_release_sha")
+            or view.get("account_binding_sha") != intent.get("account_binding_sha")
+            for view in (intent, risk, broker)
+        )
+        or len(intent.get("intents", [])) != 1
+        or intent["intents"][0].get("intent_id") != intent_id
+    ):
+        return result
+    original = intent["intents"][0]
+    status = original.get("status")
+    if status == "QUEUED" and original.get("sent_at_ms") is None:
+        dispatch_state = "NOT_DISPATCHED"
+        action = "PRESERVE_QUEUED_INTENT_AND_RECHECK_OWNER_DEADLINE"
+    elif status in {
+        "DISPATCHING",
+        "UNKNOWN",
+        "ACKNOWLEDGED",
+        "CANCEL_PENDING",
+        "REJECT_PENDING_PROOF",
+    }:
+        dispatch_state = "POSSIBLY_DISPATCHED"
+        action = "RECONCILE_ORIGINAL_INTENT_WITH_GUARDIAN"
+    elif status == "FILLED":
+        dispatch_state = "VERIFIED_COMPLETED"
+        action = "REVIEW_VERIFIED_ORIGINAL_POSTCONDITION"
+    elif status in {"REJECTED", "NOT_ACCEPTED", "REVOKED", "EXPIRED", "CANCELLED"}:
+        dispatch_state = "VERIFIED_REJECTED"
+        action = "NO_NEW_EFFECT_ON_ORIGINAL_INTENT"
+    else:
+        return result
+    reservation_id = original.get("reservation_id")
+    reserved = risk.get("reservations", {}).get(reservation_id)
+    floors = risk.get("finance", {})
+    result.update(
+        dispatch_state=dispatch_state,
+        original_status=status,
+        journal_sequence=state["sequence"],
+        release_sha=intent.get("release_sha"),
+        original_deadline_ms=original.get("expires_at_ms"),
+        reservation_id=reservation_id,
+        reservation_active=reserved is not None,
+        reservation={k: reserved.get(k) for k in ("loss", "margin", "cost")}
+        if isinstance(reserved, dict)
+        else None,
+        halt_reasons=risk.get("halts"),
+        risk_floors={
+            k: floors.get(k)
+            for k in ("risk_floor", "daily_floor", "trailing_floor", "internal_floor")
+        }
+        if isinstance(floors, dict)
+        else None,
+        broker_certainty=broker.get("certainty", "UNKNOWN"),
+        next_operation="prop-production broker --journal PATH",
+        next_action=action,
+    )
+    return result
+
+
+def explain_interrupted_paper(opportunity, *, observed_at: str) -> dict[str, Any]:
+    """Interpret the original PM04 virtual-paper opportunity without broker claims.
+
+    The PM04 record is authoritative only for a *modeled* attempt. An attempted
+    result (including a modeled REJECTED) cannot establish native broker finality.
+    Neither missing status files nor a future policy permits a fresh intent.
+    """
+    from .pm_paper_contracts import PaperOpportunity
+    from .pm_source_contracts import utc_clock
+
+    utc_clock(observed_at)
+    original = PaperOpportunity.model_validate(opportunity) if opportunity is not None else None
+    if original is None:
+        state = "EVIDENCE_UNAVAILABLE"
+        next_action = "READ_ORIGINAL_OWNER_EVIDENCE"
+    elif original.attempted_at is not None or original.order_ids:
+        state = "POSSIBLY_DISPATCHED"
+        next_action = "RECONCILE_ORIGINAL_INTENT_WITH_GUARDIAN"
+    else:
+        state = "NOT_DISPATCHED"
+        next_action = (
+            "NO_NEW_EFFECT_ON_ORIGINAL_OPPORTUNITY"
+            if original.status != "PENDING_5M" or original.eligibility(observed_at) == "EXPIRED"
+            else "READ_ORIGINAL_PM04_OPPORTUNITY_AND_CHECK_DEADLINE"
+        )
+    return {
+        "schema": "cwsa_chapter2_interrupted_paper_explanation_v1",
+        "owner": "PM04_VIRTUAL_PAPER_ONLY",
+        "observed_at": observed_at,
+        "dispatch_state": state,
+        "original_status": original.status if original else None,
+        "intent_id": original.intent_id if original else None,
+        "source_sha": original.source_sha if original else None,
+        "first_known_at": original.first_known_at if original else None,
+        "deadline_at": original.deadline_at if original else None,
+        "frozen_k": original.frozen_k if original else None,
+        "original_release_sha256": original.release_sha256 if original else None,
+        "mandate_generation": None,  # PM04 opportunity is not a signed Copy Mandate.
+        "reservation": None,  # Not provided by this owner's opportunity contract.
+        "halt": "UNKNOWN",  # Only the financial owner can establish its latch.
+        "guardian_authority": "UNKNOWN",
+        "broker_completion": "UNKNOWN",
+        "next_action": next_action,
+        "next_operation_effect_class": "READ_ONLY",
+        "original_obligation_preserved": True,
+        "unrelated_read_only_work_allowed": True,
+        "retry_authorized": False,
+        "order_route": "NONE",
+        "trading_authorized": False,
+        "limitations": [
+            "Native PM04 modeled status is not independently verified broker execution",
+            "A missing Guardian receipt cannot mean rejection or a free retry",
+            "Original signed generation, reservations, exposure and HALT belong to their owners",
+        ],
+    }
+
+
 def explain_task(args) -> dict[str, Any]:
     """Read one portfolio's native owner proofs; never decide Guardian permission.
 
