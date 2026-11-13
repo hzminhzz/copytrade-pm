@@ -1,7 +1,9 @@
 # Pydantic-native migration roadmap and ecosystem staging
 
-**Date:** 2026-11-09
-**Status:** Q3–Q39 **APPROVED DESIGN ROADMAP**, S0–S5 accepted as a planning/dependency framework; target interfaces and measurements belong in a future implementation specification. **NOT APPROVED FOR EXECUTION, COMMIT, MERGE OR DEPLOYMENT**; stages are not implemented.
+**Document role:** HISTORICAL DESIGN RECORD. For completed engineering and remaining external-evidence gates, read [the acceptance results](PYDANTIC-NATIVE-ACCEPTANCE-RESULTS-20261109.md). The [agent system plan](AGENT-SYSTEM-DESIGN.md) reuses those owners; do not restart S0–S5 from this older status. The authenticated Site/Chapter 2 contract now owns operator presentation; Grafana-only wording below records the earlier design, not current UI policy. Current optional research scheduling is documented in [Prefect orchestration](TRACK-B-PREFECT-ORCHESTRATION-20261110.md).
+
+**Original date:** 2026-11-09
+**Original status at that design cutoff:** Q3–Q39 **APPROVED DESIGN ROADMAP**, S0–S5 accepted as a planning/dependency framework; target interfaces and measurements belong in a future implementation specification. **NOT APPROVED FOR EXECUTION, COMMIT, MERGE OR DEPLOYMENT**; stages are not implemented.
 **Contracts:** [Q3–Q24 design decisions](decisions/2026-11-09-pydantic-native-validation-runtime.md), [Q25–Q29 sequencing/ecosystem](decisions/2026-11-09-pydantic-native-sequencing-ecosystem.md), [Q30–Q34 domain interfaces](decisions/2026-11-09-pydantic-native-domain-interfaces.md), [Q35–Q39 final failure/readiness semantics](decisions/2026-11-09-pydantic-native-failure-and-spec-readiness.md), [28-family acceptance matrix](PYDANTIC-NATIVE-ACCEPTANCE-MATRIX-20261109.md), [13-case combined fault matrix](PYDANTIC-NATIVE-COMBINED-FAULT-MATRIX-20261109.md).
 **Inspected code:** `copytrade-pm` `origin/main=175d54d` on November 9. Revalidate GitHub and actual running revisions before any engineering change; installed runtime is not proven by this document.
 
@@ -97,6 +99,6 @@ The owner approved the source-first *vertical slice*, expedited independent conf
 
 Only real measured regressions warrant optimization or changed dependency strategy. This document does not assert any tests already passed.
 
-## Proof of completeness
+## Original design completeness at the November 9 cutoff
 
-The companion [individual matrix](PYDANTIC-NATIVE-ACCEPTANCE-MATRIX-20261109.md) lists one concrete acceptance scenario for each **01–28** and the [combined matrix](PYDANTIC-NATIVE-COMBINED-FAULT-MATRIX-20261109.md) lists **13** multi-fault scenarios referencing every audit ID; both are approved **test designs**, not execution evidence. **0/28 engineering dispositions closed**. The Q3–Q39 design frontier is complete. [Design closure/readiness assessment](PYDANTIC-NATIVE-DESIGN-CLOSURE-20261109.md) identifies what must be specified and verified at S0 before engineering promotion.
+The companion [individual matrix](PYDANTIC-NATIVE-ACCEPTANCE-MATRIX-20261109.md) lists one concrete acceptance scenario for each **01–28** and the [combined matrix](PYDANTIC-NATIVE-COMBINED-FAULT-MATRIX-20261109.md) lists **13** multi-fault scenarios referencing every audit ID; both are approved **test designs**, not execution evidence. **At this original design cutoff: 0/28 engineering dispositions closed**; subsequent implementation evidence is in the acceptance results linked above. The Q3–Q39 design frontier is complete. [Design closure/readiness assessment](PYDANTIC-NATIVE-DESIGN-CLOSURE-20261109.md) identifies what must be specified and verified at S0 before engineering promotion.

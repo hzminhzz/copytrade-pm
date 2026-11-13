@@ -1,209 +1,110 @@
 # Agent-native capability discovery and read-only operations
 
-## Dashboard consumers
+**Role:** CURRENT INTERFACE GUIDE. These are existing commands and boundaries. The proposed richer operation/result contracts and remaining work are in [Agent system design](AGENT-SYSTEM-DESIGN.md). [Architecture](ARCHITECTURE.md) owns the system map.
 
-The dashboard delegates wallet, portfolio, immutable report and scenario-rule reads to the existing native facade. Browser filters remain bounded scalar values; option-like wallet/report filters fail closed before native argument parsing. Source evidence grades and clocks survive the projection. Read saturation is an explicit unavailable state, never a healthy result. See [operating bounds](DASHBOARD-PHASE3.md) and [independent acceptance](DASHBOARD-FINAL-AUDIT-20261107.md). The read-only runtime probe adds no broker, registry-write, financial-journal-write or release capability.
+## Start with the requested operation
 
-## Continuous observer capabilities
+1. Resolve the task and authority through [INDEX](INDEX.md). State qualified target, as-of/policy and allowed read/write scope.
+2. Discover the existing operation with `copytrade-pm capabilities list`, `show <id>` and `validate`; inspect its owner, required inputs, effect class and public tests.
+3. Read the smallest sufficient evidence. Metadata questions use the [registry workflow](WALLET-REGISTRY-AGENT-WORKFLOW.md); runtime, paper and research questions use their own evidence owners.
+4. Preserve independent result dimensions and exact provenance. Explain a blocker in the scope of the requested operation.
+5. For an authorized change, use the owning operation and verify its actual postcondition. Update its contract and catalog when public behavior changes.
 
-Discover `paper.observer.preflight` (READ_ONLY), `paper.observer.continuous` (PROTECTED_MUTATION), `paper.observer.continuous_health` (READ_ONLY), `paper.observer.continuous_watchdog` (LOCAL_MUTATION), `paper.observer.shadow_report` (READ_ONLY) and `market.continuous_canary` (PROTECTED_MUTATION). [The continuous contract](FORWARD-PAPER-CONTINUOUS-OBSERVER.md) supplies required paths and gates. Aggregate `health --observer-state-root` detects continuous heartbeat evidence without granting protected-worker or provider authority.
+The existing design is a discovery directory plus a small read-only facade. `wallet_registry` owns private metadata, not Git/runtime/finance. PM03/PM04 own paper finance; Guardian in prop-production owns protected finance. Discovery is descriptive and never grants permission.
 
-## Public trade observation capability (2026-11-05)
+## Known limitations at the reviewed baseline
 
-**Latest scope:** Use [Propr-displayed 157-market three-WS mapping](FORWARD-PAPER-PROPR-157-THREE-SOCKETS-20261105.md) before selecting a transport layout. Version `paper_public_physical_sockets_v1` requires the original Propr snapshot file via `--propr-snapshot` and full instrument parity validation; the public Propr listing is not account-specific executable permission. Three named physical sockets have sizes 8/88/61, local per-socket cap 128; the legacy eight-market layout and five original Top-40 logical groups remain for historical comparison. Observed transport was sequential, not an always-on three-WS production service. The CLI fails closed on `--parallel-shards > 1` without `--ack-shared-ip-connection-budget` for this Propr configuration; operator must independently verify shared-IP headroom.
+These limitations were identified at `1c4ac38e76dc7ed31e3421273269750b2f03e086`. They are planned corrections, not fixes implemented by this documentation revision. Recheck the actual candidate before relying on a result.
 
+| Limitation | Safe interpretation now | Planned owner |
+| --- | --- | --- |
+| Facade generation emits VERIFIED but its reader compares with CURRENT | A facade STALE label alone does not invalidate native SQLite metadata; inspect the native fields | [D1](AGENT-SYSTEM-DESIGN.md#d1--truthful-registry-diagnostics) |
+| Facade doctor maps exit 2 to integrity failure even for a valid SQLite database with blocked selection proof | Read `database_integrity` and `research_selection_integrity` separately; retain blocked selection admission | D1, including contract-selector callers |
+| Facade generation calls broad registry `status` | Do not use it for a task that forbids financial-journal reads; use scoped native metadata readers | D1 |
+| Catalog validation does not cover every public parser leaf; Chapter 2 leaves are missing | Follow the [Chapter 2 runbook](CWSA-CHAPTER2-20261112.md) and CLI help; catalog success is not proof of exhaustive discovery | [D3](AGENT-SYSTEM-DESIGN.md#d3--complete-operation-discovery) |
+| Chapter 2 runtime check does not independently bind an arbitrary live PID to the configured application release | Distinguish installed/configured proof from observed application-process identity; unknown remains unknown | [D2](AGENT-SYSTEM-DESIGN.md#d2--truthful-running-release-evidence) |
 
-`source.public_trades` / `copytrade-pm-public-trades` is a reviewed `PROTECTED_MUTATION` CLI (because it creates a local private evidence journal). It reads canonical portfolio identity from SQLite, subscribes read-only to bounded public Hyperliquid market trades (`--mode observe`), or seals provisional five-minute UTC buckets with quote as-of checks (`--mode plan`). Market selection is explicit: repeated `--instrument`, a legacy <=128 flat allowlist, the former eight-market physical-shard layout, or the 157-market Propr display configuration with three physical sockets (8/88/61) and mandatory dated snapshot parity. The new exact named [40-market five-shard layout](FORWARD-PAPER-TOP40-FIVE-SHARD-20261105.md) was live-smoke-tested across 5 concurrent sockets (40 market baselines, 39 post-baseline activity, 0 watched fills); the 10 default / 3 HIP-3 previous tests also remain only transport evidence. Independent matched wallet detection and full source completeness remain unproven. Both modes retain `order_route=NONE`, `paper_admitted=false`, `financial_events_committed=0`. This is NOT a protected financial paper-worker capability and must never claim source NAV or active follower trading. See [the detailed source/clock contract](FORWARD-PAPER-PUBLIC-TRADES-20261105.md).
+Do not invent a command to work around a missing catalog record or modify a proof to make a result green. Inspect the existing owner and preserve exact negative evidence.
 
-## Architecture decision (2026-11-04)
+## Discovery and effects
 
-**Option B selected:** one repo-wide discovery directory plus a small read-only
-operator facade. Extending `wallet_registry.py` (Option A) would make a
-private identity index responsible for Git, runtime, PM-03 finance, market
-health and research. That would violate existing ownership.
+The catalog discovers project scripts from `pyproject.toml`, checks installed distribution entrypoints and maintains explicit module-only and reviewed registry-operation records. Flat argparse required arguments are derived from source AST; subcommand-dependent/module-only requirements can remain null. Null does not mean no required inputs.
 
-The facade delegates to existing registry interfaces. PM-03 remains the sole
-financial authority; paper status is an independent journal/worker concern.
-No new database, order route, source collector, financial calculator, web server
-or scheduler is introduced. This directory is descriptive, **not authorization**.
+Operations are classified `READ_ONLY`, `LOCAL_MUTATION`, `PROTECTED_MUTATION` or `BROKER_OR_TRADING`. Unknown entrypoints are `UNCLASSIFIED` and fail validation. A parent CLI classification never permits arbitrary child commands or `--apply`. Existing coverage limits are listed above.
 
-## SQLite native write operations (approved 2026-11-05)
+Before adding a module or data path, resolve the capability, read the public owner/tests, then reuse or deepen that owner. Introduce a new responsibility only when the existing boundary cannot express the behavior without exposing internals or violating authority. Update discovery, its guide and behavioral checks in the same change.
 
-The canonical operational wallet registry is SQLite (merged PR #111), even when dated CSV/JSON source imports have drifted. `copytrade-wallet-registry native status` is read-only; `native lock`, `native register` and `native exclude` default to reviewed previews; `--apply` is a protected mutation requiring a private backup and exact `inventory_sha256`. Native exclusion decisions additionally require an exact private manifest SHA and registered wallet identity, and cannot revoke old exclusions. A locked database rejects legacy `sync --apply` and older writer transactions. Agents must query the registry instead of searching historical Markdown. Read [the interface/rollback contract](SQLITE-NATIVE-LEGACY-LOCK-20261105.md) and [ML4T evidence discipline](ML4T-METHODOLOGY-LESSONS.md).
+## Existing command routes
 
-## Native-first workflow
-
-Before adding any Python module, CLI or data-access path, agents **must**:
-
-1. Run `copytrade-pm capabilities list` and `copytrade-pm capabilities validate`.
-2. Resolve a domain capability with `copytrade-pm capabilities show <id>`.
-3. Read the owner's module, contract, tests and linked documentation.
-4. Reuse the existing public interface or extend its owner.
-5. Create a new responsibility only if no suitable owner exists; document why.
-6. Validate the catalog, run tests, inspect the final diff and preserve protected
-   boundaries. Never implement alternative PM-03 finance, wallet ownership,
-   independent scientific qualification or live order authorization.
-
-The directory automatically discovers project scripts from `pyproject.toml`
-and checks installed distribution entrypoints. Mandatory arguments for flat
-argparse CLIs are derived from their source AST; subcommand-dependent or
-module-only requirements remain null rather than falsely advertised as empty.
-Reviewed registry operations include explicit required inputs. Module-only
-capabilities are listed explicitly. All entries have a conservative operation classification:
-`READ_ONLY`, `LOCAL_MUTATION`, `PROTECTED_MUTATION`, or `BROKER_OR_TRADING`.
-Unknown entrypoints become `UNCLASSIFIED` and fail validation. A parent CLI
-classification is **not** permission to execute arbitrary subcommands; use the
-reviewed subcommand record. The existing registry's `--apply` variants are
-protected and never exposed by the new read-only facade.
-
-## Portfolio-contract EV evaluation (2026-11-05)
-
-Use `copytrade-pm capabilities show research.contract_selector`, then
-`copytrade-pm contracts compare --portfolio gemini.phase4/E6 --portfolio
-gemini.phase4/E2`. Without complete synchronized net follower PnL, it
-returns BLOCKED. With full owner-private portfolio tapes, it compares the
-versioned A/B/C rules, evaluation/funded-stage risk scaling, realistic payout
-path and chance-of-ruin across sampled 7-day joint PnL blocks. It never
-promotes a simulated positive EV to qualification or broker authority.
-[Full tool contract](CONTRACT-PORTFOLIO-EV-TOOL-20261105.md).
-
-## Actuarial research extension (2026-11-05)
-
-The reviewed read-only capability `research.actuary` owns a synthetic
-challenge-to-funded-payout scenario CLI: `copytrade-pm-actuary --help`.
-It never touches wallet identity, PM-03 accounting, protected paper workers,
-broker credentials or live orders. It is not independently qualified follower
-economics. Assumptions and 100,000-path examples are documented in
-[contract actuarial research](CONTRACT-ACTUARY-RESEARCH-20261105.md).
-
-## Commands
+Examples below use an already installed environment or the reviewed repository environment. Check `--help` on the exact revision; placeholders are inputs to resolve, not defaults. Discovery does not authorize package installation or private data access.
 
 ```bash
-uv run --group dev copytrade-pm --help
-uv run --group dev copytrade-pm capabilities list
-uv run --group dev copytrade-pm capabilities show portfolio.current
-uv run --group dev copytrade-pm capabilities show research.offline
-uv run --group dev copytrade-pm capabilities validate
-uv run --group dev copytrade-pm portfolios list
-uv run --group dev copytrade-pm portfolios current
-uv run --group dev copytrade-pm portfolios show E6
-uv run --group dev copytrade-pm portfolios show q3/B
-uv run --group dev copytrade-pm wallets show W083
-uv run --group dev copytrade-pm wallets list --cohort research-108 --limit 50
-uv run --group dev copytrade-pm wallets list --query W083
-uv run --group dev copytrade-pm wallets list --excluded --limit 50
-uv run --group dev copytrade-pm research list --cache-root /home/quant/.cache/copytrade-polars-bench-20261104-verified-v1/cache
-uv run --group dev copytrade-pm research show hl94-90d-oracle-screen-20261104 --cache-root /home/quant/.cache/copytrade-polars-bench-20261104-verified-v1/cache
-uv run --group dev copytrade-pm paper status
-uv run --group dev copytrade-pm status
-uv run --group dev copytrade-pm health
+copytrade-pm --help
+copytrade-pm capabilities list
+copytrade-pm capabilities show portfolio.current
+copytrade-pm capabilities show wallet.lookup
+copytrade-pm capabilities show research.offline
+copytrade-pm capabilities validate
 ```
 
-All responses are JSON. Registry-backed read operations use
-`copytrade_read_result_v1` with query status, authority, source generation SHA,
-observation clock, data, limitations, error code and false authorization/
-qualification indicators. The source observation timestamp is separate from
-the query observation timestamp. Registry index freshness reflects stored
-generation age, not live source parity; the aggregate health view runs the
-native `doctor` to verify current counts and source SHAs separately.
-Exit code 2 represents unknown/failed selected queries; an aggregate status may return successful partial diagnostics while
-its individual components remain `UNKNOWN` or `BLOCKED`. `--asof` is
-available for wallet and portfolio lookup (UTC offset); do not backdate
-later-known aliases or mix portfolio namespaces. Source generations are
-separate from Git HEAD and the installed pinned release.
+| Need | Existing route | Scope |
+| --- | --- | --- |
+| List/current/frozen portfolio | `copytrade-pm portfolios list`, `current`, `show q3/B` | Registry-backed; known facade limitations above |
+| Wallet lookup/inventory | `copytrade-pm wallets show W083`; `wallets list --cohort research-108 --limit 50` | Address-redacted metadata, not source/finance health |
+| Scoped native identity lookup | `copytrade-wallet-registry wallet --alias W083`; `portfolio q3/B --asof <UTC>` | Native SQLite owner; verify integrity and requested identity |
+| Immutable executed research | `copytrade-pm research list --cache-root PRIVATE_CACHE`; `research show JOB_ID --cache-root PRIVATE_CACHE` | Only canonical `pm_offline_job` reports under that explicit root |
+| Aggregate diagnostics | `copytrade-pm status`, `copytrade-pm health` | Multiple owners; use only when their read scope is appropriate |
+| One paper run | `copytrade-pm-paper-status --db PRIVATE_DB --run-id RUN_ID` | Authorized independent journal/worker evidence |
+| Registry installed release | `python scripts/registry_release.py verify` | Registry release only, not all trading services |
+| Chapter 2 gates/projection | `copytrade-pm cwsa chapter2 --help` and [owning runbook](CWSA-CHAPTER2-20261112.md) | Premerge, predeploy and postdeploy are separate; runtime limitation applies |
 
-**Wallet inventory (5 November extension):** `wallets list` delegates to the
-native private registry catalog. It paginates at 200 rows, supports `--query`
-(alias substring only), `--cohort`, `--excluded` / `--no-excluded`,
-`--subscribed` / `--no-subscribed` and `--asof`. Addresses and exclusion reasons
-are redacted. `registry_wallet_id` is *SQLite-generation-local*, never a
-stable cross-import identity. An alias collision does not become a candidate
-identity. Monitoring comes from the current snapshot, not a reconstructed
-historical subscription series; missing fields stay `null` / `UNKNOWN`.
+For contract comparisons, discover `research.contract_selector`, then use `copytrade-pm contracts rules` and `contracts compare --portfolio NAMESPACE/ID --tape PRIVATE_TAPE`. Missing complete matched net follower evidence is BLOCKED. See [contract EV](CONTRACT-PORTFOLIO-EV-TOOL-20261105.md).
 
-**Executed research report discovery:** `research list/show` accepts an
-explicit owner-private `--cache-root` and verifies the canonical
-`pm_offline_job` `job_report` manifest, dependency key and payload SHA before
-listing it. Only that root and that report type are indexed; arbitrary JSON
-files, vendor fill pages and unpublished experiments are **not** completed
-research. Multiple reports with the same job ID require `--cache-key` to show
-one uniquely. All reports retain `financial_certified_real=false`,
-`scientifically_qualified=false` and `trading_authorized=false` unless a
-separate protected future workflow establishes authority. No cache directory
-is created by discovery. Missing explicit root returns `UNKNOWN`.
+`research.actuary` / `copytrade-pm-actuary` is a separate synthetic scenario capability. Its outputs remain scenario assumptions, not observed profitability; see [actuarial research](CONTRACT-ACTUARY-RESEARCH-20261105.md).
 
-**Health adapters:** aggregate `health` runs the original pinned-release
-`verify` method and shows *which registry release* was verified, independently
-of the worktree Git revision. Known protected P1/P14/watchdog units are checked
-in both the **system** and **user** systemd managers without starting or
-stopping them. Any active unit remains `DEGRADED`; missing system-manager
-evidence returns `UNKNOWN`, never `NOT_RUNNING` based only on the user manager.
-A unit's activity is not independent journal, heartbeat or paper-economic
-qualification. The [guarded protected-operations runbook](FORWARD-PAPER-PROTECTED-OPS-STAGING-20261105.md)
-separates staged root unit candidates from actually installed protected workers.
-Optional `--observer-state-root PRIVATE_DIR` verifies the native public observer source
-and quote receipts via the existing observer watchdog; provider freshness and
-executable market capacity remain `UNKNOWN`. Without observer evidence, market
-status stays `UNKNOWN`. The public observer's independent watcher verifies a
-single consistent read-only SQLite tape snapshot. A new heartbeat seals source,
-quote and collateral chain-prefix heads; when additional fully verified
-append-only receipts arrive during a subsequent epoch, status is still
-`DEGRADED_OBSERVER_ONLY` with `UNATTESTED_TAPE_ADVANCE_AFTER_HEARTBEAT`, not
-`PAPER_RUNNING`. A different, truncated or rewritten prefix stays `UNKNOWN`.
-During idle pauses the observer may emit explicitly marked liveness-only
-heartbeats without new source data or changed provider polling rates; any
-stale source/quote receipts remain stale. See the
-[public observer deployment guide](FORWARD-PAPER-PUBLIC-OBSERVER-SERVICE-20261105.md).
-A saved selection or zero indexed paper runs never proves paper execution.
+## Result interpretation
 
-Native SQLite readers use `mode=ro` and do not change registry tables or
-data bytes, though SQLite may create `-wal` or `-shm` coordination files; do
-not use unsafe immutable snapshots against a potentially active WAL writer.
+Registry reads return `copytrade_read_result_v1` with query status, authority, source identity, query/source clocks, data, limitations and error code. Native SQLite `inventory_sha256` identifies current metadata; historical import `source_manifest_sha256` and its age are lineage, not a replacement roster or automatic staleness veto. Git HEAD and installed release revision are separate identities.
 
-For verified pinned-release diagnostics, continue to use
-`uv run --group dev python scripts/registry_release.py verify`. For a
-specific paper account journal, use
-`copytrade-pm-paper-status --db <private-path> --run-id <run-id>`.
-For sealed Polars studies use the canonical `pm_offline_job` interface; it
-may write immutable research cache evidence and is not a read-only command.
+Read the full component fields. Exit 2 can mean missing evidence or a blocked selected query; it does not by itself prove corruption. A successful aggregate process can contain UNKNOWN/BLOCKED components. Preserve native dimensions when a facade translation disagrees. Qualification and authorization are not inferred from successful JSON or a healthy observer.
 
-## Public observer unit (separate from financial paper)
+### Wallet and research bounds
 
-`copytrade-pm capabilities show paper.public_unit` resolves the new
-`copytrade-pm-public-observer-unit` command. Its default is a read-only
-reviewed unit proposal; `--apply` writes one new quant-owned public-observer
-user unit only after independently verifying the installed pinned release,
-private journal path, source locator availability and optional public clients.
-The parent CLI is conservatively classified `PROTECTED_MUTATION` because it
-contains `--apply`. It never starts or stops units and cannot enable P1/P14
-financial execution. See [the public observer deployment guide](FORWARD-PAPER-PUBLIC-OBSERVER-SERVICE-20261105.md).
+- `wallets list` is capped at 200 rows. It supports alias-substring `--query`, `--cohort`, exclusion/subscription filters and `--asof`; addresses and exclusion reasons are redacted.
+- `registry_wallet_id` is generation-local, not durable across imports. Qualified namespaces and known-at alias resolution prevent collisions and retroactive membership.
+- Monitoring flags describe their recorded snapshot, not a reconstructed historical subscription series. Missing stays null/UNKNOWN.
+- `research list/show` verifies canonical job manifests, dependency keys and payload SHA. Arbitrary JSON, raw vendor pages and unpublished experiments are not completed jobs.
+- Duplicate job IDs need `--cache-key`; a missing explicit root is UNKNOWN. Discovery creates no cache directory. Job execution may write immutable research evidence and is not read-only.
+- These research reports do not themselves establish real financial certification, scientific qualification or trading authorization.
 
-## Operational semantics and recovery
+SQLite readers use `mode=ro`; this protects table/data writes but may create WAL/SHM coordination files. Do not force immutable mode against an active WAL writer to evade coordination. Respect the task's authorized filesystem/read footprint.
 
-A single missing authority must not block unrelated Git or registry status.
-Never present a registry selection as `PAPER_RUNNING`, positive PM-03 economics,
-scientific qualification or trading authorization. Follow the registry-first
-workflow, actual service/heartbeat checks, immutable decision seals and
-protected runbook. Capability metadata never relaxes those rules.
+## Runtime and observer diagnostics
 
-Use `docs/BLOCKER-RECOVERY.md` if a lookup fails and preserve the precise
-reason (stale evidence, private-source unavailable, schema mismatch or worker
-not independently verified). For engineering changes that add a CLI, update
-this directory and tests in the same change; CI must fail on missing entrypoint
-classification.
+The aggregate health adapter delegates to the original registry release verifier and independently checks known P1/P14/watchdog units in both system and user systemd managers. It does not start or stop them. Active unit state alone remains insufficient for financial paper health; inaccessible system-manager evidence is UNKNOWN, not proof a unit is absent.
 
-## Benchmarks
+Optional `health --observer-state-root PRIVATE_DIR` reads the existing observer evidence. The watchdog checks a consistent tape snapshot and heartbeat-sealed source/quote/collateral chain prefixes. Verified append-only advance after heartbeat is `DEGRADED_OBSERVER_ONLY` / `UNATTESTED_TAPE_ADVANCE_AFTER_HEARTBEAT`, not PAPER_RUNNING. Rewritten/truncated/conflicting prefixes remain unknown. Liveness-only heartbeat does not refresh provider evidence.
 
-`tests/test_pm_agent_native.py` and `tests/test_pm_operational_discovery.py`
-check capability routing, registry/PIT parity, immutable cache-integrity
-failure handling, read-only data behavior, and independent systemd/release
-contract failures. The 12 scripted agent-task cases execute the real CLI
-resolver, but do **not** test live LLM tool selection.
-The [P2 trace scorer](AGENT-TRACE-EVAL-20261105.md) now accepts
-externally signed, independently captured host tool-event traces for 13
-fixed tasks. It measures correct native-first routing, redundant and
-off-target lookups, invented commands, unsafe attempts and structured final
-status consistency. Synthetic and manually transcribed traces always remain
-`UNVERIFIED_TOOL_TRACE`. In the absence of host-exported evidence the
-empirical agent-effectiveness gate is `BLOCKED_NO_INDEPENDENT_HOST_TRACE`;
-CLI parity tests alone do not demonstrate actual LLM tool selection.
+Discover `paper.observer.preflight`, `paper.observer.continuous`, `paper.observer.continuous_health`, `paper.observer.continuous_watchdog`, `paper.observer.shadow_report` and `market.continuous_canary` through the catalog. They have different read/write classes; the [continuous observer contract](FORWARD-PAPER-CONTINUOUS-OBSERVER.md) owns arguments, rate budgets, restart and evidence.
+
+`source.public_trades` observes public trades or plans provisional buckets into a private evidence journal. It is classified PROTECTED_MUTATION despite having no broker route. It does not prove a complete selected position book or produce financial paper admission. Use the [public-trade contract](FORWARD-PAPER-PUBLIC-TRADES-20261105.md); [dated market/socket layouts](FORWARD-PAPER-PROPR-157-THREE-SOCKETS-20261105.md) are evidence to revalidate against the actual scope and shared-IP budget.
+
+`paper.public_unit` resolves the existing public-observer unit tool. Default behavior proposes a unit; `--apply` can write a reviewed user unit after its documented checks. It never starts/stops units or grants financial admission. See [observer deployment](FORWARD-PAPER-PUBLIC-OBSERVER-SERVICE-20261105.md) and [protected staging](FORWARD-PAPER-PROTECTED-OPS-STAGING-20261105.md).
+
+## Native metadata mutations
+
+`copytrade-wallet-registry native status` is read-only. `native lock`, `native register` and `native exclude` have reviewed previews; `--apply` requires the protected native contract, private backup and expected inventory SHA. Exclusions also require registered identity and exact private manifest SHA, and cannot revoke earlier exclusions. A locked database rejects legacy `sync --apply`. The read-only facade does not expose these writes. See [native controls](SQLITE-NATIVE-LEGACY-LOCK-20261105.md).
+
+## Site and presentation
+
+The intended operator UI is the authenticated Site. Its current Chapter 2 evidence/lineage/unknown-value contract belongs to [the Chapter 2 runbook](CWSA-CHAPTER2-20261112.md). Historical [dashboard phase 3](DASHBOARD-PHASE3.md) and [audit](DASHBOARD-FINAL-AUDIT-20261107.md) document an earlier implementation, not current Site acceptance.
+
+Preserve bounded scalar filters, privacy-safe native projections, source clocks and evidence grades. Read saturation must remain unavailable, and unknown P&L remains null. The target CLI/Site parity is part of D4; neither a local status file nor an HTTP 200 independently proves deployed publisher lineage.
+
+## Recovery and proof of improvement
+
+Use [blocker recovery](BLOCKER-RECOVERY.md) and retain the exact affected authority and reason. Continue independent authorized work. A saved portfolio, zero indexed runs or missing known service does not establish that every possible external program is absent.
+
+Existing `tests/test_pm_agent_native.py` and `tests/test_pm_operational_discovery.py` exercise routing, PIT/registry parity, cache integrity and read-only/runtime failure behavior. Scripted CLI cases do not measure live model tool selection.
+
+The [host trace evaluation](AGENT-TRACE-EVAL-20261105.md) accepts independently captured and signed tool-event traces for its fixed tasks. Synthetic or manually transcribed traces remain UNVERIFIED_TOOL_TRACE. Without independent host capture, empirical agent effectiveness remains BLOCKED_NO_INDEPENDENT_HOST_TRACE. The [system plan](AGENT-SYSTEM-DESIGN.md#d6--measure-and-retain-the-improvement) adds end-to-end comparison targets without claiming a measured improvement.

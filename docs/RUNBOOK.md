@@ -1,6 +1,6 @@
 # Research operator runbook — verified CLI sequence
 
-**Before executing any command:** read [AGENTS.md](../AGENTS.md), [canonical index](INDEX.md), and the runbook for the **actual pinned installed release**. For new wallet source implementation use the [Vike-first target ADR](decisions/2026-11-11-vike-first-wallet-source.md). For today's official-position T+300 source use the [binding position-first ADR](decisions/2026-11-08-position-first-t300.md). For canonical virtual-paper cutover use [the dedicated 2026-11-11 runbook](V4-CANONICAL-FRESH-PAPER-20261111.md), not an older P1/P14 or 0911 historical command. Verify service PIDs, Git SHAs, source GAP/coverage and finance journal heads independently. All `--apply` commands are action-specific and require the documented preflight; this document alone never authorizes deployment.
+**Before an operation:** read [AGENTS.md](../AGENTS.md), route the task through [INDEX](INDEX.md), and use the owning runbook for the exact candidate/installed release. Scope reads to the requested claim: metadata uses the [native registry workflow](WALLET-REGISTRY-AGENT-WORKFLOW.md); runtime/financial claims require their independent process, source and journal evidence. For V4 use the [position-first ADR](decisions/2026-11-08-position-first-t300.md) and [V4 campaign runbook](V4-CANONICAL-FRESH-PAPER-20261111.md); for the distinct sampled policy use [CWSA Chapter 2](CWSA-CHAPTER2-20261112.md). The [Vike-first ADR](decisions/2026-11-11-vike-first-wallet-source.md) records a transport target, not an activated source replacement. All `--apply` commands require their existing action-specific preflight and authorization.
 
 ## Read-only observer research-proof isolation (2026-11-07)
 
@@ -77,7 +77,7 @@ remains `BLOCKED_NO_TRADE` and requires separate protected review.
 
 ## Agent-native discovery and operator read
 
-For new engineering work run `copytrade-pm capabilities list`,
+When adding or changing an operation, run `copytrade-pm capabilities list`,
 `copytrade-pm capabilities show portfolio.current`, and
 `copytrade-pm capabilities validate` before adding a module. The
 [agent-native guide](AGENT-NATIVE-OPERATIONS.md) documents scope,
@@ -92,7 +92,7 @@ paper-unit inspection; use `copytrade-pm wallets list --cohort research-108`,
 `copytrade-pm research list --cache-root PRIVATE_CACHE` and `copytrade-pm
 health`. The research listing is NOT a global all-study catalog. See
 [the acceptance record](AGENT-OPERATIONS-P1-ACCEPTANCE-20261105.md) and
-[operator guide](AGENT-NATIVE-OPERATIONS.md).
+[operator guide](AGENT-NATIVE-OPERATIONS.md). Aggregate health is broader than metadata discovery. The guide records known facade classification and process-identity limitations; use native component evidence and preserve unknowns. Proposed corrections and bounded/reusable work belong to [the agent system plan](AGENT-SYSTEM-DESIGN.md), not a new runtime authority.
 
 For agent behavior measurement (not financial qualification), list the 13
 fixed model tool-choice tasks with `copytrade-pm-agent-eval --list-tasks` and
