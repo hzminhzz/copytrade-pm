@@ -676,6 +676,30 @@ OPERATIONS_SUBCOMMANDS: dict[str, _SubcommandSpec] = {
             "and --cache-key KEY disambiguates duplicate job IDs"
         ],
     },
+    "research preflight": {
+        "id": "research.preflight",
+        "owner": "copytrade_pm.pm_offline_job_catalog",
+        "family": "research",
+        "classification": "READ_ONLY",
+        "authority": "SHA_VERIFIED_OFFLINE_JOB_REPORT_CACHE",
+        "documentation": DOC,
+        "required_arguments": [],
+        "runtime_required_arguments": ["--cache-root PATH", "--request PATH"],
+        "access": _access_entry(
+            [
+                "sha_verified_immutable_offline_job_cache",
+                "private_research_preflight_request_json",
+            ],
+            [],
+            privacy="OWNER_PRIVATE_REDACTED",
+        ),
+        "limitations": [
+            "Read-only reuse preflight checks bounded SHA-verified job reports, coverage receipts, "
+            "and PIT scope metadata; never supplies fresh balances, quotes, HALT clearance, "
+            "Copy Mandates, paper financial proof, or trading authorization",
+            "--cache-root PATH and --request PATH are runtime-required for VERIFIED results",
+        ],
+    },
     "contracts rules": {
         "id": "research.contract_selector.rules",
         "owner": "copytrade_pm.pm_contract_selector",
