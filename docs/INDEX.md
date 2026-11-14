@@ -8,6 +8,7 @@
 | --- | --- | --- |
 | How does the whole system work? | [Architecture](ARCHITECTURE.md); [domain glossary](../CONTEXT.md) when a term is unclear | Independent source, metadata, paper, Guardian and provider authorities |
 | How should agent workflows evolve? | [Agent system design and staged plan](AGENT-SYSTEM-DESIGN.md) | Design target; implementation status is separate |
+| How is authentic ANOS real-world E2E evidence judged? | [Real-world E2E evidence and verdict ADR](decisions/2026-11-14-anos-realworld-e2e-evidence-and-verdicts.md) | Approved Q1–Q21 benchmark design, PARKED under #101; no RW pack/oracle/trace implementation authorized |
 | Which operation already exists? | [Agent-native operations](AGENT-NATIVE-OPERATIONS.md) and the capability catalog | Exact installed/candidate interface and public behavioral tests |
 | Which wallet, portfolio, version or exclusion? | [Mandatory registry-first workflow](WALLET-REGISTRY-AGENT-WORKFLOW.md) | Native SQLite integrity, inventory identity, qualified version and known-at |
 | Why is Chapter 2 paper blocked; how is it released? | [CWSA Chapter 2 runbook](CWSA-CHAPTER2-20261112.md) | Source-wave receipts, separately signed mandates, independent quotes and PM03 journals |
