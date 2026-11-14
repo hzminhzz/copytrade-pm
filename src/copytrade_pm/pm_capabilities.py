@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ast
 from collections.abc import Mapping, Sequence
+from copy import deepcopy
 from functools import lru_cache
 from importlib import metadata
 import json
@@ -1734,7 +1735,14 @@ def _required_cli_args(module: str, root: Path) -> list[str] | None:
     path = (root / "src" / Path(*module.split("."))).with_suffix(".py")
     if not path.is_file():
         return None
-    tree = _parse_static_source(path.read_text(encoding="utf-8"))
+    required = _required_cli_args_from_source(path.read_text(encoding="utf-8"))
+    return list(required) if required is not None else None
+
+
+@lru_cache(maxsize=128)
+def _required_cli_args_from_source(source: str) -> tuple[str, ...] | None:
+    """Inspect a source revision once; return immutable requirements for each caller."""
+    tree = _parse_static_source(source)
     for node in ast.walk(tree):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
             if node.func.attr == "add_subparsers":
@@ -1758,7 +1766,7 @@ def _required_cli_args(module: str, root: Path) -> list[str] | None:
         )
         if mandatory_flag or positional:
             required.add(option)
-    return sorted(required)
+    return tuple(sorted(required))
 
 
 def _module_available(module: str, root: Path) -> bool:
@@ -3123,7 +3131,18 @@ def _inspect_group_script_parser(
     """Bounded AST inspector for flat GROUPS CLI scripts (no subparsers, no dynamic loops)."""
     if not path.is_file():
         return None, [f"MISSING_ENTRY_MODULE:{script_name}"]
-    tree = _parse_static_source(path.read_text(encoding="utf-8"))
+    spec, errors = _inspect_group_script_source(
+        path.read_text(encoding="utf-8"), script_name, allow_policies_loop
+    )
+    # Cached parser facts are mutable mappings; never share them with callers.
+    return deepcopy(spec), list(errors)
+
+
+@lru_cache(maxsize=128)
+def _inspect_group_script_source(
+    source: str, script_name: str, allow_policies_loop: bool
+) -> tuple[dict | None, tuple[str, ...]]:
+    tree = _parse_static_source(source)
     constants = _extract_module_constants(tree)
     all_parser_calls = {
         id(node)
@@ -3133,7 +3152,7 @@ def _inspect_group_script_parser(
     funcs = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
     entry_fn = funcs.get("main")
     if entry_fn is None:
-        return None, [f"MISSING_MAIN:{script_name}"]
+        return None, (f"MISSING_MAIN:{script_name}",)
     has_calls_in_main = any(id(n) in all_parser_calls for n in ast.walk(entry_fn))
     if not has_calls_in_main and "run" in funcs:
         entry_fn = funcs["run"]
@@ -3252,7 +3271,7 @@ def _inspect_group_script_parser(
         errors.append(f"UNSUPPORTED_GROUP_PARSER_CONSTRUCT:{script_name}:missing_parse_args")
     if visited != all_parser_calls:
         errors.append(f"UNSUPPORTED_GROUP_PARSER_CONSTRUCT:{script_name}:non_linear_parser_call")
-    return node, sorted(set(errors))
+    return node, tuple(sorted(set(errors)))
 
 
 def _inspect_pm03_cli_dispatch(path: Path) -> tuple[set[str], list[str]]:

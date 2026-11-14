@@ -61,7 +61,10 @@ if not actual.is_relative_to(expected):
     raise SystemExit(f"CI_WRONG_PROJECT_INSTALL: {actual} expected under {expected}")
 ' "$ROOT"
         echo 'CI_PROJECT_BINDING_DONE'
-        "$local_env/bin/python" -m pytest -q tests
+        # Keep same-file mutable fixtures on one worker and cap each leg at two
+        # processes: core and market already run concurrently (four workers total).
+        # Adversarial receipt requirements continue to run separately, serially.
+        "$local_env/bin/python" -m pytest -q tests -n 2 --dist=loadfile
         echo 'CI_PYTEST_DONE'
         "$local_env/bin/ruff" check src tests
         echo 'CI_RUFF_DONE'
