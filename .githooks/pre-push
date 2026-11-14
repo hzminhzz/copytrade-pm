@@ -25,14 +25,21 @@ TOPLEVEL="$(git rev-parse --show-toplevel 2>/dev/null || (cd "$(dirname "${BASH_
 # full-suite receipt. A changed tree, absent Python environment, missing,
 # stale, or corrupt receipt always falls back to the complete CI gate.
 # CI_FORCE_FULL=1 forces a fresh full run even when a valid receipt exists.
+CI_PYTHON=""
+for candidate in "$TOPLEVEL/.venv-ci-core/bin/python" "$TOPLEVEL/.venv/bin/python"; do
+    if [[ -x "$candidate" ]]; then
+        CI_PYTHON="$candidate"
+        break
+    fi
+done
 if [[ "${CI_FORCE_FULL:-0}" != "1" ]] &&
    [[ -z "$(git status --porcelain --untracked-files=normal)" ]] &&
-   [[ -x "$TOPLEVEL/.venv-ci-core/bin/python" ]]; then
+   [[ -n "$CI_PYTHON" ]]; then
     SHA="$(git rev-parse HEAD)"
     CI_GIT_DIR="$(git rev-parse --absolute-git-dir)"
     for receipt in "$CI_GIT_DIR/local-ci/$SHA-"*.json; do
         [[ -f "$receipt" && ! -L "$receipt" ]] || continue
-        if PYTHONPATH="$TOPLEVEL/src" "$TOPLEVEL/.venv-ci-core/bin/python" \
+        if PYTHONPATH="$TOPLEVEL/src" "$CI_PYTHON" \
             -m copytrade_pm.pm_ci_receipt verify \
             --root "$TOPLEVEL" --receipt "$receipt" --sha "$SHA" >/dev/null 2>&1; then
             printf 'pre-push: verified exact-commit CI receipt sha=%s receipt=%s\n' "$SHA" "$receipt" >&2

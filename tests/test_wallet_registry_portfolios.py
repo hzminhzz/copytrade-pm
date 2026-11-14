@@ -150,3 +150,57 @@ def test_missing_portfolio_seal_fails_closed_on_query(tmp_path: Path) -> None:
         p = contracts.select_asof(con, "P1", datetime.now(timezone.utc).isoformat())
         assert p["state"] == "UNKNOWN_AT_ASOF"
         assert p["definition_sha256"] is None
+
+
+def test_select_asof_resolves_sealed_docs_from_non_editable_venv_site_packages(
+    tmp_path: Path, monkeypatch
+) -> None:
+    repo_root = Path(contracts.__file__).resolve().parents[2]
+    release = tmp_path / "release"
+    for record in contracts.DECISIONS.values():
+        dest = release / record["path"]
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes((repo_root / record["path"]).read_bytes())
+
+    fake_mod = (
+        release
+        / ".venv"
+        / "lib"
+        / "python3.14"
+        / "site-packages"
+        / "copytrade_pm"
+        / "wallet_registry_portfolios.py"
+    )
+    fake_mod.parent.mkdir(parents=True, exist_ok=True)
+    fake_mod.write_text("# non-editable wheel install\n")
+
+    pid = next(iter(contracts.DECISIONS))
+    db = tmp_path / "private" / "registry.sqlite"
+    _, snapshot = fixture(tmp_path)
+    snapshot["decision_repo"] = release
+    snapshot["portfolio_contracts"] = contracts.read_decisions(
+        release, reg.PORTFOLIOS, observed_at=T
+    )
+    for name, pinned in snapshot["portfolio_contracts"].items():
+        snapshot["sources"][f"portfolio_doc:{name}"] = pinned["payload"]["source_doc_sha256"]
+    reg.apply(db, snapshot, T)
+
+    monkeypatch.setattr(contracts, "__file__", str(fake_mod))
+    with closing(reg.connect(db, False)) as con:
+        cutoff = datetime.now(timezone.utc).isoformat()
+        selected = contracts.select_asof(con, pid, cutoff)
+        assert (
+            selected["definition_sha256"]
+            == snapshot["portfolio_contracts"][pid]["definition_sha256"]
+        )
+
+        # With pyproject.toml marking the release root, drifting a sealed doc must fail closed.
+        (release / "pyproject.toml").write_text("[project]\nname = 'copytrade-pm'\n")
+        (release / contracts.DECISIONS[pid]["path"]).write_text("tampered\n")
+        monkeypatch.chdir(repo_root)
+        try:
+            contracts.select_asof(con, pid, cutoff)
+        except ValueError as exc:
+            assert "sealed portfolio source document drift" in str(exc)
+        else:
+            raise AssertionError("expected ValueError on drifted sealed portfolio doc")

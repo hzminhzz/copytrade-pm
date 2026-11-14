@@ -75,10 +75,20 @@ if not actual.is_relative_to(expected):
         # Adversarial receipt requirements continue to run separately, serially.
         "$local_env/bin/python" -m pytest -q tests -n 2 --dist=loadfile
         echo 'CI_PYTEST_DONE'
-        "$local_env/bin/ruff" check src tests
+        "$local_env/bin/ruff" check src tests scripts
         echo 'CI_RUFF_DONE'
         "$local_env/bin/ruff" format --check src tests
         echo 'CI_FORMAT_DONE'
+        added_py=()
+        if git rev-parse --verify origin/main >/dev/null 2>&1; then
+            mapfile -t added_py < <(git diff --name-only --diff-filter=A origin/main...HEAD -- 'src/*.py' 'tests/*.py' | awk 'NF' | sort -u)
+        fi
+        if ((${#added_py[@]} > 0)); then
+            pyright_bin="$(command -v pyright || true)"
+            [[ -n "$pyright_bin" ]] || pyright_bin="/home/quant/.hermes/node/bin/pyright"
+            [[ -x "$pyright_bin" ]] || { echo 'pyright not executable for newly added Python files' >&2; exit 1; }
+            "$pyright_bin" --pythonversion 3.14 --pythonpath "$local_env/bin/python" "${added_py[@]}"
+        fi
         "$local_env/bin/python" -c '
 import copytrade_pm
 from pathlib import Path

@@ -138,6 +138,24 @@ def read_decisions(
     return result
 
 
+def _decision_source_path(rel_path: str) -> Path:
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        if (parent / "pyproject.toml").is_file():
+            return parent / rel_path
+    for parent in here.parents:
+        candidate = parent / rel_path
+        if candidate.is_file() or candidate.is_symlink():
+            return candidate
+    if (
+        (Path.cwd() / "pyproject.toml").is_file()
+        or (Path.cwd() / rel_path).is_file()
+        or (Path.cwd() / rel_path).is_symlink()
+    ):
+        return Path.cwd() / rel_path
+    return here.parents[2] / rel_path
+
+
 def select_asof(con, portfolio_id: str, cutoff: str, *, version: int | None = None) -> dict:
     """Only independently validated sealed decisions are visible."""
     if version is not None and (type(version) is not int or version < 1):
@@ -176,7 +194,7 @@ def select_asof(con, portfolio_id: str, cutoff: str, *, version: int | None = No
     if portfolio_id in DECISIONS and doc_sha == DECISIONS[portfolio_id]["sha256"]:
         record = DECISIONS[portfolio_id]
         expected_members = sorted(PORTFOLIOS[portfolio_id])
-        source = Path(__file__).resolve().parents[2] / record["path"]
+        source = _decision_source_path(record["path"])
         if (
             not source.is_file()
             or source.is_symlink()

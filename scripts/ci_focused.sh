@@ -33,6 +33,24 @@ if not Path(copytrade_pm.__file__).resolve().is_relative_to(Path(sys.argv[1]).re
     raise SystemExit("CI_FOCUSED_WRONG_WORKTREE_INSTALL")
 ' "$ROOT"
 "$ENV_DIR/bin/python" -m pytest -q "$@"
-"$ENV_DIR/bin/ruff" check src tests
+"$ENV_DIR/bin/ruff" check src tests scripts
 "$ENV_DIR/bin/ruff" format --check src tests
+added_py=()
+mapfile -t added_py < <(
+    {
+        if git -C "$ROOT" rev-parse --verify origin/main >/dev/null 2>&1; then
+            git -C "$ROOT" diff --name-only --diff-filter=A origin/main...HEAD -- 'src/*.py' 'tests/*.py'
+        fi
+        git -C "$ROOT" diff --cached --name-only --diff-filter=A -- 'src/*.py' 'tests/*.py'
+        git -C "$ROOT" ls-files --others --exclude-standard -- 'src/*.py' 'tests/*.py'
+    } | awk 'NF' | sort -u
+)
+if ((${#added_py[@]} > 0)); then
+    pyright_bin="$(command -v pyright || true)"
+    [[ -n "$pyright_bin" ]] || pyright_bin="/home/quant/.hermes/node/bin/pyright"
+    [[ -x "$pyright_bin" ]] || { echo 'pyright not executable for newly added Python files' >&2; exit 1; }
+    env_python="$ENV_DIR/bin/python"
+    [[ "$ENV_DIR" = /* ]] || env_python="$PWD/$ENV_DIR/bin/python"
+    (cd "$ROOT" && "$pyright_bin" --pythonversion 3.14 --pythonpath "$env_python" "${added_py[@]}")
+fi
 printf 'CI_FOCUSED_PASS (NO_FULL_RECEIPT; NOT_ACCEPTANCE)\n'

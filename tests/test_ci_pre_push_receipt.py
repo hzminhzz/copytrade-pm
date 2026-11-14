@@ -22,6 +22,7 @@ def _git(root: Path, *args: str) -> str:
     ("case", "reuses"),
     [
         ("matching", True),
+        ("fallback_venv", True),
         ("missing", False),
         ("stale_sha", False),
         ("invalid_receipt", False),
@@ -38,14 +39,15 @@ def test_pre_push_receipt_reuse_fails_closed(tmp_path: Path, case: str, reuses: 
     script = tmp_path / "scripts" / "ci.sh"
     script.write_text("#!/bin/sh\nprintf 'FULL_CI_EXECUTED\\n'\n")
     script.chmod(0o755)
-    (tmp_path / ".gitignore").write_text(".venv-ci-core/\n")
+    (tmp_path / ".gitignore").write_text(".venv-ci-core/\n.venv/\n")
     _git(tmp_path, "add", "scripts/ci.sh", ".gitignore")
     _git(tmp_path, "commit", "-qm", "fixture")
     sha = _git(tmp_path, "rev-parse", "HEAD")
 
     # Stub only the verifier process. Real receipt semantics are tested
     # separately by the pm_ci_receipt validator.
-    binary = tmp_path / ".venv-ci-core" / "bin" / "python"
+    venv_dir = ".venv" if case == "fallback_venv" else ".venv-ci-core"
+    binary = tmp_path / venv_dir / "bin" / "python"
     binary.parent.mkdir(parents=True)
     binary.write_text("#!/bin/sh\nexit " + ("1" if case == "invalid_receipt" else "0") + "\n")
     binary.chmod(0o755)
