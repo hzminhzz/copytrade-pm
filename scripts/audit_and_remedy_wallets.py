@@ -16,7 +16,7 @@ import time
 import urllib.request
 from pathlib import Path
 
-from copytrade_pm.wallet_store.catalog import DEFAULT_REGISTRY_DB, get_catalog_path
+from copytrade_pm.wallet_store.catalog import DEFAULT_REGISTRY_DB
 
 
 def get_research_wallets() -> list[dict]:
@@ -120,7 +120,7 @@ def run_audit():
                 print(f"[{i+1}/{len(wallets)}] Progress: {len(under_1000)} under $1k, {len(over_1000)} >= $1k")
         time.sleep(0.05)  # respectful rate limit to public node
 
-    print(f"\nEquity Audit Summary:")
+    print("\nEquity Audit Summary:")
     print(f"  >= $1,000 Equity: {len(over_1000)}")
     print(f"  < $1,000 Equity:  {len(under_1000)}")
     print(f"  Errors:           {len(errors)}")

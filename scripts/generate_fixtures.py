@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from decimal import Decimal
 import json
-import os
 from pathlib import Path
 import polars as pl
 
 from copytrade_pm.wallet_store.adapters import from_hyperx_camel, from_hyperx_snake, from_vike
-from copytrade_pm.wallet_store.schema import FILLS_POLARS_SCHEMA, Fill
+from copytrade_pm.wallet_store.schema import FILLS_POLARS_SCHEMA
 from copytrade_pm.wallet_store.store import ensure_mode_600, ensure_mode_700
 
 FIXTURES_DIR = Path("/home/quant/dev/copytrade-pm/tests/fixtures/wallet_store")

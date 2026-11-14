@@ -15,7 +15,6 @@ import gzip
 import json
 import os
 from pathlib import Path
-import stat
 import sys
 import time
 from typing import Any
@@ -24,8 +23,6 @@ import polars as pl
 
 from copytrade_pm.wallet_store.adapters import (
     adapt_fill_row,
-    from_hyperx_camel,
-    from_hyperx_snake,
     from_vike,
     parse_dex,
     to_decimal,
@@ -45,7 +42,6 @@ from copytrade_pm.wallet_store.schema import (
     Position,
 )
 from copytrade_pm.wallet_store.store import (
-    coverage,
     ensure_mode_600,
     ensure_mode_700,
     ingest,
@@ -334,7 +330,7 @@ def run_migration(store_dir: Path = DEFAULT_STORE_DIR) -> dict[str, Any]:
                         blocked_drops.append(
                             {"source": "hyperx", "wallet": wallet, "error": str(exc), "row": row}
                         )
-            except Exception as exc:
+            except Exception:
                 pass
 
         # Load from JSON files
@@ -792,7 +788,7 @@ def run_migration(store_dir: Path = DEFAULT_STORE_DIR) -> dict[str, Any]:
 
     # 6. Chain check summary
     total_gaps = sum(gaps_by_wallet_symbol.values())
-    print(f"\n[Phase 6] Chain check on start_position:")
+    print("\n[Phase 6] Chain check on start_position:")
     print(f"  Total gaps found across all wallet-symbols: {total_gaps}")
     print(f"  Wallet-symbols with gaps: {len(gaps_by_wallet_symbol)}")
 
