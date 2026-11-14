@@ -1,5 +1,17 @@
 # Follower-wallet 5-minute backtest, 2026-09-01..2026-11-10
 
+> **Archived historical research (2026-11-14).** The standalone scripts
+> `experiments/follower_5m_backtest.py` and
+> `experiments/follower_prop10k_backtest.py` were removed from the active
+> source tree. Their original content remains recoverable at commit
+> `404c8d173d6bcb76b466ba69e597beea6ee81dc4` using `git show`.
+> **Do not run or treat these historical fill-reconstruction experiments as
+> native CWSA follower results.** The valid new research policy uses official,
+> complete wallet-position checkpoints on the UTC five-minute grid, actual
+> observed receipt/validation timing, native frozen-k target quantities and
+> PM03/PM04 financial/risk admission. Historical results below remain
+> descriptive `SCENARIO_ONLY`, not execution evidence.
+
 **Status:** modeled research replay, **retrospective and in-sample**. Not
 follower PnL evidence, not a qualification, not a trading authorization. All
 three portfolios remain `NO_TRADE`.
@@ -8,8 +20,10 @@ The three portfolios were registered 2026-11-02, 2026-11-04 and 2026-11-07; the
 window starts 2026-09-01. Every member was chosen knowing this history, so the
 result is in-sample and says nothing about forward performance.
 
-Tool: `experiments/follower_5m_backtest.py` (self-check included).
-Outputs: `data/private/backtest_20261112/` (private, not in Git).
+Historical tool (now retired): `experiments/follower_5m_backtest.py`.
+Historical companion (now retired): `experiments/follower_prop10k_backtest.py`.
+Preserved private historical outputs: `data/private/backtest_20261112/` (not in Git).
+Code at the pinned commit can be inspected with `git show 404c8d1:experiments/follower_5m_backtest.py` (do not execute it as a native CWSA backtest).
 
 ## Question
 
