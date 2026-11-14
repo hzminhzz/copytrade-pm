@@ -48,7 +48,19 @@ run_leg() {
     (
         export UV_PROJECT_ENVIRONMENT="$ROOT/.venv-ci-$name"
         printf '[%s]\n' "$name"
-        uv sync --frozen --group dev "$@"
+        # Worktrees can inherit an editable install pointing at an older release.
+        # Force only this small package to rebind; leave dependency caches warm.
+        uv sync --frozen --group dev --reinstall-package copytrade-pm "$@"
+        "$ROOT/.venv-ci-$name/bin/python" -c '
+import copytrade_pm
+from pathlib import Path
+import sys
+expected = Path(sys.argv[1]).resolve() / "src"
+actual = Path(copytrade_pm.__file__).resolve()
+if not actual.is_relative_to(expected):
+    raise SystemExit(f"CI_WRONG_PROJECT_INSTALL: {actual} expected under {expected}")
+' "$ROOT"
+        echo 'CI_PROJECT_BINDING_DONE'
         uv run --no-sync --frozen --group dev "$@" python -m pytest -q tests
         echo 'CI_PYTEST_DONE'
         uv run --no-sync --frozen --group dev "$@" ruff check src tests

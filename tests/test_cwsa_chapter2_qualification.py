@@ -137,3 +137,39 @@ def test_receipt_rejects_skip_and_partial_results():
     failures = _verify_steps(incomplete)
     assert "MISSING_REQUIRED_LOGS" in failures
     assert "MISSING_OR_SKIPPED_REQUIRED_ADVERSARIAL_TESTS" in failures
+
+
+def test_receipt_requires_local_worktree_project_binding():
+    from copytrade_pm.pm_ci_receipt import ALL_HASHES, REQUIRED_LOGS
+
+    receipt = {
+        "schema": "copytrade_local_ci_receipt_v1",
+        "stage": "premerge",
+        "leg": "all",
+        "status": "PASS",
+        "logs": {name: {} for name in REQUIRED_LOGS},
+        "commands": {name: "checked" for name in REQUIRED_LOGS},
+        "sources": {name: "hash" for name in ALL_HASHES},
+        "tests": {
+            "core": {"passed": 1500, "skipped": 0},
+            "market": {"passed": 1700, "skipped": 0},
+            "adversarial": {"passed": 40, "skipped": 0},
+        },
+        "checks": {
+            name: "PASS"
+            for name in (
+                "core",
+                "market",
+                "adversarial",
+                "frontend",
+                "build",
+                "ruff",
+                "format",
+                "types",
+                "project_binding",
+            )
+        },
+    }
+    assert _verify_steps(receipt) == []
+    del receipt["checks"]["project_binding"]
+    assert "REQUIRED_BUILD_OR_LINT_GATE_NOT_PASS" in _verify_steps(receipt)

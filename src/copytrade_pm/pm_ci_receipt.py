@@ -115,6 +115,7 @@ def _verify_steps(receipt: dict) -> list[str]:
             "ruff",
             "format",
             "types",
+            "project_binding",
         )
     ):
         problems.append("REQUIRED_BUILD_OR_LINT_GATE_NOT_PASS")
@@ -170,6 +171,9 @@ def create_receipt(
         if all("CI_FORMAT_DONE" in marks[n] for n in ("core", "market"))
         else "FAIL",
         "types": "PASS" if "CI_TYPES_DONE" in marks["frontend"] else "FAIL",
+        "project_binding": "PASS"
+        if all("CI_PROJECT_BINDING_DONE" in marks[n] for n in ("core", "market"))
+        else "FAIL",
     }
     receipt = {
         "schema": "copytrade_local_ci_receipt_v1",
@@ -187,8 +191,8 @@ def create_receipt(
         "sources": hashes,
         "tests": {"core": core, "market": market, "adversarial": adversarial},
         "commands": {
-            "core": "uv sync --frozen --group dev && uv run --no-sync pytest -q tests && uv run --no-sync ruff check && uv run --no-sync ruff format --check",
-            "market": "uv sync --frozen --group dev --extra market && uv run --no-sync pytest -q tests && uv run --no-sync ruff check && uv run --no-sync ruff format --check",
+            "core": "uv sync --frozen --group dev --reinstall-package copytrade-pm && verify local editable install && uv run --no-sync pytest -q tests && uv run --no-sync ruff check && uv run --no-sync ruff format --check",
+            "market": "uv sync --frozen --group dev --reinstall-package copytrade-pm --extra market && verify local editable install && uv run --no-sync pytest -q tests && uv run --no-sync ruff check && uv run --no-sync ruff format --check",
             "adversarial": "uv run --no-sync pytest -q " + " ".join(REQUIRED_TESTS),
             "frontend": "npm ci --no-audit --no-fund && npm run build",
             "build": "uv build",
@@ -223,6 +227,11 @@ def validate_receipt(path: Path | None, root: Path, sha: str) -> list[str]:
             entry = receipt.get("logs", {}).get(name, {})
             if _sha(Path(entry["path"])) != entry.get("sha256"):
                 problems.append("CI_LOG_HASH_MISMATCH:" + name)
+        for name in ("core", "market"):
+            if "CI_PROJECT_BINDING_DONE" not in Path(receipt["logs"][name]["path"]).read_text(
+                errors="replace"
+            ):
+                problems.append("CI_PROJECT_BINDING_LOG_MISSING:" + name)
         for name in ("core", "market", "adversarial"):
             if (
                 _pytest_counts(Path(receipt["logs"][name]["path"]).read_text(errors="replace"))
