@@ -106,7 +106,9 @@ def test_registry_seal_alias_as_of_and_unknowns(source):
 @pytest.fixture()
 def http_server(source):
     srv = ThreadingHTTPServer(("127.0.0.1", 0), server.DashboardHandler)
-    worker = Thread(target=srv.serve_forever, daemon=True)
+    # Shorter server shutdown polling keeps teardown deterministic without
+    # spending up to 500 ms idle per HTTP fixture instance.
+    worker = Thread(target=lambda: srv.serve_forever(poll_interval=0.01), daemon=True)
     worker.start()
     try:
         yield f"http://127.0.0.1:{srv.server_port}"

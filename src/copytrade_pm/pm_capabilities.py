@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ast
 from collections.abc import Mapping, Sequence
+from functools import lru_cache
 from importlib import metadata
 import json
 from pathlib import Path
@@ -17,6 +18,18 @@ import tomllib
 from typing import TypedDict
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+@lru_cache(maxsize=128)
+def _parse_static_source(source: str) -> ast.Module:
+    """Cache read-only ASTs by exact source contents, not file path or timestamp.
+
+    Inspectors only traverse these trees. Mutated files always produce new
+    contents and a new parse, preserving fail-closed drift detection.
+    """
+    return ast.parse(source)
+
+
 DOC = "docs/AGENT-NATIVE-OPERATIONS.md"
 CLASSES = frozenset({"READ_ONLY", "LOCAL_MUTATION", "PROTECTED_MUTATION", "BROKER_OR_TRADING"})
 # Classifications describe the exposed DEFAULT entry point; subcommands have
@@ -1721,7 +1734,7 @@ def _required_cli_args(module: str, root: Path) -> list[str] | None:
     path = (root / "src" / Path(*module.split("."))).with_suffix(".py")
     if not path.is_file():
         return None
-    tree = ast.parse(path.read_text(encoding="utf-8"))
+    tree = _parse_static_source(path.read_text(encoding="utf-8"))
     for node in ast.walk(tree):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
             if node.func.attr == "add_subparsers":
@@ -2153,7 +2166,7 @@ def _inspect_registry_parser(registry_path: Path) -> tuple[dict[str, dict], list
     """Small, registry-specific AST inspector; fails closed on unsupported constructs."""
     if not registry_path.is_file():
         return {}, ["MISSING_ENTRY_MODULE:copytrade-wallet-registry"]
-    tree = ast.parse(registry_path.read_text(encoding="utf-8"))
+    tree = _parse_static_source(registry_path.read_text(encoding="utf-8"))
     all_parser_calls = {
         id(node)
         for node in ast.walk(tree)
@@ -2690,7 +2703,7 @@ def _inspect_cwsa_add_arguments(root: Path, target_node: dict) -> list[str]:
     cwsa_path = root / "src/copytrade_pm/pm_cwsa_chapter2_gate.py"
     if not cwsa_path.is_file():
         return ["MISSING_OWNER_MODULE:copytrade_pm.pm_cwsa_chapter2_gate"]
-    tree = ast.parse(cwsa_path.read_text(encoding="utf-8"))
+    tree = _parse_static_source(cwsa_path.read_text(encoding="utf-8"))
     constants = _extract_module_constants(tree)
     funcs = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "add_arguments"]
     if len(funcs) != 1 or len(funcs[0].args.args) != 1:
@@ -2774,7 +2787,7 @@ def _inspect_operations_parser(root: Path) -> tuple[dict[str, dict], list[str]]:
     ops_path = root / "src/copytrade_pm/pm_operations.py"
     if not ops_path.is_file():
         return {}, ["MISSING_ENTRY_MODULE:copytrade-pm"]
-    tree = ast.parse(ops_path.read_text(encoding="utf-8"))
+    tree = _parse_static_source(ops_path.read_text(encoding="utf-8"))
     constants = _extract_module_constants(tree)
     all_parser_calls = {
         id(node)
@@ -3110,7 +3123,7 @@ def _inspect_group_script_parser(
     """Bounded AST inspector for flat GROUPS CLI scripts (no subparsers, no dynamic loops)."""
     if not path.is_file():
         return None, [f"MISSING_ENTRY_MODULE:{script_name}"]
-    tree = ast.parse(path.read_text(encoding="utf-8"))
+    tree = _parse_static_source(path.read_text(encoding="utf-8"))
     constants = _extract_module_constants(tree)
     all_parser_calls = {
         id(node)
@@ -3246,7 +3259,7 @@ def _inspect_pm03_cli_dispatch(path: Path) -> tuple[set[str], list[str]]:
     """Bounded AST inspector for pm03_cli.execute JSON spec['action'] dispatch."""
     if not path.is_file():
         return set(), ["MISSING_OWNER_MODULE:copytrade_pm.pm03_cli"]
-    tree = ast.parse(path.read_text(encoding="utf-8"))
+    tree = _parse_static_source(path.read_text(encoding="utf-8"))
     exec_defs = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "execute"]
     if len(exec_defs) != 1:
         return set(), ["UNSUPPORTED_PM03_DISPATCH_CONSTRUCT:missing_execute"]
@@ -3475,7 +3488,7 @@ def validate(root: Path = ROOT) -> dict:
             if not file.is_file():
                 problems.append(f"MISSING_ENTRY_MODULE:{name}")
             else:
-                tree = ast.parse(file.read_text())
+                tree = _parse_static_source(file.read_text())
                 if not any(
                     isinstance(x, (ast.FunctionDef, ast.AsyncFunctionDef)) and x.name == "main"
                     for x in tree.body
