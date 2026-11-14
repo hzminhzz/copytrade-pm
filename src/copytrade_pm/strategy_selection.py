@@ -6,7 +6,7 @@ from hashlib import sha256
 from pathlib import Path
 
 from .pm_forward_observed_paper import PAPER_PROFILES, _verify_portfolio_selection
-from .pm_v4_selected_positions import selected_parents
+from .pm_source_selection import selected_parents
 from .strategy_health import StrategyScope
 
 

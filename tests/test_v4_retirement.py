@@ -1,49 +1,44 @@
-"""Retired T0+300 entrypoints must fail closed without blocking CWSA imports."""
+"""Retirement means no V4 runtime module, while the CWSA source still works."""
+
+import importlib
 
 import pytest
 
-from copytrade_pm import (
-    pm_forward_observed_paper,
-    pm_v4_selected_positions,
-    pm_v4_sixteen_paper,
-)
+from copytrade_pm import pm_cwsa_source_observer, pm_forward_observed_paper
 from copytrade_pm.pm_checkpoint_source import selected_checkpoint_sources
+from copytrade_pm.pm_source_selection import official_accounts, selected_parents
 
 
-def test_retired_v4_ws_entrypoint_rejected_before_io(capsys):
+@pytest.mark.parametrize(
+    "module",
+    ["copytrade_pm.pm_v4_selected_positions", "copytrade_pm.pm_v4_sixteen_paper"],
+)
+def test_retired_v4_launcher_is_unimportable(module):
+    with pytest.raises(ImportError):
+        importlib.import_module(module)
+
+
+def test_cwsa_source_rejects_old_ws_mode_before_io(tmp_path, capsys):
     with pytest.raises(SystemExit) as exc:
-        pm_v4_selected_positions.main(
-            ["--registry-db", "/missing/registry.db", "--state-root", "/missing/state"]
+        pm_cwsa_source_observer.main(
+            [
+                "--registry-db",
+                str(tmp_path / "registry.sqlite"),
+                "--state-root",
+                str(tmp_path / "state"),
+                "--portfolios",
+                "A",
+                "--checkpoint-config",
+                str(tmp_path / "config.json"),
+                "--checkpoint-config-sha256",
+                "a" * 64,
+                "--source-mode",
+                "LEGACY_WS",
+            ]
         )
     assert exc.value.code == 2
-    assert "RETIRED_V4_T300" in capsys.readouterr().err
-
-
-def test_retired_v4_sixteen_paper_rejected_before_io(monkeypatch, capsys):
-    monkeypatch.setattr(
-        "sys.argv",
-        [
-            "pm_v4_sixteen_paper",
-            "--registry-db",
-            "/missing/registry.db",
-            "--source-db",
-            "/missing/source.db",
-            "--price-db",
-            "/missing/price.db",
-            "--propr-catalog",
-            "/missing/catalog.json",
-            "--campaign-manifest",
-            "/missing/campaign.json",
-            "--campaign-sha256",
-            "0" * 64,
-            "--state-root",
-            "/missing/state",
-        ],
-    )
-    with pytest.raises(SystemExit) as exc:
-        pm_v4_sixteen_paper.main()
-    assert exc.value.code == 2
-    assert "RETIRED_V4_T300" in capsys.readouterr().err
+    assert "invalid choice" in capsys.readouterr().err
+    assert not (tmp_path / "state").exists()
 
 
 def test_retired_v4_single_paper_rejected_before_io(monkeypatch, capsys):
@@ -65,6 +60,8 @@ def test_retired_v4_single_paper_rejected_before_io(monkeypatch, capsys):
     assert "RETIRED_V4_T300" in capsys.readouterr().err
 
 
-def test_cwsa_source_reader_remains_importable():
+def test_cwsa_and_historical_proof_adapters_remain_importable():
     assert callable(selected_checkpoint_sources)
-    assert callable(pm_v4_selected_positions.observe_checkpoints)
+    assert callable(pm_cwsa_source_observer.observe_checkpoints)
+    assert callable(selected_parents)
+    assert callable(official_accounts)
