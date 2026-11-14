@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from copytrade_pm.pm_v4_sixteen_paper import _is_retryable_sqlite_busy, _tick_runs
+from copytrade_pm.pm_paper_busy_recovery import _is_retryable_sqlite_busy, _tick_runs
 
 
 def _ok(run_id: str) -> dict:

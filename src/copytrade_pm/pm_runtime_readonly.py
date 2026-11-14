@@ -26,7 +26,7 @@ SHA = re.compile(r"^[a-f0-9]{40}$")
 # Only known paper/source services may be inspected. Chapter 2 is user-managed;
 # V4 protected units have separate user (legacy) and system manager identities.
 _CHAPTER2_MODULES = {
-    "copytrade-cwsa-5m-source-chapter2.service": "copytrade_pm.pm_v4_selected_positions",
+    "copytrade-cwsa-5m-source-chapter2.service": "copytrade_pm.pm_cwsa_source_observer",
     "copytrade-cwsa-5m-paper-chapter2.service": "copytrade_pm.pm_cwsa_six_paper",
 }
 _V4_MODULE = "copytrade_pm.pm_forward_protected_ops"
@@ -319,7 +319,15 @@ def verify_unit_release(
             executable.stat().st_ino,
         )
         expected_module = _CHAPTER2_MODULES.get(unit, _V4_MODULE)
-        if configured_argv[1:3] != ["-m", expected_module]:
+        configured_module = configured_argv[2] if len(configured_argv) > 2 else ""
+        # A pinned, already-running CWSA REST process may still carry the
+        # historical module name until its separately verified release cutover.
+        # This exception must not admit V4 WS timing or a new legacy launcher.
+        old_cwsa_module = (
+            unit == "copytrade-cwsa-5m-source-chapter2.service"
+            and configured_module == "copytrade_pm.pm_v4_selected_positions"
+        )
+        if configured_argv[1:3] != ["-m", expected_module] and not old_cwsa_module:
             return done("MISMATCH", "UNIT_APPLICATION_MODULE_MISMATCH")
         if unit in UNITS:
             role = "watchdog" if "watchdog" in unit else "worker"

@@ -422,6 +422,21 @@ def test_chapter2_source_has_independent_policy_and_release_scope(rig: Rig) -> N
         cgroup=rig.props["ControlGroup"],
     )
     assert inspect(rig, unit=SOURCE)["state"] == "VERIFIED"
+    # New CWSA-owned entrypoint must attest equivalently after pinned cutover.
+    rig.props["ExecStart"] = rig.props["ExecStart"].replace(
+        "copytrade_pm.pm_v4_selected_positions", "copytrade_pm.pm_cwsa_source_observer"
+    )
+    rig.set_process(
+        argv=[
+            str(rig.python),
+            "-m",
+            "copytrade_pm.pm_cwsa_source_observer",
+            "--source-mode",
+            "CHECKPOINT_REST_V3",
+        ],
+        cgroup=rig.props["ControlGroup"],
+    )
+    assert inspect(rig, unit=SOURCE)["state"] == "VERIFIED"
     rig.props["ExecStart"] = rig.props["ExecStart"].replace("CHECKPOINT_REST_V3", "OTHER")
     assert inspect(rig, unit=SOURCE)["reason"] == "UNIT_SOURCE_POLICY_MISMATCH"
 
