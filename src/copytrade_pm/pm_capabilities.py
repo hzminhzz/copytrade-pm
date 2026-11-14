@@ -1275,7 +1275,10 @@ GROUP_OPERATIONS: dict[str, _GroupOperationSpec] = {
             network=True,
             privacy="OWNER_PRIVATE_REDACTED",
         ),
-        "limitations": ["Calls CCXT public catalog unless --markets-json is supplied"],
+        "limitations": [
+            "RETIRED_V4_T300: historical capability only; entrypoint refuses new runs",
+            "Legacy CCXT catalog path was used before retirement",
+        ],
     },
     "paper.observed_execution.vike_minute": {
         "script": "copytrade-pm-paper-observed",
@@ -1299,7 +1302,8 @@ GROUP_OPERATIONS: dict[str, _GroupOperationSpec] = {
             privacy="OWNER_PRIVATE_REDACTED",
         ),
         "limitations": [
-            "No CCXT call; requires --propr-catalog PATH and --price-db PATH at runtime"
+            "RETIRED_V4_T300: historical capability only; entrypoint refuses new runs",
+            "Legacy Vike path required --propr-catalog PATH and --price-db PATH",
         ],
     },
     "paper.observer.diagnose_preflight": {

@@ -416,6 +416,10 @@ def main(argv: list[str] | None = None) -> int:
         help="V2 raw sidecars and source receipts: requires all readers to be V2-compatible",
     )
     args = parser.parse_args(argv)
+    # V4 T0+300 has been retired. Keep the module importable because the
+    # CWSA checkpoint collector and historical evidence readers use it.
+    if args.source_mode != "CHECKPOINT_REST_V3":
+        parser.error("RETIRED_V4_T300: use the CWSA checkpoint source")
     if args.source_mode == "CHECKPOINT_REST_V3":
         if args.checkpoint_config is None or args.checkpoint_config_sha256 is None:
             parser.error(

@@ -3,7 +3,7 @@
 **Date:** 2026-11-11
 **Status:** OWNER-APPROVED TARGET POLICY (Q1–Q24; Q2=B, Q13=B, all other Q=A), with explicit domain-owned transition contract. Documentation only, not implemented, merged, deployed, scientifically qualified or trading-authorized.
 **Scope:** Shared source-signal interpretation for `copytrade-pm` virtual paper and `prop-production` Guardian. Native REST checkpoint provider authority is approved as a target (Q2=B); collection feasibility, bounded freshness, cross-DEX consistency and financial protocol details remain undecided.
-**Related current contract:** [Official selected-position first-known T+300](2026-11-08-position-first-t300.md). That contract and its running services remain unchanged pending a separately authorized, versioned release/cutover.
+**Related historical contract:** [Official selected-position first-known T+300](2026-11-08-position-first-t300.md). Owner retired V4 as an operational source policy on 2026-11-14, ahead of ANOS real-data E2E. This does not activate paper finance or protected trading; preserved original V4 receipts remain historical-only.
 
 ## Decision
 
