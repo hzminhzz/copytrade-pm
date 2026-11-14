@@ -187,9 +187,9 @@ def create_receipt(
         "sources": hashes,
         "tests": {"core": core, "market": market, "adversarial": adversarial},
         "commands": {
-            "core": "uv sync --frozen --group dev && pytest -q tests && ruff check && ruff format --check",
-            "market": "uv sync --frozen --group dev --extra market && pytest -q tests && ruff check && ruff format --check",
-            "adversarial": "pytest -q " + " ".join(REQUIRED_TESTS),
+            "core": "uv sync --frozen --group dev && uv run --no-sync pytest -q tests && uv run --no-sync ruff check && uv run --no-sync ruff format --check",
+            "market": "uv sync --frozen --group dev --extra market && uv run --no-sync pytest -q tests && uv run --no-sync ruff check && uv run --no-sync ruff format --check",
+            "adversarial": "uv run --no-sync pytest -q " + " ".join(REQUIRED_TESTS),
             "frontend": "npm ci --no-audit --no-fund && npm run build",
             "build": "uv build",
         },

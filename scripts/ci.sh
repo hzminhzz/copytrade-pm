@@ -36,12 +36,11 @@ fi
 LOGS="$(mktemp -d)"
 trap 'rm -rf "$LOGS"' EXIT
 failed=0
-if (cd ops/control-center && npm ci --no-audit --no-fund && npm run build &&
-    printf 'CI_TYPES_DONE\nCI_FRONTEND_DONE\n') >"$LOGS/frontend.log" 2>&1; then
-    :
-else
-    failed=1
-fi
+# Frontend installation/build is independent of the Python suites. Start it
+# before the Python legs so it does not extend the critical path serially.
+(cd ops/control-center && npm ci --no-audit --no-fund && npm run build &&
+    printf 'CI_TYPES_DONE\nCI_FRONTEND_DONE\n') >"$LOGS/frontend.log" 2>&1 &
+frontend_pid=$!
 
 run_leg() {
     local name="$1"
@@ -50,11 +49,11 @@ run_leg() {
         export UV_PROJECT_ENVIRONMENT="$ROOT/.venv-ci-$name"
         printf '[%s]\n' "$name"
         uv sync --frozen --group dev "$@"
-        uv run --frozen --group dev "$@" python -m pytest -q tests
+        uv run --no-sync --frozen --group dev "$@" python -m pytest -q tests
         echo 'CI_PYTEST_DONE'
-        uv run --frozen --group dev "$@" ruff check src tests
+        uv run --no-sync --frozen --group dev "$@" ruff check src tests
         echo 'CI_RUFF_DONE'
-        uv run --frozen --group dev "$@" ruff format --check src tests
+        uv run --no-sync --frozen --group dev "$@" ruff format --check src tests
         echo 'CI_FORMAT_DONE'
         printf 'CI_%s_DONE\n' "$(echo "$name" | tr '[:lower:]' '[:upper:]')"
     ) >"$LOGS/$name.log" 2>&1
@@ -63,6 +62,7 @@ pids=()
 if [[ "$LEG" == "core" || "$LEG" == "all" ]]; then run_leg core & pids+=("$!"); fi
 if [[ "$LEG" == "market" || "$LEG" == "all" ]]; then run_leg market --extra market & pids+=("$!"); fi
 for pid in "${pids[@]}"; do wait "$pid" || failed=1; done
+wait "$frontend_pid" || failed=1
 
 if [[ "$LEG" == "all" ]]; then
     # The required test roster has one native owner in pm_ci_receipt. A skipped
@@ -70,7 +70,7 @@ if [[ "$LEG" == "all" ]]; then
     if mapfile -t required_tests < <("$ROOT/.venv-ci-core/bin/python" -m copytrade_pm.pm_ci_receipt required-tests); then
         if (
             export UV_PROJECT_ENVIRONMENT="$ROOT/.venv-ci-core"
-            uv run --frozen --group dev python -m pytest -q "${required_tests[@]}"
+            uv run --no-sync --frozen --group dev python -m pytest -q "${required_tests[@]}"
             echo 'CI_ADVERSARIAL_DONE'
         ) >"$LOGS/adversarial.log" 2>&1; then
             :
