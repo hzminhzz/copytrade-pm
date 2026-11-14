@@ -81,6 +81,23 @@ Use `copytrade-pm wallets list --query W083 --asof <UTC>` only within its docume
 
 A missing known paper unit or zero indexed runs means no verified PAPER_RUNNING from those sources; it does not prove every possible external program is absent. Never infer paper health from a proposal, directory, PID string, stale heartbeat or synthetic test. For agent performance, use [independent host traces](AGENT-TRACE-EVAL-20261105.md), not a model-authored transcript.
 
+## Mandatory paid-API pre-fetch exclusion gate
+
+Before **any** metered or paid API call for a wallet — HyperX fill/metric fetches, vendor history downloads, per-wallet probes — check the registry exclusion state and drop excluded wallets from the batch:
+
+```bash
+# Batch: dump every excluded wallet (redacted; both exclusion tables).
+uv run --frozen --group dev copytrade-wallet-registry excluded
+
+# Per-wallet: exclusion state with sources.
+uv run --frozen --group dev copytrade-wallet-registry wallet --alias W083 --asof <UTC>
+```
+
+- A wallet with `"excluded": true` (from `exclusions` or `propfirm_exclusions`) receives **zero** API work: no fill fetches, no fill-date lookups, no metric probes, no retries.
+- If the registry is unavailable or the lookup fails, the gate **fails closed**: skip the API work rather than assume the wallet is not excluded.
+- Screening a listed candidate is not a substitute for this gate; exclusions are decided by the owner and indexed in the registry, and only the registry answers "is this wallet excluded".
+- Wallet candidate lists for any fetch batch **MUST come from the registry** (`cohort`, `wallet`, `excluded`), never from ad-hoc agent-curated lists; a list built from filenames, chat messages, or narrative reports bypasses this gate by construction.
+
 ## Fail-closed conditions
 
 1. **Registry unavailable or not imported:** report the requested live status as `UNKNOWN` or `NOT_REGISTERED_AT_ASOF` as appropriate; cite the last versioned Git decision with its known-at timestamp and explicitly label it *historical*, not current. Do not guess from OptMem, Telegram messages, wallet filenames or narrative reports.
