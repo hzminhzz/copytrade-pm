@@ -46,11 +46,11 @@ run_leg() {
     local name="$1"
     shift
     (
-        export UV_PROJECT_ENVIRONMENT="$ROOT/.venv-ci-$name"
+        local_env="$ROOT/.venv-ci-$name"
         printf '[%s]\n' "$name"
         # Worktrees can inherit an editable install pointing at an older release.
         # Force only this small package to rebind; leave dependency caches warm.
-        uv sync --frozen --group dev --reinstall-package copytrade-pm "$@"
+        UV_PROJECT_ENVIRONMENT="$local_env" uv sync --frozen --group dev --reinstall-package copytrade-pm "$@"
         "$ROOT/.venv-ci-$name/bin/python" -c '
 import copytrade_pm
 from pathlib import Path
@@ -61,12 +61,20 @@ if not actual.is_relative_to(expected):
     raise SystemExit(f"CI_WRONG_PROJECT_INSTALL: {actual} expected under {expected}")
 ' "$ROOT"
         echo 'CI_PROJECT_BINDING_DONE'
-        uv run --no-sync --frozen --group dev "$@" python -m pytest -q tests
+        "$local_env/bin/python" -m pytest -q tests
         echo 'CI_PYTEST_DONE'
-        uv run --no-sync --frozen --group dev "$@" ruff check src tests
+        "$local_env/bin/ruff" check src tests
         echo 'CI_RUFF_DONE'
-        uv run --no-sync --frozen --group dev "$@" ruff format --check src tests
+        "$local_env/bin/ruff" format --check src tests
         echo 'CI_FORMAT_DONE'
+        "$local_env/bin/python" -c '
+import copytrade_pm
+from pathlib import Path
+import sys
+if not Path(copytrade_pm.__file__).resolve().is_relative_to(Path(sys.argv[1]).resolve() / "src"):
+    raise SystemExit("CI_WRONG_PROJECT_INSTALL_AFTER_TESTS")
+' "$ROOT"
+        echo 'CI_PROJECT_BINDING_AFTER_TESTS_DONE'
         printf 'CI_%s_DONE\n' "$(echo "$name" | tr '[:lower:]' '[:upper:]')"
     ) >"$LOGS/$name.log" 2>&1
 }
@@ -81,8 +89,7 @@ if [[ "$LEG" == "all" ]]; then
     # adversarial test is not an acceptance pass even if pytest exits zero.
     if mapfile -t required_tests < <("$ROOT/.venv-ci-core/bin/python" -m copytrade_pm.pm_ci_receipt required-tests); then
         if (
-            export UV_PROJECT_ENVIRONMENT="$ROOT/.venv-ci-core"
-            uv run --no-sync --frozen --group dev python -m pytest -q "${required_tests[@]}"
+            "$ROOT/.venv-ci-core/bin/python" -m pytest -q "${required_tests[@]}"
             echo 'CI_ADVERSARIAL_DONE'
         ) >"$LOGS/adversarial.log" 2>&1; then
             :

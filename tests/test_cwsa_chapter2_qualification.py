@@ -167,9 +167,13 @@ def test_receipt_requires_local_worktree_project_binding():
                 "format",
                 "types",
                 "project_binding",
+                "project_binding_after_tests",
             )
         },
     }
     assert _verify_steps(receipt) == []
     del receipt["checks"]["project_binding"]
+    assert "REQUIRED_BUILD_OR_LINT_GATE_NOT_PASS" in _verify_steps(receipt)
+    receipt["checks"]["project_binding"] = "PASS"
+    del receipt["checks"]["project_binding_after_tests"]
     assert "REQUIRED_BUILD_OR_LINT_GATE_NOT_PASS" in _verify_steps(receipt)
