@@ -1,0 +1,39 @@
+{
+  "alias": "TEST_SNAKE",
+  "address": "0x1111111111111111111111111111111111111111",
+  "equity": 25000.0,
+  "fills": [
+    {
+      "coin": "BTC",
+      "px": "90000.0",
+      "sz": "0.5",
+      "side": "B",
+      "time": 1787165900000,
+      "start_position": "0.0",
+      "dir": "Open Long",
+      "closed_pnl": "0.0",
+      "oid": 520077658390,
+      "tid": 110386023261630,
+      "crossed": true,
+      "fee": "4.5",
+      "fee_token": "USDC",
+      "user": "0x1111111111111111111111111111111111111111"
+    },
+    {
+      "coin": "#1730",
+      "px": "3.50",
+      "sz": "20.0",
+      "side": "A",
+      "time": 1787165905000,
+      "start_position": "20.0",
+      "dir": "Close Long",
+      "closed_pnl": "5.0",
+      "oid": 520077658391,
+      "tid": 110386023261631,
+      "crossed": false,
+      "fee": "0.07",
+      "fee_token": "USDC",
+      "user": "0x1111111111111111111111111111111111111111"
+    }
+  ]
+}

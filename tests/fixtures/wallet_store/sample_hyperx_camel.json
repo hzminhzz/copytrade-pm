@@ -1,0 +1,41 @@
+{
+  "label": "TEST_CAMEL",
+  "address": "0x1111111111111111111111111111111111111111",
+  "cohort": "test",
+  "primary_coin": "BTC",
+  "equity": 50000.0,
+  "fills": [
+    {
+      "coin": "xyz:TSLA",
+      "px": "245.50",
+      "sz": "10.0",
+      "side": "B",
+      "time": 1787165851785,
+      "startPosition": "0.0",
+      "dir": "Open Long",
+      "closedPnl": "0.0",
+      "hash": "0x123456",
+      "oid": 520077658387,
+      "crossed": true,
+      "fee": "0.15",
+      "tid": 14318806847495222257,
+      "feeToken": "USDC"
+    },
+    {
+      "coin": "@107",
+      "px": "1.25",
+      "sz": "100.0",
+      "side": "A",
+      "time": 1787165852000,
+      "startPosition": "100.0",
+      "dir": "Close Long",
+      "closedPnl": "25.0",
+      "hash": "0x234567",
+      "oid": 520077658388,
+      "crossed": false,
+      "fee": "0.05",
+      "tid": 110386023261628,
+      "feeToken": "USDC"
+    }
+  ]
+}

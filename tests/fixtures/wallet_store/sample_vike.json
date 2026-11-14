@@ -1,0 +1,22 @@
+{
+  "wallet": "0x1111111111111111111111111111111111111111",
+  "fills": [
+    {
+      "ts": "2026-08-05T12:30:00.123000+00:00",
+      "symbol": "ETH",
+      "side": "buy",
+      "direction": "buy",
+      "size_token": 5.0,
+      "price": 3200.0,
+      "size_usd": 16000.0,
+      "fee": 1.6,
+      "fee_token": "USDC",
+      "is_maker": false,
+      "crossed": true,
+      "closed_pnl": 0.0,
+      "order_id": "580000000001",
+      "trade_id": "990000000001",
+      "dex_name": "HL"
+    }
+  ]
+}

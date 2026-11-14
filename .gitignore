@@ -19,6 +19,7 @@ htmlcov/
 PRIVATE_*
 **/PRIVATE_*
 *.parquet
+!/tests/fixtures/wallet_store/*.parquet
 *.db
 *.sqlite
 *.sqlite3

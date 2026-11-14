@@ -378,6 +378,13 @@ NATIVE = {
         "READ_ONLY",
         "REPOSITORY_RUNBOOK",
     ),
+    "wallet_store": (
+        "copytrade_pm.wallet_store",
+        "python -c 'import copytrade_pm.wallet_store'",
+        "source",
+        "LOCAL_MUTATION",
+        "HIVE_PARQUET_WALLET_STORE_AND_SQLITE_CATALOG",
+    ),
 }
 DOCS = {
     "registry": "docs/WALLET-REGISTRY-AGENT-WORKFLOW.md",
@@ -1698,6 +1705,10 @@ NATIVE_ACCESS = {
         network=True,
     ),
     "paper.identity_reseal_preview": _access_entry(["private_sqlite_registry", "source_dirs"], []),
+    "wallet_store": _access_entry(
+        ["private_sqlite_registry", "private_wallet_store_parquet_and_catalog"],
+        ["private_wallet_store_parquet_and_catalog"],
+    ),
 }
 EXTRA_MODULES = {
     "pm_bounded_acquisition": ("research.bounded_acquisition", "research", "LOCAL_MUTATION"),
@@ -1772,7 +1783,8 @@ def _required_cli_args_from_source(source: str) -> tuple[str, ...] | None:
 def _module_available(module: str, root: Path) -> bool:
     if module.startswith("docs/") or module.startswith("scripts/"):
         return (root / module).is_file()
-    return (root / "src" / Path(*module.split("."))).with_suffix(".py").is_file()
+    pkg_dir = root / "src" / Path(*module.split("."))
+    return pkg_dir.with_suffix(".py").is_file() or (pkg_dir / "__init__.py").is_file()
 
 
 def _copy_access(entry: Mapping[str, object]) -> dict[str, object]:
@@ -1955,6 +1967,8 @@ def inventory(root: Path = ROOT) -> list[dict]:
                 "documentation": (
                     "docs/P1-P14-PROSPECTIVE-RESEAL-PREFLIGHT-20261106.md"
                     if cap == "paper.identity_reseal_preview"
+                    else "docs/WALLET-STORE.md"
+                    if cap == "wallet_store"
                     else DOCS[family]
                 ),
                 "available": _module_available(module, root),

@@ -36,11 +36,20 @@ fi
 LOGS="$(mktemp -d)"
 trap 'rm -rf "$LOGS"' EXIT
 failed=0
-# Frontend installation/build is independent of the Python suites. Start it
-# before the Python legs so it does not extend the critical path serially.
-(cd ops/control-center && npm ci --no-audit --no-fund && npm run build &&
+# Frontend installation/build is independent of the Python suites. Stage its
+# output outside ops/control-center/dist so Vite never deletes dist/ while
+# pytest HTTP tests are reading it concurrently.
+(cd ops/control-center && npm ci --no-audit --no-fund && npm run typecheck &&
+    npx vite build --outDir "$LOGS/frontend-dist" &&
     printf 'CI_TYPES_DONE\nCI_FRONTEND_DONE\n') >"$LOGS/frontend.log" 2>&1 &
 frontend_pid=$!
+if [[ ! -f ops/control-center/dist/index.html ]]; then
+    wait "$frontend_pid" || failed=1
+    if [[ -d "$LOGS/frontend-dist" ]]; then
+        rm -rf ops/control-center/dist
+        mv "$LOGS/frontend-dist" ops/control-center/dist
+    fi
+fi
 
 run_leg() {
     local name="$1"
@@ -86,6 +95,10 @@ if [[ "$LEG" == "core" || "$LEG" == "all" ]]; then run_leg core & pids+=("$!"); 
 if [[ "$LEG" == "market" || "$LEG" == "all" ]]; then run_leg market --extra market & pids+=("$!"); fi
 for pid in "${pids[@]}"; do wait "$pid" || failed=1; done
 wait "$frontend_pid" || failed=1
+if [[ -d "$LOGS/frontend-dist" ]]; then
+    rm -rf ops/control-center/dist
+    mv "$LOGS/frontend-dist" ops/control-center/dist
+fi
 
 if [[ "$LEG" == "all" ]]; then
     # The required test roster has one native owner in pm_ci_receipt. A skipped
