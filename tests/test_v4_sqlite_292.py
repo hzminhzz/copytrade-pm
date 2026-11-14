@@ -16,7 +16,7 @@ from copytrade_pm.pm_forward_stream_journal import (
 from copytrade_pm.pm_forward_journal import PaperJournal
 from copytrade_pm.pm_forward_observed_paper import _read_source, _readonly
 from copytrade_pm.pm_v4_evidence import evidence_path, read_wire
-from copytrade_pm.pm_v4_selected_positions import official_accounts
+from copytrade_pm.pm_source_selection import official_accounts
 from copytrade_pm.pm_v4_sqlite_recovery import backup_and_verify
 from test_pm_forward_persistent_source import account, shifted, T
 from test_pm_forward_observed_paper import at

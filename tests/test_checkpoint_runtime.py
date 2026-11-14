@@ -9,7 +9,7 @@ import sqlite3
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from copytrade_pm import pm_v4_selected_positions as entry
+from copytrade_pm import pm_cwsa_source_observer as entry
 from copytrade_pm import v4_source_spool as spool
 from copytrade_pm.pm03_account import digest
 from copytrade_pm.pm_checkpoint_journal import CwsaPolicy

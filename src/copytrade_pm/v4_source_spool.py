@@ -21,7 +21,7 @@ from typing import Any
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
-from .pm_v4_selected_positions import selected_parents
+from .pm_source_selection import selected_parents
 from .production_manifest import canonical, digest
 from .v4_source_export import (
     _atomic_private_output,
@@ -378,10 +378,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.wire_version == 3:
             from .pm_checkpoint_source import utc_milliseconds
-            from .pm_v4_selected_positions import (
-                load_checkpoint_configuration,
-                selected_source_parents,
-            )
+            from .pm_cwsa_source_observer import load_checkpoint_configuration
+            from .pm_source_selection import selected_source_parents
 
             parents = selected_source_parents(
                 args.registry_db,

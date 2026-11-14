@@ -13,7 +13,7 @@ from copytrade_pm.pm_forward_stream_journal import (
     verify_official_position_transition,
     verify_streams,
 )
-from copytrade_pm.pm_v4_selected_positions import official_accounts, selected_parents
+from copytrade_pm.pm_source_selection import official_accounts, selected_parents
 from test_pm_forward_multi_portfolio import full_registry, pin_reviewed_registry
 from test_pm_forward_observed_paper import at
 from test_pm_vike_paper_integration import official_frame

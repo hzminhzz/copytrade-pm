@@ -99,7 +99,7 @@ def selected_checkpoint_sources(
     registry_db: Path, *, portfolios: tuple[str, ...], as_of: str, dexes: tuple[str, ...]
 ) -> dict[str, tuple[CheckpointScope, str]]:
     """Use the existing sealed SQLite reader; a follower revision is not a source epoch."""
-    from .pm_v4_selected_positions import selected_parents
+    from .pm_source_selection import selected_parents
 
     parents = selected_parents(registry_db, portfolios=portfolios, as_of=as_of)
     selection_sha = digest(
