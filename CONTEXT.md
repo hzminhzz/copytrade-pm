@@ -10,6 +10,24 @@ Canonical domain meanings. This glossary does not specify implementation or stor
 - **Action plan**: A bounded proposed change with an expected predecessor, permitted effect, verification condition and recovery meaning; separate from authorization and any committed financial intent.
 - **Verified postcondition**: Independently checked evidence that the intended owned effect occurred or was rejected; command success alone is insufficient.
 - **Reusable finding**: A retained conclusion with reproducible inputs, scope, assumptions and limitations, including negative or inconclusive outcomes; repetition does not create independent evidence.
+- **Authentic evidence pack**: A frozen, privately retained set of original owner-produced records and provenance sufficient to verify a historical claim without relying on later mutable state; derived projections and fixtures are not substitute originals.
+- **Read-only evidence replay**: Interpretation of pinned original records through their owning verification contracts without publishing new prospective observations, creating financial effects or modifying the original records.
+- **Agent E2E evidence manifest**: A versioned account of a task's scope, original evidence identities, content hashes, clocks, applicable contract versions and conclusions; a redacted reference does not itself constitute the original evidence.
+- **Workflow verification**: Evaluation of whether an agent selected the correct operation, interpreted genuine evidence accurately, respected scope and authority, and abstained on unsupported claims; separate from the owners' operational and financial readiness.
+- **Evidence-blocked E2E case**: A scenario whose required authentic owner proof is unavailable or unverifiable; a correct agent abstention may satisfy its behavior check without completing its real-world evidence requirement.
+- **Verification ancestry**: The original predecessor records, sealed identities and owner heads needed to validate a claim's causal chain; an isolated displayed status is not equivalent proof.
+- **Historical producer pin**: The exact owner contract and software revision that created an original record, distinct from a later consumer/verifier revision and from the revision currently running.
+- **Generation-bounded E2E case**: A historical test whose selected membership, source scope and policy generation are verified at its declared as-of; a changed boundary requires a separately identified case.
+- **Owner-head parity**: Agreement of scoped evidence and conclusions under the same meaning-bearing original owner identities, versions and heads; independently advancing live reads are not automatically comparable.
+- **Authentic-case falsifier**: A clearly labeled altered copy of a proven original case that tests whether a verifier or agent rejects a specified false claim; it is not authentic positive evidence.
+- **Protected owner projection**: A bounded read-only conclusion produced by the protected financial authority from independently verified originals; it neither transfers financial ownership nor grants trading permission.
+- **Consistent evidence capture**: A frozen owner-local observation whose records, heads and predecessor proof belong to one coherent read cutoff; independent authorities may have different cutoffs and must not be represented as one atomic global state.
+- **Pre-registered answer oracle**: An independently reviewed, evidence-bound expected conclusion fixed before agent execution and withheld from the evaluated agent; the agent's own answer cannot validate itself.
+- **Comparable live observation**: Independently acquired read-only views with matching meaning-bearing scope, version and owner heads; changed or unproved comparability is distinct from disagreement on equal evidence.
+- **Agent execution trace**: An independently captured sequence of attempted and completed tool interactions and the agent's final answer; an agent-authored transcript or scripted fixture does not prove real model behavior.
+- **Real-world E2E coverage**: The extent to which required cases have authentic, verifiable originals and negative controls; successful reasoning about missing originals does not supply that coverage.
+- **Read-only evaluation boundary**: Independently constrained capability, filesystem and credential access that makes test observation non-mutating; an operation label alone does not prove safety.
+- **Independent answer oracle**: Pre-registered, hidden assessment of required and prohibited evidence-grounded claims, distinct from a model-written answer or an owner status projection.
 
 ## Source observation
 

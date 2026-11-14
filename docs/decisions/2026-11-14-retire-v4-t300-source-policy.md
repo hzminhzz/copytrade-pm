@@ -1,7 +1,7 @@
 # ADR: Retire V4 first-known T0+300 operational policy
 
 **Date:** 2026-11-14
-**Status:** Owner-approved retirement; VPS legacy observer shutdown verified; repository fail-closed changes pending review and merge.
+**Status:** Owner-approved and merged (PR #370 `d689f304`, PR #371 `7a10d02f`); CWSA process cutover remains a separate, unperformed runtime change.
 **Scope:** `copytrade-pm` source observation and virtual paper. This ADR is not a Guardian, broker or production trading authorization.
 
 ## Decision
@@ -13,11 +13,11 @@ On 2026-11-14, `copytrade-v4-selected-positions-0811.service` and `copytrade-v4-
 ## Compatibility and proof boundaries
 
 - The active CWSA source service still launches `copytrade_pm.pm_v4_selected_positions --source-mode CHECKPOINT_REST_V3`. Its module name is historical, not its timing semantics. Deleting the module before moving that shared checkpoint implementation would interrupt CWSA.
-- The former V4 `LEGACY_WS` service mode and V4 sixteen-portfolio paper CLI must reject new starts in the next merged release. Historically named shared evidence, source, identity, recovery and research helpers are retained where independently used. They are not permission to resume the retired policy.
+- The merged `main` tree physically omits the former V4 `pm_v4_selected_positions` and sixteen-portfolio paper executor files. Historically named shared evidence, identity, recovery and research helpers remain where independently used. They do not permit revival of the retired policy.
 - Keep original V4 journals, source receipts, signed releases, protection/reconciliation evidence and historical tests available for read-only interpretation. Do not erase unsettled follower obligations or replay them as new CWSA opportunities.
 - The CWSA source collector is running and collecting authentic observations. Its financial admission may remain `BLOCKED_EVIDENCE`, economic fields nullable, and protected trading unauthorized. The retirement decision does not promote any of these states.
-- ANOS real-world E2E cases should use authentic CWSA checkpoints, scoped gaps, recovery baselines, source-to-paper blocker projection, and UI/CLI parity. Retired V4 behavior is historical context only; no performance comparison or model benchmark.
+- ANOS real-world E2E cases should use authentic CWSA checkpoints, scoped gaps, recovery baselines, source-to-paper blocker projection, and UI/CLI parity. Retired V4 behavior is historical context only; no performance comparison or model benchmark. The [separate ANOS real-world E2E evidence/verdict ADR](2026-11-14-anos-realworld-e2e-evidence-and-verdicts.md) owns the accepted replay, manifest and verdict boundaries; it does not change this retirement.
 
 ## Migration follow-up
 
-The checkpoint CLI now has a CWSA-owned module (`pm_cwsa_source_observer`), while sealed-account selection and historical official-receipt verification live in `pm_source_selection`. The V4 WS and sixteen-portfolio paper launcher source files are removed from the next repository release. Pinned already-running CWSA processes require a separate evidence-bound service cutover to the new module; the read-only process verifier temporarily accepts only an existing `pm_v4_selected_positions` process explicitly in `CHECKPOINT_REST_V3` mode. Preserve historical journal helpers. Remaining V4 historical deploy recipes must never be reactivated.
+The merged checkpoint CLI has a CWSA-owned module (`pm_cwsa_source_observer`), while sealed-account selection and historical official-receipt verification live in `pm_source_selection`. The retired V4 executors are absent from merged `main`. Pinned already-running CWSA processes require a separate evidence-bound service cutover to the new module; the read-only process verifier temporarily accepts only an existing `pm_v4_selected_positions` process explicitly in `CHECKPOINT_REST_V3` mode. Preserve historical journal helpers. Remaining V4 historical deploy recipes must never be reactivated.
