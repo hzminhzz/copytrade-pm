@@ -20,4 +20,24 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
     GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_NAMESPACE || true
 
 TOPLEVEL="$(git rev-parse --show-toplevel 2>/dev/null || (cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd))"
+
+# Repeated pushes of the SAME clean SHA can reuse its independently verified
+# full-suite receipt. A changed tree, absent Python environment, missing,
+# stale, or corrupt receipt always falls back to the complete CI gate.
+# CI_FORCE_FULL=1 forces a fresh full run even when a valid receipt exists.
+if [[ "${CI_FORCE_FULL:-0}" != "1" ]] &&
+   [[ -z "$(git status --porcelain --untracked-files=normal)" ]] &&
+   [[ -x "$TOPLEVEL/.venv-ci-core/bin/python" ]]; then
+    SHA="$(git rev-parse HEAD)"
+    CI_GIT_DIR="$(git rev-parse --absolute-git-dir)"
+    for receipt in "$CI_GIT_DIR/local-ci/$SHA-"*.json; do
+        [[ -f "$receipt" && ! -L "$receipt" ]] || continue
+        if PYTHONPATH="$TOPLEVEL/src" "$TOPLEVEL/.venv-ci-core/bin/python" \
+            -m copytrade_pm.pm_ci_receipt verify \
+            --root "$TOPLEVEL" --receipt "$receipt" --sha "$SHA" >/dev/null 2>&1; then
+            printf 'pre-push: verified exact-commit CI receipt sha=%s receipt=%s\n' "$SHA" "$receipt" >&2
+            exit 0
+        fi
+    done
+fi
 exec "$TOPLEVEL/scripts/ci.sh" all
