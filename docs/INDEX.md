@@ -10,6 +10,7 @@
 | How should agent workflows evolve? | [Agent system design and staged plan](AGENT-SYSTEM-DESIGN.md) | Design target; implementation status is separate |
 | How is authentic ANOS real-world E2E evidence judged? | [Real-world E2E evidence and verdict ADR](decisions/2026-11-14-anos-realworld-e2e-evidence-and-verdicts.md) | Approved Q1–Q21 benchmark design, PARKED under #101; no RW pack/oracle/trace implementation authorized |
 | Which operation already exists? | [Agent-native operations](AGENT-NATIVE-OPERATIONS.md) and the capability catalog | Exact installed/candidate interface and public behavioral tests |
+| How is Python test speed measured without weakening isolation? | [Pytest P1 performance evidence](PYTEST-PERFORMANCE-P1-20261114.md) | Exact-worktree core/market and adversarial test receipts; measured serial/xdist comparison |
 | Which wallet, portfolio, version or exclusion? | [Mandatory registry-first workflow](WALLET-REGISTRY-AGENT-WORKFLOW.md) | Native SQLite integrity, inventory identity, qualified version and known-at |
 | Why is Chapter 2 paper blocked; how is it released? | [CWSA Chapter 2 runbook](CWSA-CHAPTER2-20261112.md) | Source-wave receipts, separately signed mandates, independent quotes and PM03 journals |
 | What did the CWSA program implement? | [Implementation ledger](CANONICAL-5M-IMPLEMENTATION-313.md), [acceptance dossier](evidence/CWSA-313-DOSSIER-v1-20261112.md) | Exact engineering evidence; original prospective gates remain separate |

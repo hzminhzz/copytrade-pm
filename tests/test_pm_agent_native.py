@@ -298,6 +298,46 @@ def _copy_repo(tmp_path: Path, name: str = "repo") -> Path:
     return repo
 
 
+def test_inspection_cache_is_content_bound_and_returns_independent_results(tmp_path: Path) -> None:
+    repo = _copy_repo(tmp_path, "cache_invalidation")
+    module = "copytrade_pm.pm_forward_public_trades"
+    path = repo / "src/copytrade_pm/pm_forward_public_trades.py"
+
+    requirements = cap._required_cli_args(module, repo)
+    assert requirements is not None
+    expected = requirements.copy()
+    requirements.append("--forged-required")
+    assert cap._required_cli_args(module, repo) == expected
+
+    spec, errors = cap._inspect_group_script_parser(
+        path, "copytrade-pm-public-trades", allow_policies_loop=False
+    )
+    assert not errors and spec is not None
+    spec["options"]["--forged-option"] = {}
+    again, again_errors = cap._inspect_group_script_parser(
+        path, "copytrade-pm-public-trades", allow_policies_loop=False
+    )
+    assert not again_errors and again is not None
+    assert "--forged-option" not in again["options"]
+
+    original = path.read_text()
+    assert 'choices=("observe", "plan")' in original
+    path.write_text(original.replace('choices=("observe", "plan")', 'choices=("observe",)', 1))
+    changed, changed_errors = cap._inspect_group_script_parser(
+        path, "copytrade-pm-public-trades", allow_policies_loop=False
+    )
+    assert not changed_errors and changed is not None
+    assert changed["options"]["--mode"]["choices"] != again["options"]["--mode"]["choices"]
+
+    path.unlink()
+    assert cap._required_cli_args(module, repo) is None
+    missing, missing_errors = cap._inspect_group_script_parser(
+        path, "copytrade-pm-public-trades", allow_policies_loop=False
+    )
+    assert missing is None
+    assert missing_errors == ["MISSING_ENTRY_MODULE:copytrade-pm-public-trades"]
+
+
 def test_registry_validator_catches_unlisted_changed_leaves_and_unsafe_apply(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

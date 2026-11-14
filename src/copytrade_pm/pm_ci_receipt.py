@@ -195,8 +195,8 @@ def create_receipt(
         "sources": hashes,
         "tests": {"core": core, "market": market, "adversarial": adversarial},
         "commands": {
-            "core": "uv sync --frozen --group dev --reinstall-package copytrade-pm && verify local editable install && venv/python -m pytest -q tests && venv/ruff check && venv/ruff format --check && verify local install again",
-            "market": "uv sync --frozen --group dev --reinstall-package copytrade-pm --extra market && verify local editable install && venv/python -m pytest -q tests && venv/ruff check && venv/ruff format --check && verify local install again",
+            "core": "uv sync --frozen --group dev --reinstall-package copytrade-pm && verify local editable install && venv/python -m pytest -q tests -n 2 --dist=loadfile && venv/ruff check && venv/ruff format --check && verify local install again",
+            "market": "uv sync --frozen --group dev --reinstall-package copytrade-pm --extra market && verify local editable install && venv/python -m pytest -q tests -n 2 --dist=loadfile && venv/ruff check && venv/ruff format --check && verify local install again",
             "adversarial": "venv/python -m pytest -q " + " ".join(REQUIRED_TESTS),
             "frontend": "npm ci --no-audit --no-fund && npm run build",
             "build": "uv build",

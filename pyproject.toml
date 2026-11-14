@@ -15,7 +15,7 @@ market-stream = ["ccxt==4.5.91"]
 prefect = ["prefect==3.9.2"]  # Opt-in Track B orchestration; never core/source/Guardian
 
 [dependency-groups]
-dev = ["pytest>=8.3", "ruff>=0.8"]
+dev = ["pytest>=8.3", "pytest-xdist==3.8.0", "ruff>=0.8"]
 
 [project.scripts]
 copytrade-pm = "copytrade_pm.pm_operations:main"
