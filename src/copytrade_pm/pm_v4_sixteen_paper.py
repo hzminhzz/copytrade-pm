@@ -144,6 +144,9 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--once", action="store_true")
     args = parser.parse_args()
+    # Retired V4 paper policy: retain evidence readers and historical helpers,
+    # but do not admit another legacy paper run.
+    parser.error("RETIRED_V4_T300: use CWSA checkpoint paper instead")
     if not 0.1 <= args.poll_seconds <= 5:
         parser.error("poll seconds must be 0.1..5")
     if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{2,39}", args.run_label):

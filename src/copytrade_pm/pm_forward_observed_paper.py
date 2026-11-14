@@ -1550,6 +1550,9 @@ def main() -> None:
     parser.add_argument("--watch", action="store_true")
     parser.add_argument("--poll-seconds", type=float, default=2.0)
     args = parser.parse_args()
+    # Historical T0+300 paper is no longer an admitted runtime policy.
+    # Keep its pure evidence/finance helpers importable for CWSA and replay.
+    parser.error("RETIRED_V4_T300: use CWSA checkpoint paper instead")
     if not 0.1 <= args.poll_seconds <= 300:
         raise ValueError("PAPER_POLL_INTERVAL_INVALID")
     if args.price_mode == "vike_minute" and args.propr_catalog is not None:

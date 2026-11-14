@@ -56,6 +56,7 @@ Canonical domain meanings. This glossary does not specify implementation or stor
 - **Cross-zero reversal**: A follower adjustment changing the sign of a position through flat; admission of the opening side requires distinct native execution and protected-risk proof, unlike a reduce-only close.
 - **One effective opening policy**: Exactly one signed mandate policy generation permitted to create new exposure for a specific destination account/pod at a time, despite simultaneous read-only comparisons.
 - **Forward-only cutover**: A signed future-effective change in authoritative financial policy that preserves historical journal and signer versions, outstanding broker effects, HALT and financial reservations through rollback.
+- **Retired source policy**: An earlier observation or signal-timing policy that may be interpreted for historical evidence but must not create new prospective source opportunities or paper runs; retirement does not erase prior financial liabilities or certify its successor.
 
 ## Historical screening and execution proxies
 
