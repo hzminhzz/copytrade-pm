@@ -14,6 +14,7 @@ from typing import Literal
 from pydantic import Field, model_validator
 
 from .pm03_account import digest, number
+from .pm_private_io import atomic_private_output
 from .production_manifest import canonical
 from .strategy_health import (
     OperationalIncident,
@@ -23,7 +24,6 @@ from .strategy_health import (
     seal,
     utc,
 )
-from .v4_source_export import _atomic_private_output
 
 SHA = r"^[0-9a-f]{64}$"
 
@@ -204,7 +204,7 @@ def publish_ack(directory: Path, receipt: AckReceipt) -> str:
     target = directory / f"ack-{sha}.json"
     if directory.is_symlink() or not directory.is_dir() or directory.stat().st_mode & 0o077:
         raise ValueError("ACK_PRIVATE_DIRECTORY_REQUIRED")
-    _atomic_private_output(target, canonical(receipt.model_dump(mode="json")))
+    atomic_private_output(target, canonical(receipt.model_dump(mode="json")))
     return sha
 
 

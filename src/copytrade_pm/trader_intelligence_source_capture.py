@@ -16,13 +16,13 @@ import re
 from typing import Callable
 
 from .pm_e4_prospective import (
-    _account_state,
-    _dex_universe,
-    _guarded_info,
-    _safe_dir,
-    _subaccount_roster,
+    account_state,
+    dex_universe,
+    guarded_info,
+    safe_dir,
+    subaccount_roster,
 )
-from .pm_hyperx_account_triage import _write_immutable_private
+from .pm_hyperx_account_triage import write_immutable_private
 
 ADDRESS = re.compile(r"0x[0-9a-fA-F]{40}\Z")
 ALIAS = re.compile(r"[A-Za-z0-9_-]{2,70}\Z")
@@ -50,7 +50,7 @@ def collect(
     generation: Path,
     aliases: tuple[str, ...],
     *,
-    info: Callable = _guarded_info,
+    info: Callable = guarded_info,
     clock: Callable[[], datetime] | None = None,
 ) -> dict:
     """Take one current snapshot; persist each raw provider reply off Git.
@@ -66,7 +66,7 @@ def collect(
     roster = {alias: _locate(source_root, alias) for alias in aliases}
     if len({address for address, _ in roster.values()}) != len(roster):
         raise ValueError("DUPLICATE_SOURCE_WALLET_ADDRESS")
-    _safe_dir(generation)
+    safe_dir(generation)
     calls = 0
 
     def fetch(relative: str, payload: dict) -> object:
@@ -78,7 +78,7 @@ def collect(
         received = known()
         if requested.tzinfo is None or received.tzinfo is None or received < requested:
             raise ValueError("INVALID_SOURCE_SNAPSHOT_LOCAL_CLOCK")
-        _write_immutable_private(generation / "raw" / relative, raw)
+        write_immutable_private(generation / "raw" / relative, raw)
         calls += 1
         return body, {
             "requested_at": requested.astimezone(UTC).isoformat(),
@@ -89,12 +89,12 @@ def collect(
         }
 
     catalog, catalog_receipt = fetch("perpDexs.json", {"type": "perpDexs"})
-    dexs = _dex_universe(catalog)
+    dexs = dex_universe(catalog)
     subjects: dict[str, tuple[str, str]] = {}
     provenance: dict[str, dict] = {}
     for alias, (address, historical_file_sha) in roster.items():
         sub, receipt = fetch(f"{alias}/subAccounts.json", {"type": "subAccounts", "user": address})
-        members = _subaccount_roster(sub, address)
+        members = subaccount_roster(sub, address)
         provenance[alias] = {
             "private_historical_file_sha256": historical_file_sha,
             "source_identity_sha256": sha256(address.encode()).hexdigest(),
@@ -127,7 +127,7 @@ def collect(
                 raise ValueError("INVALID_PER_DEX_SOURCE_RESPONSE")
             states.append([requested_dex, state])
             dex_receipts[dex] = receipt
-        parsed = _account_state(
+        parsed = account_state(
             {"user": address, "clearinghouseStates": states},
             address,
             expected_dexs=dexs,
@@ -166,7 +166,7 @@ def collect(
         "research_only": True,
         "trading_authorized": False,
     }
-    _write_immutable_private(
+    write_immutable_private(
         generation / "snapshot.json",
         (json.dumps(report, sort_keys=True, separators=(",", ":")) + "\n").encode(),
     )

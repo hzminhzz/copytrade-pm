@@ -32,6 +32,10 @@ CATALOG_SCHEMA = "paper_ccxt_hyperliquid_market_v1"
 _PERP_SYMBOL = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 
+def now() -> str:
+    return _now()
+
+
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="microseconds")
 
@@ -615,6 +619,31 @@ class ReadOnlyCCXTProHyperliquid:
             self.quarantined.add(instrument)
             raise
 
+    @property
+    def is_open(self) -> bool:
+        return self._is_open and self._exchange is not None
+
+    @property
+    def supports_trades_ws(self) -> bool:
+        return getattr(self._exchange, "has", {}).get("watchTrades") is True
+
+    def attach_receipt_clock(self, *, receipt_clock_factory=None, now=_now, limiter=None):
+        if not self._is_open or self._exchange is None:
+            raise ValueError("PAPER_CCXT_FEED_NOT_OPEN")
+        if receipt_clock_factory is not None:
+            return receipt_clock_factory(self._exchange)
+        return CCXTLocalReceiptClock(self._exchange, now=now, limiter=limiter)
+
+    async def watch_raw_order_book(self, symbol: str, limit: int = 5):
+        if not self._is_open or self._exchange is None:
+            raise ValueError("PAPER_CCXT_FEED_NOT_OPEN")
+        return await self._exchange.watch_order_book(symbol, limit)
+
+    async def watch_raw_trades(self, symbol: str, since=None, limit: int = 1000):
+        if not self._is_open or self._exchange is None:
+            raise ValueError("PAPER_CCXT_FEED_NOT_OPEN")
+        return await self._exchange.watch_trades(symbol, since, limit)
+
     def status(self) -> dict:
         return {
             "schema": "paper_ccxt_public_feed_status_v1",
@@ -943,7 +972,7 @@ async def persistent_market_canary(
     """Bounded real transport probe; it does not resolve or select source wallets."""
     from .pm_forward_continuous import (
         SubscriptionBudget,
-        _private_candidate_path,
+        private_candidate_path,
         run_ccxt_markets,
         run_native_public,
         runtime_revision,
@@ -951,14 +980,14 @@ async def persistent_market_canary(
     from .pm_forward_continuous_transport import SerialWriter, ConnectionBudget, wait_or_stop
     from .pm_forward_journal import PaperJournal
     from .pm_forward_observer import exclusive_observer_lease
-    from .pm_forward_observer_health import _atomic_private_json
+    from .pm_forward_observer_health import atomic_private_json
     from .pm_forward_public_trades import PersistentPublicMarket
     from .pm_forward_stream_journal import StreamProgress, verify_streams
     from time import monotonic
 
     if not shared_ip_budget_checked or not 2 <= seconds <= 300 or not 1 <= len(instruments) <= 5:
         raise ValueError("CONTINUOUS_CANARY_BUDGET_OR_DURATION_INVALID")
-    _private_candidate_path(root, ())
+    private_candidate_path(root, ())
     if root.exists():
         raise ValueError("CONTINUOUS_CANARY_REQUIRES_NEW_PRIVATE_ROOT")
     revision = runtime_revision()
@@ -1068,7 +1097,7 @@ async def persistent_market_canary(
         "paper_observed": False,
         "order_route": "NONE",
     }
-    _atomic_private_json(root, "persistent-market-canary.json", report)
+    atomic_private_json(root, "persistent-market-canary.json", report)
     return report
 
 

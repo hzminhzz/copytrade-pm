@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 
 from .pm03_account import Account, Instrument, Rulebook, clock, digest, number
 from .pm03_execution import CostModel, MarketObservation, execute_targets
-from .pm03_memory import Event, Ledger, _atomic_private
+from .pm03_memory import Event, Ledger, atomic_private
 from .pm03_risk import RiskEvidence, RiskPolicy, classify
 
 MODES = ("RESEARCH_SYNTHETIC", "HISTORICAL_HINDSIGHT", "PROSPECTIVE_OBSERVED")
@@ -115,7 +115,7 @@ class ShadowRun:
             "risk_policy": {f.name: str(getattr(self.policy, f.name)) for f in fields(RiskPolicy)},
         }
         self.ledger._secure_file(self.ledger.path / "manifest.json")
-        _atomic_private(
+        atomic_private(
             self.ledger.path / "manifest.json",
             json.dumps(self.manifest, sort_keys=True, separators=(",", ":")).encode(),
         )
@@ -130,7 +130,7 @@ class ShadowRun:
 
     @staticmethod
     def replay_record(account: Account, event: Event, manifest: dict, policy: RiskPolicy) -> dict:
-        account._prepare_risk_semantics(event.payload.get("risk_semantics_version", 1))
+        account.prepare_risk_semantics(event.payload.get("risk_semantics_version", 1))
         if event.payload.get("run_id") != manifest["run_id"]:
             raise ValueError("CROSS_RUN_EVENT")
         if clock(event.decision_at) < clock(manifest["started_at"]):

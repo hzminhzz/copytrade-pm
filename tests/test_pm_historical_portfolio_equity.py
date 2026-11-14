@@ -70,7 +70,7 @@ def test_bounded_read_only_provider_stores_only_private_generation(tmp_path, mon
 
         return json.loads(content), content, hashlib.sha256(content).hexdigest()
 
-    monkeypatch.setattr(p, "_guarded_info", fake_info)
+    monkeypatch.setattr(p, "guarded_info", fake_info)
     generation = tmp_path / "g20261102privateequitytest"
     info = p.collect(tmp_path, generation, aliases=("W028",))
     assert info["queries"] == 1

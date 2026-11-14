@@ -20,7 +20,7 @@ import tempfile
 from typing import Any
 
 from .pm_acquisition_contracts import sync_publication
-from .pm_hyperx_gap_recovery import _adapter, _private_dir
+from .pm_hyperx_gap_recovery import adapter, private_dir
 from .pm_sources import load_cohort
 from .pm_research import _write_private_evidence
 
@@ -92,7 +92,7 @@ def _verify_response(kind: str, body: dict, address: str) -> dict:
 
 def _write_immutable_private(path: Path, payload: bytes) -> str:
     """Preserve original HyperX reply in a new O_EXCL private generation."""
-    _private_dir(path.parent)
+    private_dir(path.parent)
     if path.exists():
         raise ValueError("GENERATION_REUSE_NOT_AUTHORIZED")
     fd, tmp = tempfile.mkstemp(prefix=".pm01-account-", dir=path.parent)
@@ -121,10 +121,10 @@ def acquire(root: Path, generation: Path, aliases: tuple[str, ...]) -> dict:
     index = {e.alias: e for e in entries}
     if any(a not in index for a in aliases):
         raise ValueError("UNVERIFIED_SOURCE_WALLET")
-    _private_dir(generation)
+    private_dir(generation)
     import requests
 
-    provider = _adapter(root)
+    provider = adapter(root)
     token = provider.key_from_existing_tracker_env()
     # At most 2 * (5 + 1 + 1) documented HyperX weight per invocation:
     # 14 total < free API's advertised 30/minute budget.
@@ -218,6 +218,14 @@ def main() -> None:
             indent=2,
         )
     )
+
+
+def verify_response(kind: str, body: dict, address: str) -> dict:
+    return _verify_response(kind, body, address)
+
+
+def write_immutable_private(path: Path, payload: bytes) -> str:
+    return _write_immutable_private(path, payload)
 
 
 if __name__ == "__main__":

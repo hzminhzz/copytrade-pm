@@ -18,7 +18,7 @@ import re
 from time import monotonic
 from typing import Callable
 
-from .pm_e4_prospective import _account_state, _dex_universe, _guarded_info
+from .pm_e4_prospective import account_state, dex_universe, guarded_info
 from .pm_vike_stream_canary import allowed_wallet
 
 MAX_DEXS = 32
@@ -29,7 +29,7 @@ MAX_PROVIDER_SKEW_MS = 30_000
 def independent_official_census(
     address: str,
     *,
-    info: Callable = _guarded_info,
+    info: Callable = guarded_info,
     max_wall_seconds: float = MAX_WALL_SECONDS,
     max_provider_skew_ms: int = MAX_PROVIDER_SKEW_MS,
 ) -> dict:
@@ -48,7 +48,7 @@ def independent_official_census(
     catalog, raw_catalog, catalog_sha = info({"type": "perpDexs"})
     if not isinstance(raw_catalog, bytes) or sha256(raw_catalog).hexdigest() != catalog_sha:
         raise ValueError("OFFICIAL_RECON_CATALOG_HASH_INVALID")
-    dexs = _dex_universe(catalog)
+    dexs = dex_universe(catalog)
     if len(dexs) > MAX_DEXS:
         raise ValueError("OFFICIAL_RECON_DEX_LIMIT_EXCEEDED")
     states: list[list] = []
@@ -77,7 +77,7 @@ def independent_official_census(
     skew = max(stamps.values()) - min(stamps.values())
     if skew > max_provider_skew_ms:
         raise ValueError("OFFICIAL_RECON_NONATOMIC_SKEW_EXCEEDED")
-    book = _account_state(
+    book = account_state(
         {"user": wallet, "clearinghouseStates": states},
         wallet,
         expected_dexs=dexs,
@@ -106,7 +106,7 @@ def archive_independent_census(
     address: str,
     *,
     root: Path,
-    info: Callable = _guarded_info,
+    info: Callable = guarded_info,
 ) -> dict:
     """Persist original official response bytes and a manifest-last proof.
 
@@ -247,7 +247,7 @@ def verify_archived_official_census(address: str, *, directory: Path, manifest_s
     catalog, catalog_sha = originals.pop("raw-catalog.json")
     if report["dex_catalog_sha256"] != catalog_sha:
         raise ValueError("OFFICIAL_RECON_ARCHIVE_CATALOG_SHA_MISMATCH")
-    dexs = _dex_universe(catalog)
+    dexs = dex_universe(catalog)
     if set(originals) != {"raw-" + dex + ".json" for dex in dexs}:
         raise ValueError("OFFICIAL_RECON_ARCHIVE_SCOPE_MISMATCH")
     states = []
@@ -260,7 +260,7 @@ def verify_archived_official_census(address: str, *, directory: Path, manifest_s
         states.append(["" if dex == "default" else dex, payload])
         timestamps[dex] = payload["time"]
         hashes[dex] = digest
-    rebuilt = _account_state(
+    rebuilt = account_state(
         {"user": wallet, "clearinghouseStates": states},
         wallet,
         expected_dexs=dexs,
@@ -293,14 +293,14 @@ def audit_selected_campaign(
     root: Path,
     at: str,
     workers: int = 3,
-    info: Callable = _guarded_info,
+    info: Callable = guarded_info,
 ) -> dict:
     """Archive a simultaneous bounded 14-parent cohort audit, NOT continuity.
 
     The lower-level per-account census validates the full official DEX scope.
     Failures are explicit and do not admit any subset to new risk.
     """
-    from .pm_v4_sixteen_scenarios import load_campaign
+    from .pm_source_campaign_roster import load_campaign
 
     if not 1 <= workers <= 3:
         raise ValueError("OFFICIAL_RECON_WORKER_BUDGET_INVALID")

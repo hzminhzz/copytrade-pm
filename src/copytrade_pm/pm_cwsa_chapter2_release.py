@@ -137,7 +137,7 @@ class FinanceScan:
 
     def __init__(self, journal) -> None:
         self.journal = journal
-        with journal._writer() as db:
+        with journal.writer() as db:
             db.execute(
                 "CREATE TABLE IF NOT EXISTS chapter2_finance_scan ("
                 "owner TEXT PRIMARY KEY,checkpoint_ms INTEGER NOT NULL,"
@@ -160,7 +160,7 @@ class FinanceScan:
 
     def advance(self, owner: str, checkpoint_ms: int, outcome_id: str) -> None:
         sha = digest(["chapter2_finance_scan_v1", owner, checkpoint_ms, outcome_id])
-        with self.journal._writer() as db:
+        with self.journal.writer() as db:
             db.execute("BEGIN IMMEDIATE")
             try:
                 row = db.execute(

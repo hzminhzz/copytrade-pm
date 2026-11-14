@@ -113,7 +113,7 @@ def official_paper_contracts(
     treat this result as an exchange order-acceptance or session attestation.
     Missing/unlisted native symbols remain catalog identities, not permissions.
     """
-    from .pm_e4_prospective import _guarded_info
+    from .pm_e4_prospective import guarded_info
 
     clock(observed_at)
     minimum_notional = number(minimum_notional_usd)
@@ -121,7 +121,7 @@ def official_paper_contracts(
         raise ValueError("VIKE_NATIVE_PAPER_MINIMUM_ASSUMPTION_INVALID")
     if not selected_symbols:
         raise ValueError("VIKE_NATIVE_PAPER_CATALOG_EMPTY")
-    provider = info or _guarded_info
+    provider = info or guarded_info
     grouped: dict[str, set[str]] = {}
     for native in selected_symbols:
         if ":" in native:

@@ -20,7 +20,7 @@ import re
 import time
 
 from .pm_fill_replay import _coins
-from .pm_hyperx_gap_recovery import _adapter, _atomic, _private_dir
+from .pm_hyperx_gap_recovery import adapter, atomic, private_dir
 from .pm_hyperx_overlay_audit import _source_tuple
 from .pm_hyperx_forward import store_first_local_receipt
 from .pm_sources import load_cohort
@@ -105,11 +105,11 @@ def ingest_batch(
     if min_interval_seconds < MIN_INTERVAL_SECONDS:
         raise ValueError("HYPERX_SOURCE_RATE_LIMIT_UNSAFE")
     chosen, fingerprints = parse_pairs(root, requests)
-    _private_dir(destination)
-    provider = _adapter(root)
+    private_dir(destination)
+    provider = adapter(root)
     token = provider.key_from_existing_tracker_env()
     observations = destination / "first_local_receipts"
-    _private_dir(observations)
+    private_dir(observations)
     records = []
     previous_call: float | None = None
     calls = 0
@@ -131,9 +131,9 @@ def ingest_batch(
             from urllib.parse import quote
 
             folder = destination / "vendor_raw" / entry.alias / quote(coin, safe="")
-            _private_dir(folder)
+            private_dir(folder)
             sha = sha256(raw).hexdigest()
-            _atomic(folder / f"page1-{sha[:20]}.json", raw)
+            atomic(folder / f"page1-{sha[:20]}.json", raw)
             stored = 0
             for fill in data["fills"]:
                 obs = _recent_observation(

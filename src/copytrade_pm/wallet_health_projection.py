@@ -70,10 +70,11 @@ def project(report: HealthReport, *, published_at: datetime) -> bytes:
 
 def publish(directory: Path, payload: bytes) -> None:
     """Use existing hash-checked, atomic publisher without modifying its gateway."""
-    from .dashboard.evidence_plane import publish_atomic
+    from .pm_private_io import publish_atomic_public
 
-    # This name is deliberately a separate publisher-authorized projection.
-    publish_atomic(directory, payload, name="wallet-health.json")
+    if len(payload) > MAX_SIZE:
+        raise ValueError("HEALTH_PROJECTION_TOO_LARGE")
+    publish_atomic_public(directory, payload, name="wallet-health.json")
     # Host capture runs with umask 077, which masks a 0644 creation to 0600.
     # Explicitly enable read access ONLY to this redacted, hash-checked file;
     # its private raw source and immutable financial research report stay 0600.

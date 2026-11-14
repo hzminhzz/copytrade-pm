@@ -225,6 +225,11 @@ class PaperJournal:
         os.chmod(self.path, 0o600)
 
     @contextmanager
+    def writer(self) -> Iterator[sqlite3.Connection]:
+        with self._writer() as db:
+            yield db
+
+    @contextmanager
     def _writer(self) -> Iterator[sqlite3.Connection]:
         fd = os.open(self._lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
         db = None
@@ -379,8 +384,8 @@ class PaperJournal:
         return result
 
     @staticmethod
-    def _apply(account: Account, event: dict) -> dict:
-        account._prepare_risk_semantics(event.get("risk_semantics_version", 1))
+    def apply(account: Account, event: dict) -> dict:
+        account.prepare_risk_semantics(event.get("risk_semantics_version", 1))
         kind = event.get("kind")
         if kind == "CWSA_PAPER_REVIEW":
             from .pm_checkpoint_paper import apply
@@ -592,7 +597,7 @@ class PaperJournal:
                 hypothetical_fill_at=event["hypothetical_fill_at"],
                 permitted=decision["approved_new_risk"]
                 or (
-                    account._risk_semantics_version >= 3
+                    account.risk_semantics_version >= 3
                     and account.risk == RiskState.HALT
                     and not account.breached
                     and set(decision["reason_codes"]) == {"PERSISTENT_HALT"}
@@ -643,11 +648,11 @@ class PaperJournal:
             raise ValueError("INVALID_PAPER_EVENT")
         clock(event["event_at"])
 
-    def _append_locked(
+    def append_locked(
         self, db: sqlite3.Connection, run_id: str, event_id: str, event: dict
     ) -> bool:
         """Append a PM-03 effect inside the CALLER'S transaction, never commit here."""
-        self._verify(db, run_id)
+        self.verify(db, run_id)
         old = db.execute(
             "SELECT input FROM events WHERE run_id=? AND event_id=?",
             (run_id, event_id),
@@ -702,7 +707,7 @@ class PaperJournal:
                 raise ValueError("DUPLICATE_FUNDING_INTERVAL")
         rulebook = Rulebook.from_dict(json.loads(manifest)["rulebook"])
         account = Account.from_snapshot(rulebook, json.loads(snapshot))
-        self._apply(account, event)
+        self.apply(account, event)
         post = account.snapshot()
         post_sha = digest(post)
         chain_sha = digest([run_id, cursor + 1, event_id, input_sha, prior_sha, post_sha])
@@ -738,7 +743,7 @@ class PaperJournal:
         with self._writer() as db:
             db.execute("BEGIN IMMEDIATE")
             try:
-                self._append_locked(db, run_id, event_id, event)
+                self.append_locked(db, run_id, event_id, event)
                 db.execute("COMMIT")
             except Exception:
                 db.execute("ROLLBACK")
@@ -754,7 +759,7 @@ class PaperJournal:
         """
         self._validate_event(event_id, event)
         ref = event.get("source_ref")
-        # _append_locked accepts exact historical retries before rejecting
+        # append_locked accepts exact historical retries before rejecting
         # legacy semantics for any new event; do not block old ACK retries here.
         if event.get("kind") not in ("SIMULATED_DECISION", "PM04_SIGNAL") or not isinstance(
             ref, dict
@@ -770,7 +775,7 @@ class PaperJournal:
         with self._writer() as db:
             db.execute("BEGIN IMMEDIATE")
             try:
-                self._verify(db, run_id)
+                self.verify(db, run_id)
                 source_row = db.execute(
                     "SELECT payload,receipt_sha FROM source_receipts WHERE source_id=? AND seq=?",
                     (source_id, seq),
@@ -806,12 +811,12 @@ class PaperJournal:
                 if prior and seq == prior[0]:
                     if prior[1:] != (sha, event_id):
                         raise ValueError("SOURCE_ALREADY_CONSUMED")
-                    if self._append_locked(db, run_id, event_id, event):
+                    if self.append_locked(db, run_id, event_id, event):
                         raise ValueError("SOURCE_ALREADY_CONSUMED")
                 elif seq != expected:
                     raise ValueError("SOURCE_RUN_SEQUENCE_GAP")
                 else:
-                    if not self._append_locked(db, run_id, event_id, event):
+                    if not self.append_locked(db, run_id, event_id, event):
                         raise ValueError("SOURCE_EVENT_ID_REUSED")
                     db.execute(
                         "INSERT INTO account_source_cursors VALUES (?,?,?,?,?)",
@@ -824,7 +829,7 @@ class PaperJournal:
         return self.restore(run_id)
 
     @staticmethod
-    def _verify(db: sqlite3.Connection, run_id: str, *, on_event=None) -> dict:
+    def verify(db: sqlite3.Connection, run_id: str, *, on_event=None) -> dict:
         row = db.execute(
             "SELECT manifest,manifest_sha,snapshot,snapshot_sha,last_event_at,cursor FROM runs WHERE run_id=?",
             (run_id,),
@@ -905,7 +910,7 @@ class PaperJournal:
                 from .pm_checkpoint_paper import validate_binding
 
                 validate_binding(db, run_id, event)
-            last_result = PaperJournal._apply(account, event)
+            last_result = PaperJournal.apply(account, event)
             expected_post = digest(account.snapshot())
             if after != expected_post or chain_sha != digest(
                 [run_id, seq, event_id, input_sha, before, after]
@@ -1059,7 +1064,7 @@ class PaperJournal:
         return self.source_status(source_id)
 
     @staticmethod
-    def _check_collateral_diagnostic(report: dict) -> None:
+    def check_collateral_diagnostic(report: dict) -> None:
         if not isinstance(report, dict):
             raise ValueError("SOURCE_COLLATERAL_UNTRUSTED_POSITIVE_CLAIM")
         scope = report.get("copy_scope")
@@ -1205,7 +1210,7 @@ class PaperJournal:
         self, report: dict, *, stream_event: dict | None = None
     ) -> dict:
         """Durably SHA-chain incomplete spot/vault scopes, never authorize finance."""
-        self._check_collateral_diagnostic(report)
+        self.check_collateral_diagnostic(report)
         account = report["account_address_sha256"]
         receipt_sha = digest(report)
         with self._writer() as db:
@@ -1261,7 +1266,7 @@ class PaperJournal:
                 or chain_sha != digest([account_sha, seq, sha, prior])
             ):
                 raise ValueError("SOURCE_COLLATERAL_CHAIN_DIVERGENCE")
-            self._check_collateral_diagnostic(content)
+            self.check_collateral_diagnostic(content)
             head = chain_sha
         return {
             "account_address_sha256": account_sha,
@@ -1509,7 +1514,7 @@ class PaperJournal:
         }
 
     @staticmethod
-    def _validate_market_quote(quote: dict) -> None:
+    def validate_market_quote(quote: dict) -> None:
         from .pm_forward_ccxt_market import SCHEMA, verify_l2_evidence
 
         if not isinstance(quote, dict) or quote.get("schema") != SCHEMA:
@@ -1547,7 +1552,7 @@ class PaperJournal:
         idempotent. This does not provide a vendor signature, authenticated
         exchange session, or a filled paper order.
         """
-        self._validate_market_quote(quote)
+        self.validate_market_quote(quote)
         instrument = quote["instrument"]
         known_at = quote["first_known_at"]
         event_at = quote["source_event_at"]
@@ -1754,7 +1759,7 @@ class PaperJournal:
             rows, 1
         ):
             quote = json.loads(payload)
-            PaperJournal._validate_market_quote(quote)
+            PaperJournal.validate_market_quote(quote)
             if (
                 seq < 1
                 or seq != expected_seq
@@ -2239,7 +2244,7 @@ class PaperJournal:
         if row is None:
             return {"status": "BLOCKED_NO_POST_DEADLINE_QUOTE", "order_route": "NONE"}
         quote = json.loads(row[0])
-        self._validate_market_quote(quote)
+        self.validate_market_quote(quote)
         if digest(quote) != row[1]:
             raise ValueError("PUBLIC_QUOTE_SHA_DIVERGENCE")
         quote_time = clock(quote["first_known_at"])
@@ -2258,7 +2263,7 @@ class PaperJournal:
 
     def restore(self, run_id: str) -> dict:
         with self._writer() as db:
-            return self._verify(db, run_id)
+            return self.verify(db, run_id)
 
     def backup(self, destination: Path) -> dict[str, str]:
         """Create one exclusive private SQLite online backup; never overwrite."""

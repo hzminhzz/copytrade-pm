@@ -21,13 +21,14 @@ from typing import Any
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
+from .pm_checkpoint_source import export_checkpoint_packet
+from .pm_private_io import (
+    atomic_private_output as _atomic_private_output,
+    private_input as _private_input,
+)
 from .pm_source_selection import selected_parents
 from .production_manifest import canonical, digest
-from .v4_source_export import (
-    _atomic_private_output,
-    _private_input,
-    export_signed_events,
-)
+from .v4_source_export import export_signed_events
 
 
 def _private_directory(root: Path) -> None:
@@ -146,7 +147,6 @@ def capture_checkpoint_batch(
     from contextlib import closing
     from .pm_checkpoint_journal import SourceTransition, history
     from .production_manifest import verify
-    from .v4_source_export import export_checkpoint_packet
 
     _private_directory(root)
     if (root / "cursor.json").exists():
@@ -242,8 +242,6 @@ def capture_checkpoint_once(
     issued_ms: int,
 ) -> dict:
     """Publish one immutable CWSA packet; the existing journal owns its source cursor."""
-    from .v4_source_export import export_checkpoint_packet
-
     _private_directory(root)
     outbox = root / "outbox"
     outbox.mkdir(mode=0o700, exist_ok=True)

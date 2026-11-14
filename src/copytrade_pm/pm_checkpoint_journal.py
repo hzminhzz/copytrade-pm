@@ -343,9 +343,9 @@ def verify_candidate(candidate: CheckpointSample, evidence_root: Path) -> bool:
     """Replay original native bytes before entering the journal transaction."""
     if candidate.kind != "COMPLETE":
         return False
-    from .pm_e4_prospective import _dex_universe
+    from .pm_e4_prospective import dex_universe
     from .pm_source_contracts import exact_decimal
-    from .pm_v4_evidence import read_wire
+    from .pm_wire_evidence import read_wire
 
     try:
         if candidate.reasons or candidate.catalog is None or candidate.limits is None:
@@ -403,7 +403,7 @@ def verify_candidate(candidate: CheckpointSample, evidence_root: Path) -> bool:
                 return False
         path = evidence_root / "paper-events.sqlite3"
         catalog = json.loads(read_wire(path, candidate.catalog.raw_sha))
-        if tuple(sorted(_dex_universe(catalog))) != candidate.scope.dexes:
+        if tuple(sorted(dex_universe(catalog))) != candidate.scope.dexes:
             return False
         positions = {}
         for receipt in candidate.receipts:

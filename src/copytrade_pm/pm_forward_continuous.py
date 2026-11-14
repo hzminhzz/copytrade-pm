@@ -22,7 +22,7 @@ import re
 import sqlite3
 
 from .pm03_account import Instrument, clock, digest
-from .pm_forward_observer_health import _readonly_tape_snapshot
+from .pm_forward_observer_health import readonly_tape_snapshot
 from .pm_forward_public_trades import native_coin, registry_watched_addresses
 from .wallet_registry import db_authority_health
 
@@ -383,7 +383,7 @@ def diagnose_candidate_preflight(
         for old in protected_roots:
             path = Path(old) / "paper-events.sqlite3"
             if path.exists():
-                _readonly_tape_snapshot(path)
+                readonly_tape_snapshot(path)
         return True
 
     check("protected_journals", verify_protected_heads)
@@ -469,7 +469,7 @@ def candidate_preflight(
     for old in protected_roots:
         path = Path(old) / "paper-events.sqlite3"
         if path.exists():
-            old_heads[str(Path(old).resolve())] = _readonly_tape_snapshot(path)
+            old_heads[str(Path(old).resolve())] = readonly_tape_snapshot(path)
     body = {
         "schema": "paper_continuous_preflight_v1",
         "status": "PREFLIGHT_VERIFIED_OBSERVER_ONLY",
@@ -636,10 +636,10 @@ def continuous_entrypoint(args) -> dict:
     from .pm_forward_registry_identity import (
         P1,
         P14,
-        _private_locator,
         audit_frozen_member_resolution,
+        private_locator,
     )
-    from .pm_forward_source_campaign import _ALIAS
+    from .pm_forward_source_campaign import alias_map
 
     diagnose = getattr(args, "diagnose_preflight", False)
     config, configured, budget = load_continuous_config(
@@ -706,13 +706,14 @@ def continuous_entrypoint(args) -> dict:
             "capture_policy": "NEW_FIRST_KNOWN_OBSERVATION_ONLY",
             "historical_replay_admitted": False,
         }
+        aliases = alias_map()
         for member in P1 if pid == "P1" else P14:
-            _, address, _ = _private_locator(
+            _, address, _ = private_locator(
                 member, primary_dir=args.primary_dir, secondary_dir=args.secondary_dir
             )
             if address.lower() not in watched:
                 raise ValueError("STREAM_CANONICAL_PARENT_WATCHLIST_MISMATCH")
-            parents[_ALIAS[member]] = address.lower()
+            parents[aliases[member]] = address.lower()
     if len(parents) != len(watched):
         raise ValueError("STREAM_CANONICAL_PARENT_SCOPE_MISMATCH")
     manifest["portfolio_historical_pit"] = historical_pit
@@ -1059,11 +1060,7 @@ async def run_ccxt_markets(
     receipt_clock_factory=None,
 ):
     """Retain one CCXT client per shard; per-channel failures do not kill siblings."""
-    from .pm_forward_ccxt_market import (
-        ReadOnlyCCXTProHyperliquid,
-        PersistentMarket,
-        CCXTLocalReceiptClock,
-    )
+    from .pm_forward_ccxt_market import PersistentMarket, ReadOnlyCCXTProHyperliquid
     from .pm_forward_continuous_transport import wait_or_stop
     from .pm_forward_stream_journal import StreamProgress
 
@@ -1083,10 +1080,8 @@ async def run_ccxt_markets(
         tasks = []
         try:
             await feed.open()
-            timer = (
-                receipt_clock_factory(feed._exchange)
-                if receipt_clock_factory is not None
-                else CCXTLocalReceiptClock(feed._exchange, now=now, limiter=limiter)
+            timer = feed.attach_receipt_clock(
+                receipt_clock_factory=receipt_clock_factory, now=now, limiter=limiter
             )
             for inst in instruments:
                 if inst not in feed.catalog:
@@ -1165,9 +1160,9 @@ async def _ccxt_channel(market, channel, *, feed, timer, writer, stop, now):
         # newer raw frame; pairing that newer clock with this cache is a false gap.
         raw = deepcopy(
             await (
-                feed._exchange.watch_order_book(symbol, 5)
+                feed.watch_raw_order_book(symbol, 5)
                 if channel == "quote"
-                else feed._exchange.watch_trades(symbol, None, 1000)
+                else feed.watch_raw_trades(symbol, None, 1000)
             )
         )
         stamp = timer.stamp(
@@ -1279,7 +1274,7 @@ class ContinuousObserver:
         max_journal_bytes=10_000_000_000,
         queue_size=256,
     ):
-        from .pm_e4_prospective import _guarded_info
+        from .pm_e4_prospective import guarded_info
         from .pm_forward_stream_journal import StreamProgress, verify_streams
 
         if (
@@ -1306,7 +1301,7 @@ class ContinuousObserver:
         )
         self.scope = MarketScope(configured, budget)
         self.budget, self.configured, self.now = budget, configured, now
-        self.info, self.connect, self.ccxt_factory = info or _guarded_info, connect, ccxt_factory
+        self.info, self.connect, self.ccxt_factory = info or guarded_info, connect, ccxt_factory
         self.receipt_clock_factory = receipt_clock_factory
         self.refresh_seconds, self.heartbeat_seconds = refresh_seconds, heartbeat_seconds
         self.min_free_bytes, self.max_journal_bytes, self.queue_size = (
@@ -1694,3 +1689,11 @@ class ContinuousObserver:
             "paper_observed": False,
             "order_route": "NONE",
         }
+
+
+def private_candidate_path(root: Path, protected_roots: tuple[Path, ...]) -> None:
+    _private_candidate_path(root, protected_roots)
+
+
+def reason(exc: Exception) -> str:
+    return _reason(exc)

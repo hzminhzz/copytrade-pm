@@ -13,7 +13,7 @@ import json
 from pathlib import Path
 import re
 
-from .pm_e4_prospective import SUBSCRIPTIONS, _account_state, _dex_universe, _subaccount_roster
+from .pm_e4_prospective import SUBSCRIPTIONS, account_state, dex_universe, subaccount_roster
 from .pm_portfolio_e0 import PORTFOLIOS
 
 PORTFOLIO_PODS = PORTFOLIOS
@@ -95,7 +95,7 @@ def _generation(directory: Path, portfolio: str) -> dict:
         catalog = _read(directory / "discovery" / "dex_catalog.json", errors)
         if sha256(catalog).hexdigest() != report["dex_catalog_sha256"]:
             raise ValueError("DEX_HASH_MISMATCH")
-        dexs = _dex_universe(json.loads(catalog))
+        dexs = dex_universe(json.loads(catalog))
         discovery_clock = report["discovery_receipts"]["dex_catalog.json"]
         if (
             discovery_clock["sha256"] != report["dex_catalog_sha256"]
@@ -152,7 +152,7 @@ def _generation(directory: Path, portfolio: str) -> dict:
             subject = by_hash.get(sha256(address.encode()).hexdigest())
             if subject is None or subject != meta.get("subject"):
                 raise ValueError("ACCOUNT_IDENTITY_MISMATCH")
-            parsed = _account_state(data, address, dexs)
+            parsed = account_state(data, address, dexs)
             if dexs is None:
                 raise ValueError("UNVERIFIED_DEX_SCOPE")
             addresses[subject] = address
@@ -210,7 +210,7 @@ def _generation(directory: Path, portfolio: str) -> dict:
                 )
             ):
                 raise ValueError("CENSUS_CLOCK_MISMATCH")
-            members = _subaccount_roster(json.loads(raw), parent)
+            members = subaccount_roster(json.loads(raw), parent)
             if type(counts.get(alias)) is not int or counts[alias] != len(members):
                 raise ValueError("CENSUS_COUNT_MISMATCH")
             for index, address in enumerate(members):

@@ -16,13 +16,13 @@ from pathlib import Path
 
 from .pm_e4_prospective import (
     PODS,
-    _account_state,
-    _canonical,
-    _dex_universe,
-    _subaccount_roster,
-    _safe_dir,
+    account_state,
+    canonical,
+    dex_universe,
+    subaccount_roster,
+    safe_dir,
 )
-from .pm_hyperx_account_triage import _verify_response, _write_immutable_private
+from .pm_hyperx_account_triage import verify_response, write_immutable_private
 from .pm_sources import load_cohort
 
 KIND_FILES = ("wallet_analysis", "trader_funding", "trader_margin")
@@ -73,7 +73,7 @@ def _account_replay(
             raise ValueError("E4_NAIVE_LOCAL_RECEIPT")
         if last_at is not None and observed_at <= last_at:
             raise ValueError("E4_NONMONOTONIC_LOCAL_RECEIPT")
-        state = _account_state(frame["data"], address, dex_catalog)
+        state = account_state(frame["data"], address, dex_catalog)
         if state != snap["state"]:
             raise ValueError("E4_NORMALIZATION_DIVERGENCE")
         last_at, last_state = observed_at, state
@@ -158,7 +158,7 @@ def reconcile(
     if set(roster) != set(PODS):
         raise ValueError("E4_FROZEN_COHORT_DRIFT")
     catalog_data, catalog_sha = _read_raw(official_generation / "catalog" / "perpDexs.json")
-    dexs = _dex_universe(catalog_data)
+    dexs = dex_universe(catalog_data)
     capture, capture_sha = _read_raw(official_generation / "capture-report.json")
     if capture.get("cohort_source_sha") != fingerprints:
         raise ValueError("E4_OFFICIAL_CAPTURE_COHORT_DRIFT")
@@ -171,14 +171,14 @@ def reconcile(
             if len(names) != 1:
                 raise ValueError("E4_HYPERX_MISSING_OR_DUPLICATED_CAPTURE")
             body, sha = _read_raw(names[0])
-            _verify_response(kind, body, entry.address)
+            verify_response(kind, body, entry.address)
             raw_hyperx[kind] = {
                 "sha256": sha,
                 "type": "RETROSPECTIVE_VENDOR_ANALYTICS",
                 "payload": body,
             }
         sub_data, sub_sha = _read_raw(official_generation / "info_raw" / alias / "subaccounts.json")
-        subaddresses = _subaccount_roster(sub_data, entry.address)
+        subaddresses = subaccount_roster(sub_data, entry.address)
         root_snap = _account_replay(official_generation, alias, entry.address, dexs)
         sub_snaps = []
         for index, address in enumerate(subaddresses):
@@ -284,10 +284,10 @@ def main() -> None:
     p.add_argument("--official-generation", type=Path, required=True)
     p.add_argument("--out", type=Path, required=True)
     a = p.parse_args()
-    _safe_dir(a.out)
+    safe_dir(a.out)
     report = reconcile(a.research_root, a.hyperx_root, a.official_generation)
-    raw = _canonical(report)
-    _write_immutable_private(a.out / "reconciliation.json", raw)
+    raw = canonical(report)
+    write_immutable_private(a.out / "reconciliation.json", raw)
     print(
         json.dumps(
             {

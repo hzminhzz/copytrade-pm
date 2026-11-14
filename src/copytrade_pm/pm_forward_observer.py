@@ -27,10 +27,10 @@ from typing import Any, Awaitable, Callable, Iterator, Mapping
 from .pm03_account import Instrument
 from .pm_forward_journal import PaperJournal
 from .pm_forward_market_stream import BoundedMarketCapture
-from .pm_forward_readiness import _source, audit_live_paper_readiness
+from .pm_forward_readiness import audit_live_paper_readiness, source
 from .pm_forward_registry_identity import P14, audit_frozen_member_resolution
 from .pm_forward_source_campaign import (
-    _ALIAS,
+    alias_map,
     observe_shared_frozen_sources_readonly,
 )
 
@@ -85,7 +85,8 @@ def source_native_inventory(
     A missing source or unknown hedge may expand the true target universe.
     """
     uri = "file:" + str(journal.path.resolve()) + "?mode=ro"
-    if set(expected_parent_hashes) != {_ALIAS[member] for member in P14}:
+    aliases = alias_map()
+    if set(expected_parent_hashes) != {aliases[member] for member in P14}:
         raise ValueError("PAPER_OBSERVER_PARENT_IDENTITY_CENSUS_INVALID")
     if any(
         not isinstance(value, str)
@@ -100,8 +101,8 @@ def source_native_inventory(
     with closing(sqlite3.connect(uri, uri=True, timeout=0)) as db:
         db.execute("PRAGMA query_only=ON")
         for member in P14:
-            alias = _ALIAS[member]
-            tape = _source(db, alias)
+            alias = aliases[member]
+            tape = source(db, alias)
             if expected_parent_hashes[alias] not in tape["account_receipts"]:
                 missing.append(member)
             for receipt in tape["account_receipts"].values():
@@ -176,7 +177,7 @@ async def capture_shared_observer_cycle(
     native = source_native_inventory(
         journal,
         expected_parent_hashes={
-            _ALIAS[member["alias"]]: member["address_sha256"] for member in identity["members"]
+            alias_map()[member["alias"]]: member["address_sha256"] for member in identity["members"]
         },
     )
     selected: tuple[Instrument, ...] = native.pop("instruments")
@@ -562,7 +563,7 @@ def main() -> None:
     parser.add_argument("--pause-seconds", type=float, default=3)
     args = parser.parse_args()
     if args.continuous_config is not None:
-        from .pm_forward_continuous import continuous_entrypoint, _reason
+        from .pm_forward_continuous import continuous_entrypoint, reason
 
         try:
             result = continuous_entrypoint(args)
@@ -570,7 +571,7 @@ def main() -> None:
             result = {
                 "status": "BLOCKED_CONTINUOUS_PREFLIGHT_OR_CAPTURE",
                 "error_type": type(exc).__name__,
-                "reason_code": _reason(exc),
+                "reason_code": reason(exc),
                 "order_route": "NONE",
             }
             print(json.dumps(result, sort_keys=True))

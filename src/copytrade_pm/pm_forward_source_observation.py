@@ -13,10 +13,10 @@ from hashlib import sha256
 from typing import Any
 
 from .pm03_account import clock, digest
-from .pm_e4_prospective import _account_state, _dex_universe, _subaccount_roster
+from .pm_checkpoint_source import source_marks as compute_source_marks
+from .pm_e4_prospective import account_state, dex_universe, subaccount_roster
 from .pm_forward_admission import admit_source_book
 from .pm_forward_journal import PaperJournal
-from .v4_source_export import _source_marks
 
 
 def _native_time(milliseconds: Any) -> str:
@@ -46,9 +46,9 @@ def read_public_all_dex_scope(
         frame.get("data"), dict
     ):
         raise ValueError("SOURCE_FRAME_NOT_ALL_DEX_ACCOUNT")
-    dexes = _dex_universe(dex_catalog)
-    subaccounts = _subaccount_roster(discovered_subaccounts, address)
-    parsed = _account_state(frame["data"], address, dexes)
+    dexes = dex_universe(dex_catalog)
+    subaccounts = subaccount_roster(discovered_subaccounts, address)
+    parsed = account_state(frame["data"], address, dexes)
     event_times = [_native_time(dex["state_at"]) for dex in parsed["per_dex"]]
     newest, oldest = max(event_times, key=clock), min(event_times, key=clock)
     if clock(newest) > known:
@@ -68,7 +68,7 @@ def read_public_all_dex_scope(
     # Native positionValue / abs(szi) is the leader-venue valuation.
     # Preserve its separate DEX event clock and the local first-known receipt;
     # neither is a follower quote or a retrospective candle.
-    source_marks = _source_marks(frame, parsed["positions"])
+    source_marks = compute_source_marks(frame, parsed["positions"])
     dex_times = {
         f"mainnet:perp:{entry['dex']}": _native_time(entry["state_at"])
         for entry in parsed["per_dex"]

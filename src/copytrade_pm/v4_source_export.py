@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from contextlib import closing
 from datetime import datetime, timezone
-from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 import json
 from pathlib import Path
@@ -21,7 +20,19 @@ from typing import Any
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
 from .pm03_account import digest as source_digest
+from .pm_checkpoint_source import (
+    _source_marks,
+    export_checkpoint_packet as export_checkpoint_packet,
+    source_marks as source_marks,
+)
 from .pm_forward_stream_journal import verify_streams
+from .pm_private_io import (
+    _atomic_private_output,
+    _private_input,
+    atomic_private_output as atomic_private_output,
+    private_input as private_input,
+)
+from .pm_wire_evidence import read_wire as read_wire
 from .production_manifest import canonical, digest, sign, verify
 
 
@@ -29,118 +40,11 @@ ADDRESS = re.compile(r"0x[0-9a-f]{40}\Z")
 ZERO_SHA = "0" * 64
 
 
-def export_checkpoint_packet(
-    journal,
-    scope,
-    policy,
-    *,
-    signer: Ed25519PrivateKey,
-    after_cursor: int,
-    issued_ms: int,
-) -> dict:
-    """Export the distinct CWSA policy through the existing signed source boundary."""
-    from .pm_v4_evidence import read_wire
-
-    if type(after_cursor) is not int or after_cursor < 0 or type(issued_ms) is not int:
-        raise ValueError("CWSA_EXPORT_CURSOR_OR_CLOCK")
-    path = Path(journal) if isinstance(journal, (str, Path)) else journal.path
-    if path.is_symlink() or not path.is_file():
-        raise ValueError("CWSA_EXPORT_JOURNAL_PATH")
-    from .pm_checkpoint_journal import history as checkpoint_history
-
-    with closing(sqlite3.connect(f"file:{path.resolve()}?mode=ro", uri=True)) as db:
-        db.execute("PRAGMA query_only=ON")
-        db.execute("BEGIN")
-        history = checkpoint_history(db, scope, policy.epoch)
-    if not history or after_cursor > history[-1].sequence:
-        raise ValueError("CWSA_EXPORT_UNKNOWN_HEAD")
-    selected = [item for item in history if item.sequence > after_cursor][:256]
-    if not selected or issued_ms < max(item.at_ms for item in selected):
-        raise ValueError("CWSA_EXPORT_EMPTY_OR_FUTURE")
-    originals = {}
-    for transition in selected:
-        outcome = transition.effect
-        if outcome is None or outcome.sample is None:
-            continue
-        sample = outcome.sample
-        receipts = ((sample.catalog,) if sample.catalog else ()) + sample.receipts
-        for receipt in receipts:
-            originals[receipt.raw_sha] = read_wire(path, receipt.raw_sha)
-    payload = {
-        "schema": "cwsa_checkpoint_packet_v3",
-        "scope": scope.model_dump(mode="json"),
-        "policy": policy.model_dump(mode="json"),
-        "transitions": [t.model_dump(mode="json") for t in selected],
-        "originals": originals,
-        "issued_ms": issued_ms,
-        "trading_authorized": False,
-    }
-    envelope = sign(payload, signer, "cwsa-checkpoint-v3")
-    if len(canonical(envelope)) > 16 * 1024 * 1024:
-        raise ValueError("CWSA_EXPORT_PACKET_LIMIT")
-    return envelope
-
-
 def _millis(value: str) -> int:
     parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     if parsed.tzinfo is None:
         raise ValueError("V4_UTC_REQUIRED")
     return int(parsed.astimezone(timezone.utc).timestamp() * 1000)
-
-
-def _source_marks(native: dict[str, Any], expected: dict[str, str]) -> dict[str, str]:
-    """Use only native positionValue / abs(szi), never an invented OHLC spread."""
-    data = native.get("data", {})
-    states = data.get("clearinghouseStates")
-    if not isinstance(states, list):
-        raise ValueError("V4_NATIVE_STATES_MISSING")
-    quantities: dict[str, str] = {}
-    marks: dict[str, str] = {}
-    for pair in states:
-        if not isinstance(pair, list) or len(pair) != 2 or not isinstance(pair[1], dict):
-            raise ValueError("V4_NATIVE_STATE_INVALID")
-        dex, state = pair
-        dex_name = dex or "default"
-        for item in state.get("assetPositions", []):
-            position = item.get("position") if isinstance(item, dict) else None
-            if not isinstance(position, dict):
-                raise ValueError("V4_NATIVE_POSITION_INVALID")
-            coin = position.get("coin")
-            if not isinstance(coin, str) or not coin:
-                raise ValueError("V4_NATIVE_COIN_MISSING")
-            if ":" in coin and (dex_name == "default" or coin.split(":", 1)[0] != dex_name):
-                raise ValueError("V4_NATIVE_DEX_COIN_MISMATCH")
-            market = f"hyperliquid/mainnet:perp:{dex_name}/{coin.split(':')[-1]}"
-            if market in quantities:
-                raise ValueError("V4_NATIVE_MARKET_DUPLICATE")
-            try:
-                quantity = Decimal(str(position["szi"]))
-            except (InvalidOperation, KeyError) as exc:
-                raise ValueError("V4_NATIVE_QUANTITY_INVALID") from exc
-            if not quantity.is_finite():
-                raise ValueError("V4_NATIVE_QUANTITY_INVALID")
-            if quantity == 0:
-                continue
-            quantities[market] = str(quantity)
-            # Some genuine official frames omit positionValue. Missing source marks
-            # make *that* book unavailable, never an excuse for a synthetic price.
-            if position.get("positionValue") is None:
-                continue
-            try:
-                value = Decimal(str(position["positionValue"]))
-            except InvalidOperation as exc:
-                raise ValueError("V4_NATIVE_POSITION_VALUE_INVALID") from exc
-            if not value.is_finite() or value <= 0:
-                raise ValueError("V4_NATIVE_POSITION_VALUE_INVALID")
-            price = value / abs(quantity)
-            if not price.is_finite() or price <= 0:
-                raise ValueError("V4_NATIVE_SOURCE_MARK_INVALID")
-            marks[market] = str(price)
-    if {market: Decimal(value) for market, value in expected.items()} != {
-        market: Decimal(value) for market, value in quantities.items()
-    }:
-        raise ValueError("V4_POSITION_CHECKPOINT_MISMATCH")
-    return marks
 
 
 def _record(
@@ -429,51 +333,6 @@ def export_signed_events(
         binding.update(anchor_sha=digest(anchor_payload), wire_epoch=wire_epoch)
     result["batch_envelope"] = sign(binding, signer, "source-observer-v4-batch")
     return result
-
-
-def _private_input(path: Path) -> bytes:
-    """External evidence and signer must be operator provisioned and 0600."""
-    if path.is_symlink() or not path.is_file() or path.stat().st_mode & 0o077:
-        raise ValueError("V4_PRIVATE_INPUT_REQUIRED")
-    return path.read_bytes()
-
-
-def _atomic_private_output(path: Path, payload: bytes, *, replace: bool = False) -> None:
-    """Publish only complete durable bytes; never remove a published packet.
-
-    A private random staging name is not a consumer packet. File fsync precedes
-    atomic link/replace; directory fsync precedes the producer cursor update.
-    Existing v1 payload bytes and signatures pass through unchanged.
-    """
-    import os
-    from tempfile import NamedTemporaryFile
-
-    if path.parent.is_symlink() or path.parent.stat().st_mode & 0o077:
-        raise ValueError("V4_PRIVATE_OUTPUT_DIRECTORY_REQUIRED")
-    if path.is_symlink() or (path.exists() and not replace):
-        raise ValueError("V4_PRIVATE_OUTPUT_EXISTS")
-    temporary = None
-    try:
-        with NamedTemporaryFile(
-            dir=path.parent, prefix=".v4-stage-", suffix=".tmp", delete=False
-        ) as stream:
-            temporary = Path(stream.name)
-            os.fchmod(stream.fileno(), 0o600)
-            stream.write(payload)
-            stream.flush()
-            os.fsync(stream.fileno())
-        if replace:
-            os.replace(temporary, path)
-        else:
-            os.link(temporary, path)  # Atomic no-clobber publication.
-        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
-    finally:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
 
 
 def main(argv: list[str] | None = None) -> int:

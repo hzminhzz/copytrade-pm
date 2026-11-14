@@ -85,12 +85,12 @@ def project(assessment, *, published_at: datetime) -> bytes:
 
 
 def publish(directory: Path, payload: bytes) -> None:
-    from .dashboard.evidence_plane import publish_atomic
+    from .pm_private_io import publish_atomic_public
 
     data = _validate(payload)
     if data["schema"] != SCHEMA:
         raise ValueError("STRATEGY_PROJECTION_SCHEMA")
-    publish_atomic(directory, payload, name=NAME)
+    publish_atomic_public(directory, payload, name=NAME)
     path = directory / NAME
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     try:

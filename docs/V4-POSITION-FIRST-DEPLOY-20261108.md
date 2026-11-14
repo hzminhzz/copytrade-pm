@@ -1,5 +1,7 @@
 # V4 position-first virtual-paper deployment (2026-11-08)
 
+> **RETIRED / NON-EXECUTABLE HISTORICAL RECORD (2026-11-14):** The V4 first-known T0+300 operational policy and sixteen-portfolio paper executors (`pm_v4_selected_positions`, `pm_v4_sixteen_paper`) were retired and removed from the repository per [the V4 retirement ADR](decisions/2026-11-14-retire-v4-t300-source-policy.md). Do not execute commands in this document; use CWSA (`copytrade-cwsa-5m-source-chapter2.service` / `copytrade-cwsa-5m-paper-chapter2.service`, see [CWSA Chapter 2](CWSA-CHAPTER2-20261112.md)).
+
 ## Scope and authority
 
 Approved for merging and deploying the **read-only official source observer and

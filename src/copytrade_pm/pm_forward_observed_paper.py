@@ -33,6 +33,7 @@ from .pm_exposure_sizing import target_from_fixed_k
 from .pm_forward_ccxt_market import NativeMarket, parse_ccxt_market
 from .pm_forward_journal import PaperJournal
 from .pm_forward_portfolios import FrozenPaperPortfolio, P1
+from .pm_sqlite_readonly import connect_readonly
 from .pm_forward_single_shot import POLICY_VERSION, ESTIMATED_POLICY_VERSION
 from .pm_vike_minute import SCHEMA as VIKE_MINUTE_SCHEMA
 from .pm_vike_market_catalog import (
@@ -194,9 +195,7 @@ def now_utc() -> str:
 def _readonly(path: Path) -> sqlite3.Connection:
     if path.is_symlink() or not path.is_file():
         raise ValueError("SOURCE_TAPE_MUST_EXIST_AND_NOT_BE_SYMLINK")
-    conn = sqlite3.connect("file:" + str(path.resolve()) + "?mode=ro", uri=True, timeout=2)
-    conn.execute("PRAGMA query_only=ON")
-    return conn
+    return connect_readonly(path, timeout=2)
 
 
 def _prestart_source_cursor(db: sqlite3.Connection, alias: str, durable_seen: int) -> int:
@@ -342,7 +341,7 @@ def _read_quote(conn: sqlite3.Connection, inst: str) -> dict | None:
         or quote.get("first_known_at") != known_at
     ):
         raise ValueError("OBSERVED_MARKET_QUOTE_INTEGRITY_FAILURE")
-    PaperJournal._validate_market_quote(quote)
+    PaperJournal.validate_market_quote(quote)
     predecessor = (
         conn.execute(
             "SELECT chain_sha FROM market_quote_receipts WHERE instrument=? AND seq=?",
@@ -647,7 +646,7 @@ class ObservedP1Paper:
                 if study_profile != PAPER_PROFILES[portfolio_id] or study_seal is not None:
                     raise ValueError("V4_CAMPAIGN_CANNOT_OVERRIDE_REGISTRY_PROFILE")
             else:
-                from .pm_v4_sixteen_scenarios import MANIFEST_SHA256
+                from .pm_source_campaign_roster import MANIFEST_SHA256
 
                 if (
                     study_seal is None
@@ -1612,6 +1611,32 @@ def main() -> None:
                 default=2.0,
             )
             time.sleep(max(0.05, min(2.0, args.poll_seconds, to_due)))
+
+
+def verify_portfolio_selection(
+    registry_db: Path, profile: PaperPortfolioSpec, *, as_of: str
+) -> dict[str, str | int]:
+    return _verify_portfolio_selection(registry_db, profile, as_of=as_of)
+
+
+def readonly(path: Path) -> sqlite3.Connection:
+    return _readonly(path)
+
+
+def read_source(conn: sqlite3.Connection, alias: str, seq: int | None = None) -> dict | None:
+    return _read_source(conn, alias, seq)
+
+
+def read_quote(conn: sqlite3.Connection, inst: str) -> dict | None:
+    return _read_quote(conn, inst)
+
+
+def read_vike_minute(conn: sqlite3.Connection, inst: str) -> dict | None:
+    return _read_vike_minute(conn, inst)
+
+
+def candidate_market(inst: Instrument, catalog: Mapping[str, dict], quote: dict) -> NativeMarket:
+    return _candidate_market(inst, catalog, quote)
 
 
 if __name__ == "__main__":

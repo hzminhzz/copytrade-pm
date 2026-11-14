@@ -79,7 +79,7 @@ def collect(tmp_path):
 
 def test_backfill_rejects_provider_digest_conflict_before_admission(tmp_path, monkeypatch):
     roster(monkeypatch)
-    monkeypatch.setattr(e4, "_guarded_info", lambda request: ([], b"[]", "0" * 64))
+    monkeypatch.setattr(e4, "guarded_info", lambda request: ([], b"[]", "0" * 64))
     report = collect(tmp_path)
     assert all(
         not row[tag]["source_interval_complete"]
@@ -97,7 +97,7 @@ def test_backfill_reuse_blocks_before_fetch_and_preserves_original_clocks(tmp_pa
         calls.append(request)
         return [], b"[]", sha256(b"[]").hexdigest()
 
-    monkeypatch.setattr(e4, "_guarded_info", provider)
+    monkeypatch.setattr(e4, "guarded_info", provider)
     collect(tmp_path)
     original = {p: p.read_bytes() for p in (tmp_path / "gsynthetic12345").rglob("*") if p.is_file()}
     assert len(calls) == 6
@@ -187,7 +187,7 @@ def test_ledger_consumer_rejects_complete_foreign_generation_pair(tmp_path, monk
     from copytrade_pm.pm_acquisition_contracts import read_ledger_page
 
     roster(monkeypatch)
-    monkeypatch.setattr(e4, "_guarded_info", lambda request: ([], b"[]", sha256(b"[]").hexdigest()))
+    monkeypatch.setattr(e4, "guarded_info", lambda request: ([], b"[]", sha256(b"[]").hexdigest()))
     roots = [tmp_path / "gsyntheticfirst01", tmp_path / "gsyntheticsecond1"]
     for root in roots:
         asyncio.run(e4.collect_historical(tmp_path, root, pages_per_series=1))

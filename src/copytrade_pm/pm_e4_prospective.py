@@ -20,11 +20,12 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from .pm_hyperx_account_triage import _write_immutable_private
-from .pm_hyperx_gap_recovery import _private_dir
+from .pm_hyperx_account_triage import write_immutable_private
+from .pm_hyperx_gap_recovery import private_dir
 from .pm_sources import load_cohort
 
 INFO_URL = "https://api.hyperliquid.xyz/info"
+INFO_ENDPOINT = INFO_URL
 WS_URL = "wss://api.hyperliquid.xyz/ws"
 PODS = ("CO-001", "W015", "VS066")
 MAX_DURATION = 90
@@ -60,7 +61,7 @@ def _safe_dir(out: Path) -> None:
         raise ValueError("E4_INVALID_GENERATION_NAME")
     if out.exists():
         raise ValueError("E4_IMMUTABLE_GENERATION_ALREADY_EXISTS")
-    _private_dir(out)
+    private_dir(out)
     if out.stat().st_mode & 0o077:
         raise ValueError("E4_EVIDENCE_DIRECTORY_NOT_PRIVATE")
 
@@ -221,6 +222,30 @@ def _account_state(
     }
 
 
+def canonical(obj: Any) -> bytes:
+    return _canonical(obj)
+
+
+def safe_dir(out: Path) -> None:
+    _safe_dir(out)
+
+
+def guarded_info(request: dict) -> tuple[dict | list | str | None, bytes, str]:
+    return _guarded_info(request)
+
+
+def dex_universe(body: object) -> set[str]:
+    return _dex_universe(body)
+
+
+def subaccount_roster(payload: object, parent: str) -> list[str]:
+    return _subaccount_roster(payload, parent)
+
+
+def account_state(body: dict, expected_address: str, expected_dexs: set[str] | None = None) -> dict:
+    return _account_state(body, expected_address, expected_dexs)
+
+
 def _info_queries(address: str, since: int) -> list[tuple[str, dict]]:
     return [
         ("portfolio", {"type": "portfolio", "user": address}),
@@ -279,7 +304,7 @@ async def collect(
     try:
         data, raw, dex_sha = await asyncio.to_thread(_guarded_info, {"type": "perpDexs"})
         summary["info_calls"] += 1
-        _write_immutable_private(generation / "catalog" / "perpDexs.json", raw)
+        write_immutable_private(generation / "catalog" / "perpDexs.json", raw)
         expected_dexs = _dex_universe(data)
         summary["perp_dex_catalog_sha256"] = dex_sha
         summary["expected_perp_dexs"] = len(expected_dexs)
@@ -296,8 +321,8 @@ async def collect(
             )
             received = _now()
             addresses = _subaccount_roster(data, roster[alias].address)
-            _write_immutable_private(generation / "info_raw" / alias / "subaccounts.json", raw)
-            _write_immutable_private(
+            write_immutable_private(generation / "info_raw" / alias / "subaccounts.json", raw)
+            write_immutable_private(
                 generation / "info_metadata" / alias / "subaccounts.json",
                 _canonical(
                     {
@@ -374,9 +399,9 @@ async def collect(
                 name = (
                     generation / "ws_frames" / f"{serial:04d}-{sha256(wire).hexdigest()[:20]}.json"
                 )
-                sha = _write_immutable_private(name, wire)
+                sha = write_immutable_private(name, wire)
                 summary["ws_frames_saved"] += 1
-                _write_immutable_private(
+                write_immutable_private(
                     generation / "ws_metadata" / f"{serial:04d}.json",
                     _canonical(
                         {
@@ -414,7 +439,7 @@ async def collect(
                                 if canonical["dex_catalog_parity_verified"]
                                 else "PARTIAL_ACCOUNT_OBSERVED_DEX_CATALOG_UNKNOWN"
                             )
-                            _write_immutable_private(
+                            write_immutable_private(
                                 generation / "account_states" / f"{owner}-{serial:04d}.json",
                                 _canonical(
                                     {
@@ -447,7 +472,7 @@ async def collect(
                     parsed, raw, sha = await asyncio.to_thread(_guarded_info, req)
                     received = _now()
                     raw_path = generation / "info_raw" / alias / f"{tag}.json"
-                    _write_immutable_private(raw_path, raw)
+                    write_immutable_private(raw_path, raw)
                     meta = {
                         "requested_at": requested.isoformat(),
                         "received_at": received.isoformat(),
@@ -456,7 +481,7 @@ async def collect(
                         "response_shape": type(parsed).__name__,
                         "response_rows": len(parsed) if isinstance(parsed, list) else None,
                     }
-                    _write_immutable_private(
+                    write_immutable_private(
                         generation / "info_metadata" / alias / f"{tag}.json",
                         _canonical(meta),
                     )
@@ -474,7 +499,7 @@ async def collect(
                     summary["errors"].append(f"{alias}:INFO_{tag}:{type(exc).__name__}")
                 await asyncio.sleep(0.2)
     summary["finished_at"] = _now().isoformat()
-    _write_immutable_private(generation / "capture-report.json", _canonical(summary))
+    write_immutable_private(generation / "capture-report.json", _canonical(summary))
     return summary
 
 

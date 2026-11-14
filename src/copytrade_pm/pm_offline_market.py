@@ -44,7 +44,7 @@ def _verified_day(root: Path, instrument: str, date: datetime):
     import polars as pl
 
     try:
-        relative = VerifiedHyperliquidMinuteSource._family(instrument)
+        relative = VerifiedHyperliquidMinuteSource.family(instrument)
     except MarketDataBlocked as exc:
         raise ManifestBlocked(str(exc)) from exc
     day = date.astimezone(UTC)

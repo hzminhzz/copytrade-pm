@@ -17,8 +17,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .pm_private_io import atomic_private_output
 from .production_manifest import canonical, digest
-from .v4_source_export import _atomic_private_output
 
 SCHEMA = "strategy_health_assessment_v1"
 POLICY = "track_b_strategy_health_v2_policy_v1"
@@ -579,7 +579,7 @@ def canonical_report(report: StrategyAssessment) -> bytes:
 def publish(report: StrategyAssessment, path: Path) -> str:
     """Atomic no-clobber 0600 publication in an operator-owned 0700 directory."""
     raw = canonical_report(report)
-    _atomic_private_output(path, raw)
+    atomic_private_output(path, raw)
     if path.stat().st_mode & 0o777 != 0o600:
         raise ValueError("REPORT_PERMISSION_DRIFT")
     return sha256(raw).hexdigest()

@@ -55,9 +55,9 @@ class CheckpointObserverConfig(Contract):
 
 
 def load_checkpoint_configuration(path: Path, expected_sha: str, parents: dict[str, str]):
-    from .v4_source_export import _private_input
+    from .pm_private_io import private_input
 
-    raw = _private_input(path)
+    raw = private_input(path)
     if sha256(raw).hexdigest() != expected_sha:
         raise ValueError("CWSA_CONFIG_PIN")
     config = CheckpointObserverConfig.model_validate_json(raw)

@@ -77,7 +77,7 @@ class WaveReceipts:
 
     def __init__(self, journal) -> None:
         self.journal = journal
-        with journal._writer() as db:
+        with journal.writer() as db:
             db.execute(SCHEMA)
         self.last_checkpoint_ms = 0
         self.last_receipt_sha = "0" * 64
@@ -149,7 +149,7 @@ class WaveReceipts:
             "missing_sources": missing,
             "coverage_complete": complete,
         }
-        with self.journal._writer() as db:
+        with self.journal.writer() as db:
             db.execute("BEGIN IMMEDIATE")
             try:
                 row = db.execute(

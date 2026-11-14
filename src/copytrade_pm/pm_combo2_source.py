@@ -13,7 +13,7 @@ from hashlib import sha256
 from typing import Any
 
 from .pm03_account import clock, number
-from .pm_e4_prospective import _account_state
+from .pm_e4_prospective import account_state
 
 
 def standard_mode_book(
@@ -37,7 +37,7 @@ def standard_mode_book(
     if spot_collateral_verified_absent is not True:
         raise ValueError("SOURCE_SPOT_COLLATERAL_NOT_RECONCILED")
     clock(received_at)
-    parsed = _account_state(raw_all_dexs, address, expected_dexs)
+    parsed = account_state(raw_all_dexs, address, expected_dexs)
     records = raw_all_dexs["clearinghouseStates"]
     equity = D("0")
     positions: dict[str, dict[str, str]] = {}

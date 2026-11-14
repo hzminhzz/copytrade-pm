@@ -13,9 +13,9 @@ from pathlib import Path
 from typing import Callable
 
 from .pm03_account import digest
-from .pm_e4_prospective import _dex_universe, _guarded_info
+from .pm_e4_prospective import dex_universe, guarded_info
 from .pm_forward_journal import PaperJournal
-from .pm_forward_observed_paper import PAPER_PROFILES, _readonly, _verify_portfolio_selection
+from .pm_forward_observed_paper import PAPER_PROFILES, readonly, verify_portfolio_selection
 from .pm_forward_source_stream import PersistentAccount
 
 CWSA_PORTFOLIOS = frozenset(
@@ -34,12 +34,12 @@ def selected_parents(
     if any(pid not in APPROVED_PORTFOLIOS for pid in portfolios):
         raise ValueError("V4_SELECTED_PORTFOLIO_UNAPPROVED")
     parents: dict[str, str] = {}
-    with closing(_readonly(registry_db)) as db:
+    with closing(readonly(registry_db)) as db:
         db.execute("BEGIN")
         try:
             for pid in portfolios:
                 if pid in PAPER_PROFILES:
-                    selection = _verify_portfolio_selection(
+                    selection = verify_portfolio_selection(
                         registry_db, PAPER_PROFILES[pid], as_of=as_of
                     )
                     items = tuple(PAPER_PROFILES[pid].registry_aliases.items())
@@ -91,7 +91,7 @@ def selected_source_parents(
         if campaign_sha256 is not None:
             raise ValueError("V4_CAMPAIGN_REQUIRES_PRIVATE_MANIFEST")
         return selected_parents(registry_db, portfolios=portfolios, as_of=as_of)
-    from .pm_v4_sixteen_scenarios import IDENTITIES, load_campaign
+    from .pm_source_campaign_roster import IDENTITIES, load_campaign
 
     if (
         campaign_sha256 is None
@@ -111,7 +111,7 @@ def official_accounts(
     journal: PaperJournal,
     parents: dict[str, str],
     *,
-    info: Callable = _guarded_info,
+    info: Callable = guarded_info,
     compact_evidence: bool = False,
 ) -> dict[str, PersistentAccount]:
     """Historical complete-position receipt verifier; not a running V4 collector."""
@@ -120,7 +120,7 @@ def official_accounts(
     catalog, raw, provided_sha = info({"type": "perpDexs"})
     if not isinstance(raw, bytes) or sha256(raw).hexdigest() != provided_sha:
         raise ValueError("V4_OFFICIAL_DEX_CATALOG_PROVENANCE_INVALID")
-    _dex_universe(catalog)
+    dex_universe(catalog)
     scope_sha = digest(
         [
             "SELECTED_PARENT_PERP_ONLY",

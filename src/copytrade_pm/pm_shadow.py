@@ -56,7 +56,7 @@ class VerifiedHyperliquidMinuteSource:
         self.liquidity_proxy_days: set[str] = set()
 
     @staticmethod
-    def _family(instrument: str) -> Path:
+    def family(instrument: str) -> Path:
         parts = instrument.split(":")
         if len(parts) != 5 or parts[:3] != ["hyperliquid", "mainnet", "perp"]:
             raise MarketDataBlocked("UNSUPPORTED_INSTRUMENT_SCOPE")
@@ -72,16 +72,19 @@ class VerifiedHyperliquidMinuteSource:
         raise MarketDataBlocked("UNSUPPORTED_HIP3_DEX")
 
     @staticmethod
-    def _minute(dt: datetime) -> datetime:
+    def minute(dt: datetime) -> datetime:
         if dt.utcoffset() is None:
             raise ValueError("unaware fill clock")
         dt = dt.astimezone(UTC)
         minute = dt.replace(second=0, microsecond=0)
         return minute if dt == minute else minute + timedelta(minutes=1)
 
+    _family = family
+    _minute = minute
+
     def get(self, instrument: str, action_at: datetime) -> MinuteBar:
-        minute = self._minute(action_at)
-        relative = self._family(instrument)
+        minute = self.minute(action_at)
+        relative = self.family(instrument)
         day = minute.date().isoformat()
         key = (instrument, day)
         if key not in self.cache:
@@ -382,7 +385,7 @@ def replay_shadow(
             target = {name: qty * scale for name, qty in decision.source_positions.items()}
             always_long = {name: abs(qty) for name, qty in target.items()}
             if last_time is not None:
-                elapsed = VerifiedHyperliquidMinuteSource._minute(action_at) - last_time
+                elapsed = VerifiedHyperliquidMinuteSource.minute(action_at) - last_time
                 if elapsed < timedelta():
                     raise ValueError("nonmonotonic hypothetical execution clock")
                 follower.accrue_funding(marks, elapsed, scenario)
@@ -400,7 +403,7 @@ def replay_shadow(
             previous_fills = follower.fills
             follower.rebalance(target, quotes, scenario)
             control.rebalance(always_long, quotes, scenario)
-            last_time = VerifiedHyperliquidMinuteSource._minute(action_at)
+            last_time = VerifiedHyperliquidMinuteSource.minute(action_at)
             last_prices = marks
             if follower.fills > previous_fills:
                 fills_at = last_time

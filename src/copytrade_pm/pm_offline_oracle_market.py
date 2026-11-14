@@ -40,7 +40,7 @@ def _day_clock(day_number: int) -> datetime:
 def _day_record(root: Path, instrument: str, day_number: int) -> dict:
     day = _day_clock(day_number)
     status, bars = _market_day(root, instrument, day, verify_sha=True)
-    family = VerifiedHyperliquidMinuteSource._family(instrument)
+    family = VerifiedHyperliquidMinuteSource.family(instrument)
     folder = root / family / (f"year={day.year:04d}/month={day.month:02d}/day={day.day:02d}")
     sidecar = folder / "source.json"
     meta_sha = None
@@ -172,7 +172,7 @@ def _join_instrument(root: Path, instrument: str, candidate, pinned):
         return result.with_columns(pl.col("market_status").alias("match_status")).drop(
             "market_status", "prior_ms", "day_number"
         )
-    family = VerifiedHyperliquidMinuteSource._family(instrument)
+    family = VerifiedHyperliquidMinuteSource.family(instrument)
     locations = []
     for number in days:
         at = _day_clock(number)

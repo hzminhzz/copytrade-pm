@@ -70,7 +70,7 @@ def read_native_minutes(
         raise ValueError("UNMATURED_NATIVE_WINDOW")
     native = lake_instrument(instrument)
     adapter = VerifiedHyperliquidMinuteSource(root)
-    family = adapter._family(native)
+    family = adapter.family(native)
     days: list[tuple[str, str]] = []
     bars: list[MinuteBar] = []
     moment = start

@@ -11,7 +11,7 @@ import sqlite3
 import pytest
 
 from copytrade_pm.pm_forward_observed_paper import ObservedP1Paper, PAPER_PROFILES
-from copytrade_pm import pm_v4_sixteen_scenarios as scenarios
+from copytrade_pm import pm_source_campaign_roster as scenarios
 
 
 ORIGINALS = {

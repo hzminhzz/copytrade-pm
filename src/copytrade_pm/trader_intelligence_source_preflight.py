@@ -210,10 +210,10 @@ def main() -> None:
     if args.output is None:
         print(body)
     else:
-        from .pm_hyperx_account_triage import _write_immutable_private
+        from .pm_hyperx_account_triage import write_immutable_private
 
         # An O_EXCL owner-private audit artifact, NOT a new data/event ledger.
-        artifact_sha = _write_immutable_private(args.output, (body + "\n").encode())
+        artifact_sha = write_immutable_private(args.output, (body + "\n").encode())
         print(
             json.dumps(
                 {

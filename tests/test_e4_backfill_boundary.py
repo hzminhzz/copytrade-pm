@@ -26,7 +26,7 @@ def test_saturated_final_timestamp_remains_unproven(tmp_path, monkeypatch):
         raw = json.dumps(rows).encode()
         return rows, raw, sha256(raw).hexdigest()
 
-    monkeypatch.setattr(module, "_guarded_info", provider)
+    monkeypatch.setattr(module, "guarded_info", provider)
 
     async def no_sleep(_):
         return None

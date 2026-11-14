@@ -296,7 +296,7 @@ def test_observer_sqlite_snapshot_is_one_consistent_read_transaction(tmp_path, m
     quote = parse_ccxt_book(native, orderbook(seconds=2), first_known_at=at(3)).payload()
     import copytrade_pm.pm_forward_observer_health as health_module
 
-    real_source = health_module._source
+    real_source = health_module.source
     appended = False
 
     def source_with_parallel_market_append(db, alias):
@@ -307,7 +307,7 @@ def test_observer_sqlite_snapshot_is_one_consistent_read_transaction(tmp_path, m
             journal.append_market_quote(quote)
         return value
 
-    monkeypatch.setattr(health_module, "_source", source_with_parallel_market_append)
+    monkeypatch.setattr(health_module, "source", source_with_parallel_market_append)
     snapshot = _readonly_tape_snapshot(journal.path)
     assert appended
     assert snapshot["quotes"] == {}  # This transaction predates the concurrent append.

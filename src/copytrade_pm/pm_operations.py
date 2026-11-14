@@ -77,6 +77,22 @@ def result(
     }
 
 
+def registry_query(db: Path, command: list[str]) -> object:
+    return _registry_query(db, command)
+
+
+def registry_generation(db: Path) -> dict:
+    return _generation(db)
+
+
+def doctor(db: Path) -> dict:
+    return _doctor(db)
+
+
+def sqlite_integrity_verified(doctor_report: dict | None) -> bool:
+    return _sqlite_integrity_verified(doctor_report)
+
+
 def _registry_query(db: Path, command: list[str]) -> object:
     """Invoke existing registry CLI without shelling out or modifying sources."""
     sink = io.StringIO()

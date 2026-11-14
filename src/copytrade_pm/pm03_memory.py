@@ -44,6 +44,10 @@ def _reject_sensitive_fields(value: object) -> None:
             _reject_sensitive_fields(item)
 
 
+def atomic_private(path: Path, blob: bytes) -> None:
+    _atomic_private(path, blob)
+
+
 def _atomic_private(path: Path, blob: bytes) -> None:
     if path.exists():
         if path.read_bytes() != blob:

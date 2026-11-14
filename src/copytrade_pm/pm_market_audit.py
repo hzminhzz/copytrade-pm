@@ -31,7 +31,7 @@ def _audit_clocks(source_when: datetime, cutoff: datetime) -> tuple[datetime, ..
         moment
         for latency in LATENCY_MINUTES
         if (
-            moment := VerifiedHyperliquidMinuteSource._minute(
+            moment := VerifiedHyperliquidMinuteSource.minute(
                 source_when + timedelta(minutes=latency)
             )
         )
@@ -42,10 +42,10 @@ def _audit_clocks(source_when: datetime, cutoff: datetime) -> tuple[datetime, ..
 def _audit_partition(root: Path, instrument: str, when: datetime) -> str:
     """Verify original 1m day metadata and bytes without loading all bars."""
     try:
-        family = VerifiedHyperliquidMinuteSource._family(instrument)
+        family = VerifiedHyperliquidMinuteSource.family(instrument)
     except MarketDataBlocked as exc:
         return str(exc)
-    minute = VerifiedHyperliquidMinuteSource._minute(when)
+    minute = VerifiedHyperliquidMinuteSource.minute(when)
     path = root / family / f"year={minute.year:04d}/month={minute.month:02d}/day={minute.day:02d}"
     data = path / "data.parquet"
     meta = path / "source.json"
@@ -146,7 +146,7 @@ def inventory(research_root: Path, market_root: Path) -> dict:
         sample_book(when)
         continuity_after = 0
         for source_when, group in groupby(fills[skip:], key=lambda e: e[0]):
-            if VerifiedHyperliquidMinuteSource._minute(source_when + timedelta(minutes=5)) > CUT:
+            if VerifiedHyperliquidMinuteSource.minute(source_when + timedelta(minutes=5)) > CUT:
                 continue
             for _, _, coin, before, after, _, _ in group:
                 if state.get(coin) != before:

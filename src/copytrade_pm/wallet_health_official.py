@@ -23,12 +23,11 @@ from urllib.error import HTTPError, URLError
 
 from . import wallet_registry as registry
 from .pm_acquisition_contracts import verify_raw
-from .pm_e4_prospective import _guarded_info
-from .pm_hyperx_account_triage import _write_immutable_private
+from .pm_e4_prospective import INFO_ENDPOINT, guarded_info
+from .pm_hyperx_account_triage import write_immutable_private
 from .wallet_health import FinancialEvidence, assess, canonical, save_immutable
 
 SOURCE = "OFFICIAL_HYPERLIQUID_INFO"
-INFO_ENDPOINT = "https://api.hyperliquid.xyz/info"
 ADDRESS = re.compile(r"0x[0-9a-fA-F]{40}\Z")
 MAX_WALLETS = 512
 MAX_DEEP = 64
@@ -206,7 +205,7 @@ def _save_reply(
     if received_at < requested_at:
         raise ValueError("PROVIDER_CLOCK_ORDER_INVALID")
     name = f"w{wallet_id:06d}/{kind}.json"
-    _write_immutable_private(generation / "raw" / name, raw)
+    write_immutable_private(generation / "raw" / name, raw)
     record = {
         "schema": "wallet_health_official_receipt_v1",
         "source": SOURCE,
@@ -221,7 +220,7 @@ def _save_reply(
         "source_continuity_verified": False,
         "trading_authorized": False,
     }
-    _write_immutable_private(generation / "receipts" / name, canonical(record))
+    write_immutable_private(generation / "receipts" / name, canonical(record))
     # Verify the bytes independently after writing, not just a self-asserted SHA.
     if sha256((generation / "raw" / name).read_bytes()).hexdigest() != record["raw_sha256"]:
         raise ValueError("DURABLE_HL_SOURCE_RECEIPT_MISMATCH")
@@ -235,7 +234,7 @@ def capture(
     max_wallets: int = MAX_WALLETS,
     deep_wallets: int = 0,
     weight_per_min: int = DEFAULT_WEIGHT_PER_MIN,
-    info: Callable = _guarded_info,
+    info: Callable = guarded_info,
     clock: Callable[[], datetime] = _now,
     out_report: Path | None = None,
     publish_dir: Path | None = None,
@@ -388,7 +387,7 @@ def capture(
         "read_only_source_and_registry": True,
         "trading_authorized": False,
     }
-    _write_immutable_private(generation / "capture-manifest.json", canonical(summary))
+    write_immutable_private(generation / "capture-manifest.json", canonical(summary))
     return summary
 
 

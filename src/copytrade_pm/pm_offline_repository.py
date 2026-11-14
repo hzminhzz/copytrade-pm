@@ -48,7 +48,7 @@ def native_instrument(raw: str) -> str:
         dex, symbol = "default", raw
     instrument = f"hyperliquid:mainnet:perp:{dex}:{symbol}"
     try:
-        VerifiedHyperliquidMinuteSource._family(instrument)
+        VerifiedHyperliquidMinuteSource.family(instrument)
     except MarketDataBlocked as exc:
         raise ManifestInvalid("UNSUPPORTED_SOURCE_INSTRUMENT") from exc
     return instrument
@@ -93,7 +93,7 @@ def _market_day(
     verify_sha: bool,
 ) -> tuple[str, int]:
     try:
-        family = VerifiedHyperliquidMinuteSource._family(instrument)
+        family = VerifiedHyperliquidMinuteSource.family(instrument)
     except MarketDataBlocked:
         return "UNSUPPORTED_INSTRUMENT", 0
     folder = root / family / (f"year={day.year:04d}/month={day.month:02d}/day={day.day:02d}")

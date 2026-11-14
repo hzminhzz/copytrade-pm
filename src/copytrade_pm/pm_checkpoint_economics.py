@@ -25,6 +25,7 @@ from .pm03_memory import Event, Ledger
 from .pm03_risk import RiskPolicy
 from .pm03_run import ShadowRun
 from .pm_forward_journal import PaperJournal
+from .pm_sqlite_readonly import connect_readonly
 from .production_manifest import canonical, verify
 
 OLD = "FIRST_KNOWN_T0_300_V1"
@@ -119,8 +120,7 @@ def read_checkpoint(path: Path, run_id: str) -> dict:
     path = Path(path)
     if path.is_symlink() or not path.is_file():
         raise ValueError("ECONOMICS_CHECKPOINT_JOURNAL_MISSING")
-    with closing(sqlite3.connect(f"file:{path.resolve()}?mode=ro", uri=True)) as db:
-        db.execute("PRAGMA query_only=ON")
+    with closing(connect_readonly(path)) as db:
         db.execute("BEGIN")
         row = db.execute("SELECT manifest FROM runs WHERE run_id=?", (run_id,)).fetchone()
         if row is None:
@@ -174,7 +174,7 @@ def read_checkpoint(path: Path, run_id: str) -> dict:
                 fill_at=decision,
             )
 
-        PaperJournal._verify(db, run_id, on_event=observe)
+        PaperJournal.verify(db, run_id, on_event=observe)
         if not outcomes:
             raise ValueError("ECONOMICS_CHECKPOINT_POLICY_EVENTS_MISSING")
         trace["opportunities"] = dict(sorted(Counter(outcomes.values()).items()))
@@ -263,7 +263,7 @@ def read_legacy(path: Path) -> dict:
 
 def _attest_legacy(trace, pin):
     """Reuse the original receipt verifier and pin its full source prefix."""
-    from .pm_forward_observed_paper import _read_source
+    from .pm_forward_observed_paper import read_source
     from .pm_forward_stream_journal import verify_official_position_transition
 
     if not pin.get("source_journal") or not pin.get("source_prefixes"):
@@ -272,15 +272,14 @@ def _attest_legacy(trace, pin):
     if path.is_symlink() or not path.is_file():
         raise ValueError("LEGACY_SOURCE_JOURNAL_MISSING")
     verified, native = {}, True
-    with closing(sqlite3.connect(f"file:{path.resolve()}?mode=ro", uri=True)) as db:
-        db.execute("PRAGMA query_only=ON")
+    with closing(connect_readonly(path)) as db:
         db.execute("BEGIN")
         for source, prefix in pin["source_prefixes"].items():
             count = prefix["sequence"]
             if type(count) is not int or count < 1:
                 raise ValueError("ECONOMICS_SOURCE_PREFIX")
             for sequence in range(1, count + 1):
-                row = _read_source(db, source, sequence)
+                row = read_source(db, source, sequence)
                 if row is None:
                     raise ValueError("ECONOMICS_SOURCE_PREFIX_MISSING")
                 verified[source, sequence] = row
@@ -425,7 +424,7 @@ def _references(rows):
         if body.get("schema") != "cwsa_economics_quotes_v1":
             raise ValueError("ECONOMICS_QUOTE_FILE_SCHEMA")
         for quote in body["quotes"]:
-            PaperJournal._validate_market_quote(quote)
+            PaperJournal.validate_market_quote(quote)
             if number(quote["best_bid"]) <= 0 or number(quote["best_ask"]) < number(
                 quote["best_bid"]
             ):
@@ -755,9 +754,9 @@ def main(argv=None):
 
         reviewer = Ed25519PublicKey.from_public_bytes(_private(args.criterion_public_key))
     report = evaluate(json.loads(_private(args.spec)), revision=revision, reviewer=reviewer)
-    from .v4_source_export import _atomic_private_output
+    from .pm_private_io import atomic_private_output
 
-    _atomic_private_output(args.output, canonical(report))
+    atomic_private_output(args.output, canonical(report))
     print(
         json.dumps(
             {

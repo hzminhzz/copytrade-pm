@@ -411,7 +411,7 @@ def _verified_frame_sha(db: sqlite3.Connection, event: dict) -> str:
     """Resolve raw original proof without trusting an index or hash-only claim."""
     if event.get("schema") != "paper_observer_stream_event_v2":
         return digest(event.get("details", {}).get("native_frame"))
-    from .pm_v4_evidence import read_wire
+    from .pm_wire_evidence import read_wire
 
     db_file = db.execute("PRAGMA database_list").fetchone()[2]
     if not db_file:

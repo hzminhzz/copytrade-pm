@@ -279,7 +279,7 @@ def _wallet_propr_day_coverage(
 
     record(start)
     for when, batch in groupby(fills[skip:], lambda row: row[0]):
-        if VerifiedHyperliquidMinuteSource._minute(when + timedelta(minutes=5)) > CUT:
+        if VerifiedHyperliquidMinuteSource.minute(when + timedelta(minutes=5)) > CUT:
             continue
         for row in batch:
             state[row[2]] = row[4]

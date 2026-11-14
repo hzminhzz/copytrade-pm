@@ -77,7 +77,7 @@ class Episode:
 
 
 def _minute_at_or_after(t: datetime) -> datetime:
-    return VerifiedHyperliquidMinuteSource._minute(t)
+    return VerifiedHyperliquidMinuteSource.minute(t)
 
 
 def _source_episodes(wallet: str, fills: list[tuple]) -> tuple[list[Episode], dict]:

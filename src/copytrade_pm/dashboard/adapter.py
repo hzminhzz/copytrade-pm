@@ -820,11 +820,11 @@ class DashboardReader:
             doctor = self.cache.get(
                 "doctor:" + str(self.db),
                 30.0,
-                lambda: _bounded_native_read(lambda: operations._doctor(self.db)),
+                lambda: _bounded_native_read(lambda: operations.doctor(self.db)),
             )
         except RuntimeError:
             doctor = None
-        if not isinstance(doctor, dict) or not operations._sqlite_integrity_verified(doctor):
+        if not isinstance(doctor, dict) or not operations.sqlite_integrity_verified(doctor):
             answer.update(status="STALE", error_code="REGISTRY_PARITY_UNVERIFIED")
         elif doctor.get("data", {}).get("inventory_sha256") != answer["inventory_sha256"]:
             answer.update(status="STALE", error_code="REGISTRY_GENERATION_MISMATCH")

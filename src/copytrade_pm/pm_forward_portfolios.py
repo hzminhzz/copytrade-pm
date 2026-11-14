@@ -55,6 +55,20 @@ P1 = FrozenPaperPortfolio("P1", ("S035", "S051", "S053"))
 P14 = FrozenPaperPortfolio("P14", ("S035", "S051", "S053", "S064", "Whale_0x5f94"))
 
 
+def verify_sealed_definition_sha(
+    conn: sqlite3.Connection,
+    portfolio_name: str,
+    version: int,
+    members: tuple[str, ...],
+    expected_sha: str,
+    *,
+    as_of: str | None = None,
+) -> dict:
+    return _verify_sealed_definition_sha(
+        conn, portfolio_name, version, members, expected_sha, as_of=as_of
+    )
+
+
 def _verify_sealed_definition_sha(
     conn: sqlite3.Connection,
     portfolio_name: str,

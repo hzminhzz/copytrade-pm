@@ -53,8 +53,8 @@ def create_private_binding(
     Public endpoint retains an anonymous aggregate. This private independent
     artifact connects exact original report bytes to exact publication bytes.
     """
+    from .pm_private_io import atomic_private_output
     from .production_manifest import canonical, sign
-    from .v4_source_export import _atomic_private_output
 
     if not publisher_alias or len(publisher_alias) > 80 or not publisher_alias.isascii():
         raise ValueError("PUBLICATION_PUBLISHER_IDENTITY_INVALID")
@@ -77,7 +77,7 @@ def create_private_binding(
         "synthetic_report_claim": False,
     }
     envelope = sign(payload, signer, PUBLICATION_AUTHORITY)
-    _atomic_private_output(private_binding_path, canonical(envelope))
+    atomic_private_output(private_binding_path, canonical(envelope))
     return envelope["sha256"]
 
 

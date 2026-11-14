@@ -16,7 +16,7 @@ from time import monotonic
 from typing import Any, Callable
 
 from .pm03_account import Instrument
-from .pm_forward_ccxt_market import ReadOnlyCCXTProHyperliquid, _now
+from .pm_forward_ccxt_market import ReadOnlyCCXTProHyperliquid, now
 from .pm_forward_ccxt_trades import ReadOnlyTradeObserver
 from .pm_forward_journal import PaperJournal
 
@@ -29,7 +29,7 @@ class BoundedMarketCapture:
         journal: PaperJournal,
         hip3_dexes: tuple[str, ...] = (),
         factory: Callable[..., Any] | None = None,
-        now: Callable[[], str] = _now,
+        now: Callable[[], str] = now,
         timeout_seconds: float = 15.0,
     ) -> None:
         if not 1 <= len(requested) <= 10:

@@ -132,12 +132,12 @@ def test_original_rest_responses_archived_with_private_manifest_last(tmp_path):
 
 def test_campaign_verification_report_never_promotes_rest_census(monkeypatch, tmp_path):
     from types import SimpleNamespace
-    from copytrade_pm import pm_v4_sixteen_scenarios
+    from copytrade_pm import pm_source_campaign_roster
 
     def campaign(**kwargs):
         return SimpleNamespace(parents={str(i): "0x" + format(i, "040x") for i in range(1, 15)})
 
-    monkeypatch.setattr(pm_v4_sixteen_scenarios, "load_campaign", campaign)
+    monkeypatch.setattr(pm_source_campaign_roster, "load_campaign", campaign)
     report = audit_selected_campaign(
         registry_db=tmp_path / "registry.sqlite",
         manifest=tmp_path / "manifest.json",

@@ -248,5 +248,13 @@ def main() -> None:
     print(json.dumps(verify_unprotected_release_candidate(args.candidate), indent=2))
 
 
+def write_once(path: Path, data: bytes) -> None:
+    _write_once(path, data)
+
+
+def sync_directory(root: Path) -> None:
+    _sync_directory(root)
+
+
 if __name__ == "__main__":
     main()

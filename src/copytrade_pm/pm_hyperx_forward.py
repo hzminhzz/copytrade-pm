@@ -18,7 +18,7 @@ import os
 from pathlib import Path
 from urllib.parse import urlencode
 
-from .pm_hyperx_gap_recovery import _adapter
+from .pm_hyperx_gap_recovery import adapter
 from .pm_sources import load_cohort
 
 ENDPOINT = "wss://data-api.hyperx.trade/fills/ws"
@@ -188,7 +188,7 @@ async def probe(
     if any(alias not in by_alias for alias in aliases):
         raise ValueError("UNVERIFIED_COHORT_WALLET")
     _private(output)
-    provider = _adapter(root)
+    provider = adapter(root)
     key = provider.key_from_existing_tracker_env()
     import websockets
 

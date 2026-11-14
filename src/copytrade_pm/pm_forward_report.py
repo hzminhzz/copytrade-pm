@@ -16,6 +16,7 @@ import sqlite3
 
 from .pm03_account import Account, Rulebook, clock, number
 from .pm_forward_journal import PaperJournal
+from .pm_sqlite_readonly import connect_readonly
 
 
 def _values(account: Account) -> dict:
@@ -49,7 +50,7 @@ def _values(account: Account) -> dict:
 def report_one(
     db: sqlite3.Connection, run_id: str, report_at: str, *, cost_stress: bool = False
 ) -> dict:
-    verified = PaperJournal._verify(db, run_id)
+    verified = PaperJournal.verify(db, run_id)
     if clock(verified["last_event_at"]) > clock(report_at):
         raise ValueError("PAPER_REPORT_ASOF_PRECEDES_COMMITTED_STATE")
     row = db.execute("SELECT manifest FROM runs WHERE run_id=?", (run_id,)).fetchone()
@@ -73,7 +74,7 @@ def report_one(
     ).fetchall()
     for (payload,) in event_rows:
         event = json.loads(payload)
-        result = PaperJournal._apply(account, event)
+        result = PaperJournal.apply(account, event)
         account.verify()
         equity_high = max(equity_high, account.equity)
         max_drawdown = max(max_drawdown, equity_high - account.equity)
@@ -242,10 +243,7 @@ def build_report(
     if not run_ids or len(set(run_ids)) != len(run_ids):
         raise ValueError("PAPER_REPORT_RUNS_REQUIRED_UNIQUE")
     clock(as_of)
-    db_path = Path(db_path)
-    uri = "file:" + str(db_path.resolve()) + "?mode=ro"
-    with closing(sqlite3.connect(uri, uri=True, timeout=0)) as db:
-        db.execute("PRAGMA query_only=ON")
+    with closing(connect_readonly(db_path, timeout=0)) as db:
         rows = [report_one(db, run_id, as_of, cost_stress=cost_stress) for run_id in run_ids]
     return {
         "schema": "paper_campaign_report_v1",

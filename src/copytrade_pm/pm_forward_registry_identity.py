@@ -21,6 +21,10 @@ P14 = (*P1, "S064-xyz:BRENTOIL", "Whale_0x5f94")
 _HEX = re.compile(r"0x[0-9a-fA-F]{40}\Z")
 
 
+def private_locator(alias: str, *, primary_dir: Path, secondary_dir: Path) -> tuple[Path, str, str]:
+    return _private_locator(alias, primary_dir=primary_dir, secondary_dir=secondary_dir)
+
+
 def _private_locator(
     alias: str, *, primary_dir: Path, secondary_dir: Path
 ) -> tuple[Path, str, str]:

@@ -43,7 +43,7 @@ def _parse_target(value: str) -> tuple[str, date]:
         raise ValueError("UNAUTHORIZED_OR_INVALID_HIP3_SYMBOL")
     # This validates both namespace and ticker against our strict path contract.
     try:
-        VerifiedHyperliquidMinuteSource._family(f"hyperliquid:mainnet:perp:{dex}:{ticker}")
+        VerifiedHyperliquidMinuteSource.family(f"hyperliquid:mainnet:perp:{dex}:{ticker}")
     except MarketDataBlocked as exc:
         raise ValueError("UNSAFE_HIP3_TICKER") from exc
     return symbol, date.fromisoformat(raw_day)
@@ -51,7 +51,7 @@ def _parse_target(value: str) -> tuple[str, date]:
 
 def _market_path(root: Path, symbol: str, day: date) -> Path:
     dex, ticker = symbol.split(":")
-    family = VerifiedHyperliquidMinuteSource._family(f"hyperliquid:mainnet:perp:{dex}:{ticker}")
+    family = VerifiedHyperliquidMinuteSource.family(f"hyperliquid:mainnet:perp:{dex}:{ticker}")
     return (
         root
         / family

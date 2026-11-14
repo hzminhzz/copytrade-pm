@@ -12,7 +12,7 @@ from pathlib import Path
 import json
 
 from .pm03_account import Rulebook, canonical, clock, digest, number, ZERO
-from .pm03_memory import Event, _atomic_private
+from .pm03_memory import Event, atomic_private
 from .pm03_run import ShadowRun
 
 
@@ -209,5 +209,5 @@ def compare_pm04_policies(spec: dict, output_dir: Path) -> dict:
     }
     result["report_sha"] = digest(result)
     output_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-    _atomic_private(cache, canonical(result))
+    atomic_private(cache, canonical(result))
     return result

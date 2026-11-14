@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 from .pm03_account import Rulebook, canonical, digest, number
-from .pm03_memory import Event, _atomic_private
+from .pm03_memory import Event, atomic_private
 from .pm03_run import ShadowRun, _cost_model, _positions, _prices, _quotes
 from .pm03_stress import ScenarioStep, compare_policies
 
@@ -19,7 +19,7 @@ def _write_report(root: Path, report: dict) -> Path:
     root.chmod(0o700)
     sha = digest(report)
     destination = root / f"{sha}.json"
-    _atomic_private(destination, canonical(report) + b"\n")
+    atomic_private(destination, canonical(report) + b"\n")
     return destination
 
 

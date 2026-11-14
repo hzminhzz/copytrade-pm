@@ -15,8 +15,8 @@ import json
 from pathlib import Path
 import time
 
-from .pm_e4_prospective import _canonical, _guarded_info, _safe_dir
-from .pm_hyperx_account_triage import _write_immutable_private
+from .pm_e4_prospective import canonical, guarded_info, safe_dir
+from .pm_hyperx_account_triage import write_immutable_private
 from .pm_portfolio_e0 import PORTFOLIOS
 from .pm_research import _write_private_evidence
 from .pm_sources import load_cohort
@@ -100,7 +100,7 @@ def collect(
         raise ValueError("UNBOUNDED_EQUITY_PROVIDER_REQUEST")
     entries, source = load_cohort(research_root)
     roster = {e.alias: e for e in entries}
-    _safe_dir(generation)
+    safe_dir(generation)
     report = {
         "schema": "pm_q3_retrospective_hyperliquid_portfolio_inspection_v1",
         "provider": "HYPERLIQUID_INFO_PORTFOLIO_READ_ONLY",
@@ -117,15 +117,15 @@ def collect(
         entry = roster[alias]
         requested = datetime.now(UTC).isoformat()
         report["request_count"] += 1
-        info = _guarded_info({"type": "portfolio", "user": entry.address})
+        info = guarded_info({"type": "portfolio", "user": entry.address})
         data, raw, response_sha = info
         metadata = inspect_portfolio(data)
         received = datetime.now(UTC).isoformat()
         location = generation / "raw" / alias / "portfolio.json"
-        _write_immutable_private(location, raw)
-        _write_immutable_private(
+        write_immutable_private(location, raw)
+        write_immutable_private(
             generation / "metadata" / alias / "portfolio.json",
-            _canonical(
+            canonical(
                 {
                     "wallet": alias,
                     "wallet_identity_sha256": entry.address_sha256,

@@ -1,5 +1,7 @@
 # V4 canonical 16-portfolio fresh paper campaign — 2026-11-11
 
+> **RETIRED / NON-EXECUTABLE HISTORICAL RECORD (2026-11-14):** The V4 first-known T0+300 operational policy, sixteen-portfolio paper executors (`pm_v4_selected_positions`, `pm_v4_sixteen_paper`), and `scripts/v4_canonical_paper_release.py` were retired and removed from the repository per [the V4 retirement ADR](decisions/2026-11-14-retire-v4-t300-source-policy.md). Do not execute commands in this document; use CWSA (`copytrade-cwsa-5m-source-chapter2.service` / `copytrade-cwsa-5m-paper-chapter2.service`, see [CWSA Chapter 2](CWSA-CHAPTER2-20261112.md)).
+
 **Transport distinction:** [Vike-first wallet ingestion](decisions/2026-11-11-vike-first-wallet-source.md) is an approved design with [partially implemented nonactivating observation and official REST evidence](V4-VIKE-FIRST-MIGRATION-PROGRESS-20261111.md), **not an installed replacement** for the current official complete-position source. Keep this campaign's selected-account official proof, T+300, frozen k, PM03/PM04 and immutable financial journal requirements unchanged until separate engineering, reconciliation and runtime admission. The 7-of-14 source coverage in this document is a dated deployment snapshot; verify current GAP/coverage from original journals and OS evidence.
 
 ## Scope and outcome

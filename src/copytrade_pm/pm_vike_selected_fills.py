@@ -68,8 +68,8 @@ def selected_wallets_from_registry(
     """
     from .pm_forward_observed_paper import (
         PAPER_PROFILES,
-        _readonly,
-        _verify_portfolio_selection,
+        readonly,
+        verify_portfolio_selection,
     )
 
     if not portfolios or len(portfolios) != len(set(portfolios)):
@@ -80,7 +80,7 @@ def selected_wallets_from_registry(
     accounts = set()
     for portfolio in portfolios:
         profile = PAPER_PROFILES[portfolio]
-        seal = _verify_portfolio_selection(registry_db, profile, as_of=as_of)
+        seal = verify_portfolio_selection(registry_db, profile, as_of=as_of)
         digest_value = seal.get("definition_sha256")
         if (
             not isinstance(digest_value, str)
@@ -88,7 +88,7 @@ def selected_wallets_from_registry(
             or any(char not in "0123456789abcdef" for char in digest_value)
         ):
             raise ValueError("VIKE_SELECTED_PORTFOLIO_SEAL_NOT_VERIFIED")
-        with closing(_readonly(registry_db)) as conn:
+        with closing(readonly(registry_db)) as conn:
             conn.execute("BEGIN")
             try:
                 for alias in profile.full_aliases:
@@ -115,7 +115,7 @@ def selected_campaign_wallets(
     member's live SQLite identity have passed load_campaign validation.
     Address output remains private, and fill collection is never paper proof.
     """
-    from .pm_v4_sixteen_scenarios import IDENTITIES, load_campaign
+    from .pm_source_campaign_roster import IDENTITIES, load_campaign
 
     campaign = load_campaign(
         manifest=manifest,

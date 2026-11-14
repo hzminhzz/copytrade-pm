@@ -175,9 +175,7 @@ def test_ccxt_result_and_receipt_clock_are_captured_before_scheduler_yields(chan
             trade_clocks=lambda *args: dict(clocks),
             transport_at=lambda: stamp["known_at"],
         )
-        feed = SimpleNamespace(
-            _exchange=SimpleNamespace(watch_order_book=watch, watch_trades=watch)
-        )
+        feed = SimpleNamespace(watch_raw_order_book=watch, watch_raw_trades=watch)
         async with SerialWriter(max_pending=4) as writer:
             await asyncio.wait_for(
                 _ccxt_channel(

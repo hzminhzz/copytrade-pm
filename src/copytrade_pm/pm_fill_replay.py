@@ -415,10 +415,10 @@ def replay_wallet(
     # book is executable at that open. One rebalance = one participation cap;
     # never re-use the same realized minute volume for multiple virtual fills.
     planned: dict[datetime, list[tuple]] = {
-        VerifiedHyperliquidMinuteSource._minute(anchor_at + timedelta(minutes=latency)): []
+        VerifiedHyperliquidMinuteSource.minute(anchor_at + timedelta(minutes=latency)): []
     }
     for row in fills[warmup_rows:]:
-        scheduled = VerifiedHyperliquidMinuteSource._minute(row[0] + timedelta(minutes=latency))
+        scheduled = VerifiedHyperliquidMinuteSource.minute(row[0] + timedelta(minutes=latency))
         planned.setdefault(scheduled, []).append(row)
     events_processed = 0
     for fill_time, grouped in sorted(planned.items()):

@@ -18,11 +18,11 @@ from typing import Literal
 from pydantic import Field, model_validator
 
 from .pm03_account import clock, digest
+from .pm_private_io import atomic_private_output
 from .production_manifest import canonical
 from .strategy_finance import inspect_pm03_original
 from .strategy_health import Strict, StrategyAssessment, canonical_report, utc
 from .strategy_source_verify import verify_packet
-from .v4_source_export import _atomic_private_output
 
 SHA = r"^[a-f0-9]{64}$"
 PATH = 2048
@@ -108,7 +108,7 @@ def verify_reference_hash(ref: OriginalProofReference) -> None:
 
 def publish_reference(ref: OriginalProofReference, path: Path) -> None:
     verify_reference_hash(ref)
-    _atomic_private_output(path, canonical(ref.model_dump(mode="json")))
+    atomic_private_output(path, canonical(ref.model_dump(mode="json")))
 
 
 def read_reference(path: Path) -> OriginalProofReference:

@@ -46,22 +46,13 @@ def inspect_pm03_original(root: Path, *, as_of: datetime, expected_head: str | N
     policy = RiskPolicy(
         **{field.name: number(manifest["risk_policy"][field.name]) for field in fields(RiskPolicy)}
     )
-    # Ledger.__init__ is intentionally bypassed: it mkdir/chmods and creates
-    # writable artifacts. Ledger.read itself only opens original events read-only.
-    ledger = object.__new__(Ledger)
-    ledger.path = root
-    ledger.events_path = root / "events.jsonl"
-    ledger.lock_path = root / ".writer.lock"
-    if ledger.events_path.is_symlink():
+    events_path = root / "events.jsonl"
+    if events_path.is_symlink():
         raise ValueError("PM03_LEDGER_SYMLINK")
-    events = ledger.read()  # authoritative chain verification, zero writes
+    events = Ledger.read_path(events_path)
     head = events[-1]["sha"] if events else "0" * 64
     if expected_head is not None and head != expected_head:
         raise ValueError("PM03_ORIGINAL_HEAD_CHANGED")
-    run = object.__new__(ShadowRun)
-    run.manifest = manifest
-    run.policy = policy
-    run.initial_rulebook = rulebook
     account = Account.start(rulebook, manifest["started_at"])
     seen = []
     last_time = clock(manifest["started_at"])
@@ -72,7 +63,7 @@ def inspect_pm03_original(root: Path, *, as_of: datetime, expected_head: str | N
         if clock(original.decision_at) < last_time:
             raise ValueError("PM03_NONCAUSAL_FINANCE")
         last_time = clock(original.decision_at)
-        effect = run._apply(account, original)
+        effect = ShadowRun.replay_record(account, original, manifest, policy)
         post_sha = digest({"account": account.snapshot(), "result": effect})
         if post_sha != original.payload.get("post_state_sha"):
             raise ValueError("PM03_FINANCIAL_REPLAY_DIVERGENCE")

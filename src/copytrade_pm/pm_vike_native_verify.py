@@ -17,6 +17,7 @@ from time import sleep
 from typing import Callable
 from urllib import error, request
 
+from .pm_e4_prospective import INFO_ENDPOINT
 from .pm_vike_reconcile import (
     _ms,
     _num,
@@ -26,7 +27,6 @@ from .pm_vike_reconcile import (
     wallet_from_registry,
 )
 
-INFO_ENDPOINT = "https://api.hyperliquid.xyz/info"
 USER_AGENT = "OpenAI File Downloader, XaiImageApiFetch/1.0"
 MAX_DAYS = 10
 MAX_ROWS_PER_DAY = 2000

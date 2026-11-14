@@ -19,12 +19,11 @@ from .pm03_execution import CostModel, MarketObservation, execute_targets
 from .pm03_risk import RiskEvidence, RiskPolicy, classify, loss_under_shock
 from .pm_checkpoint_journal import CheckpointOutcome, history as source_history
 from .pm_checkpoint_opportunity import OpportunityState, advance
-from .pm_checkpoint_source import GRID_MS
+from .pm_checkpoint_source import GRID_MS, source_marks
 from .pm_copy_mandate import CopyMandate, MandateState, verify_mandate
 from .pm_copy_mandate_journal import baseline, history as mandate_history
-from .pm_forward_observed_paper import _candidate_market, _read_quote
-from .pm_v4_evidence import read_wire
-from .v4_source_export import _source_marks
+from .pm_forward_observed_paper import candidate_market, read_quote
+from .pm_wire_evidence import read_wire
 
 KIND = "CWSA_PAPER_REVIEW"
 TERMINAL = {
@@ -53,7 +52,7 @@ def _marks(outcome, originals):
         if native["time"] != receipt.state_ms:
             raise ValueError("CHECKPOINT_SOURCE_MARK_CLOCK")
         states.append([receipt.dex, native])
-    return _source_marks(
+    return source_marks(
         {"data": {"clearinghouseStates": states}},
         {p.instrument: str(p.quantity) for p in outcome.positions},
     )
@@ -140,10 +139,10 @@ def consume(journal, run_id, owner, outcome_id, *, at_ms, policy, catalog):
     if type(at_ms) is not int or at_ms < 0:
         raise ValueError("CHECKPOINT_CONSUMER_CLOCK")
     _policy(policy)
-    with journal._writer() as db:
+    with journal.writer() as db:
         db.execute("BEGIN IMMEDIATE")
         try:
-            previous = journal._verify(db, run_id)
+            previous = journal.verify(db, run_id)
             row = db.execute(
                 "SELECT mandate,state,approval,authority_public FROM copy_mandate_heads WHERE owner=?",
                 (owner,),
@@ -190,7 +189,7 @@ def consume(journal, run_id, owner, outcome_id, *, at_ms, policy, catalog):
             keys = set(m.allowed_markets)
             for book in previous["account"].get("pm_quantities", {}).values():
                 keys.update(book)
-            quotes = {k: value for k in sorted(keys) if (value := _read_quote(db, k)) is not None}
+            quotes = {k: value for k in sorted(keys) if (value := read_quote(db, k)) is not None}
             event = {
                 "kind": KIND,
                 "run_id": run_id,
@@ -222,7 +221,7 @@ def consume(journal, run_id, owner, outcome_id, *, at_ms, policy, catalog):
             }
             validate_binding(db, run_id, event)
             event_id = digest(["checkpoint_paper_effect_v3", event])
-            journal._append_locked(db, run_id, event_id, event)
+            journal.append_locked(db, run_id, event_id, event)
             db.execute("COMMIT")
         except BaseException:
             db.execute("ROLLBACK")
@@ -450,14 +449,14 @@ def _proposal(account, mandate, outcome, marks, event):
         raw = event["quotes"].get(key)
         if raw is None:
             raise ValueError("INDEPENDENT_FOLLOWER_QUOTE_MISSING")
-        PaperJournal._validate_market_quote(raw)
+        PaperJournal.validate_market_quote(raw)
         age = event["at_ms"] - int(clock(raw["source_event_at"]).timestamp() * 1000)
         if not 0 <= age <= event["policy"]["max_quote_age_ms"] or clock(
             raw["first_known_at"]
         ) > clock(event["event_at"]):
             raise ValueError("INDEPENDENT_FOLLOWER_QUOTE_STALE_OR_FUTURE")
         inst = Instrument.parse(key)
-        market = _candidate_market(inst, event["catalog"], raw)
+        market = candidate_market(inst, event["catalog"], raw)
         native[key] = market
         observations[inst] = MarketObservation(
             instrument=inst,

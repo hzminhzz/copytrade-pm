@@ -23,7 +23,7 @@ from .pm_checkpoint_journal import (
     ZERO,
     stream_key,
 )
-from .pm_v4_evidence import publish_wire, read_wire
+from .pm_wire_evidence import publish_wire, read_wire
 
 
 def mirror_source(source_db: Path, journal, stream: str) -> tuple[str, ...]:
@@ -120,7 +120,7 @@ def mirror_source(source_db: Path, journal, stream: str) -> tuple[str, ...]:
     for sha in sorted(original_shas):
         publish_wire(journal.path, read_wire(source_db, sha), sha)
 
-    with journal._writer() as consumer:
+    with journal.writer() as consumer:
         consumer.execute("BEGIN IMMEDIATE")
         try:
             saved = consumer.execute(
@@ -205,7 +205,7 @@ def mirror_latest_quotes(
                 or int(datetime.fromisoformat(known_at).astimezone(UTC).timestamp() * 1000) > now_ms
             ):
                 raise ValueError("CWSA_QUOTE_SOURCE_PROOF_INVALID")
-            journal._validate_market_quote(payload)
+            journal.validate_market_quote(payload)
             selected[inst] = payload
         db.execute("COMMIT")
     results = {}

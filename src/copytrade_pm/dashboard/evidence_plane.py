@@ -270,6 +270,8 @@ def encode_generation(projection: dict, *, now: datetime | None = None) -> bytes
 
 def publish_atomic(directory: Path, payload: bytes, *, name: str = "account-risk.json") -> None:
     """Only the publisher has a writable mount; committed snapshots replace atomically."""
+    from ..pm_private_io import publish_atomic_public
+
     if name not in {
         "account-risk.json",
         "fixture-states.json",
@@ -279,23 +281,7 @@ def publish_atomic(directory: Path, payload: bytes, *, name: str = "account-risk
         raise EvidenceInvalid("UNAPPROVED_OUTPUT_NAME")
     if len(payload) > MAX_SIZE:
         raise EvidenceInvalid("PUBLISHED_EVIDENCE_TOO_LARGE")
-    directory.mkdir(parents=True, exist_ok=True, mode=0o755)
-    # Do not follow replacement symlinks and never name temp files from client input.
-    temp = directory / f".{name}.{os.getpid()}.{time.monotonic_ns()}.tmp"
-    fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
-    try:
-        with os.fdopen(fd, "wb") as file:
-            file.write(payload)
-            file.flush()
-            os.fsync(file.fileno())
-        os.replace(temp, directory / name)
-        dfd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(dfd)
-        finally:
-            os.close(dfd)
-    finally:
-        temp.unlink(missing_ok=True)
+    publish_atomic_public(directory, payload, name=name)
 
 
 def read_generation(

@@ -80,7 +80,7 @@ def test_sixteen_campaign_selects_exactly_fourteen_unique_registry_checked_paren
     monkeypatch, tmp_path
 ):
     from types import SimpleNamespace
-    from copytrade_pm import pm_v4_sixteen_scenarios as scenarios
+    from copytrade_pm import pm_source_campaign_roster as scenarios
 
     expected = tuple("0x" + format(i, "040x") for i in range(1, 15))
     seen = {}

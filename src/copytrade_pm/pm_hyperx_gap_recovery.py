@@ -357,5 +357,17 @@ def main() -> None:
     )
 
 
+def private_dir(path: Path) -> None:
+    _private_dir(path)
+
+
+def atomic(path: Path, data: bytes) -> None:
+    _atomic(path, data)
+
+
+def adapter(root: Path):
+    return _adapter(root)
+
+
 if __name__ == "__main__":
     main()

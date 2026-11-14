@@ -24,7 +24,7 @@ from uuid import uuid4
 from .pm03_account import Instrument, clock, digest, number
 from .pm_e4_prospective import WS_URL
 from .pm_forward_journal import PaperJournal
-from .pm_forward_portfolios import _verify_sealed_definition_sha
+from .pm_forward_portfolios import verify_sealed_definition_sha
 
 ADDRESS = re.compile(r"0x[0-9a-f]{40}\Z")
 MAX_NATIVE_MARKETS = 8  # legacy per-WS shard size, preserved for existing configurations
@@ -186,10 +186,10 @@ def validate_public_market_catalog(
     This is a current availability preflight, not a historical PIT listing or
     source wallet's historical activity. Failed/unavailable markets abort.
     """
-    from .pm_e4_prospective import _guarded_info
+    from .pm_e4_prospective import guarded_info
 
     selected = _bounded_market_universe(instruments)
-    provider = _guarded_info if info is None else info
+    provider = guarded_info if info is None else info
     dexs: dict[str, set[str]] = {}
     for inst in selected:
         dex = inst.market.removeprefix("mainnet:perp:")
@@ -282,7 +282,7 @@ def registry_watched_addresses(
             ).fetchall()
             if not members or any(row["wallet_id"] is None for row in members):
                 raise ValueError("PUBLIC_TRADE_PORTFOLIO_IDENTITY_UNRESOLVED")
-            verified = _verify_sealed_definition_sha(
+            verified = verify_sealed_definition_sha(
                 conn,
                 pid,
                 version,
@@ -602,7 +602,7 @@ def reconcile_public_wallet_fills(
     from contextlib import closing
     from hashlib import sha256
     import sqlite3
-    from .pm_e4_prospective import _guarded_info
+    from .pm_e4_prospective import guarded_info
     from .pm_forward_stream_journal import StreamProgress
 
     start, end = clock(start_at), clock(end_at)
@@ -612,7 +612,7 @@ def reconcile_public_wallet_fills(
     # microsecond UTC clocks. Compare both sources against the actual wire range.
     # A boundary overlap remains later audit evidence, never a new signal.
     start_ms, end_ms = int(start.timestamp() * 1000), int(end.timestamp() * 1000)
-    provider = info or _guarded_info
+    provider = info or guarded_info
     markets = {native_coin(inst): inst for inst in required_markets}
     summary = {
         "schema": "paper_public_fill_reconciliation_v1",

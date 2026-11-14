@@ -27,7 +27,7 @@ from .pm03_account import (
     digest,
     number,
 )
-from .pm03_memory import Event, Ledger, _atomic_private
+from .pm03_memory import Event, Ledger, atomic_private
 
 MANAGERS = ("W028", "CA-008", "W015")
 SCHEMA = "combo2_paper_v1"
@@ -706,7 +706,7 @@ class Combo2PaperTracker:
             "rulebook_sha": self.rulebook.sha,
         }
         self.ledger = Ledger(Path(root) / run_id)
-        _atomic_private(
+        atomic_private(
             self.ledger.path / "manifest.json",
             json.dumps(self.manifest, sort_keys=True, separators=(",", ":")).encode(),
         )

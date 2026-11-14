@@ -12,10 +12,10 @@ from datetime import datetime
 import json
 from pathlib import Path
 import shutil
-import sqlite3
 
 from .pm03_account import clock
 from .pm_forward_journal import PaperJournal
+from .pm_sqlite_readonly import connect_readonly
 
 
 def paper_operator_status(
@@ -41,9 +41,8 @@ def paper_operator_status(
             raise ValueError("FUTURE_RUNTIME_HEARTBEAT")
         return seconds
 
-    uri = "file:" + str(Path(db_path).resolve()) + "?mode=ro"
-    with closing(sqlite3.connect(uri, uri=True, timeout=0)) as db:
-        state = PaperJournal._verify(db, run_id)
+    with closing(connect_readonly(db_path, timeout=0, query_only=False)) as db:
+        state = PaperJournal.verify(db, run_id)
         source_count = db.execute("SELECT COUNT(*) FROM source_receipts").fetchone()[0]
     heartbeat_age = age(worker_heartbeat_at)
     transport_age = age(transport_heartbeat_at)
@@ -78,10 +77,8 @@ def paper_operator_status(
             path = Path(db_path)
 
             def restore(self, selected_run: str) -> dict:
-                ro_uri = "file:" + str(self.path.resolve()) + "?mode=ro"
-                with closing(sqlite3.connect(ro_uri, uri=True, timeout=0)) as conn:
-                    conn.execute("PRAGMA query_only=ON")
-                    return PaperJournal._verify(conn, selected_run)
+                with closing(connect_readonly(self.path, timeout=0)) as conn:
+                    return PaperJournal.verify(conn, selected_run)
 
         observer = inspect_observer_heartbeat(
             heartbeat_root,

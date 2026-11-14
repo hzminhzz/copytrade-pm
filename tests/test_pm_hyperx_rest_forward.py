@@ -133,7 +133,7 @@ def test_bounded_authenticated_page_is_private_and_never_economic(monkeypatch, t
             assert doc["fills"][0]["user"] == address
             return {"rows": len(doc["fills"])}
 
-    monkeypatch.setattr(rest, "_adapter", lambda root: FakeSource())
+    monkeypatch.setattr(rest, "adapter", lambda root: FakeSource())
     generation = tmp_path / "private_generations" / "g123456789"
     report = ingest_batch(tmp_path, generation, ("W001/BTC",))
     assert report["attempted_requests"] == 1

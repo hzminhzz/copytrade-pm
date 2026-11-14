@@ -24,6 +24,7 @@ from .pm_forward_registry_identity import (
     P14,
     audit_frozen_member_resolution,
 )
+from .pm_sqlite_readonly import connect_readonly
 
 _ALIAS = {
     "S035-ENA": "S035",
@@ -38,10 +39,19 @@ def _read_db(path: Path) -> sqlite3.Connection:
     path = Path(path)
     if path.is_symlink() or not path.is_file():
         raise ValueError("PAPER_EVIDENCE_DB_MISSING_OR_SYMLINK")
-    uri = "file:" + str(path.resolve()) + "?mode=ro"
-    conn = sqlite3.connect(uri, uri=True, timeout=0)
-    conn.execute("PRAGMA query_only=ON")
-    return conn
+    return connect_readonly(path, timeout=0)
+
+
+def source(db: sqlite3.Connection, alias: str, *, as_of: str | None = None) -> dict:
+    return _source(db, alias, as_of=as_of)
+
+
+def collateral(db: sqlite3.Connection, account_sha: str, *, as_of: str | None = None) -> dict:
+    return _collateral(db, account_sha, as_of=as_of)
+
+
+def market(db: sqlite3.Connection, instrument: str, *, as_of: str | None = None) -> dict:
+    return _market(db, instrument, as_of=as_of)
 
 
 def _source(db: sqlite3.Connection, alias: str, *, as_of: str | None = None) -> dict:
@@ -141,7 +151,7 @@ def _collateral(db: sqlite3.Connection, account_sha: str, *, as_of: str | None =
     vault_status = "NOT_CAPTURED"
     for expected, (seq, receipt_id, raw, sha, old, chain) in enumerate(rows, 1):
         report = json.loads(raw)
-        PaperJournal._check_collateral_diagnostic(report)
+        PaperJournal.check_collateral_diagnostic(report)
         if (
             seq != expected
             or receipt_id != sha
@@ -211,7 +221,7 @@ def _market(db: sqlite3.Connection, instrument: str, *, as_of: str | None = None
     last_source = last_known = None
     for expected, (seq, qid, raw, sha, prior, chain, at, known) in enumerate(rows, 1):
         quote = json.loads(raw)
-        PaperJournal._validate_market_quote(quote)
+        PaperJournal.validate_market_quote(quote)
         if (
             expected != seq
             or quote.get("instrument") != instrument

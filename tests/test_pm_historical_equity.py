@@ -168,6 +168,7 @@ def test_equity_mode_study_uses_synthetic_asof_ledger_without_gross_proxy(tmp_pa
 
     class FlatMarket:
         _minute = staticmethod(VerifiedHyperliquidMinuteSource._minute)
+        minute = staticmethod(VerifiedHyperliquidMinuteSource.minute)
 
         def __init__(self, _root):
             self.source_days = {}

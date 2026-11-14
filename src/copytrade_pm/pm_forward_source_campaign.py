@@ -19,14 +19,14 @@ from .pm_forward_journal import PaperJournal
 from .pm_forward_registry_identity import (
     P1,
     P14,
-    _private_locator,
     audit_frozen_member_resolution,
+    private_locator,
 )
 from .pm_forward_source_stream import (
     bounded_source_family_capture,
     bounded_source_scope_capture,
 )
-from .pm_e4_prospective import _guarded_info
+from .pm_e4_prospective import guarded_info
 
 _ALIAS = {
     "S035-ENA": "S035",
@@ -35,6 +35,11 @@ _ALIAS = {
     "S064-xyz:BRENTOIL": "S064",
     "Whale_0x5f94": "Whale_0x5f94",
 }
+ALIAS = _ALIAS
+
+
+def alias_map() -> dict[str, str]:
+    return _ALIAS
 
 
 async def observe_frozen_portfolio_readonly(
@@ -48,7 +53,7 @@ async def observe_frozen_portfolio_readonly(
     max_frames: int = 10,
     include_subaccounts: bool = False,
     include_collateral: bool = False,
-    info: Callable = _guarded_info,
+    info: Callable = guarded_info,
     connect: Callable[..., Any] | None = None,
     now: Callable[[], str] = lambda: datetime.now(UTC).isoformat(),
 ) -> dict:
@@ -62,11 +67,12 @@ async def observe_frozen_portfolio_readonly(
     # Never infer authorized paper execution or mutate the registry.
     members = P1 if portfolio_id == "P1" else P14
     attempts = []
+    aliases = alias_map()
     for member in members:
-        _, address, _sha = _private_locator(
+        _, address, _sha = private_locator(
             member, primary_dir=primary_dir, secondary_dir=secondary_dir
         )
-        alias = _ALIAS[member]
+        alias = aliases[member]
         try:
             if include_subaccounts or include_collateral:
                 capture = await bounded_source_family_capture(
@@ -159,7 +165,7 @@ async def observe_shared_frozen_sources_readonly(
     seconds_per_wallet: float = 8,
     max_frames: int = 10,
     include_collateral: bool = True,
-    info: Callable = _guarded_info,
+    info: Callable = guarded_info,
     connect: Callable[..., Any] | None = None,
     now: Callable[[], str] = lambda: datetime.now(UTC).isoformat(),
 ) -> dict:

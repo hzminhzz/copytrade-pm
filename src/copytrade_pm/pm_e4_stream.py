@@ -27,15 +27,15 @@ from .pm_e4_prospective import (
     PODS,
     SUBSCRIPTIONS,
     WS_URL,
-    _account_state,
-    _canonical,
-    _dex_universe,
-    _guarded_info,
-    _safe_dir,
-    _subaccount_roster,
+    account_state,
+    canonical,
+    dex_universe,
+    guarded_info,
+    safe_dir,
+    subaccount_roster,
 )
-from .pm_hyperx_account_triage import _write_immutable_private
-from .pm_hyperx_gap_recovery import _private_dir
+from .pm_hyperx_account_triage import write_immutable_private
+from .pm_hyperx_gap_recovery import private_dir
 from .pm_sources import load_cohort
 from .pm_portfolio_e0 import PORTFOLIOS
 
@@ -87,7 +87,7 @@ def capture_book_change(
     risk_metadata: dict | None = None,
 ) -> tuple[bool, bool]:
     """Persist any quantity change immediately; checkpoint unchanged books."""
-    signature = sha256(_canonical({"positions": positions, "risk": risk_metadata})).hexdigest()
+    signature = sha256(canonical({"positions": positions, "risk": risk_metadata})).hexdigest()
     previous = last.get(subject)
     changed = previous is not None and previous[0] != signature
     checkpoint = previous is None or (observed_at - previous[1]).total_seconds() >= sample_seconds
@@ -104,7 +104,7 @@ def _discovery(
     if set(roster) != set(pods):
         raise ValueError("E4_STREAM_FROZEN_ROSTER_MISMATCH")
     requested = datetime.now(UTC)
-    dex, raw, catalog_sha = _guarded_info({"type": "perpDexs"})
+    dex, raw, catalog_sha = guarded_info({"type": "perpDexs"})
     discovery_receipts = {
         "dex_catalog.json": {
             "requested_at": requested.isoformat(),
@@ -112,13 +112,13 @@ def _discovery(
             "sha256": catalog_sha,
         }
     }
-    _write_immutable_private(session_root / "discovery" / "dex_catalog.json", raw)
-    dexs = _dex_universe(dex)
+    write_immutable_private(session_root / "discovery" / "dex_catalog.json", raw)
+    dexs = dex_universe(dex)
     subjects = {p: roster[p].address for p in pods}
     sub_counts: dict[str, int] = {}
     for pod in pods:
         requested = datetime.now(UTC)
-        content, raw, response_sha = _guarded_info(
+        content, raw, response_sha = guarded_info(
             {"type": "subAccounts", "user": roster[pod].address}
         )
         discovery_receipts[f"{pod}-subaccounts.json"] = {
@@ -127,8 +127,8 @@ def _discovery(
             "sha256": response_sha,
             "request": {"type": "subAccounts", "user": roster[pod].address},
         }
-        sub_accounts = _subaccount_roster(content, roster[pod].address)
-        _write_immutable_private(session_root / "discovery" / f"{pod}-subaccounts.json", raw)
+        sub_accounts = subaccount_roster(content, roster[pod].address)
+        write_immutable_private(session_root / "discovery" / f"{pod}-subaccounts.json", raw)
         for n, address in enumerate(sub_accounts):
             code = f"{pod}-sub{n:02d}"
             subjects[code] = address
@@ -180,14 +180,14 @@ async def session(
         raise ValueError("E4_INVALID_SESSION_DURATION")
     if not MIN_SAMPLE_SECONDS <= sample_seconds <= MAX_SAMPLE_SECONDS:
         raise ValueError("E4_INVALID_ACCOUNT_CHECKPOINT_INTERVAL")
-    _private_dir(store)
+    private_dir(store)
     if store.stat().st_mode & 0o077:
         raise ValueError("E4_STREAM_ROOT_NOT_PRIVATE")
     if shutil.disk_usage(store).free < MIN_FREE_DISK_BYTES:
         raise ValueError("E4_STREAM_DISK_HEADROOM_INSUFFICIENT")
     date = datetime.now(UTC)
     generation = store / ("gE4" + date.strftime("%Y%m%dT%H%M%S%fZ") + "-" + uuid.uuid4().hex[:8])
-    _safe_dir(generation)
+    safe_dir(generation)
     report: dict[str, Any] = {
         "schema": "e4_live_readonly_stream_session_v2",
         "started_at": date.isoformat(),
@@ -328,7 +328,7 @@ async def session(
                         report["errors"].append("UNATTRIBUTED_ACCOUNT_FRAME")
                         continue
                     try:
-                        snapshot_parsed = _account_state(data, subjects[subject], dexs)
+                        snapshot_parsed = account_state(data, subjects[subject], dexs)
                     except (ValueError, KeyError, TypeError) as exc:
                         report["errors"].append("ACCOUNT_CENSUS_" + type(exc).__name__)
                         continue
@@ -368,10 +368,10 @@ async def session(
                     report["disconnect_reason"] = "STORAGE_BUDGET_REACHED"
                     break
                 filename = f"{serial:08d}-{sha256(wire).hexdigest()[:20]}.json"
-                raw_sha = _write_immutable_private(generation / "frames" / filename, wire)
-                _write_immutable_private(
+                raw_sha = write_immutable_private(generation / "frames" / filename, wire)
+                write_immutable_private(
                     generation / "metadata" / f"{serial:08d}.json",
-                    _canonical(
+                    canonical(
                         {
                             "schema": "e4_live_received_frame_v1",
                             "locally_received_at": at.isoformat(),
@@ -413,7 +413,7 @@ async def session(
         report["errors"].append("SESSION_" + type(exc).__name__)
         report["disconnect_reason"] = "SOURCE_UNAVAILABLE"
     report["finished_at"] = datetime.now(UTC).isoformat()
-    _write_immutable_private(generation / "session-report.json", _canonical(report))
+    write_immutable_private(generation / "session-report.json", canonical(report))
     return {
         "generation": generation.name,
         "raw_report_sha256": sha256((generation / "session-report.json").read_bytes()).hexdigest(),

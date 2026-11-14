@@ -198,21 +198,21 @@ class ReadOnlyTradeObserver:
         self.windows: dict[Instrument, TradeWindow] = {}
 
     async def observe(self, instrument: Instrument) -> dict:
-        if not self.feed._is_open or self.feed._exchange is None:
+        if not self.feed.is_open:
             raise ValueError("CCXT_FEED_NOT_OPEN")
         if instrument in self.feed.quarantined:
             raise ValueError("CCXT_MARKET_QUARANTINED_REBASELINE_REQUIRED")
         market = self.feed.catalog.get(instrument)
         if market is None:
             raise ValueError("CCXT_NATIVE_MARKET_UNAVAILABLE")
-        if getattr(self.feed._exchange, "has", {}).get("watchTrades") is not True:
+        if not self.feed.supports_trades_ws:
             raise ValueError("CCXT_TRADES_WS_UNSUPPORTED")
         window = self.windows.setdefault(
             instrument, TradeWindow(instrument, market.ccxt_symbol, max_cache=self.max_cache)
         )
         try:
             cached = await asyncio.wait_for(
-                self.feed._exchange.watch_trades(market.ccxt_symbol, None, self.max_cache),
+                self.feed.watch_raw_trades(market.ccxt_symbol, None, self.max_cache),
                 timeout=self.feed.timeout_seconds,
             )
             return window.process(list(cached), first_known_at=self.now())

@@ -22,10 +22,10 @@ from .pm_checkpoint_source import (
     collect_checkpoint,
     utc_milliseconds,
 )
-from .pm_e4_prospective import _dex_universe, _guarded_info
-from .pm_forward_release_candidate import _sync_directory, _write_once
-from .pm_v4_evidence import publish_wire, read_wire
-from .pm_v4_sixteen_scenarios import load_campaign
+from .pm_e4_prospective import dex_universe, guarded_info
+from .pm_forward_release_candidate import sync_directory, write_once
+from .pm_source_campaign_roster import load_campaign
+from .pm_wire_evidence import publish_wire, read_wire
 
 RATE_SOURCE = (
     "https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/rate-limits-and-user-limits"
@@ -143,7 +143,7 @@ class CaptureTransport:
         started = utc_milliseconds()
         error = None
         try:
-            return _guarded_info(request)
+            return guarded_info(request)
         except Exception as exc:
             error = f"HTTP_{exc.code}" if isinstance(exc, HTTPError) else type(exc).__name__
             raise
@@ -177,7 +177,7 @@ def capture(*, root, registry_db, manifest, mode, workers, weight_per_second):
     if sha256(raw).hexdigest() != raw_sha:
         raise ValueError("CAPACITY_CATALOG_HASH")
     publish_wire(root / "paper-events.sqlite3", raw.decode(), raw_sha)
-    dexes = tuple(sorted(_dex_universe(json.loads(raw))))
+    dexes = tuple(sorted(dex_universe(json.loads(raw))))
     roster_sha = digest(
         {alias: sha256(address.encode()).hexdigest() for alias, address in campaign.parents.items()}
     )
@@ -229,10 +229,10 @@ def capture(*, root, registry_db, manifest, mode, workers, weight_per_second):
         "requests": transport.requests,
     }
     body = json.dumps(evidence, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
-    _write_once(root / "capture.json", body)
+    write_once(root / "capture.json", body)
     receipt = {"capture_sha": sha256(body).hexdigest(), "report": report}
-    _write_once(root / "receipt.json", json.dumps(receipt, sort_keys=True).encode())
-    _sync_directory(root)
+    write_once(root / "receipt.json", json.dumps(receipt, sort_keys=True).encode())
+    sync_directory(root)
     return receipt
 
 

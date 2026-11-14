@@ -1,5 +1,7 @@
 # 0911 official-source WebSocket budget recovery (#292)
 
+> **RETIRED / NON-EXECUTABLE HISTORICAL RECORD (2026-11-14):** The V4 first-known T0+300 operational policy, sixteen-portfolio paper executors (`pm_v4_selected_positions`, `pm_v4_sixteen_paper`), and `scripts/v4_native_budget_release_292.py` were retired and removed from the repository per [the V4 retirement ADR](decisions/2026-11-14-retire-v4-t300-source-policy.md). Do not execute commands in this document; use CWSA (`copytrade-cwsa-5m-source-chapter2.service` / `copytrade-cwsa-5m-paper-chapter2.service`, see [CWSA Chapter 2](CWSA-CHAPTER2-20261112.md)).
+
 **2026-11-11 supersession boundary:** This remains the accurate **existing official transport recovery and original GAP evidence**, not the preferred future scaling architecture. For new wallet-source transport use the [Vike-first ADR](decisions/2026-11-11-vike-first-wallet-source.md); it does not implement a replacement or remove the official complete-position source authority. This 7-at-a-time rotation cannot qualify simultaneous 14/14 continuous coverage and must not be described as such.
 
 **2026-11-11 decision:** Recover the existing 16-portfolio SHADOW 0911 campaign without new broker permissions, campaign identity changes, journal reset or k/T+300 changes.

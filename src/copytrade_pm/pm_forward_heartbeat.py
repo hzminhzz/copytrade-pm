@@ -29,6 +29,14 @@ from .pm_forward_journal import PaperJournal
 _RUN = re.compile(r"[A-Za-z0-9_-]{1,100}\Z")
 
 
+def process_identity(pid: int) -> dict:
+    return _process_identity(pid)
+
+
+def private_dir(root: Path) -> None:
+    _private_dir(root)
+
+
 def _process_identity(pid: int) -> dict:
     if type(pid) is not int or pid <= 0:
         raise ValueError("HEARTBEAT_PID_INVALID")
@@ -266,7 +274,7 @@ def main() -> None:
             uri = "file:" + str(self.path.resolve()) + "?mode=ro"
             with closing(sqlite3.connect(uri, uri=True, timeout=0)) as db:
                 db.execute("PRAGMA query_only=ON")
-                return PaperJournal._verify(db, run_id)
+                return PaperJournal.verify(db, run_id)
 
     result = inspect_observer_heartbeat(
         args.heartbeat_root,

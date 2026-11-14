@@ -172,7 +172,7 @@ def open_verified_hot_week(
     source_days = []
     locations = []
     try:
-        family = VerifiedHyperliquidMinuteSource._family(instrument)
+        family = VerifiedHyperliquidMinuteSource.family(instrument)
     except MarketDataBlocked as exc:
         raise ManifestInvalid("INVALID_HOT_NATIVE_MARKET") from exc
     for offset in range(7):

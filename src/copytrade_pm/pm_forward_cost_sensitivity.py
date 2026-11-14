@@ -61,7 +61,7 @@ def replay_cost_sensitivity(
         adjusted = stress_cost_event(raw, factor=factor)
         if adjusted != raw:
             cost_events += 1
-        result = PaperJournal._apply(account, adjusted)
+        result = PaperJournal.apply(account, adjusted)
         account.verify()
         if result.get("status", "").startswith("BLOCKED"):
             rejected += 1

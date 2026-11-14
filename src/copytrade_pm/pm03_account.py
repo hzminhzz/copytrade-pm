@@ -211,7 +211,11 @@ class Account:
     # Replay policy is event-local, never part of historical financial snapshots.
     _risk_semantics_version: int = field(default=3, repr=False, compare=False)
 
-    def _prepare_risk_semantics(self, version: int) -> None:
+    @property
+    def risk_semantics_version(self) -> int:
+        return self._risk_semantics_version
+
+    def prepare_risk_semantics(self, version: int) -> None:
         if type(version) is not int or version not in (1, 2, 3):
             raise ValueError("UNSUPPORTED_RISK_SEMANTICS")
         self._risk_semantics_version = version
@@ -219,6 +223,8 @@ class Account:
         # its halt reason. New events must not inherit that unsafe permission.
         if version >= 2 and (self.halt_reason is not None or self.breached):
             self.risk = RiskState.HALT
+
+    _prepare_risk_semantics = prepare_risk_semantics
 
     def latch_halt(self, reason: str) -> None:
         """Retain the first restriction until the existing authorized reset.

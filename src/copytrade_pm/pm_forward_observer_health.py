@@ -19,10 +19,10 @@ import stat
 import tempfile
 
 from .pm03_account import clock, digest
-from .pm_forward_heartbeat import _private_dir, _process_identity
-from .pm_forward_readiness import _collateral, _market, _source
+from .pm_forward_heartbeat import private_dir, process_identity
+from .pm_forward_readiness import collateral, market, source
 from .pm_forward_registry_identity import P14
-from .pm_forward_source_campaign import _ALIAS
+from .pm_forward_source_campaign import alias_map
 
 _HEARTBEAT = "p1p14-public-observer.heartbeat.json"
 
@@ -39,9 +39,10 @@ def _readonly_tape_snapshot(db_path: Path) -> dict:
         # observer is appending new receipts in another connection.
         db.execute("BEGIN")
         sources = {}
+        aliases = alias_map()
         for member in P14:
-            alias = _ALIAS[member]
-            tape = _source(db, alias)
+            alias = aliases[member]
+            tape = source(db, alias)
             sources[alias] = {
                 "cursor": tape["cursor"],
                 "head_sha": tape["head_sha"],
@@ -55,9 +56,9 @@ def _readonly_tape_snapshot(db_path: Path) -> dict:
             for item in db.execute("SELECT instrument FROM market_quote_heads ORDER BY instrument")
         ]
         quotes = {}
-        for market in market_keys:
-            tape = _market(db, market)
-            quotes[market] = {
+        for inst in market_keys:
+            tape = market(db, inst)
+            quotes[inst] = {
                 "cursor": tape["cursor"],
                 "head_sha": tape["head_sha"],
                 "latest_first_known_at": (
@@ -70,19 +71,19 @@ def _readonly_tape_snapshot(db_path: Path) -> dict:
                 "SELECT DISTINCT account_sha FROM source_scope_receipts ORDER BY account_sha"
             )
         ]
-        collateral = {
+        collaterals = {
             key: {
                 "cursor": result["cursor"],
                 "head_sha": result["head_sha"],
             }
             for key in collateral_keys
-            for result in [_collateral(db, key)]
+            for result in [collateral(db, key)]
         }
     return {
         "schema": "paper_observer_verified_tape_heads_v1",
         "source": sources,
         "quotes": quotes,
-        "collateral": collateral,
+        "collateral": collaterals,
     }
 
 
@@ -165,7 +166,7 @@ def publish_public_observer_heartbeat(
 ) -> dict:
     """Atomic fsynced local observer heartbeat. Never claim protected health."""
     root = Path(root)
-    _private_dir(root)
+    private_dir(root)
     now = observed_at or datetime.now(UTC).isoformat()
     clock(now)
     if type(idle_refresh) is not bool:
@@ -192,7 +193,7 @@ def publish_public_observer_heartbeat(
     envelope_body = {
         "schema": "paper_public_observer_heartbeat_v1",
         "observed_at": now,
-        "process_identity": _process_identity(os.getpid()),
+        "process_identity": process_identity(os.getpid()),
         "tape_heads_sha": digest(snapshot),
         "sealed_prefix_heads": _sealed_prefix_heads(snapshot),
         "source_count": len(snapshot["source"]),
@@ -254,7 +255,7 @@ def inspect_public_observer_heartbeat(
         raise ValueError("OBSERVER_WATCHDOG_HEARTBEAT_POLICY_INVALID")
     try:
         root = Path(root)
-        _private_dir(root)
+        private_dir(root)
         path = root / _HEARTBEAT
         if path.is_symlink() or not path.is_file():
             raise ValueError("OBSERVER_HEARTBEAT_NOT_PRESENT")
@@ -281,7 +282,7 @@ def inspect_public_observer_heartbeat(
         ):
             raise ValueError("OBSERVER_HEARTBEAT_POSITIVE_MODE_UNTRUSTED")
         pid = body["process_identity"]["pid"]
-        if _process_identity(pid) != body["process_identity"]:
+        if process_identity(pid) != body["process_identity"]:
             raise ValueError("OBSERVER_HEARTBEAT_PROCESS_IDENTITY_CHANGED")
         snapshot = _readonly_tape_snapshot(journal_db)
         in_progress = False
@@ -342,7 +343,7 @@ _CONTINUOUS_HEARTBEAT = "continuous-observer.heartbeat.json"
 
 
 def _atomic_private_json(root: Path, name: str, body: dict) -> dict:
-    _private_dir(root)
+    private_dir(root)
     envelope = {**body, "payload_sha": digest(body)}
     path = root / name
     if path.is_symlink() or (
@@ -402,7 +403,7 @@ def publish_continuous_heartbeat(
             "started_at": started_at,
             "revision": revision,
             "manifest_sha": manifest_sha,
-            "process_identity": _process_identity(os.getpid()),
+            "process_identity": process_identity(os.getpid()),
             "stream_prefixes": heads,
             "metrics": metrics,
             "source_nav_attested": False,
@@ -454,7 +455,7 @@ def inspect_continuous_observer(
     try:
         now = clock(as_of)
         root = Path(root)
-        _private_dir(root)
+        private_dir(root)
         body = _private_json(root / _CONTINUOUS_HEARTBEAT)
         if (
             body.get("schema") != "paper_continuous_observer_heartbeat_v1"
@@ -467,7 +468,7 @@ def inspect_continuous_observer(
         if expected_revision is not None and body["revision"] != expected_revision:
             raise ValueError("OBSERVER_RELEASE_REVISION_MISMATCH")
         identity = body["process_identity"]
-        if _process_identity(identity["pid"]) != identity:
+        if process_identity(identity["pid"]) != identity:
             raise ValueError("OBSERVER_PROCESS_IDENTITY_CHANGED")
         age = (now - clock(body["observed_at"])).total_seconds()
         if not 0 <= age <= max_heartbeat_age_seconds:
@@ -517,7 +518,7 @@ def inspect_continuous_observer(
             witness = _private_json(root / "continuous-watchdog.status.json")
             if (
                 witness["process_identity"]["pid"] == identity["pid"]
-                or _process_identity(witness["process_identity"]["pid"])
+                or process_identity(witness["process_identity"]["pid"])
                 != witness["process_identity"]
                 or not 0 <= (now - clock(witness["observed_at"])).total_seconds() <= 90
             ):
@@ -676,7 +677,7 @@ def _append_watchdog_sample(
         "sequence": sequence,
         "prior_sha": prior_sha,
         "observed_at": observed_at,
-        "process_identity": _process_identity(os.getpid()),
+        "process_identity": process_identity(os.getpid()),
         "feed_health": result["feed_health"],
         "reasons": result.get("reason_codes", []),
         "revision": result.get("revision"),
@@ -845,7 +846,7 @@ def continuous_watchdog(root: Path, *, interval_seconds: float = 15, expected_re
     import fcntl
 
     root = Path(root)
-    _private_dir(root)
+    private_dir(root)
     lease = os.open(
         root / "continuous-watchdog.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600
     )
@@ -865,7 +866,7 @@ def continuous_watchdog(root: Path, *, interval_seconds: float = 15, expected_re
             {
                 "schema": "paper_continuous_watchdog_status_v1",
                 "observed_at": now,
-                "process_identity": _process_identity(os.getpid()),
+                "process_identity": process_identity(os.getpid()),
                 "result": result,
                 "alert": result["feed_health"] != "CURRENT_FEEDS_OBSERVED",
                 "order_route": "NONE",
@@ -927,6 +928,14 @@ def main() -> None:
         as_of=args.as_of,
     )
     print(json.dumps(result, indent=2, sort_keys=True))
+
+
+def readonly_tape_snapshot(db_path: Path) -> dict:
+    return _readonly_tape_snapshot(db_path)
+
+
+def atomic_private_json(root: Path, name: str, body: dict) -> dict:
+    return _atomic_private_json(root, name, body)
 
 
 if __name__ == "__main__":

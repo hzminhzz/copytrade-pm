@@ -26,6 +26,7 @@ from . import pm_runtime_readonly
 from .pm03_account import digest
 from .pm_forward_journal import PaperJournal
 from .pm_cwsa_six_paper import ALL_14_WALLETS, PORTFOLIO_CONFIGS, load_registry_seals
+from .pm_sqlite_readonly import connect_readonly
 
 Stage = Literal["premerge", "predeploy", "postdeploy"]
 Verdict = Literal["PASS", "BLOCKED_EVIDENCE", "FAIL"]
@@ -167,7 +168,7 @@ def _git(path: Path, expression: str) -> str:
 def _ro(db: Path) -> sqlite3.Connection:
     if db.is_symlink() or not db.is_file():
         raise ValueError("CHAPTER2_MISSING_OR_SYMLINKED_SQLITE")
-    return sqlite3.connect(f"file:{db.resolve()}?mode=ro", uri=True, timeout=3)
+    return connect_readonly(db, timeout=3, query_only=False)
 
 
 def _source_facts(db_path: Path) -> dict:
@@ -294,7 +295,7 @@ def _paper_facts(root: Path, *, portfolios: tuple[str, ...] | None = None) -> di
         with closing(_ro(db_path)) as db:
             if db.execute("PRAGMA quick_check").fetchone() != ("ok",):
                 raise ValueError(f"CHAPTER2_FINANCIAL_JOURNAL_CORRUPT:{pid}")
-            replay = PaperJournal._verify(db, cfg["folder"])
+            replay = PaperJournal.verify(db, cfg["folder"])
             prior = "0" * 64
             last = 0
             count = 0

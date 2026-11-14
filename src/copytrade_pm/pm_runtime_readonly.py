@@ -6,6 +6,7 @@ repository checkout, or a public observer. No service mutation or broker I/O.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 import hashlib
 import json
@@ -16,24 +17,63 @@ import shlex
 import subprocess
 import sys
 
-UNITS = (
-    "copytrade-paper-p1.service",
-    "copytrade-paper-p14.service",
-    "copytrade-paper-watchdog.service",
-)
-SHA = re.compile(r"^[a-f0-9]{40}$")
 
+@dataclass(frozen=True)
+class _UnitContract:
+    expected_module: str
+    runtime_scopes: frozenset[str]
+    legacy_module: str | None = None
+    role: str | None = None
+    portfolio: str | None = None
+    requires_release_revision: bool = False
+    required_option: tuple[str, str] | None = None
+    option_mismatch_code: str | None = None
+
+
+_V4_MODULE = "copytrade_pm.pm_forward_protected_ops"
 # Only known paper/source services may be inspected. Chapter 2 is user-managed;
 # V4 protected units have separate user (legacy) and system manager identities.
+_UNIT_CONTRACTS: dict[str, _UnitContract] = {
+    "copytrade-cwsa-5m-source-chapter2.service": _UnitContract(
+        expected_module="copytrade_pm.pm_cwsa_source_observer",
+        runtime_scopes=frozenset({"user"}),
+        legacy_module="copytrade_pm.pm_v4_selected_positions",
+        required_option=("--source-mode", "CHECKPOINT_REST_V3"),
+        option_mismatch_code="UNIT_SOURCE_POLICY_MISMATCH",
+    ),
+    "copytrade-cwsa-5m-paper-chapter2.service": _UnitContract(
+        expected_module="copytrade_pm.pm_cwsa_six_paper",
+        runtime_scopes=frozenset({"user"}),
+    ),
+    "copytrade-paper-p1.service": _UnitContract(
+        expected_module=_V4_MODULE,
+        runtime_scopes=frozenset({"system", "user"}),
+        role="worker",
+        portfolio="P1",
+        requires_release_revision=True,
+    ),
+    "copytrade-paper-p14.service": _UnitContract(
+        expected_module=_V4_MODULE,
+        runtime_scopes=frozenset({"system", "user"}),
+        role="worker",
+        portfolio="P14",
+        requires_release_revision=True,
+    ),
+    "copytrade-paper-watchdog.service": _UnitContract(
+        expected_module=_V4_MODULE,
+        runtime_scopes=frozenset({"system", "user"}),
+        role="watchdog",
+        requires_release_revision=True,
+    ),
+}
+UNITS = tuple(name for name, c in _UNIT_CONTRACTS.items() if c.requires_release_revision)
 _CHAPTER2_MODULES = {
-    "copytrade-cwsa-5m-source-chapter2.service": "copytrade_pm.pm_cwsa_source_observer",
-    "copytrade-cwsa-5m-paper-chapter2.service": "copytrade_pm.pm_cwsa_six_paper",
+    name: c.expected_module
+    for name, c in _UNIT_CONTRACTS.items()
+    if not c.requires_release_revision
 }
-_V4_MODULE = "copytrade_pm.pm_forward_protected_ops"
-_RUNTIME_SCOPES = {
-    **{name: frozenset({"user"}) for name in _CHAPTER2_MODULES},
-    **{name: frozenset({"system", "user"}) for name in UNITS},
-}
+_RUNTIME_SCOPES = {name: c.runtime_scopes for name, c in _UNIT_CONTRACTS.items()}
+SHA = re.compile(r"^[a-f0-9]{40}$")
 _LAUNCH_PATTERN = re.compile(r"^\{\s*path=(/[^;\s{}]+)\s*;\s*argv\[\]=([^;{}]+?)\s*;[^{}]*\}$")
 _RUNTIME_LIMIT = (
     "This independently binds the launch, but loaded application bytes, "
@@ -318,44 +358,43 @@ def verify_unit_release(
             executable.stat().st_dev,
             executable.stat().st_ino,
         )
-        expected_module = _CHAPTER2_MODULES.get(unit, _V4_MODULE)
+        contract = _UNIT_CONTRACTS[unit]
+        expected_module = contract.expected_module
         configured_module = configured_argv[2] if len(configured_argv) > 2 else ""
         # A pinned, already-running CWSA REST process may still carry the
         # historical module name until its separately verified release cutover.
         # This exception must not admit V4 WS timing or a new legacy launcher.
         old_cwsa_module = (
-            unit == "copytrade-cwsa-5m-source-chapter2.service"
-            and configured_module == "copytrade_pm.pm_v4_selected_positions"
+            contract.legacy_module is not None and configured_module == contract.legacy_module
         )
         if configured_argv[1:3] != ["-m", expected_module] and not old_cwsa_module:
             return done("MISMATCH", "UNIT_APPLICATION_MODULE_MISMATCH")
-        if unit in UNITS:
-            role = "watchdog" if "watchdog" in unit else "worker"
-            if len(configured_argv) < 4 or configured_argv[3] != role:
+        if contract.role is not None:
+            if len(configured_argv) < 4 or configured_argv[3] != contract.role:
                 return done("MISMATCH", "UNIT_APPLICATION_ROLE_MISMATCH")
-            if role == "worker" and (
+            if contract.portfolio is not None and (
                 "--portfolio" not in configured_argv
                 or configured_argv[configured_argv.index("--portfolio") + 1 :][:1]
-                != ["P1" if "p1.service" in unit else "P14"]
+                != [contract.portfolio]
             ):
                 return done("MISMATCH", "UNIT_PORTFOLIO_MISMATCH")
-            if (
-                "--release" not in configured_argv
-                or configured_argv[configured_argv.index("--release") + 1 :][:1] != [str(release)]
-                or "--revision" not in configured_argv
-            ):
-                return done("MISMATCH", "UNIT_RELEASE_ARGUMENT_MISMATCH")
-        if unit == "copytrade-cwsa-5m-source-chapter2.service" and (
-            "--source-mode" not in configured_argv
-            or configured_argv[configured_argv.index("--source-mode") + 1 :][:1]
-            != ["CHECKPOINT_REST_V3"]
+        if contract.requires_release_revision and (
+            "--release" not in configured_argv
+            or configured_argv[configured_argv.index("--release") + 1 :][:1] != [str(release)]
+            or "--revision" not in configured_argv
         ):
-            return done("MISMATCH", "UNIT_SOURCE_POLICY_MISMATCH")
+            return done("MISMATCH", "UNIT_RELEASE_ARGUMENT_MISMATCH")
+        if contract.required_option is not None:
+            flag, expected_val = contract.required_option
+            if flag not in configured_argv or configured_argv[configured_argv.index(flag) + 1 :][
+                :1
+            ] != [expected_val]:
+                return done("MISMATCH", contract.option_mismatch_code or "UNIT_OPTION_MISMATCH")
         revision, clean = _git_release(runner, release)
         report["installed"].update(revision=revision, detached=bool(revision), clean=clean)
         if not revision or not clean or not SHA.fullmatch(revision):
             return done("UNKNOWN", "MUTABLE_RELEASE_NOT_ATTESTABLE")
-        if unit in UNITS and (
+        if contract.requires_release_revision and (
             configured_argv[configured_argv.index("--revision") + 1 :][:1] != [revision]
         ):
             return done("MISMATCH", "UNIT_RELEASE_ARGUMENT_MISMATCH")

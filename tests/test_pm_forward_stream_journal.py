@@ -144,7 +144,7 @@ def test_checkpoint_causal_clock_and_private_writer(tmp_path):
             checkpoint={},
             source_at="2026-10-29T12:00:01+00:00",
         )
-    with journal._writer():
+    with journal.writer():
         with pytest.raises(ValueError, match="BUSY"):
             journal.append_stream_event(event())
     assert verify_streams(journal.path)["streams"] == {}

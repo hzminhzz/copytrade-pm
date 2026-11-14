@@ -21,8 +21,8 @@ from .pm_acquisition_contracts import (
     read_ledger_page,
     verify_raw,
 )
-from .pm_e4_prospective import PODS, _canonical, _guarded_info, _safe_dir
-from .pm_hyperx_account_triage import _write_immutable_private
+from .pm_e4_prospective import PODS, canonical, guarded_info, safe_dir
+from .pm_hyperx_account_triage import write_immutable_private
 from .pm_sources import load_cohort
 
 START = datetime(2026, 7, 1, tzinfo=UTC)
@@ -63,8 +63,8 @@ async def collect_historical(
     roster = {e.alias: e for e in entries if e.alias in PODS}
     if set(roster) != set(PODS):
         raise ValueError("E4_UNKNOWN_WALLET")
-    _safe_dir(generation)
-    receipt = begin_generation(generation, "HL_LEDGER_BACKFILL", _write_immutable_private)
+    safe_dir(generation)
+    receipt = begin_generation(generation, "HL_LEDGER_BACKFILL", write_immutable_private)
     start = int(START.timestamp() * 1000)
     end = int(END.timestamp() * 1000) - 1
     report = {
@@ -109,7 +109,7 @@ async def collect_historical(
                 requested_at = datetime.now(UTC)
                 report["requests"] += 1
                 try:
-                    data, raw, signature = await asyncio.to_thread(_guarded_info, data_request)
+                    data, raw, signature = await asyncio.to_thread(guarded_info, data_request)
                     received_at = datetime.now(UTC)
                     verify_raw(data, raw, signature)
                     earliest, latest = _validate_rows(data, start=offset, end=end)
@@ -117,16 +117,16 @@ async def collect_historical(
                     issue = "PROVIDER_OR_SCHEMA_" + type(exc).__name__
                     break
                 archive = generation / "raw" / alias / tag / f"page-{pages:03d}.json"
-                _write_immutable_private(archive, raw)
+                write_immutable_private(archive, raw)
                 new = 0
                 for event in data:
-                    event_sha = sha256(_canonical(event)).hexdigest()
+                    event_sha = sha256(canonical(event)).hexdigest()
                     if event_sha not in unique:
                         unique.add(event_sha)
                         new += 1
-                _write_immutable_private(
+                write_immutable_private(
                     generation / "metadata" / alias / tag / f"page-{pages:03d}.json",
-                    _canonical(
+                    canonical(
                         LedgerPageReceipt.model_validate(
                             {
                                 "schema": "e4_historical_page_v2",
@@ -197,7 +197,7 @@ async def collect_historical(
             }
         )
     report["completed_at"] = datetime.now(UTC).isoformat()
-    _write_immutable_private(generation / "backfill-report.json", _canonical(report))
+    write_immutable_private(generation / "backfill-report.json", canonical(report))
     return report
 
 

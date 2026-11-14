@@ -28,7 +28,7 @@ def preview_top_level_paper_cost(
     No cross-level fill, no invented market volume, no spread double charge,
     and NO mutation to PM-03 accounts.
     """
-    PaperJournal._validate_market_quote(evidence)
+    PaperJournal.validate_market_quote(evidence)
     checked = clock(as_of)
     known = clock(evidence["first_known_at"])
     if type(max_quote_age_seconds) is not int or not 1 <= max_quote_age_seconds <= 300:

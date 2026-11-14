@@ -32,7 +32,7 @@ from copytrade_pm.pm_v4_fast_screen import (
     _source,
     _v2_source_digest,
 )
-from copytrade_pm.pm_v4_sixteen_scenarios import load_campaign
+from copytrade_pm.pm_source_campaign_roster import load_campaign
 from scripts.research_vike_prewindow_k import checked_publish
 
 D = Decimal

@@ -226,7 +226,7 @@ def _minute_market(
                 pinned["sha256"] != day_sha or pinned["metadata_sha256"] != metadata_sha
             ):
                 raise ManifestBlocked("NATIVE_DAY_NOT_PINNED_TO_STUDY_MANIFEST")
-            relative = VerifiedHyperliquidMinuteSource._family(native)
+            relative = VerifiedHyperliquidMinuteSource.family(native)
             folder = relative / (f"year={date.year:04d}/month={date.month:02d}/day={date.day:02d}")
             if (
                 Path(pinned["path"]) != folder / "data.parquet"

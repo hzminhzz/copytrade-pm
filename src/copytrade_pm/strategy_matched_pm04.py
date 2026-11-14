@@ -59,7 +59,7 @@ def compare_candidate(spec: dict[str, Any], root: Path) -> dict:
         raise ValueError("MATCHED_RULEBOOK_NOT_SYNTHETIC")
     # The original source-policy identity is not an alternative accounting owner.
     from .pm03_account import canonical
-    from .pm03_memory import _atomic_private
+    from .pm03_memory import atomic_private
 
     policy = spec["policy"]
     policy_sha = digest(policy)
@@ -168,7 +168,7 @@ def compare_candidate(spec: dict[str, Any], root: Path) -> dict:
     result["report_sha256"] = digest(result)
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     path = root / f"matched-{result['input_sha256']}.json"
-    _atomic_private(path, canonical(result))
+    atomic_private(path, canonical(result))
     return result
 
 

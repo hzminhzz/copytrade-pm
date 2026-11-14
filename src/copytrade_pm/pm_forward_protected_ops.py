@@ -22,7 +22,7 @@ import time
 from typing import Any
 
 from .pm03_account import clock, digest
-from .pm_forward_heartbeat import _process_identity
+from .pm_forward_heartbeat import process_identity
 
 SHA40 = re.compile(r"[0-9a-f]{40}\Z")
 ROLES = {"P1": "copytrade-paper-p1", "P14": "copytrade-paper-p14"}
@@ -136,7 +136,7 @@ def worker_cycle(
         "portfolio": portfolio,
         "revision": revision,
         "observed_at": observed,
-        "process_identity": _process_identity(os.getpid()),
+        "process_identity": process_identity(os.getpid()),
         "status": "BLOCKED_NO_FINANCIAL_ADMISSION",
         "reason": "SOURCE_NAV_MARKET_CAPACITY_AND_FINANCIAL_ADMISSION_NOT_ATTESTED",
         "execution_enabled": False,
@@ -177,7 +177,7 @@ def inspect_worker(
         ):
             raise StandbyBlocked("UNTRUSTED_WORKER_STATUS")
         process = payload["process_identity"]
-        if process != _process_identity(process["pid"]):
+        if process != process_identity(process["pid"]):
             raise StandbyBlocked("WORKER_PROCESS_IDENTITY_CHANGED")
         if (
             Path(root).stat().st_uid != process["uid"]
@@ -228,7 +228,7 @@ def _previous_watchdog_reasons(watchdog_root: Path, revision: str, observed_at: 
         if clock(previous["observed_at"]) > clock(observed_at):
             return ["WATCHDOG_PREVIOUS_STATUS_FUTURE"]
         previous_process = previous["process_identity"]
-        if previous_process != _process_identity(os.getpid()):
+        if previous_process != process_identity(os.getpid()):
             return ["WATCHDOG_PROCESS_EPOCH_CHANGED"]
         if (
             previous.get("status") == "HALT_LATCHED"
@@ -325,7 +325,7 @@ def watchdog_cycle(
         "protected_watchdog_attested": False,
         "paper_running": False,
         "order_route": "NONE",
-        "process_identity": _process_identity(os.getpid()),
+        "process_identity": process_identity(os.getpid()),
     }
     _write_state(Path(watchdog_root) / "watchdog-status.json", result)
     return result

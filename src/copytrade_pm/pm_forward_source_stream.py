@@ -23,8 +23,8 @@ from .pm_e4_prospective import (
     MAX_BODY,
     PUBLIC_ACCOUNT_MODES,
     WS_URL,
-    _guarded_info,
-    _subaccount_roster,
+    guarded_info,
+    subaccount_roster,
 )
 from .pm03_account import clock, digest
 from .pm_forward_stream_journal import StreamProgress
@@ -67,14 +67,14 @@ def _perpetual_collateral_balances(balances: list) -> tuple[dict, int]:
 
 
 async def discover_persistent_family(
-    parents: dict[str, str], *, info=_guarded_info, now=lambda: datetime.now(UTC).isoformat()
+    parents: dict[str, str], *, info=guarded_info, now=lambda: datetime.now(UTC).isoformat()
 ) -> dict:
     """Acquire metadata once per unique parent; return explicit private identity.
 
     No NAV is derived. A missing/invalid child census fails this refresh; callers
     retain prior requirements and report UNKNOWN instead of treating it as flat.
     """
-    from .pm_e4_prospective import _dex_universe
+    from .pm_e4_prospective import dex_universe
 
     if not parents or len(set(a.lower() for a in parents.values())) != len(parents):
         raise ValueError("SOURCE_FAMILY_PARENT_IDENTITY_DUPLICATE")
@@ -89,14 +89,14 @@ async def discover_persistent_family(
         return payload, sha, known
 
     catalog, catalog_sha, catalog_known = await fetch({"type": "perpDexs"})
-    _dex_universe(catalog)
+    dex_universe(catalog)
     children = await asyncio.gather(
         *[fetch({"type": "subAccounts", "user": address}) for address in parents.values()]
     )
     accounts, proof = {}, {}
     seen = set()
     for (alias, address), (raw_subs, sha, known) in zip(parents.items(), children, strict=True):
-        members = _subaccount_roster(raw_subs, address)
+        members = subaccount_roster(raw_subs, address)
         for child in [address, *members]:
             canonical = child.lower()
             if canonical in seen:
@@ -278,9 +278,9 @@ class PersistentAccount:
         additions with positions are detected by the pure reducer on the first
         complete replacement; empty unrelated DEX additions remain unchanged.
         """
-        from .pm_e4_prospective import _dex_universe
+        from .pm_e4_prospective import dex_universe
 
-        _dex_universe(dex_catalog)
+        dex_universe(dex_catalog)
         if contract_generation is not None:
             if re.fullmatch(r"[0-9a-f]{64}", contract_generation) is None:
                 raise ValueError("SOURCE_SCOPE_GENERATION_INVALID")
@@ -420,7 +420,7 @@ class PersistentAccount:
         try:
             # Reuse the existing process/file lease and bounded setup retry.
             # There is still only one writer authority for the source DB.
-            with self.journal._writer() as db:
+            with self.journal.writer() as db:
                 db.execute("BEGIN IMMEDIATE")
                 try:
                     db.execute(
@@ -571,14 +571,12 @@ class PersistentAccount:
         }
         compact_v2 = self.compact_evidence and raw_text is not None
         if compact_v2:
-            from .pm_v4_evidence import publish_wire
+            from .pm_wire_evidence import compact_official_receipt, publish_wire
 
             # fsync and atomically publish the original bytes before any
             # SQLite receipt can reference them. A crash may leave an orphan,
             # but cannot leave a committed event referencing unflushed bytes.
             publish_wire(self.journal.path, raw_text, raw_sha)
-            from .pm_v4_evidence import compact_official_receipt
-
             receipt = compact_official_receipt(receipt, raw_sha=raw_sha)
             state["last_receipt_sha"] = digest(receipt)
             # Unneeded per-position margin metadata remains in the original
@@ -634,7 +632,7 @@ async def bounded_source_scope_capture(
     journal: PaperJournal,
     seconds: float = 10,
     max_frames: int = 10,
-    info: Callable = _guarded_info,
+    info: Callable = guarded_info,
     connect: Callable[..., Any] | None = None,
     now: Callable[[], str] = lambda: datetime.now(UTC).isoformat(),
 ) -> dict:
@@ -749,7 +747,7 @@ async def bounded_source_scope_capture(
 async def read_public_collateral_scope(
     *,
     address: str,
-    info: Callable = _guarded_info,
+    info: Callable = guarded_info,
     now: Callable[[], str] = lambda: datetime.now(UTC).isoformat(),
     perpetuals_only: bool = False,
 ) -> dict:
@@ -887,7 +885,7 @@ async def bounded_source_family_capture(
     seconds_per_account: float = 5,
     max_frames: int = 10,
     include_collateral: bool = False,
-    info: Callable = _guarded_info,
+    info: Callable = guarded_info,
     connect: Callable[..., Any] | None = None,
     now: Callable[[], str] = lambda: datetime.now(UTC).isoformat(),
 ) -> dict:
@@ -903,7 +901,7 @@ async def bounded_source_family_capture(
     roster_raw, _, roster_sha = await asyncio.to_thread(
         info, {"type": "subAccounts", "user": parent_address}
     )
-    subs = _subaccount_roster(roster_raw, parent_address)
+    subs = subaccount_roster(roster_raw, parent_address)
     addresses = [parent_address, *subs]
     observations = []
     for index, address in enumerate(addresses):

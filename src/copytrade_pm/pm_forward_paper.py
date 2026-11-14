@@ -130,7 +130,7 @@ class PaperCampaign:
         import sqlite3
 
         from .pm_copy_mandate import CopyMandate
-        from .pm_v4_sixteen_scenarios import IDENTITIES
+        from .pm_source_campaign_roster import IDENTITIES
 
         if self._journal is None:
             raise ValueError("PAPER_JOURNAL_REQUIRED")

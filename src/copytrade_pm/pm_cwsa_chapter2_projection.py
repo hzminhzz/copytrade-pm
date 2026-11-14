@@ -692,13 +692,13 @@ def explain_task(args) -> dict[str, Any]:
             output["prior_to_current"] = _prior_delta(prior, output)
         return output
 
-    doctor = pm_operations._doctor(args.registry_db)
+    doctor = pm_operations.doctor(args.registry_db)
     info = doctor.get("data") or {}
     integrity = info.get("database_integrity")
     dimension(
         "registry_integrity",
         "VERIFIED"
-        if pm_operations._sqlite_integrity_verified(doctor)
+        if pm_operations.sqlite_integrity_verified(doctor)
         else "UNKNOWN"
         if integrity is None
         else "BLOCKED_EVIDENCE",

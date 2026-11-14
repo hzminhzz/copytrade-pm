@@ -286,10 +286,10 @@ def _registry_identity(portfolio_id: str, *, db: Path, asof: str | None) -> dict
     ):
         # A bare "B" or "E6" is ambiguous across namespaces.
         raise ValueError("NAMESPACE_QUALIFIED_PORTFOLIO_REQUIRED")
-    doctor = operations._doctor(db)
-    if not operations._sqlite_integrity_verified(doctor):
+    doctor = operations.doctor(db)
+    if not operations.sqlite_integrity_verified(doctor):
         raise ValueError("REGISTRY_SQLITE_INTEGRITY_NOT_VERIFIED")
-    generation = operations._generation(db)
+    generation = operations.registry_generation(db)
     # The last CSV import clock is historical provenance, not a lease on
     # the SQLite authority. A stale import must never remove a valid cohort.
     if not generation["sha"]:
@@ -298,7 +298,7 @@ def _registry_identity(portfolio_id: str, *, db: Path, asof: str | None) -> dict
     if asof is not None:
         cmd += ["--asof", _utc(asof).isoformat()]
     try:
-        records = operations._registry_query(db, cmd)
+        records = operations.registry_query(db, cmd)
     except ValueError as exc:
         if any(msg in str(exc) for msg in _SELECTION_PROOF_ERRORS):
             raise ValueError("PORTFOLIO_SELECTION_PROOF_BLOCKED") from exc
