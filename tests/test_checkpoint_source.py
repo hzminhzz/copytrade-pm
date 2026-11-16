@@ -8,7 +8,7 @@ import json
 import pytest
 
 from copytrade_pm.pm_checkpoint_source import CheckpointScope, SamplingLimits, collect_checkpoint
-from copytrade_pm.pm_v4_evidence import read_wire
+from copytrade_pm.pm_wire_evidence import read_wire
 
 ADDRESS = "0x" + "a" * 40
 BOUNDARY = int(datetime(2026, 11, 12, 0, 5, tzinfo=UTC).timestamp()) * 1000

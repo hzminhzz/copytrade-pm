@@ -42,7 +42,7 @@ def test_frozen_dashboard_extra_excludes_retired_presentation_dependencies():
     lock = tomllib.loads((ROOT / "uv.lock").read_text())
     project = next(p for p in lock["package"] if p["name"] == "copytrade-pm")
     names = {item["name"] for item in project["optional-dependencies"]["dashboard"]}
-    assert names == {"polars", "starlette", "uvicorn", "httpx", "httpx2"}
+    assert names == {"polars", "starlette", "uvicorn"}
     assert all(
         entry["name"] not in {"altair", "marimo"}
         for entry in project["metadata"]["requires-dist"]

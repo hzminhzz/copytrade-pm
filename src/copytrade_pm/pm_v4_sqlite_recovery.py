@@ -15,7 +15,7 @@ import shutil
 import sqlite3
 
 from .pm_forward_stream_journal import verify_streams
-from .pm_v4_evidence import read_wire
+from .pm_wire_evidence import read_wire
 
 
 def active_source_handles(source: Path) -> list[dict[str, str | int]]:
