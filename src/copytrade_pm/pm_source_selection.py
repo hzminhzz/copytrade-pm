@@ -19,7 +19,15 @@ from .pm_forward_observed_paper import PAPER_PROFILES, readonly, verify_portfoli
 from .pm_forward_source_stream import PersistentAccount
 
 CWSA_PORTFOLIOS = frozenset(
-    {"A", "B", "C", "Combo2", "regime.macro/TriadA", "regime.macro/TriadChop"}
+    {
+        "A",
+        "B",
+        "C",
+        "Combo2",
+        "regime.macro/TriadA",
+        "regime.macro/TriadChop",
+        "research.cft/V4Pod3",
+    }
 )
 HISTORICAL_PAPER_PORTFOLIOS = frozenset(PAPER_PROFILES)
 APPROVED_PORTFOLIOS = HISTORICAL_PAPER_PORTFOLIOS | CWSA_PORTFOLIOS
