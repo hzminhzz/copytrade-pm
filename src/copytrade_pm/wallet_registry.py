@@ -1172,9 +1172,10 @@ def cli(argv: list[str] | None = None) -> int:
         "signed-selection", help="verify or import a privately signed research-only selection"
     )
     signed_selection.add_argument("--manifest", type=Path, required=True)
-    signed_selection.add_argument("--signature", type=Path, required=True)
-    signed_selection.add_argument("--trusted-public-key", type=Path, required=True)
-    signed_selection.add_argument("--trusted-key-sha256", required=True)
+    signed_selection.add_argument("--signature", type=Path)
+    signed_selection.add_argument("--trusted-public-key", type=Path)
+    signed_selection.add_argument("--trusted-key-sha256")
+    signed_selection.add_argument("--unsigned", action="store_true")
     signed_selection.add_argument("--apply", action="store_true")
     paper = sub.add_parser("paper")
     paper.add_argument("--run-dir", type=Path, help="private paper-run directory")
@@ -1546,15 +1547,23 @@ def cli(argv: list[str] | None = None) -> int:
             print(json.dumps(result, sort_keys=True))
     elif args.command == "signed-selection":
         now = datetime.now(timezone.utc).isoformat()
-        files = (args.manifest, args.signature, args.trusted_public_key)
-        record = signed_catalog.inspect(
-            *files,
-            expected_public_key_sha256=args.trusted_key_sha256,
-            first_known_at=now,
-        )
+        if args.unsigned:
+            record = signed_catalog.inspect_unsigned(args.manifest, first_known_at=now)
+        else:
+            if not (args.signature and args.trusted_public_key and args.trusted_key_sha256):
+                parser.error(
+                    "--signature, --trusted-public-key, and --trusted-key-sha256 are required unless --unsigned is set"
+                )
+            record = signed_catalog.inspect(
+                args.manifest,
+                args.signature,
+                args.trusted_public_key,
+                expected_public_key_sha256=args.trusted_key_sha256,
+                first_known_at=now,
+            )
         result = {
             "source_sha256": record["source_sha256"],
-            "signature_verified": True,
+            "signature_verified": not args.unsigned,
             "definitions": len(record["document"]["definitions"]),
             "trading_authorized": False,
             "paper_running": "UNKNOWN",
@@ -1564,11 +1573,16 @@ def cli(argv: list[str] | None = None) -> int:
             with private_lock(args.db):
                 # Validate all private inputs again while holding the single
                 # writer lock; never trust the earlier preview's file bytes.
-                again = signed_catalog.inspect(
-                    *files,
-                    expected_public_key_sha256=args.trusted_key_sha256,
-                    first_known_at=now,
-                )
+                if args.unsigned:
+                    again = signed_catalog.inspect_unsigned(args.manifest, first_known_at=now)
+                else:
+                    again = signed_catalog.inspect(
+                        args.manifest,
+                        args.signature,
+                        args.trusted_public_key,
+                        expected_public_key_sha256=args.trusted_key_sha256,
+                        first_known_at=now,
+                    )
                 if again != record:
                     raise ValueError("signed research selection changed before import")
                 # Restore-verified database backup before any schema or data write.

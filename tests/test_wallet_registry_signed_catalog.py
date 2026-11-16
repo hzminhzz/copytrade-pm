@@ -239,3 +239,32 @@ def test_signed_import_rejects_two_aliases_for_one_canonical_wallet(
             catalog.list_selection(con, datetime.now(timezone.utc).isoformat())["selection_state"]
             == "OWNER_APPROVED_RESEARCH_ONLY"
         )
+
+
+def test_unsigned_research_selection_roundtrip_and_tamper_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(catalog, "WHALE_ADDRESS_SHA256", sha256(WHALE.encode()).hexdigest())
+    db, snapshot = _v2_snapshot(tmp_path)
+    now = datetime.now(timezone.utc).isoformat()
+    registry.apply(db, snapshot, now)
+    source, _, _, _ = _signed_source(tmp_path)
+    record = signed.inspect_unsigned(source, first_known_at=now)
+    with closing(registry.connect(db, True)) as con:
+        con.executescript(signed.DDL)
+        with con:
+            signed.store(con, record)
+        loaded = signed.load(con, record["source_sha256"])
+        assert loaded["signature_hex"] == signed.UNSIGNED_MARKER
+        assert loaded["document"]["definitions"]
+    with pytest.raises(ValueError, match="stored source SHA drift"):
+        signed.verified_record(
+            (
+                record["source_sha256"],
+                "{}",
+                signed.UNSIGNED_MARKER,
+                signed.UNSIGNED_MARKER,
+                signed.UNSIGNED_MARKER,
+                now,
+            )
+        )

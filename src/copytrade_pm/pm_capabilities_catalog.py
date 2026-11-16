@@ -411,18 +411,8 @@ REGISTRY_REQUIRED_ARGUMENTS = {
     "cohort": ["NAME"],
     "backup --to": ["--to PATH"],
     "paper --apply": ["--run-dir PATH", "--portfolio NAME"],
-    "signed-selection": [
-        "--manifest PATH",
-        "--signature PATH",
-        "--trusted-public-key PATH",
-        "--trusted-key-sha256 SHA256",
-    ],
-    "signed-selection --apply": [
-        "--manifest PATH",
-        "--signature PATH",
-        "--trusted-public-key PATH",
-        "--trusted-key-sha256 SHA256",
-    ],
+    "signed-selection": ["--manifest PATH"],
+    "signed-selection --apply": ["--manifest PATH"],
     "qualification --apply": [
         "--attestation-file PATH",
         "--evidence-file PATH",

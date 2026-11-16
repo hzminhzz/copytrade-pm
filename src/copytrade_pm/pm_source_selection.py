@@ -39,8 +39,6 @@ def selected_parents(
     """Resolve the exact sealed source roster without follower NAV inference."""
     if not portfolios or len(portfolios) != len(set(portfolios)):
         raise ValueError("V4_SELECTED_PORTFOLIOS_INVALID")
-    if any(pid not in APPROVED_PORTFOLIOS for pid in portfolios):
-        raise ValueError("V4_SELECTED_PORTFOLIO_UNAPPROVED")
     parents: dict[str, str] = {}
     with closing(readonly(registry_db)) as db:
         db.execute("BEGIN")
@@ -52,11 +50,29 @@ def selected_parents(
                     )
                     items = tuple(PAPER_PROFILES[pid].registry_aliases.items())
                 else:
+                    if pid not in APPROVED_PORTFOLIOS:
+                        cols = {
+                            r[1]
+                            for r in db.execute("PRAGMA table_info(portfolio_seals)").fetchall()
+                        }
+                        if (
+                            "portfolio_id" not in cols
+                            or db.execute(
+                                "SELECT 1 FROM portfolio_seals WHERE portfolio_id=? AND selection_known_at<=? LIMIT 1",
+                                (pid, as_of),
+                            ).fetchone()
+                            is None
+                        ):
+                            raise ValueError("V4_SELECTED_PORTFOLIO_UNAPPROVED")
                     from .wallet_registry_portfolios import select_asof
 
                     selection = select_asof(db, pid, as_of)
                     if not selection.get("definition_sha256"):
-                        raise ValueError("V4_SELECTED_PORTFOLIO_SEAL_MISSING")
+                        raise ValueError(
+                            "V4_SELECTED_PORTFOLIO_SEAL_MISSING"
+                            if pid in APPROVED_PORTFOLIOS
+                            else "V4_SELECTED_PORTFOLIO_UNAPPROVED"
+                        )
                     items = tuple((m, m) for m in selection.get("members", []))
                 if not selection.get("definition_sha256"):
                     raise ValueError("V4_SELECTED_PORTFOLIO_SEAL_MISSING")

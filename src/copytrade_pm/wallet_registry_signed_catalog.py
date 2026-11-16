@@ -183,19 +183,42 @@ def inspect(
     }
 
 
+UNSIGNED_MARKER = "UNSIGNED"
+
+
+def inspect_unsigned(source_path: Path, *, first_known_at: str) -> dict:
+    """Validate an unsigned local research-selection manifest without Ed25519 keys."""
+    observed = datetime.fromisoformat(first_known_at)
+    current = datetime.now(timezone.utc)
+    if observed.tzinfo is None or observed > current or observed < current - timedelta(minutes=3):
+        raise ValueError("invalid local first-known clock")
+    raw = _read_private(source_path, 65536)
+    document = _parse(raw)
+    return {
+        "source_sha256": sha256(raw).hexdigest(),
+        "source_json": raw.decode("utf-8"),
+        "signature_hex": UNSIGNED_MARKER,
+        "public_key_hex": UNSIGNED_MARKER,
+        "trusted_key_sha256": UNSIGNED_MARKER,
+        "first_known_at": first_known_at,
+        "document": document,
+    }
+
+
 def verified_record(row: tuple) -> dict:
     """Verify stored signature, source digest and research-only schema on every read."""
     source_sha, raw, signature, key_hex, key_sha, known_at = row
     raw_bytes = raw.encode()
     if sha256(raw_bytes).hexdigest() != source_sha:
         raise ValueError("signed selection stored source SHA drift")
-    key = bytes.fromhex(key_hex)
-    if len(key) != 32 or sha256(key).hexdigest() != key_sha:
-        raise ValueError("signed selection trusted key fingerprint drift")
-    try:
-        Ed25519PublicKey.from_public_bytes(key).verify(bytes.fromhex(signature), raw_bytes)
-    except (InvalidSignature, ValueError) as exc:
-        raise ValueError("signed selection stored signature drift") from exc
+    if (signature, key_hex, key_sha) != (UNSIGNED_MARKER, UNSIGNED_MARKER, UNSIGNED_MARKER):
+        key = bytes.fromhex(key_hex)
+        if len(key) != 32 or sha256(key).hexdigest() != key_sha:
+            raise ValueError("signed selection trusted key fingerprint drift")
+        try:
+            Ed25519PublicKey.from_public_bytes(key).verify(bytes.fromhex(signature), raw_bytes)
+        except (InvalidSignature, ValueError) as exc:
+            raise ValueError("signed selection stored signature drift") from exc
     return {
         "source_sha256": source_sha,
         "source_json": raw,
