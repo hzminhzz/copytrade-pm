@@ -18,6 +18,8 @@ The previous site served a manually patched Vinext/Next pre-rendered HTML plus s
 
 ## Build and acceptance
 
+The repository root carries a small `package.json` that declares `ops/control-center` as an npm workspace. Root-level installers (Google AI Studio Build, `npm install`/`npm ci` at the repository root) therefore resolve the frontend dependencies, and `npm run dev` serves the app on `0.0.0.0:3000` for hosted previews. The nested `ops/control-center/package-lock.json` remains the lock used by CI and deployment.
+
 From repository root:
 
 ```sh
