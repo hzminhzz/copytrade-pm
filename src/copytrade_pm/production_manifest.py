@@ -15,6 +15,7 @@ from hashlib import sha256
 import json
 import os
 from pathlib import Path
+import re
 import sqlite3
 
 from cryptography.exceptions import InvalidSignature
@@ -87,6 +88,16 @@ def _positive_decimal(value: object, reason: str) -> Decimal:
         raise ValueError(reason) from exc
 
 
+def _require_sha(value: object, reason: str = "INVALID_SHA256") -> str:
+    if (
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(c not in "0123456789abcdef" for c in value)
+    ):
+        raise ValueError(reason)
+    return value
+
+
 def store_policy(
     db: Path, portfolio_id: str, metadata: dict, envelope: dict, reviewer: Ed25519PublicKey
 ) -> str:
@@ -153,14 +164,13 @@ def store_policy(
         return policy_sha
 
 
-def build_manifest(
+def _build_release_v1_payload(
     *,
     db: Path,
     portfolio_id: str,
     asof: str,
     reviewer: Ed25519PublicKey,
     source_observer: Ed25519PublicKey,
-    release_signer: Ed25519PrivateKey,
     now_ms: int,
 ) -> dict:
     with closing(registry.connect(db, False)) as con:
@@ -266,8 +276,7 @@ def build_manifest(
         ):
             raise ValueError("SIZING_OR_SCOPE")
     for name in ("risk_policy_sha", "rulebook_sha"):
-        if len(policy[name]) != 64 or any(c not in "0123456789abcdef" for c in policy[name]):
-            raise ValueError("APPROVED_POLICY_DIGEST")
+        _require_sha(policy[name], "APPROVED_POLICY_DIGEST")
     payload = {
         "schema": "portfolio_release_v1",
         "generation": policy["generation"],
@@ -299,6 +308,181 @@ def build_manifest(
             )
         }
     )
+    return payload
+
+
+def build_manifest(
+    *,
+    db: Path,
+    portfolio_id: str,
+    asof: str,
+    reviewer: Ed25519PublicKey,
+    source_observer: Ed25519PublicKey,
+    release_signer: Ed25519PrivateKey,
+    now_ms: int,
+) -> dict:
+    payload = _build_release_v1_payload(
+        db=db,
+        portfolio_id=portfolio_id,
+        asof=asof,
+        reviewer=reviewer,
+        source_observer=source_observer,
+        now_ms=now_ms,
+    )
+    return sign(payload, release_signer, "approver")
+
+
+def _validate_checkpoint_pins(checkpoint_policy: dict, checkpoint_scopes: dict[str, dict]) -> None:
+    if not isinstance(checkpoint_policy, dict) or set(checkpoint_policy) != {
+        "name",
+        "limits",
+        "measurement_sha",
+    }:
+        raise ValueError("CWSA_FIELDS")
+    if checkpoint_policy["name"] != "cwsa_utc_5m_v3":
+        raise ValueError("CWSA_POLICY_VERSION")
+    _require_sha(checkpoint_policy["measurement_sha"], "CWSA_POLICY_SHA")
+    limits = checkpoint_policy["limits"]
+    if not isinstance(limits, dict) or set(limits) != {
+        "max_state_age_ms",
+        "max_acquisition_ms",
+        "max_dex_skew_ms",
+        "publication_grace_ms",
+    }:
+        raise ValueError("CWSA_FIELDS")
+    if (
+        any(type(v) is not int or v < 0 for v in limits.values())
+        or limits["max_state_age_ms"] <= 0
+        or limits["max_acquisition_ms"] <= 0
+        or limits["max_dex_skew_ms"] < 0
+        or not 0 < limits["publication_grace_ms"] < 300_000
+    ):
+        raise ValueError("CWSA_POLICY_LIMIT")
+    if not isinstance(checkpoint_scopes, dict):
+        raise ValueError("CWSA_SCOPES")
+    scope_keys = {
+        "schema_version",
+        "source_id",
+        "account_sha",
+        "generation",
+        "selection_sha",
+        "dexes",
+    }
+    for source_id, scope in checkpoint_scopes.items():
+        if not isinstance(source_id, str) or not source_id:
+            raise ValueError("CWSA_SOURCE_ID")
+        if not isinstance(scope, dict) or set(scope) != scope_keys:
+            raise ValueError("CWSA_FIELDS")
+        if type(scope["schema_version"]) is not int or scope["schema_version"] != 3:
+            raise ValueError("CWSA_SOURCE_ID")
+        if scope["source_id"] != source_id:
+            raise ValueError("CWSA_SOURCE_ID")
+        for key in ("account_sha", "generation", "selection_sha"):
+            _require_sha(scope[key], "CWSA_SCOPE_SHA")
+        dexes = scope["dexes"]
+        if (
+            not isinstance(dexes, list)
+            or not 1 <= len(dexes) <= 32
+            or "default" not in dexes
+            or any(
+                not isinstance(dex, str) or re.fullmatch(r"[A-Za-z0-9_-]{1,64}", dex) is None
+                for dex in dexes
+            )
+            or dexes != sorted(set(dexes))
+        ):
+            raise ValueError("CWSA_PINNED_DEX_SCOPE")
+
+
+def build_manifest_v2(
+    *,
+    db: Path,
+    portfolio_id: str,
+    asof: str,
+    reviewer: Ed25519PublicKey,
+    source_observer: Ed25519PublicKey,
+    release_signer: Ed25519PrivateKey,
+    now_ms: int,
+    checkpoint_policy: dict,
+    checkpoint_scopes: dict[str, dict],
+    mandates: list[dict],
+) -> dict:
+    from .pm_copy_mandate import CopyMandate
+
+    payload = _build_release_v1_payload(
+        db=db,
+        portfolio_id=portfolio_id,
+        asof=asof,
+        reviewer=reviewer,
+        source_observer=source_observer,
+        now_ms=now_ms,
+    )
+    _validate_checkpoint_pins(checkpoint_policy, checkpoint_scopes)
+    canonical_policy = json.loads(canonical(checkpoint_policy))
+    canonical_scopes = json.loads(canonical(checkpoint_scopes))
+    policy_epoch = digest(canonical_policy)
+    if (
+        not isinstance(mandates, list)
+        or not payload["members"]
+        or len(mandates) != len(payload["members"])
+    ):
+        raise ValueError("MANDATE_RELEASE_MEMBERS")
+    members_by_pod = {x["pod_id"]: x for x in payload["members"]}
+    seen_pods: set[tuple[str, str]] = set()
+    seen_ids: set[tuple[str, str]] = set()
+    serialized_mandates: list[dict] = []
+    for raw in mandates:
+        if not isinstance(raw, dict):
+            raise ValueError("MANDATE_CONTRACT")
+        if not isinstance(raw.get("k"), str):
+            raise ValueError("MANDATE_K_TYPE")
+        m = CopyMandate.model_validate_json(canonical(raw))
+        pod_identity = (m.account_id, m.pod_id)
+        if pod_identity in seen_pods:
+            raise ValueError("MANDATE_RELEASE_OPENING_OVERLAP")
+        seen_pods.add(pod_identity)
+        mandate_identity = (m.account_id, m.mandate_id)
+        if mandate_identity in seen_ids:
+            raise ValueError("MANDATE_RELEASE_DUPLICATE_ID")
+        seen_ids.add(mandate_identity)
+        scope = canonical_scopes.get(m.source_id)
+        if (
+            scope is None
+            or scope["generation"] != m.source_scope_generation
+            or scope["account_sha"] != m.source_account_sha
+            or m.account_id != payload["account_binding"]
+            or m.policy_epoch != policy_epoch
+            or m.risk_policy_sha != payload["risk_policy_sha"]
+            or m.rulebook_sha != payload["rulebook_sha"]
+            or m.effective_until_ms > payload["expires_at_ms"]
+        ):
+            raise ValueError("MANDATE_RELEASE_SCOPE")
+        if m.effective_until_ms <= now_ms:
+            raise ValueError("MANDATE_ALREADY_EXPIRED")
+        if any(
+            market.split(":perp:", 1)[1].split("/", 1)[0] not in scope["dexes"]
+            for market in m.allowed_markets
+        ):
+            raise ValueError("MANDATE_DEX_NOT_IN_SCOPE")
+        member = members_by_pod.get(m.pod_id)
+        if (
+            member is None
+            or member["source_identity"] != m.source_id
+            or member["account_scope"] != [m.source_id]
+            or member["sizing_policy"] != "FIXED_K_NATIVE_QUANTITY"
+            or Decimal(member["k"]) != m.k
+            or member["allowed_markets"] != list(m.allowed_markets)
+        ):
+            raise ValueError("MANDATE_RELEASE_MEMBER_DRIFT")
+        serialized = json.loads(m.model_dump_json(by_alias=True))
+        canonical(serialized)
+        serialized_mandates.append(serialized)
+    payload["schema"] = "portfolio_release_v2"
+    payload["checkpoint_policy"] = canonical_policy
+    payload["checkpoint_scopes"] = canonical_scopes
+    payload["mandates"] = serialized_mandates
+    payload["mandate_authority_sha"] = sha256(
+        release_signer.public_key().public_bytes_raw()
+    ).hexdigest()
     return sign(payload, release_signer, "approver")
 
 

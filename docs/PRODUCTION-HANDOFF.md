@@ -29,6 +29,16 @@ It signs the canonical `portfolio_release_v1` wire contract using a separately
 delivered release key. No broker key is accepted. All signing keys and exports
 remain outside Git in protected private directories.
 
+`production_manifest.build_manifest_v2` extends the same read-only snapshot into
+the canonical `portfolio_release_v2` contract. It binds one `cwsa_utc_5m_v3`
+`checkpoint_policy`, per-source `checkpoint_scopes`, one `copy_mandate_v1` entry per
+`FIXED_K_NATIVE_QUANTITY` member, and `mandate_authority_sha` from the release
+signer. It rejects mixed `ALLOCATION_OVER_LIVE_NAV` members, duplicate
+`(account_id, pod_id)` mandates, and any member, scope, policy-epoch, risk,
+rulebook, or expiry drift fail-closed. Like `build_manifest`, it performs zero live
+SQLite migration, accepts zero broker keys, and keeps `trading_authorized=False`
+with no order route.
+
 The consumer separately pins its release authority and rollback floor. A manifest
 does not grant broker mutation authority. Fresh complete source books, selected
 account scope, independent follower prices and follower risk/equity must still be

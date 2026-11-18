@@ -1,3 +1,5 @@
+from hashlib import sha256
+
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 import pytest
 
@@ -168,3 +170,189 @@ def test_no_sealed_allocation_policy_is_a_specific_blocker(tmp_path):
             release_signer=reviewer,
             now_ms=metadata["asof_ms"],
         )
+
+
+def fixture_v2_args(tmp_path, *, mixed_nav=False, markets=None, dexes=None):
+    from copytrade_pm.production_manifest import digest, sign, store_policy
+
+    db, metadata, envelope, reviewer, source = fixture_policy(
+        tmp_path, sizing_policy="FIXED_K_NATIVE_QUANTITY"
+    )
+    policy = envelope["payload"]
+    markets = list(
+        markets or ["hyperliquid/mainnet:perp:default/BTC", "hyperliquid/mainnet:perp:default/ETH"]
+    )
+    dexes = list(dexes or ["default"])
+    for idx, member in enumerate(policy["members"]):
+        member["allowed_markets"] = list(markets)
+        if mixed_nav and idx == 0:
+            member["sizing_policy"] = "ALLOCATION_OVER_LIVE_NAV"
+            continue
+        member["sizing_policy"] = "FIXED_K_NATIVE_QUANTITY"
+        member["k"] = "0.04"
+        proof = {**policy["source_attestations"][idx]["payload"], "nav": None}
+        policy["source_attestations"][idx] = sign(proof, source, "source-observer")
+    store_policy(
+        db, "A", metadata, sign(policy, reviewer, "research-release-policy"), reviewer.public_key()
+    )
+    checkpoint_policy = {
+        "name": "cwsa_utc_5m_v3",
+        "limits": {
+            "max_state_age_ms": 4000,
+            "max_acquisition_ms": 3000,
+            "max_dex_skew_ms": 2000,
+            "publication_grace_ms": 5000,
+        },
+        "measurement_sha": digest("fixture-cwsa-measurement"),
+    }
+    checkpoint_scopes = {
+        member["source_identity"]: {
+            "schema_version": 3,
+            "source_id": member["source_identity"],
+            "account_sha": digest(f"acct:{member['source_identity']}"),
+            "generation": digest(f"gen:{member['source_identity']}"),
+            "selection_sha": digest(f"sel:{member['source_identity']}"),
+            "dexes": list(dexes),
+        }
+        for member in policy["members"]
+    }
+    policy_epoch = digest(checkpoint_policy)
+    mandates = [
+        {
+            "schema": "copy_mandate_v1",
+            "mandate_id": f"mandate-{member['pod_id']}",
+            "generation": 1,
+            "source_id": member["source_identity"],
+            "source_scope_generation": checkpoint_scopes[member["source_identity"]]["generation"],
+            "source_account_sha": checkpoint_scopes[member["source_identity"]]["account_sha"],
+            "account_id": policy["account_binding"],
+            "pod_id": member["pod_id"],
+            "k": "0.04",
+            "allowed_markets": list(markets),
+            "policy_epoch": policy_epoch,
+            "risk_policy_sha": policy["risk_policy_sha"],
+            "rulebook_sha": policy["rulebook_sha"],
+            "effective_from_ms": policy["created_at_ms"],
+            "effective_until_ms": policy["expires_at_ms"],
+            "sizing_policy": "FIXED_K_NATIVE_QUANTITY",
+            "entry_policy": "ONE_SHOT_CHECKPOINT_V3",
+            "exit_policy": "NATIVE_SAFE_CROSS_OR_REDUCE_V3",
+        }
+        for member in policy["members"]
+    ]
+    return {
+        "db": db,
+        "portfolio_id": "A",
+        "asof": "2026-11-04T06:00:00+00:00",
+        "reviewer": reviewer.public_key(),
+        "source_observer": source.public_key(),
+        "release_signer": reviewer,
+        "now_ms": metadata["asof_ms"],
+        "checkpoint_policy": checkpoint_policy,
+        "checkpoint_scopes": checkpoint_scopes,
+        "mandates": mandates,
+    }
+
+
+def test_build_manifest_v2_deterministic_fixed_k_without_nav(tmp_path):
+    from copytrade_pm.production_manifest import build_manifest, build_manifest_v2, verify
+
+    args = fixture_v2_args(tmp_path)
+    first = build_manifest_v2(**args)
+    assert first == build_manifest_v2(**args)
+    payload = verify(first, args["reviewer"], "approver")
+    assert payload["schema"] == "portfolio_release_v2"
+    assert (
+        payload["mandate_authority_sha"]
+        == sha256(args["release_signer"].public_key().public_bytes_raw()).hexdigest()
+    )
+    assert payload["checkpoint_policy"] == args["checkpoint_policy"]
+    assert payload["checkpoint_scopes"] == args["checkpoint_scopes"]
+    assert payload["mandates"] == args["mandates"]
+    assert all(m["sizing_policy"] == "FIXED_K_NATIVE_QUANTITY" for m in payload["members"])
+    v1 = build_manifest(
+        db=args["db"],
+        portfolio_id=args["portfolio_id"],
+        asof=args["asof"],
+        reviewer=args["reviewer"],
+        source_observer=args["source_observer"],
+        release_signer=args["release_signer"],
+        now_ms=args["now_ms"],
+    )
+    assert v1["payload"]["schema"] == "portfolio_release_v1"
+
+
+def test_build_manifest_v2_round_trips_lowercase_symbol_susd(tmp_path):
+    from copytrade_pm.pm_copy_mandate import CopyMandate
+    from copytrade_pm.production_manifest import build_manifest_v2, canonical, verify
+
+    markets = ["hyperliquid/mainnet:perp:default/BTC", "hyperliquid/mainnet:perp:default/sUSD"]
+    args = fixture_v2_args(tmp_path, markets=markets)
+    manifest = build_manifest_v2(**args)
+    payload = verify(manifest, args["reviewer"], "approver")
+    assert payload["mandates"][0]["allowed_markets"] == markets
+    assert CopyMandate.model_validate_json(canonical(payload["mandates"][0])).allowed_markets == (
+        tuple(markets)
+    )
+
+
+@pytest.mark.parametrize(
+    ("case", "pattern"),
+    [
+        ("k_drift", "MANDATE_RELEASE_MEMBER_DRIFT"),
+        ("scope_generation_drift", "MANDATE_RELEASE_SCOPE"),
+        ("policy_epoch_drift", "MANDATE_RELEASE_SCOPE"),
+        ("effective_until_past_expiry", "MANDATE_RELEASE_SCOPE"),
+        ("mandate_expired_at_now", "MANDATE_ALREADY_EXPIRED"),
+        ("mandate_expired_before_now", "MANDATE_ALREADY_EXPIRED"),
+        ("duplicate_account_pod", "MANDATE_RELEASE_OPENING_OVERLAP"),
+        ("duplicate_account_mandate", "MANDATE_RELEASE_DUPLICATE_ID"),
+        ("mixed_nav_member", "MANDATE_RELEASE_MEMBER_DRIFT"),
+        ("invalid_grace_limit", "CWSA_POLICY_LIMIT"),
+        ("missing_default_dex", "CWSA_PINNED_DEX_SCOPE"),
+        ("unpinned_dex", "MANDATE_DEX_NOT_IN_SCOPE"),
+        ("int_k_in_mandate", "MANDATE_K_TYPE"),
+        ("float_k_in_mandate", "MANDATE_K_TYPE"),
+        ("float_in_mandate", "CANONICAL_FLOAT_OR_TYPE"),
+    ],
+)
+def test_build_manifest_v2_rejects_drift_overlap_and_mixed_nav(tmp_path, case, pattern):
+    from copytrade_pm.production_manifest import build_manifest_v2
+
+    args = fixture_v2_args(
+        tmp_path,
+        mixed_nav=(case == "mixed_nav_member"),
+        markets=["hyperliquid/mainnet:perp:otherdex/BTC"] if case == "unpinned_dex" else None,
+        dexes=["default", "xyz"] if case == "unpinned_dex" else None,
+    )
+    if case == "k_drift":
+        args["mandates"][0]["k"] = "0.05"
+    elif case == "scope_generation_drift":
+        args["mandates"][0]["source_scope_generation"] = "0" * 64
+    elif case == "policy_epoch_drift":
+        args["mandates"][0]["policy_epoch"] = "0" * 64
+    elif case == "effective_until_past_expiry":
+        args["mandates"][0]["effective_until_ms"] += 1
+    elif case == "mandate_expired_at_now":
+        args["now_ms"] += 1000
+        args["mandates"][0]["effective_until_ms"] = args["now_ms"]
+    elif case == "mandate_expired_before_now":
+        args["now_ms"] += 1000
+        args["mandates"][0]["effective_until_ms"] = args["now_ms"] - 1
+    elif case == "duplicate_account_pod":
+        args["mandates"][1] = {**args["mandates"][0], "mandate_id": "mandate-duplicate"}
+    elif case == "duplicate_account_mandate":
+        args["mandates"][1]["mandate_id"] = args["mandates"][0]["mandate_id"]
+    elif case == "invalid_grace_limit":
+        args["checkpoint_policy"]["limits"]["publication_grace_ms"] = 300_000
+    elif case == "missing_default_dex":
+        first_source = next(iter(args["checkpoint_scopes"]))
+        args["checkpoint_scopes"][first_source]["dexes"] = ["xyz"]
+    elif case == "int_k_in_mandate":
+        args["mandates"][0]["k"] = 1
+    elif case == "float_k_in_mandate":
+        args["mandates"][0]["k"] = 0.04
+    elif case == "float_in_mandate":
+        args["mandates"][0]["generation"] = 1.5
+    with pytest.raises(ValueError, match=pattern):
+        build_manifest_v2(**args)
