@@ -23,7 +23,7 @@ from copytrade_pm.pm_forward_source_observation import (
 )
 from test_pm_e4_prospective import sample_state
 from test_pm_forward_ccxt_market import BTC, at, ccxt_market, orderbook
-from test_pm_forward_registry_identity import prepare
+from legacy_registry_fixture import prepare
 from test_pm_forward_tape import diagnostic
 from copytrade_pm.pm_forward_ccxt_market import parse_ccxt_book, parse_ccxt_market
 

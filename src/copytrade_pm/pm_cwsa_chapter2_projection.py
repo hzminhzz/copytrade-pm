@@ -317,7 +317,7 @@ def _prior_delta(prior: dict, current: dict) -> dict:
     if old_scope.get("version") != new_scope.get("version"):
         changes.add("portfolio_seal")
     invalidates = {
-        "registry_integrity": {"portfolio_seal", "prospective_new_risk"},
+        "roster_integrity": {"portfolio_seal", "prospective_new_risk"},
         "portfolio_seal": {"portfolio_seal", "source_observation", "prospective_new_risk"},
         "source_observation": {"source_observation", "prospective_new_risk"},
         "mandate": {"mandate", "prospective_new_risk"},
@@ -620,7 +620,7 @@ def explain_task(args) -> dict[str, Any]:
 
     def finish() -> dict[str, Any]:
         owner = dimensions
-        registry = (owner.get("registry_integrity") or {}).get("evidence") or {}
+        registry = (owner.get("roster_integrity") or {}).get("evidence") or {}
         seal_evidence = (owner.get("portfolio_seal") or {}).get("evidence") or {}
         source = (owner.get("source_observation") or {}).get("evidence") or {}
         quote = (owner.get("independent_executable_quotes") or {}).get("evidence") or {}
@@ -692,45 +692,36 @@ def explain_task(args) -> dict[str, Any]:
             output["prior_to_current"] = _prior_delta(prior, output)
         return output
 
-    doctor = pm_operations.doctor(args.registry_db)
+    doctor = pm_operations.roster_authority(args.roster_db)
     info = doctor.get("data") or {}
     integrity = info.get("database_integrity")
     dimension(
-        "registry_integrity",
-        "VERIFIED"
-        if pm_operations.sqlite_integrity_verified(doctor)
-        else "UNKNOWN"
-        if integrity is None
-        else "BLOCKED_EVIDENCE",
-        "wallet_registry",
+        "roster_integrity",
+        "VERIFIED" if doctor["status"] == "VERIFIED" else "BLOCKED_EVIDENCE",
+        "roster_sqlite",
         evidence={
             "inventory_sha256": info.get("inventory_sha256"),
             "database_integrity": integrity,
         },
     )
-    selection = info.get("research_selection_integrity")
     dimension(
         "research_selection_proof",
-        "BLOCKED"
-        if selection == "BLOCKED_MISSING_EXTERNAL_PROOF"
-        else "VERIFIED"
-        if doctor["status"] == "VERIFIED"
-        else "UNKNOWN",
-        "wallet_registry",
-        evidence={"research_selection_integrity": selection},
+        "UNKNOWN" if doctor["status"] != "VERIFIED" else "VERIFIED",
+        "roster_sqlite",
+        evidence={"retired_source": "legacy_wallet_registry"},
     )
-    if dimensions["registry_integrity"]["state"] != "VERIFIED":
-        blocked("REGISTRY_SQLITE_INTEGRITY_UNVERIFIED", "wallet_registry")
+    if dimensions["roster_integrity"]["state"] != "VERIFIED":
+        blocked("ROSTER_SQLITE_INTEGRITY_UNVERIFIED", "roster_sqlite")
     try:
-        if dimensions["registry_integrity"]["state"] != "VERIFIED":
-            raise ValueError("REGISTRY_INTEGRITY_NOT_VERIFIED")
-        seal = load_registry_seals(args.registry_db, portfolios=(pid,))[pid]
+        if dimensions["roster_integrity"]["state"] != "VERIFIED":
+            raise ValueError("ROSTER_INTEGRITY_NOT_VERIFIED")
+        seal = load_registry_seals(args.roster_db, portfolios=(pid,))[pid]
         output["scope"]["version"] = seal.get("version")
         output["scope"]["selection_known_at"] = seal.get("selection_known_at")
         dimension(
             "portfolio_seal",
             "VERIFIED",
-            "wallet_registry",
+            "roster_sqlite",
             evidence={
                 "portfolio_id": pid,
                 "version": seal.get("version"),
@@ -740,8 +731,8 @@ def explain_task(args) -> dict[str, Any]:
             },
         )
     except ValueError, OSError, KeyError, TypeError:
-        dimension("portfolio_seal", "BLOCKED_EVIDENCE", "wallet_registry")
-        blocked("PORTFOLIO_SQLITE_SEAL_UNAVAILABLE", "wallet_registry")
+        dimension("portfolio_seal", "BLOCKED_EVIDENCE", "roster_sqlite")
+        blocked("PORTFOLIO_ROSTER_SEAL_UNAVAILABLE", "roster_sqlite")
         seal = None
 
     for name, owner in (
@@ -868,7 +859,7 @@ def explain_task(args) -> dict[str, Any]:
 
             # Signed release and research qualification are global original
             # envelopes. Validate against all sealed members, then select pid.
-            all_seals = load_registry_seals(args.registry_db)
+            all_seals = load_registry_seals(args.roster_db)
             research = read_qualification(
                 args.qualification,
                 args.research_public_key,
@@ -1104,7 +1095,7 @@ def site_owner_view(explanation: dict[str, Any]) -> dict[str, Any]:
         for name, data in (explanation.get("dimensions") or {}).items()
         if name
         in (
-            "registry_integrity",
+            "roster_integrity",
             "research_selection_proof",
             "portfolio_seal",
             "source_observation",
@@ -1177,7 +1168,7 @@ def build_runtime_projection(args) -> dict[str, Any]:
     )
     from .pm_cwsa_six_paper import load_registry_seals
 
-    seals = load_registry_seals(args.registry_db)
+    seals = load_registry_seals(args.roster_db)
     roster = assess_portfolio_roster({pid: set(seal["members"]) for pid, seal in seals.items()})
     if roster.state != "PASS":
         raise ValueError("CHAPTER2_PROJECTION_REGISTRY_SEALS_DRIFT")

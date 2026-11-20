@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from collections.abc import Sequence
 from contextlib import closing, contextmanager
 import fcntl
 from datetime import UTC, datetime
@@ -541,27 +542,29 @@ async def run_readonly_observer_service(
     }
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Finite shared P1/P14 public-only observation; NO TRADE or financial events"
-    )
-    parser.add_argument("--registry", type=Path, required=True)
-    parser.add_argument("--primary-dir", type=Path, required=True)
-    parser.add_argument("--secondary-dir", type=Path, required=True)
-    parser.add_argument("--state-root", type=Path, required=True)
-    parser.add_argument("--continuous-config", type=Path)
-    parser.add_argument("--preflight-only", action="store_true")
-    parser.add_argument("--diagnose-preflight", action="store_true")
-    parser.add_argument("--epochs", type=int, default=1)
-    parser.add_argument("--service-cadence-seconds", type=float, default=60)
-    parser.add_argument("--service-cycle-timeout-seconds", type=float, default=600)
-    parser.add_argument("--seconds-per-account", type=float, default=5)
-    parser.add_argument("--max-source-frames", type=int, default=10)
-    parser.add_argument("--market-duration-seconds", type=float, default=10)
-    parser.add_argument("--max-market-updates", type=int, default=15)
-    parser.add_argument("--market-shard-size", type=int, default=8)
-    parser.add_argument("--pause-seconds", type=float, default=3)
-    args = parser.parse_args()
+def add_arguments(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    """Mount the shared observer options onto an existing subparser."""
+    p.add_argument("--registry", type=Path, required=True)
+    p.add_argument("--primary-dir", type=Path, required=True)
+    p.add_argument("--secondary-dir", type=Path, required=True)
+    p.add_argument("--state-root", type=Path, required=True)
+    p.add_argument("--continuous-config", type=Path)
+    p.add_argument("--preflight-only", action="store_true")
+    p.add_argument("--diagnose-preflight", action="store_true")
+    p.add_argument("--epochs", type=int, default=1)
+    p.add_argument("--service-cadence-seconds", type=float, default=60)
+    p.add_argument("--service-cycle-timeout-seconds", type=float, default=600)
+    p.add_argument("--seconds-per-account", type=float, default=5)
+    p.add_argument("--max-source-frames", type=int, default=10)
+    p.add_argument("--market-duration-seconds", type=float, default=10)
+    p.add_argument("--max-market-updates", type=int, default=15)
+    p.add_argument("--market-shard-size", type=int, default=8)
+    p.add_argument("--pause-seconds", type=float, default=3)
+    return p
+
+
+def run(args: argparse.Namespace) -> int:
+    """Handler shared by `python -m copytrade_pm.pm_forward_observer` and `paper observe`."""
     if args.continuous_config is not None:
         from .pm_forward_continuous import continuous_entrypoint, reason
 
@@ -575,22 +578,24 @@ def main() -> None:
                 "order_route": "NONE",
             }
             print(json.dumps(result, sort_keys=True))
-            raise SystemExit(2) from None
+            return 2
         print(json.dumps(result, indent=2, sort_keys=True))
         if args.diagnose_preflight and result.get("status") == "BLOCKED":
-            raise SystemExit(2)
-        return
+            return 2
+        return 0
     if args.diagnose_preflight:
-        parser.error("--diagnose-preflight requires --continuous-config and --preflight-only")
+        raise ValueError("--diagnose-preflight requires --continuous-config and --preflight-only")
     if args.preflight_only:
-        parser.error("--preflight-only requires --continuous-config")
+        raise ValueError("--preflight-only requires --continuous-config")
     if not args.state_root.is_absolute() or any(
         part in {".git", ".devspace"} for part in args.state_root.resolve().parts
     ):
-        parser.error("observer journal must be outside the worktree at an absolute private path")
+        raise ValueError(
+            "observer journal must be outside the worktree at an absolute private path"
+        )
     journal = PaperJournal(args.state_root)
 
-    async def run() -> dict:
+    async def observe() -> dict:
         async def capture() -> dict:
             return await capture_shared_observer_cycle(
                 registry_db=args.registry,
@@ -643,8 +648,27 @@ def main() -> None:
         )
 
     with exclusive_observer_lease(journal):
-        print(json.dumps(asyncio.run(run()), sort_keys=True, indent=2))
+        print(json.dumps(asyncio.run(observe()), sort_keys=True, indent=2))
+    return 0
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="copytrade-pm paper observe",
+        description="Finite shared P1/P14 public-only observation; NO TRADE or financial events",
+    )
+    add_arguments(parser)
+    args = parser.parse_args(argv)
+    try:
+        code = run(args)
+    except ValueError as exc:
+        parser.error(str(exc))
+        return 2
+    if code:
+        # `python -m` keeps the historical non-zero SystemExit contract.
+        raise SystemExit(code)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

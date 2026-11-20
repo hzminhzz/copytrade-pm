@@ -474,10 +474,16 @@ wheels = [
 ]
 
 [[package]]
+name = "copytrade-kernel"
+version = "0.1.0"
+source = { git = "https://github.com/hzminhzz/prop-production.git?subdirectory=packages%2Fcopytrade-kernel&rev=d0ad4c234f89049d91c88444d31a17286e3e684a#d0ad4c234f89049d91c88444d31a17286e3e684a" }
+
+[[package]]
 name = "copytrade-pm"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "copytrade-kernel" },
     { name = "cryptography" },
     { name = "pydantic" },
 ]
@@ -515,6 +521,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "ccxt", marker = "extra == 'market-stream'", specifier = "==4.5.91" },
+    { name = "copytrade-kernel", git = "https://github.com/hzminhzz/prop-production.git?subdirectory=packages%2Fcopytrade-kernel&rev=d0ad4c234f89049d91c88444d31a17286e3e684a" },
     { name = "cryptography", specifier = ">=46.0" },
     { name = "numpy", marker = "extra == 'actuary'", specifier = ">=2.0,<3" },
     { name = "pandas", marker = "extra == 'market'", specifier = ">=2.3" },

@@ -1,10 +1,24 @@
-"""Copy Mandate storage within PaperJournal, without a financial effect."""
+"""Copy Mandate storage within PaperJournal, without a financial effect.
+
+Row payloads keep the kernel ``MandateState``/``MandateTransition`` data shape;
+parsing and the lifecycle itself stay in ``copytrade_kernel``.
+"""
 
 import re
 
 from .pm03_account import digest
-from .pm_copy_mandate import CopyMandate, MandateState, MandateTransition, transition_mandate
 from .pm_checkpoint_journal import CheckpointOutcome
+from .pm_mandate import (
+    MandateState,
+    SignedMandate,
+    mandate_json,
+    state_json,
+    state_parse,
+    state_sha,
+    transition_mandate,
+    transition_parse,
+    verify_mandate,
+)
 
 ZERO = "0" * 64
 SCHEMA = """
@@ -30,20 +44,20 @@ def state(db, owner):
     row = db.execute("SELECT state FROM copy_mandate_heads WHERE owner=?", (owner,)).fetchone()
     if row is None:
         raise ValueError("MANDATE_UNKNOWN")
-    return MandateState.model_validate_json(row[0])
+    return state_parse(row[0])
 
 
 def _append(db, owner, transition):
     row = db.execute("SELECT state,head FROM copy_mandate_heads WHERE owner=?", (owner,)).fetchone()
-    if row is None or MandateState.model_validate_json(row[0]) != transition.predecessor:
+    if row is None or state_parse(row[0]) != transition.predecessor:
         raise ValueError("MANDATE_PREDECESSOR_DRIFT")
-    head = digest([row[1], transition.model_dump(mode="json")])
+    head = digest([row[1], transition.data])
     db.execute(
         "INSERT INTO copy_mandate_events VALUES (?,?,?,?,?)",
         (
             owner,
             transition.successor.sequence,
-            transition.model_dump_json(),
+            mandate_json(transition),
             row[1],
             head,
         ),
@@ -51,7 +65,7 @@ def _append(db, owner, transition):
     db.execute(
         "UPDATE copy_mandate_heads SET state=?,head=? WHERE owner=?",
         (
-            transition.successor.model_dump_json(),
+            state_json(transition.successor),
             head,
             owner,
         ),
@@ -61,7 +75,7 @@ def _append(db, owner, transition):
 
 def activate(
     db,
-    mandate: CopyMandate,
+    mandate: SignedMandate,
     *,
     at_ms: int,
     evidence_sha: str,
@@ -72,15 +86,15 @@ def activate(
         "SELECT mandate,state FROM copy_mandate_heads WHERE owner=?", (mandate.owner,)
     ).fetchone()
     if existing:
-        if CopyMandate.model_validate_json(existing[0]) != mandate:
+        if SignedMandate.from_json(existing[0]) != mandate:
             raise ValueError("MANDATE_GENERATION_EQUIVOCATION")
-        return MandateState.model_validate_json(existing[1])
+        return state_parse(existing[1])
     for raw, old_state in db.execute(
         "SELECT mandate,state FROM copy_mandate_heads WHERE account_id=?",
         (mandate.account_id,),
     ):
-        old = CopyMandate.model_validate_json(raw)
-        previous = MandateState.model_validate_json(old_state)
+        old = SignedMandate.from_json(raw)
+        previous = state_parse(old_state)
         if old.mandate_id == mandate.mandate_id and old.generation >= mandate.generation:
             raise ValueError("MANDATE_GENERATION_ROLLBACK")
         if (
@@ -107,7 +121,7 @@ def activate(
             mandate.mandate_id,
             mandate.generation,
             mandate.model_dump_json(),
-            before.model_dump_json(),
+            state_json(before),
             ZERO,
             canonical(approval).decode(),
             authority_public,
@@ -156,17 +170,14 @@ def control(db, command, *, at_ms: int, approval: dict, authority_public: str):
     if replay:
         if replay[:2] != (command["owner"], command_sha):
             raise ValueError("MANDATE_CONTROL_NONCE_CONFLICT")
-        return MandateState.model_validate_json(replay[2])
+        return state_parse(replay[2])
     row = db.execute(
         "SELECT mandate,state FROM copy_mandate_heads WHERE owner=?", (command["owner"],)
     ).fetchone()
     if row is None:
         raise ValueError("MANDATE_UNKNOWN")
-    mandate, before = (
-        CopyMandate.model_validate_json(row[0]),
-        MandateState.model_validate_json(row[1]),
-    )
-    if command["mandate_sha"] != mandate.sha or command["predecessor_sha"] != before.sha:
+    mandate, before = SignedMandate.from_json(row[0]), state_parse(row[1])
+    if command["mandate_sha"] != mandate.sha or command["predecessor_sha"] != state_sha(before):
         raise ValueError("MANDATE_CONTROL_PREDECESSOR")
     transition = transition_mandate(
         mandate, before, event=command["event"], evidence_sha=command_sha, at_ms=at_ms
@@ -178,7 +189,7 @@ def control(db, command, *, at_ms: int, approval: dict, authority_public: str):
             command["nonce"],
             mandate.owner,
             command_sha,
-            after.model_dump_json(),
+            state_json(after),
             canonical(approval).decode(),
         ),
     )
@@ -191,10 +202,7 @@ def baseline(db, owner, outcome_id, *, at_ms):
     ).fetchone()
     if row is None:
         raise ValueError("MANDATE_UNKNOWN")
-    mandate, before = (
-        CopyMandate.model_validate_json(row[0]),
-        MandateState.model_validate_json(row[1]),
-    )
+    mandate, before = SignedMandate.from_json(row[0]), state_parse(row[1])
     if before.phase != "AWAITING_BASELINE":
         return before
     rows = db.execute(
@@ -236,10 +244,9 @@ def history(db, owner):
         raise ValueError("MANDATE_UNKNOWN")
     import json
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-    from .pm_copy_mandate import verify_mandate
     from .production_manifest import verify
 
-    mandate = CopyMandate.model_validate_json(saved[0])
+    mandate = SignedMandate.from_json(saved[0])
     key = Ed25519PublicKey.from_public_bytes(bytes.fromhex(saved[2]))
     if verify_mandate(json.loads(saved[1]), key, account_id=mandate.account_id) != mandate:
         raise ValueError("MANDATE_APPROVAL_REPLAY")
@@ -253,10 +260,10 @@ def history(db, owner):
         "SELECT seq,payload,prior_sha,sha FROM copy_mandate_events WHERE owner=? ORDER BY seq",
         (owner,),
     ):
-        transition = MandateTransition.model_validate_json(raw)
+        transition = transition_parse(raw)
         if (
             prior != before_head
-            or current != digest([prior, transition.model_dump(mode="json")])
+            or current != digest([prior, transition.data])
             or seq != len(result) + 1
             or (before_state is not None and before_state != transition.predecessor)
         ):
@@ -265,7 +272,7 @@ def history(db, owner):
             command = commands.get(transition.evidence_sha)
             if (
                 command is None
-                or command["predecessor_sha"] != transition.predecessor.sha
+                or command["predecessor_sha"] != state_sha(transition.predecessor)
                 or command["event"] != transition.event
             ):
                 raise ValueError("MANDATE_CONTROL_REPLAY")
@@ -282,6 +289,6 @@ def history(db, owner):
         result.append(transition)
         before_head, before_state = current, transition.successor
     row = db.execute("SELECT state,head FROM copy_mandate_heads WHERE owner=?", (owner,)).fetchone()
-    if row and (MandateState.model_validate_json(row[0]) != before_state or row[1] != before_head):
+    if row and (state_parse(row[0]) != before_state or row[1] != before_head):
         raise ValueError("MANDATE_JOURNAL_HEAD")
     return tuple(result)

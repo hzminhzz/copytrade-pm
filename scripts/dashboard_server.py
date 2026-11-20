@@ -12,6 +12,7 @@ from contextlib import closing
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from hashlib import sha256
 import json
 import os
 from pathlib import Path
@@ -25,12 +26,19 @@ from urllib.parse import parse_qs, urlsplit
 
 WORKSPACE = Path(__file__).resolve().parents[1]
 DIST = WORKSPACE / "ops" / "control-center" / "dist"
+# The roster SQLite is the wallet/portfolio identity authority. The retired
+# wallet_registry.sqlite path is no longer read; the legacy env/attribute names
+# stay only so the pinned ops unit keeps a single configured database path.
 REGISTRY_DB = Path(
     os.environ.get(
         "COPYTRADE_OPS_REGISTRY_DB",
-        "/home/quant/.local/share/copytrade/registry/wallet_registry.sqlite",
+        os.environ.get(
+            "COPYTRADE_OPS_ROSTER_DB",
+            "/home/quant/.local/share/copytrade/roster.sqlite",
+        ),
     )
 )
+ROSTER_SCHEMA_VERSION = 1
 PROJECTION_DB = Path(
     os.environ.get(
         "COPYTRADE_OPS_PROJECTION_DB",
@@ -58,6 +66,17 @@ _CHAPTER2_PORTFOLIOS = frozenset(
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _redacted_wallet(wallet: str) -> str:
+    """Stable public display key; the operator surface never renders an address."""
+    return "wallet:" + sha256(wallet.encode()).hexdigest()[:16]
+
+
+def _iso_ms(stamp_ms: int | None) -> str | None:
+    if stamp_ms is None:
+        return None
+    return datetime.fromtimestamp(int(stamp_ms) / 1000, timezone.utc).isoformat()
 
 
 def readonly(db: Path) -> sqlite3.Connection:
@@ -136,112 +155,155 @@ def get_sqlite_state(
     projection_db: Path | None = None,
     ops_db: Path | None = None,
 ) -> dict:
-    """One read-only SQLite transaction, no fabricated assessment or releases."""
-    reg = registry_db if registry_db is not None else REGISTRY_DB
-    if not reg.is_file():
-        raise FileNotFoundError("Registry source unavailable")
+    """One read-only roster transaction; no fabricated assessment or release.
+
+    Wallet and portfolio identity come from committed roster seat books, not from
+    the retired `wallet_registry.sqlite`. Row states stay `candidate` /
+    `unverified`: a seat book is a research selection, never release or trading
+    authority, and a public display key is a redacted wallet reference.
+    """
+    db = registry_db if registry_db is not None else REGISTRY_DB
+    if not db.is_file():
+        raise FileNotFoundError("Roster source unavailable")
     now = utc_now()
+    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
     equity = read_projection(projection_db if projection_db is not None else PROJECTION_DB)
     wallets: list[dict] = []
     portfolios: list[dict] = []
-    import_observed: str | None = None
-    source_manifest_sha: str | None = None
+    observed_ms: int | None = None
+    integrity = "FAILED"
 
-    with closing(readonly(reg)) as con:
-        con.execute("BEGIN")  # pin one consistent WAL read snapshot
-        integrity = (
-            "VERIFIED" if con.execute("PRAGMA quick_check").fetchone()[0] == "ok" else "FAILED"
-        )
-        foreign_keys = con.execute("PRAGMA foreign_key_check").fetchone()
-        if foreign_keys is not None:
-            integrity = "FAILED"
-        imported = con.execute(
-            "SELECT manifest_sha256, observed_at FROM import_runs ORDER BY observed_at DESC LIMIT 1"
-        ).fetchone()
-        if imported:
-            source_manifest_sha = imported["manifest_sha256"]
-            import_observed = imported["observed_at"]
-        memberships: dict[int, list[str]] = {}
-        for r in con.execute(
-            "SELECT wallet_id, portfolio_id, version FROM portfolio_memberships WHERE wallet_id IS NOT NULL"
+    with closing(readonly(db)) as con:
+        con.execute("BEGIN")  # pin one consistent read snapshot
+        quick = con.execute("PRAGMA quick_check").fetchone()
+        version = con.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
+        if (
+            quick is not None
+            and quick[0] == "ok"
+            and con.execute("PRAGMA foreign_key_check").fetchone() is None
+            and version is not None
+            and str(version[0]) == str(ROSTER_SCHEMA_VERSION)
         ):
-            memberships.setdefault(r["wallet_id"], []).append(
-                f"{r['portfolio_id']} (v{r['version']})"
+            integrity = "VERIFIED"
+        vetoed = {
+            str(r["wallet"])
+            for r in con.execute(
+                "SELECT wallet FROM vetoes WHERE revoked_ms IS NULL "
+                "AND (expires_ms IS NULL OR expires_ms > ?)",
+                (now_ms,),
             )
-        aliases = {}
-        for r in con.execute(
-            "SELECT wallet_id, alias FROM wallet_aliases "
-            "WHERE known_at <= ? ORDER BY known_at, rowid",
-            (now,),
-        ):
-            aliases[r["wallet_id"]] = r["alias"]
-        excluded = {
-            r["wallet_id"] for r in con.execute("SELECT DISTINCT wallet_id FROM exclusions")
         }
-
-        for r in con.execute("SELECT wallet_id, address FROM wallets ORDER BY wallet_id"):
-            wid, addr = r["wallet_id"], str(r["address"])
-            alias = aliases.get(wid)
-            wallets.append(
-                {
-                    "address": f"registry-wallet-{wid}",  # opaque, stable display key
-                    "alias": alias,
-                    "sourceEquityUsd": equity.get(addr.lower()),  # diagnostic, not follower NAV
-                    "eligibility": "ineligible" if wid in excluded else "pending",
-                    "assessmentStatus": "excluded" if wid in excluded else "candidate",
-                    "edgeDecay": "unknown",
-                    "drawdownPct": None,  # no authentic cash-flow-adjusted peak/equity path
-                    "evidenceQuality": "unverified",
-                    "evidenceBasis": "historical" if wid in excluded else "unknown",
-                    "sourceRef": None,
-                    "assessedAt": None,
-                    "updatedAt": import_observed or now,
-                    "registryMetadataJson": json.dumps(
-                        {
-                            "walletId": wid,
-                            "portfolioMemberships": memberships.get(wid, []),
-                            "receiptHealth": "unknown",
-                        }
-                    ),
-                }
-            )
-        for seal in con.execute(
-            "SELECT portfolio_id, version, definition_sha256, selection_known_at "
-            "FROM portfolio_seals ORDER BY portfolio_id, version"
+        for account in con.execute(
+            "SELECT account_id, MAX(sequence) AS sequence FROM books GROUP BY account_id"
+            " ORDER BY account_id"
         ):
-            pid, version = seal["portfolio_id"], seal["version"]
-            # Use *sealed member aliases*, not aliases learned after this seal.
-            member_aliases = [
-                row[0]
-                for row in con.execute(
-                    "SELECT member_alias FROM portfolio_memberships "
-                    "WHERE portfolio_id=? AND version=? ORDER BY member_alias",
-                    (pid, version),
+            book = con.execute(
+                "SELECT as_of_ms, book_sha, payload FROM books WHERE account_id=? AND sequence=?",
+                (account["account_id"], account["sequence"]),
+            ).fetchone()
+            if book is None:
+                continue
+            account_id = str(account["account_id"])
+            sequence = int(account["sequence"])
+            book_sha = str(book["book_sha"])
+            as_of_ms = int(book["as_of_ms"])
+            observed_ms = as_of_ms if observed_ms is None else max(observed_ms, as_of_ms)
+            try:
+                payload = json.loads(book["payload"])
+            except (TypeError, ValueError) as exc:
+                raise ValueError("ROSTER_BOOK_PAYLOAD_INVALID") from exc
+            seats = payload.get("seats") if isinstance(payload, dict) else None
+            members: list[str] = []
+            for seat in seats if isinstance(seats, list) else []:
+                lease = seat.get("lease") if isinstance(seat, dict) else None
+                spec = seat.get("spec") if isinstance(seat, dict) else None
+                if not isinstance(lease, dict) or not isinstance(spec, dict):
+                    continue
+                wallet = str(lease.get("wallet") or "")
+                seat_id = str(spec.get("seat_id") or "")
+                if not wallet or not seat_id:
+                    continue
+                members.append(_redacted_wallet(wallet))
+                wallets.append(
+                    {
+                        "address": _redacted_wallet(wallet),  # opaque display key
+                        # A seat label is the canonical roster identity, never an alias guess.
+                        "alias": seat_id,
+                        # Diagnostic market value only, never follower NAV.
+                        "sourceEquityUsd": equity.get(wallet.lower()),
+                        "eligibility": "ineligible" if wallet in vetoed else "pending",
+                        "assessmentStatus": "candidate",
+                        "edgeDecay": "unknown",
+                        "drawdownPct": None,  # no authentic cash-flow-adjusted path
+                        "evidenceQuality": "unverified",
+                        "evidenceBasis": "prospective" if integrity == "VERIFIED" else "unknown",
+                        "sourceRef": f"roster_book:{book_sha[:16]}",
+                        "assessedAt": None,
+                        "updatedAt": _iso_ms(as_of_ms) or now,
+                        "registryMetadataJson": json.dumps(
+                            {
+                                "accountId": account_id,
+                                "seatId": seat_id,
+                                "generation": lease.get("generation"),
+                                "owner": lease.get("owner"),
+                                "receiptHealth": "unknown",
+                            }
+                        ),
+                    }
                 )
-            ]
+            draining = payload.get("draining") if isinstance(payload, dict) else None
+            for entry in draining if isinstance(draining, list) else []:
+                wallet = str(entry.get("wallet") or "") if isinstance(entry, dict) else ""
+                if not wallet:
+                    continue
+                wallets.append(
+                    {
+                        "address": _redacted_wallet(wallet),
+                        "alias": None,
+                        "sourceEquityUsd": equity.get(wallet.lower()),
+                        "eligibility": "ineligible" if wallet in vetoed else "pending",
+                        "assessmentStatus": "draining",
+                        "edgeDecay": "unknown",
+                        "drawdownPct": None,
+                        "evidenceQuality": "unverified",
+                        "evidenceBasis": "unknown",
+                        "sourceRef": f"roster_draining:{book_sha[:16]}",
+                        "assessedAt": None,
+                        "updatedAt": _iso_ms(as_of_ms) or now,
+                        "registryMetadataJson": json.dumps(
+                            {
+                                "accountId": account_id,
+                                "seatId": entry.get("seat_id") if isinstance(entry, dict) else None,
+                                "owner": entry.get("owner") if isinstance(entry, dict) else None,
+                                "reason": entry.get("reason") if isinstance(entry, dict) else None,
+                                "receiptHealth": "unknown",
+                            }
+                        ),
+                    }
+                )
             portfolios.append(
                 {
-                    "id": f"{pid}-v{version}",
-                    "name": f"{pid} (v{version})",
+                    "id": f"{account_id}-v{sequence}",
+                    "name": f"{account_id} (v{sequence})",
                     "state": "candidate",
                     "strategy": "SEALED_RESEARCH_SELECTION",
-                    "walletAddressesJson": json.dumps(member_aliases),
-                    "podCount": None,  # saved membership != running pod count
-                    "totalRiskUsd": None,  # Guardian, not research SQLite, owns this
-                    "evidenceBasis": "historical",
+                    "walletAddressesJson": json.dumps(members),
+                    "podCount": None,  # selected seats != running pods
+                    "totalRiskUsd": None,  # Guardian, not the roster, owns this
+                    "evidenceBasis": "prospective",
                     "evidenceQuality": "unverified",
-                    "sourceRef": f"portfolio_seal:{str(seal['definition_sha256'])[:16]}",
+                    "sourceRef": f"roster_book:{book_sha[:16]}",
                     "detailsJson": json.dumps(
                         {
-                            "version": version,
-                            "definitionSha256": seal["definition_sha256"],
-                            "selectionKnownAt": seal["selection_known_at"],
+                            "sequence": sequence,
+                            "bookSha256": book_sha,
+                            "selectionKnownAt": _iso_ms(as_of_ms),
                             "paperRunning": "UNKNOWN",
                             "tradingAuthorized": False,
                             "sizingContract": "FIXED_K_NATIVE_QUANTITY (policy only)",
                         }
                     ),
-                    "updatedAt": seal["selection_known_at"] or now,
+                    "updatedAt": _iso_ms(as_of_ms) or now,
                 }
             )
         con.execute("ROLLBACK")  # close the explicitly bounded snapshot
@@ -249,20 +311,20 @@ def get_sqlite_state(
     records, events = read_ops_records(ops_db if ops_db is not None else OPS_DB)
     receipt = {
         "snapshotId": f"sqlite-snapshot-{now}",
-        "status": "pending",
+        "status": "pending" if integrity == "VERIFIED" else "failed",
         "producedAt": now,
         "receivedAt": now,
-        "sourceObservedAt": import_observed,
-        "sourceStatus": "UNKNOWN",
-        # The last import SHA is NOT the current live SQLite inventory SHA.
+        "sourceObservedAt": _iso_ms(observed_ms) if observed_ms is not None else None,
+        "sourceStatus": "VERIFIED" if integrity == "VERIFIED" else "FAILED",
+        # This reader does not recompute the roster inventory SHA; never imply it.
         "inventorySha256": None,
-        "sourceManifestSha256": source_manifest_sha,
+        "sourceManifestSha256": None,
         "releaseStatus": None,
         "releaseRevision": None,
         "databaseIntegrity": integrity,
-        "selectionKnownAt": None,
+        "selectionKnownAt": _iso_ms(observed_ms) if observed_ms is not None else None,
         "selectionSha256": None,
-        "selectionState": "UNVERIFIED",
+        "selectionState": "SEALED_RESEARCH_ONLY",
         "paperRunning": "UNKNOWN",
         "scientificallyQualified": 0,
         "tradingAuthorized": 0,
@@ -270,7 +332,10 @@ def get_sqlite_state(
         "walletSynced": sum(w["alias"] is not None for w in wallets),
         "walletUnresolved": sum(w["alias"] is None for w in wallets),
         "portfolioCount": len(portfolios),
-        "error": "Selection proof and runtime authority have not been independently verified.",
+        "error": (
+            "Committed roster seat books only: release admission, paper runtime and"
+            " trading authority are verified elsewhere and are never inferred here."
+        ),
     }
     return {
         "wallets": wallets,
@@ -349,16 +414,16 @@ def _invoke_owner_cli(argv: list[str]) -> dict:
 def chapter2_owner_view(portfolio: str, inspection: str) -> dict:
     """One bounded, redacted owner read; no HTTP caller file paths or mutation."""
     if not REGISTRY_DB.is_file():
-        raise FileNotFoundError("Registry owner unavailable")
+        raise FileNotFoundError("Roster owner unavailable")
     argv = [
-        "cwsa",
+        "release",
         "chapter2",
         "site-view",
         "--portfolio",
         portfolio,
         "--inspection",
         inspection,
-        "--registry-db",
+        "--roster-db",
         str(REGISTRY_DB),
     ]
     for flag, name in (

@@ -23,19 +23,13 @@ ADDRESSES = {
 
 
 def registry(path):
-    with closing(sqlite3.connect(path)) as db, db:
-        db.execute("CREATE TABLE wallets(wallet_id INTEGER PRIMARY KEY,address TEXT NOT NULL)")
-        db.execute("CREATE TABLE wallet_aliases(wallet_id INTEGER,alias TEXT,known_at TEXT)")
-        for i, (alias, address) in enumerate(ADDRESSES.items(), 1):
-            db.execute("INSERT INTO wallets VALUES (?,?)", (i, address))
-            db.execute(
-                "INSERT INTO wallet_aliases VALUES (?,?,?)",
-                (
-                    i,
-                    {"S035": "S035-ENA", "S051": "S051-BTC", "S053": "S053-HYPE"}[alias],
-                    "2026-11-01T00:00:00+00:00",
-                ),
-            )
+    from copytrade_pm.pm_forward_observed_paper import PAPER_PROFILES
+    from copytrade_pm.roster import RosterStore
+    from roster_fixture import add_account
+
+    profile = PAPER_PROFILES["P1"]
+    with RosterStore(path, create=True) as store:
+        add_account(store, "P1", ADDRESSES, k=profile.k, risk=profile.risk)
     return path
 
 

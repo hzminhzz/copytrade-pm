@@ -1,9 +1,7 @@
 """Non-admitting, read-only multi-gate diagnostics for the continuous observer."""
 
-from contextlib import closing
 from datetime import UTC, datetime
 import json
-import sqlite3
 
 import pytest
 
@@ -15,6 +13,8 @@ from copytrade_pm.pm_forward_continuous import (
     load_continuous_config,
 )
 from copytrade_pm.pm_forward_journal import PaperJournal
+from copytrade_pm.roster import RosterStore
+from roster_fixture import WALLETS, add_account
 
 BTC = Instrument("hyperliquid", "mainnet:perp:default", "BTC")
 ETH = Instrument("hyperliquid", "mainnet:perp:default", "ETH")
@@ -22,70 +22,39 @@ AT = datetime(2026, 11, 6, 12, tzinfo=UTC).isoformat()
 
 
 def _registry(tmp_path):
-    registry = tmp_path / "registry.sqlite"
-    with closing(sqlite3.connect(registry)) as db:
-        db.execute("CREATE TABLE marker (value INTEGER)")
-        db.commit()
-    registry.chmod(0o600)
-    return registry
+    path = tmp_path / "roster.sqlite"
+    with RosterStore(path, create=True) as store:
+        add_account(store, "P1", {f"seat_{i}": wallet for i, wallet in enumerate(WALLETS[:5])})
+    return path
 
 
-def test_diagnostic_reports_independent_provenance_exclusion_and_budget_without_writes(
-    tmp_path, monkeypatch
-):
-    import copytrade_pm.pm_forward_continuous as module
-
+def test_diagnostic_reports_seal_and_budget_without_claiming_attestation(tmp_path):
     registry = _registry(tmp_path)
     old = PaperJournal(tmp_path / "old")
     old_head = old.path.read_bytes()
     new_root = tmp_path / "uncreated"
-    monkeypatch.setattr(
-        module,
-        "db_authority_health",
-        lambda _path: {
-            "database_integrity": "VERIFIED",
-            "inventory_sha256": "b" * 64,
-        },
-    )
-
-    def excluded(*_args, **_kwargs):
-        raise ValueError("PUBLIC_TRADE_WALLET_PROPFIRM_EXCLUDED")
-
-    monkeypatch.setattr(module, "registry_watched_addresses", excluded)
-    monkeypatch.setattr(
-        module,
-        "_portfolio_seals",
-        lambda *_args, **_kwargs: {"P14": {"version": 2}},
-    )
-    monkeypatch.setattr(module, "_diagnostic_sealed_account_count", lambda *_args: 5)
-    budget = SubscriptionBudget(
-        reserved_connections=8, ccxt_markets_per_socket=1, public_markets_per_socket=1
-    )
     options = dict(
         registry_db=registry,
         state_root=new_root,
         instruments=(BTC, ETH),
         revision="a" * 40,
         as_of=AT,
-        budget=budget,
+        budget=SubscriptionBudget(
+            reserved_connections=8, ccxt_markets_per_socket=1, public_markets_per_socket=1
+        ),
         protected_roots=(old.root,),
-        portfolio_ids=("P14",),
-        expected_inventory_sha="b" * 64,
+        portfolio_ids=("P1",),
+        expected_inventory_sha=RosterStore.authority_health(registry)["inventory_sha256"],
     )
     report = diagnose_candidate_preflight(**options)
     assert report["status"] == "BLOCKED"
     assert report["gates"]["registry_integrity"]["status"] == "PASS"
-    assert report["gates"]["signed_selection"] == {
-        "status": "PASS",
-        "scope": "REQUESTED_PORTFOLIO_SEALS_ONLY",
-    }
+    assert report["gates"]["portfolio_seals"]["status"] == "PASS"
+    assert report["gates"]["signed_selection"]["reason_code"] == "SELECTION_ATTESTATION_MISSING"
     assert (
-        report["gates"]["watched_wallets"]["reason_code"] == "PUBLIC_TRADE_WALLET_PROPFIRM_EXCLUDED"
+        report["gates"]["subscription_budget"]["reason_code"] == "STREAM_CONNECTION_BUDGET_EXCEEDED"
     )
-    assert report["gates"]["subscription_budget"]["reason_code"] == (
-        "STREAM_CONNECTION_BUDGET_EXCEEDED"
-    )
-    assert report["account_count_basis"] == "SEALED_MEMBERSHIP_ESTIMATE"
+    assert report["account_count_basis"] == "ROSTER_WATCHLIST"
     assert report["candidate_connections_estimate"] == 5
     assert report["candidate_users_estimate"] == 5
     assert report["candidate_subscriptions_estimate"] == 11
@@ -93,87 +62,30 @@ def test_diagnostic_reports_independent_provenance_exclusion_and_budget_without_
     assert report["order_route"] == "NONE"
     assert not new_root.exists()
     assert old.path.read_bytes() == old_head
-    with pytest.raises(ValueError, match="PUBLIC_TRADE_WALLET_PROPFIRM_EXCLUDED"):
+    with pytest.raises(ValueError, match="STREAM_CONNECTION_BUDGET_EXCEEDED"):
         candidate_preflight(**options)
 
 
-def test_diagnostic_never_reports_selected_provenance_pass_when_seal_missing(tmp_path, monkeypatch):
-    import copytrade_pm.pm_forward_continuous as module
-
-    registry = _registry(tmp_path)
-    monkeypatch.setattr(
-        module,
-        "db_authority_health",
-        lambda _path: {"database_integrity": "VERIFIED", "inventory_sha256": "b" * 64},
-    )
-
-    def unsealed(*_args, **_kwargs):
-        raise ValueError("STREAM_PORTFOLIO_NOT_SEALED_ASOF")
-
-    monkeypatch.setattr(module, "_portfolio_seals", unsealed)
-    monkeypatch.setattr(
-        module,
-        "registry_watched_addresses",
-        lambda *_args, **_kwargs: {"0x" + "1" * 40: "wallet:1"},
-    )
-    root = tmp_path / "uncreated"
-    options = dict(
-        registry_db=registry,
-        state_root=root,
-        instruments=(BTC,),
-        revision="a" * 40,
-        as_of=AT,
-        budget=SubscriptionBudget(),
-        portfolio_ids=("regime.macro/TriadA",),
-        expected_inventory_sha="b" * 64,
-    )
-    report = diagnose_candidate_preflight(**options)
-    assert report["status"] == "BLOCKED"
-    assert report["gates"]["portfolio_seals"]["reason_code"] == ("STREAM_PORTFOLIO_NOT_SEALED_ASOF")
-    assert report["gates"]["signed_selection"]["status"] == "BLOCKED"
-    assert report["gates"]["signed_selection"]["scope"] == "REQUESTED_PORTFOLIO_SEALS_ONLY"
-    assert report["safe_to_start"] is False
-    assert not root.exists()
-    with pytest.raises(ValueError, match="STREAM_PORTFOLIO_NOT_SEALED_ASOF"):
-        candidate_preflight(**options)
-
-
-def test_diagnostic_can_pass_all_checks_but_never_admit_start(tmp_path, monkeypatch):
-    import copytrade_pm.pm_forward_continuous as module
-
-    registry = _registry(tmp_path)
-    monkeypatch.setattr(
-        module,
-        "db_authority_health",
-        lambda _path: {"database_integrity": "VERIFIED", "inventory_sha256": "b" * 64},
-    )
-    monkeypatch.setattr(
-        module,
-        "registry_watched_addresses",
-        lambda *_args, **_kwargs: {"0x" + "1" * 40: "wallet:1"},
-    )
-    monkeypatch.setattr(
-        module,
-        "_portfolio_seals",
-        lambda *_args, **_kwargs: {"P1": {"version": 2}},
-    )
-    root = tmp_path / "uncreated"
+def test_diagnostic_blocks_unknown_book_and_inventory_drift(tmp_path):
+    path = _registry(tmp_path)
     report = diagnose_candidate_preflight(
-        registry_db=registry,
-        state_root=root,
+        registry_db=path,
+        state_root=tmp_path / "uncreated",
         instruments=(BTC,),
         revision="a" * 40,
         as_of=AT,
         budget=SubscriptionBudget(),
-        portfolio_ids=("P1",),
+        portfolio_ids=("unknown",),
         expected_inventory_sha="b" * 64,
     )
-    assert report["status"] == "DIAGNOSTIC_ONLY"
-    assert all(value["status"] == "PASS" for value in report["gates"].values())
-    assert report["account_count_basis"] == "ELIGIBLE_WATCHLIST"
-    assert report["strict_preflight_still_required"] is True
+    assert report["status"] == "BLOCKED"
+    assert report["gates"]["portfolio_seals"]["reason_code"] == "SELECTION_UNKNOWN_AT_ASOF"
+    assert (
+        report["gates"]["inventory_generation"]["reason_code"]
+        == "STREAM_REGISTRY_GENERATION_CHANGED"
+    )
+    assert report["gates"]["account_census"]["status"] == "UNKNOWN"
     assert report["safe_to_start"] is False
-    assert not root.exists()
 
 
 def test_config_budget_failure_exposed_only_for_diagnostics(tmp_path):
@@ -221,23 +133,6 @@ def test_diagnostic_entrypoint_is_read_only_and_skips_strict_preflight(tmp_path,
     config_path = tmp_path / "config.json"
     config_path.write_text(json.dumps(config))
     monkeypatch.setattr(module, "runtime_revision", lambda: "a" * 40)
-    monkeypatch.setattr(
-        module,
-        "db_authority_health",
-        lambda _path: {"database_integrity": "VERIFIED", "inventory_sha256": "b" * 64},
-    )
-
-    monkeypatch.setattr(
-        module,
-        "_portfolio_seals",
-        lambda *_args, **_kwargs: {"P1": {"version": 2}},
-    )
-    monkeypatch.setattr(module, "_diagnostic_sealed_account_count", lambda *_args: 3)
-    monkeypatch.setattr(
-        module,
-        "registry_watched_addresses",
-        lambda *_args, **_kwargs: {"0x" + "1" * 40: "wallet:1"},
-    )
 
     def cannot_run_strict(**_kwargs):
         raise AssertionError("strict preflight must never run for diagnostics")
@@ -253,7 +148,7 @@ def test_diagnostic_entrypoint_is_read_only_and_skips_strict_preflight(tmp_path,
     )
     report = module.continuous_entrypoint(args)
     assert report["status"] == "BLOCKED"
-    assert report["gates"]["signed_selection"]["status"] == "PASS"
+    assert report["gates"]["signed_selection"]["status"] == "BLOCKED"
     assert report["gates"]["subscription_budget"]["reason_code"] == (
         "STREAM_CONNECTION_BUDGET_EXCEEDED"
     )

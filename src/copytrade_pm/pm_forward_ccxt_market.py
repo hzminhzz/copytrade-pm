@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -1147,20 +1148,22 @@ async def _probe(
         return result
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="One-shot CCXT Pro Hyperliquid read-only L2 canary; no broker or paper fills"
-    )
-    parser.add_argument("--instrument", action="append", required=True)
-    parser.add_argument("--hip3-dex", action="append", default=[])
-    parser.add_argument("--timeout", type=float, default=15)
-    parser.add_argument("--record-root", type=Path)
-    parser.add_argument("--continuous-canary-seconds", type=float)
-    parser.add_argument("--ack-shared-ip-connection-budget", action="store_true")
-    args = parser.parse_args()
+def add_arguments(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    """Mount the bounded CCXT Pro probe options onto an existing subparser."""
+    p.add_argument("--instrument", action="append", required=True)
+    p.add_argument("--hip3-dex", action="append", default=[])
+    p.add_argument("--timeout", type=float, default=15)
+    p.add_argument("--record-root", type=Path)
+    p.add_argument("--continuous-canary-seconds", type=float)
+    p.add_argument("--ack-shared-ip-connection-budget", action="store_true")
+    return p
+
+
+def run(args: argparse.Namespace) -> int:
+    """Handler shared by `python -m` and `copytrade-pm research ccxt-probe`."""
     if args.continuous_canary_seconds is not None:
         if args.record_root is None:
-            parser.error("--continuous-canary-seconds requires --record-root")
+            raise ValueError("--continuous-canary-seconds requires --record-root")
         print(
             json.dumps(
                 asyncio.run(
@@ -1175,9 +1178,9 @@ def main() -> None:
                 indent=2,
             )
         )
-        return
+        return 0
     if len(args.instrument) > 5:
-        parser.error("one-shot canary limited to five markets")
+        raise ValueError("one-shot canary limited to five markets")
     result = asyncio.run(
         _probe(
             tuple(Instrument.parse(inst) for inst in args.instrument),
@@ -1187,7 +1190,25 @@ def main() -> None:
         )
     )
     print(json.dumps(result, sort_keys=True, indent=2))
+    return 0
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="copytrade-pm research ccxt-probe",
+        description="One-shot CCXT Pro Hyperliquid read-only L2 canary; no broker or paper fills",
+    )
+    add_arguments(parser)
+    args = parser.parse_args(argv)
+    try:
+        code = run(args)
+    except (OSError, ValueError) as exc:
+        parser.error(str(exc))
+        return 2
+    if code:
+        raise SystemExit(code)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

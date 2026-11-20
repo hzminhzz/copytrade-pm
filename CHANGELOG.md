@@ -1,0 +1,20 @@
+# Changelog
+
+All notable changes to `copytrade-pm` are documented in this file.
+
+## [Phase D & E — Unified FactStore, Dynamic Roster & Kernel Cutover] - 2026-11-20
+
+### Added
+- `copytrade_pm.facts`: day-partitioned `Decimal(38,12)` Parquet `FactStore` (`fills`, `positions`, `equity`, `funding`, `ledger`, and bi-temporal `bars_1m`), SQLite manifest (`facts.sqlite`), ingest-time `arrival_seq` burst repair, strict `as_of_ms` / `allow_unknown_known_at` PIT scanning, `coins=` filter, and causality enforcement (`first_known_at_ms >= event_ts_ms`).
+- `copytrade_pm.roster`: `SeatBook`, `SeatSpec`, `SeatLease`, `DrainingOwner`, `AllocationMode.FLAT`, terminal epoch-latched `RosterCUSUMState`, `OperatorVeto`, `RosterStore` (`roster.sqlite` append-only triggers and `authority_health`), `select_sealed_book`, and daily batched unsigned `ReleaseProposal` staging.
+- `copytrade_pm.pm_checkpoint_decision` & `pm_mandate`: PM03 thin adapter over `copytrade_kernel.step_checkpoint` and `CopyMandateSpec`.
+- Documentation: `docs/FACTS-STORE.md`, `docs/ROSTER.md`, `docs/CHECKPOINT-KERNEL-DECISION-PM03.md`, and `docs/decisions/2026-11-19-unified-bi-temporal-fact-store.md`.
+
+### Changed
+- Consolidated 41 experiment CLI entrypoints into `copytrade-pm` (`facts`, `research`, `roster`, `paper`, `release`, `capabilities`).
+- Cut over `pm_forward_continuous`, `dashboard/adapter.py`, `wallet_health_official`, and `ops/wallet-health/daily.sh` from `wallet_registry.sqlite` to `RosterStore` / `FactStore` (`copytrade-pm facts capture-health`).
+- Repinned `copytrade-kernel` in `pyproject.toml` and `uv.lock` from worktree-local path to the `prop-production` git revision (`#subdirectory=packages/copytrade-kernel`).
+
+### Removed
+- Deleted all 10 `wallet_registry*.py` modules, `pm_copy_mandate.py`, `wallet_health.py`, `scripts/registry_release.py`, `scripts/audit_wallet_registry_docs.py`, `scripts/verify_wr_fp_journal_contract.py`, and retired Grafana wallet-health dashboards/alerts.
+- Retired the legacy `wallet_store` write path (reads remain available for historical archive migration only).

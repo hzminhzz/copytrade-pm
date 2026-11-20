@@ -318,3 +318,55 @@ def test_full_candidate_to_independent_watchdog_reopen_and_backup(tmp_path):
         )
 
     asyncio.run(run())
+
+
+def test_roster_watch_scope_keeps_flat_residuals_until_settled(tmp_path):
+    from datetime import UTC, datetime
+
+    import pytest
+    from copytrade_kernel import KnownAtTs
+    from copytrade_pm.pm_forward_continuous import candidate_preflight, roster_watch_scope
+    from copytrade_pm.roster import OperatorVeto, RosterStore, reconcile_roster
+    from copytrade_pm.roster.sealed import select_sealed_book
+    from roster_fixture import AT, MS, WALLETS, add_account
+
+    path = tmp_path / "roster.sqlite"
+    with RosterStore(path, create=True) as store:
+        predecessor = add_account(store, "paper", {"seat_1": WALLETS[0], "seat_2": WALLETS[1]})
+        original_pin = store.authority_health(path)["inventory_sha256"]
+        for step, wallet in enumerate(WALLETS[:2], 1):
+            clock = KnownAtTs(MS + 1000 * step)
+            current = store.book_at("paper", as_of=clock)
+            plan = reconcile_roster(
+                current=current,
+                vetoes=[OperatorVeto(wallet, "fixture", "synthetic", clock.value)],
+                as_of=clock,
+            )
+            store.commit_plan(plan, committed_ms=clock.value, with_proposal=False)
+            asof = datetime.fromtimestamp(clock.value / 1000, UTC).isoformat()
+            seals, watched = roster_watch_scope(path, ("paper",), as_of=asof)
+            assert set(watched) == set(WALLETS[:2])
+            assert seals["paper"]["mode"] == ("PARTIAL" if step == 1 else "FLAT")
+        with pytest.raises(ValueError, match="SELECTION_FLAT_NO_OCCUPIED_SEATS"):
+            select_sealed_book(store, "paper", clock.value, require_attestation=False)
+        with pytest.raises(ValueError, match="STREAM_REGISTRY_GENERATION_CHANGED"):
+            candidate_preflight(
+                registry_db=path,
+                state_root=tmp_path / "new",
+                instruments=(BTC,),
+                revision="b" * 40,
+                as_of=asof,
+                budget=SubscriptionBudget(),
+                portfolio_ids=("paper",),
+                expected_inventory_sha=original_pin,
+            )
+        final = KnownAtTs(clock.value + 1000)
+        book = store.book_at("paper", as_of=final)
+        settled = reconcile_roster(current=book, settled_owners=book.draining_owners, as_of=final)
+        store.commit_plan(settled, committed_ms=final.value, with_proposal=False)
+        final_asof = datetime.fromtimestamp(final.value / 1000, UTC).isoformat()
+        assert roster_watch_scope(path, ("paper",), as_of=final_asof)[1] == {}
+        assert set(roster_watch_scope(path, ("paper",), as_of=asof)[1]) == set(WALLETS[:2])
+        assert select_sealed_book(store, "paper", MS, require_attestation=False).book == predecessor
+        assert store.authority_health(path)["database_integrity"] == "VERIFIED"
+    assert roster_watch_scope(path, ("paper",), as_of=AT)[0]["paper"]["mode"] == "ACTIVE"

@@ -783,67 +783,33 @@ def test_five_shard_wallet_buy_sell_captured_for_all_40_and_no_paper_execution(
         assert db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
 
 
-def test_registry_only_sealed_resolves_and_exclusions_fail_closed(tmp_path):
-    from pathlib import Path
+def test_roster_only_sealed_resolves_and_vetoed_wallets_fail_closed(tmp_path):
+    from copytrade_pm.roster import RosterStore
+    from roster_fixture import add_account
 
-    from copytrade_pm import wallet_registry as registry_owner
-    from copytrade_pm import wallet_registry_portfolios as contracts
+    roster = tmp_path / "roster.sqlite"
+    members = {"seat_1": BUYER, "seat_2": SELLER, "seat_3": OUTSIDER}
+    book_ms = int(BUCKET.timestamp() * 1000)
+    with RosterStore(roster, create=True) as store:
+        add_account(store, "P1", members, at_ms=book_ms)
+    # Identity cannot be resolved before the committed book was known.
+    with pytest.raises(ValueError, match="PUBLIC_TRADE_PORTFOLIO_NOT_SEALED_ASOF"):
+        registry_watched_addresses(roster, ("P1",), as_of=known(-1))
+    from hashlib import sha256
 
-    registry = tmp_path / "registry.sqlite3"
-    definition = contracts.read_decisions(
-        Path(__file__).resolve().parents[1], registry_owner.PORTFOLIOS, observed_at=known(301)
-    )["P1"]
-    payload = definition["payload"]
-    with closing(sqlite3.connect(registry)) as conn, conn:
-        conn.executescript("""
-            CREATE TABLE wallets(wallet_id INTEGER PRIMARY KEY,venue TEXT,network TEXT,address TEXT);
-            CREATE TABLE wallet_aliases(alias TEXT,wallet_id INTEGER,known_at TEXT);
-            CREATE TABLE portfolio_versions(
-                portfolio_id TEXT,version INTEGER,status TEXT,source_doc TEXT,
-                sizing_contract TEXT,PRIMARY KEY(portfolio_id,version)
-            );
-            CREATE TABLE portfolio_memberships(
-                portfolio_id TEXT,version INTEGER,member_alias TEXT,wallet_id INTEGER
-            );
-            CREATE TABLE portfolio_seals(
-                portfolio_id TEXT,version INTEGER,definition_sha256 TEXT,
-                doc_sha256 TEXT,source_revision TEXT,selection_known_at TEXT
-            );
-            CREATE TABLE exclusions(wallet_id INTEGER,reason TEXT);
-        """)
-        for ident, (alias, address) in enumerate(
-            zip(payload["aliases"], (BUYER, SELLER, OUTSIDER), strict=True), start=1
-        ):
-            conn.execute(
-                "INSERT INTO wallets VALUES (?,'hyperliquid','mainnet',?)", (ident, address)
-            )
-            conn.execute("INSERT INTO portfolio_memberships VALUES ('P1',1,?,?)", (alias, ident))
-            conn.execute("INSERT INTO wallet_aliases VALUES (?,?,?)", (alias, ident, known(0)))
-        conn.execute(
-            "INSERT INTO portfolio_versions VALUES ('P1',1,?,?,?)",
-            (payload["status"], contracts.DECISIONS["P1"]["path"], payload["sizing_contract"]),
-        )
-        conn.execute(
-            "INSERT INTO portfolio_seals VALUES ('P1',1,?,?,?,?)",
-            (
-                definition["definition_sha256"],
-                payload["source_doc_sha256"],
-                payload["source_commit"],
-                payload["selection_known_at"],
-            ),
-        )
-    # Even populated frozen IDs cannot establish alias identity before it was known.
-    with pytest.raises(ValueError, match="IDENTITY_UNRESOLVED"):
-        registry_watched_addresses(registry, ("P1",), as_of=known(-1))
-    assert registry_watched_addresses(registry, ("P1",), as_of=known(301)) == {
-        BUYER: "wallet:1",
-        SELLER: "wallet:2",
-        OUTSIDER: "wallet:3",
+    watched = registry_watched_addresses(roster, ("P1",), as_of=known(301))
+    assert watched == {
+        BUYER: "wallet:" + sha256(b"P1:seat_1").hexdigest()[:24],
+        SELLER: "wallet:" + sha256(b"P1:seat_2").hexdigest()[:24],
+        OUTSIDER: "wallet:" + sha256(b"P1:seat_3").hexdigest()[:24],
     }
-    with closing(sqlite3.connect(registry)) as db, db:
-        db.execute("INSERT INTO exclusions VALUES (1,'BLOCKED')")
-    with pytest.raises(ValueError, match="EXCLUDED"):
-        registry_watched_addresses(registry, ("P1",), as_of=known(301))
+    assert not any(address in ref for address in watched for ref in watched.values())
+    # An operator veto refuses the whole watch map instead of streaming an
+    # excluded wallet whose lease is still in the sealed book.
+    with RosterStore(roster, writable=True) as store:
+        store.record_veto(BUYER, reason="BLOCKED", actor="operator", at_ms=book_ms + 1_000)
+    with pytest.raises(ValueError, match="PUBLIC_TRADE_WALLET_EXCLUDED"):
+        registry_watched_addresses(roster, ("P1",), as_of=known(301))
 
 
 def test_public_wallet_receipts_survive_verified_backup(tmp_path, monkeypatch):

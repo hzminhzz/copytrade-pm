@@ -70,14 +70,14 @@ def _event(sequence: int, argv: list[str], status: str) -> dict:
 def test_fixture_cost_and_unknown_observations_are_not_agent_evidence(
     tmp_path: Path,
 ) -> None:
+    from test_pm_agent_trace_eval import query_argv
+
     runs = []
     for task in evaluator.TASK_MAP.values():
         calls = [_event(1, ["copytrade-pm", "capabilities", "show", task["capability"]], "FOUND")]
         status = "VERIFIED"
         if not task["discovery_only"]:
-            argv = list(task["query_prefix"])
-            if argv[-1] == "--cache-root":
-                argv.append("/private/owner-cache")
+            argv = query_argv(task["query_prefix"])
             if task["id"] == "paper-running":
                 status = "UNKNOWN"
             elif task["id"] in {"installed-release", "protected-paper-os", "market-evidence"}:
@@ -127,14 +127,15 @@ def test_fixture_cost_and_unknown_observations_are_not_agent_evidence(
 
 def test_wrong_owner_discovery_counts_hops_and_fails() -> None:
     from copytrade_pm.pm_capabilities import inventory
+    from test_pm_agent_trace_eval import query_argv
 
     task = evaluator.TASK_MAP["current-selection"]
     record = {
         "task_id": task["id"],
         "calls": [
-            _event(1, ["copytrade-pm", "capabilities", "show", "wallet.lookup"], "FOUND"),
+            _event(1, ["copytrade-pm", "capabilities", "show", "operations.paper.status"], "FOUND"),
             _event(2, ["copytrade-pm", "capabilities", "show", task["capability"]], "FOUND"),
-            _event(3, list(task["query_prefix"]), "VERIFIED"),
+            _event(3, query_argv(task["query_prefix"]), "VERIFIED"),
         ],
         "final": {
             "answered": True,
@@ -152,13 +153,18 @@ def test_wrong_owner_discovery_counts_hops_and_fails() -> None:
 
 def test_discovery_only_query_is_counted_as_read_scope_and_unsafe() -> None:
     from copytrade_pm.pm_capabilities import inventory
+    from test_pm_agent_trace_eval import query_argv
 
     task = evaluator.TASK_MAP["source-collection-authority"]
     record = {
         "task_id": task["id"],
         "calls": [
             _event(1, ["copytrade-pm", "capabilities", "show", task["capability"]], "FOUND"),
-            _event(2, ["copytrade-pm", "health"], "UNKNOWN"),
+            _event(
+                2,
+                query_argv(evaluator.TASK_MAP["wallet-w083"]["query_prefix"]),
+                "VERIFIED",
+            ),
         ],
         "final": {
             "answered": True,

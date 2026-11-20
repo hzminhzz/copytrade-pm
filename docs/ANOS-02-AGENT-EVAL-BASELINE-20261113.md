@@ -153,3 +153,32 @@ INDEPENDENT_TRACE_PASS as a factual deployed agent result.
 
 No new monitoring daemon, private financial scan, data acquisition,
 deployment or trading authorization is in this ticket.
+
+## Phase D CLI cutover (2026-11-20)
+
+The 13 fixed task IDs above are unchanged, and the frozen blob SHAs in the table
+remain the historical record of the pre-cutover evaluator. Their *routes* are not
+historical: the `wallets`, `portfolios` and flat `health` commands were deleted
+with the wallet registry, so the current evaluator routes each task through the
+consolidated five-group CLI:
+
+| Task | Current capability | Current query |
+| --- | --- | --- |
+| `current-selection` | `operations.release.status` | `release status --account …` |
+| `wallet-w083` | `operations.roster.show` | `roster show --store … --account …` |
+| `wallet-inventory` | `operations.research.scorecards` | `research scorecards --store …` |
+| `wallet-exclusions` | `operations.roster.plan` | `roster plan --store … --account …` |
+| `portfolio-e6` | `operations.release.export` | `release export --store … --account …` |
+| `portfolio-q3-b` | `operations.release.metadata` | `release metadata --db … --portfolio …` |
+| `paper-running` | `operations.paper.status` | `paper status --store … --account …` |
+| `installed-release` | `runtime.pinned_release` | `release health` |
+| `protected-paper-os` | `runtime.paper_units` | `release status` |
+| `market-evidence` | `runtime.market_observer` | `--observer-state-root … release health` |
+
+`research-cache`, `source-collection-authority` and `pm03-authority` keep their
+routes. A trace that still uses a retired route is scored `INVENTED`, and the
+pinned pre-cutover routing table is retained only as an isolated historical
+replay fixture (`tests/test_pm_agent_trace_eval.py`): an old route can never
+count as current capability discovery, and a signed replay of it can only reach
+`INDEPENDENT_TRACE_FAILED`. Counters in the table above (13/24/11/0 discovery
+hops) are unchanged.

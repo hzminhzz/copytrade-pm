@@ -232,7 +232,7 @@ def consume_canonical_paper(
     opportunity, risk, quote and financial-journal validation. This adapter
     only mirrors immutable public inputs and never creates a mandate itself.
     """
-    from .pm_copy_mandate import CopyMandate
+    from .pm_mandate import SignedMandate
 
     with closing(sqlite3.connect(f"file:{journal.path}?mode=ro", uri=True)) as db:
         rows = db.execute(
@@ -240,7 +240,7 @@ def consume_canonical_paper(
         ).fetchall()
     if len(rows) != 1:
         raise ValueError("CHAPTER2_SIGNED_MANDATE_REQUIRED")
-    mandate = CopyMandate.model_validate_json(rows[0][0])
+    mandate = SignedMandate.from_json(rows[0][0])
     if digest(policy) != mandate.risk_policy_sha:
         raise ValueError("CHAPTER2_PAPER_POLICY_NOT_APPROVED")
     with closing(sqlite3.connect(f"file:{source_db.resolve()}?mode=ro", uri=True)) as db:

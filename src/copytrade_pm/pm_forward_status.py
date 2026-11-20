@@ -7,6 +7,7 @@ broker or service manager. Runtime status does not imply scientific validity.
 from __future__ import annotations
 
 import argparse
+from collections.abc import Sequence
 from contextlib import closing
 from datetime import datetime
 import json
@@ -123,13 +124,17 @@ def paper_operator_status(
     }
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Read-only local paper status")
-    parser.add_argument("--db", type=Path, required=True)
-    parser.add_argument("--run-id", required=True)
-    parser.add_argument("--heartbeat-root", type=Path)
-    parser.add_argument("--as-of", default=datetime.now().astimezone().isoformat())
-    args = parser.parse_args()
+def add_arguments(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    """Mount the per-run journal projection onto an existing subparser."""
+    p.add_argument("--db", type=Path, required=True)
+    p.add_argument("--run-id", required=True)
+    p.add_argument("--heartbeat-root", type=Path)
+    p.add_argument("--as-of", default=datetime.now().astimezone().isoformat())
+    return p
+
+
+def run(args: argparse.Namespace) -> int:
+    """Handler shared by `python -m copytrade_pm.pm_forward_status` and the CLI group."""
     print(
         json.dumps(
             paper_operator_status(
@@ -142,3 +147,16 @@ def main() -> None:
             indent=2,
         )
     )
+    return 0
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="copytrade-pm paper run-status", description="Read-only local paper status"
+    )
+    add_arguments(parser)
+    return run(parser.parse_args(argv))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

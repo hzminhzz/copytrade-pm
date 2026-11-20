@@ -7,7 +7,6 @@ verification; CWSA runs via the REST checkpoint collector, not legacy WS.
 
 from __future__ import annotations
 
-from contextlib import closing
 from hashlib import sha256
 from pathlib import Path
 from typing import Callable
@@ -15,88 +14,26 @@ from typing import Callable
 from .pm03_account import digest
 from .pm_e4_prospective import dex_universe, guarded_info
 from .pm_forward_journal import PaperJournal
-from .pm_forward_observed_paper import PAPER_PROFILES, readonly, verify_portfolio_selection
 from .pm_forward_source_stream import PersistentAccount
 
-CWSA_PORTFOLIOS = frozenset(
-    {
-        "A",
-        "B",
-        "C",
-        "Combo2",
-        "regime.macro/TriadA",
-        "regime.macro/TriadChop",
-        "research.cft/V4Pod3",
-    }
-)
-HISTORICAL_PAPER_PORTFOLIOS = frozenset(PAPER_PROFILES)
-APPROVED_PORTFOLIOS = HISTORICAL_PAPER_PORTFOLIOS | CWSA_PORTFOLIOS
+from .roster.sealed import select_sealed_book, timestamp_ms
+from .roster.store import RosterStore
 
 
 def selected_parents(
     registry_db: Path, *, portfolios: tuple[str, ...], as_of: str
 ) -> dict[str, str]:
-    """Resolve the exact sealed source roster without follower NAV inference."""
+    """Resolve occupied source accounts under their canonical seat labels."""
     if not portfolios or len(portfolios) != len(set(portfolios)):
         raise ValueError("V4_SELECTED_PORTFOLIOS_INVALID")
     parents: dict[str, str] = {}
-    with closing(readonly(registry_db)) as db:
-        db.execute("BEGIN")
-        try:
-            for pid in portfolios:
-                if pid in PAPER_PROFILES:
-                    selection = verify_portfolio_selection(
-                        registry_db, PAPER_PROFILES[pid], as_of=as_of
-                    )
-                    items = tuple(PAPER_PROFILES[pid].registry_aliases.items())
-                else:
-                    if pid not in APPROVED_PORTFOLIOS:
-                        cols = {
-                            r[1]
-                            for r in db.execute("PRAGMA table_info(portfolio_seals)").fetchall()
-                        }
-                        if (
-                            "portfolio_id" not in cols
-                            or db.execute(
-                                "SELECT 1 FROM portfolio_seals WHERE portfolio_id=? AND selection_known_at<=? LIMIT 1",
-                                (pid, as_of),
-                            ).fetchone()
-                            is None
-                        ):
-                            raise ValueError("V4_SELECTED_PORTFOLIO_UNAPPROVED")
-                    from .wallet_registry_portfolios import select_asof
-
-                    selection = select_asof(db, pid, as_of)
-                    if not selection.get("definition_sha256"):
-                        raise ValueError(
-                            "V4_SELECTED_PORTFOLIO_SEAL_MISSING"
-                            if pid in APPROVED_PORTFOLIOS
-                            else "V4_SELECTED_PORTFOLIO_UNAPPROVED"
-                        )
-                    items = tuple((m, m) for m in selection.get("members", []))
-                if not selection.get("definition_sha256"):
-                    raise ValueError("V4_SELECTED_PORTFOLIO_SEAL_MISSING")
-                for alias, full in items:
-                    addresses = db.execute(
-                        "SELECT DISTINCT w.address FROM wallets w "
-                        "JOIN wallet_aliases a ON a.wallet_id=w.wallet_id "
-                        "WHERE a.alias=? AND a.known_at<=?",
-                        (full, as_of),
-                    ).fetchall()
-                    if len(addresses) != 1:
-                        raise ValueError("V4_SELECTED_ACCOUNT_IDENTITY_AMBIGUOUS")
-                    address = addresses[0][0].lower()
-                    if (
-                        not address.startswith("0x")
-                        or len(address) != 42
-                        or any(c not in "0123456789abcdef" for c in address[2:])
-                    ):
-                        raise ValueError("V4_SELECTED_ADDRESS_INVALID")
-                    previous = parents.setdefault(alias, address)
-                    if previous != address:
-                        raise ValueError("V4_SHARED_SELECTED_ACCOUNT_CONFLICT")
-        finally:
-            db.execute("ROLLBACK")
+    cutoff = timestamp_ms(as_of)
+    with RosterStore(registry_db) as store, store.read_snapshot():
+        for account_id in portfolios:
+            selection = select_sealed_book(store, account_id, cutoff, require_attestation=False)
+            for member in selection.members:
+                if parents.setdefault(member.seat_id, member.wallet) != member.wallet:
+                    raise ValueError("V4_SHARED_SELECTED_ACCOUNT_CONFLICT")
     if len(set(parents.values())) != len(parents):
         raise ValueError("V4_SELECTED_DUPLICATE_ACCOUNTS")
     return dict(sorted(parents.items()))

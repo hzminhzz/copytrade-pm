@@ -22,31 +22,24 @@ from scripts import dashboard_server as server
 
 @pytest.fixture()
 def source(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    registry = tmp_path / "wallet_registry.sqlite"
+    from copytrade_pm.roster import RosterStore
+    from roster_fixture import MS, WALLETS, add_account
+
+    registry = tmp_path / "roster.sqlite"
     projection = tmp_path / "projection.sqlite"
     ops = tmp_path / "ops.sqlite"
-    with closing(sqlite3.connect(registry)) as con:
-        con.executescript("""
-            CREATE TABLE wallets(wallet_id INTEGER PRIMARY KEY, address TEXT NOT NULL);
-            CREATE TABLE wallet_aliases(wallet_id INTEGER, alias TEXT, known_at TEXT);
-            CREATE TABLE portfolio_memberships(wallet_id INTEGER, portfolio_id TEXT, version INTEGER, member_alias TEXT);
-            CREATE TABLE import_runs(manifest_sha256 TEXT, observed_at TEXT);
-            CREATE TABLE exclusions(wallet_id INTEGER, reason TEXT);
-            CREATE TABLE portfolio_seals(portfolio_id TEXT, version INTEGER, definition_sha256 TEXT, selection_known_at TEXT);
-            INSERT INTO wallets VALUES (1, '0xSECRET_ONE'), (2, '0xSECRET_TWO');
-            INSERT INTO wallet_aliases VALUES (1, 'W001', '2026-10-01T00:00:00+00:00');
-            INSERT INTO wallet_aliases VALUES (1, 'FUTURE_ALIAS', '2050-10-01T00:00:00+00:00');
-            INSERT INTO portfolio_seals VALUES ('P1', 1, 'original-seal-sha', '2026-10-04T00:00:00+00:00');
-            INSERT INTO portfolio_memberships VALUES (1, 'P1', 1, 'W001');
-            INSERT INTO import_runs VALUES ('not-live-inventory', '2026-10-01T00:00:00+00:00');
-            INSERT INTO exclusions VALUES (2, 'reviewed-exclusion');
-        """)
-        con.commit()
+    # One committed roster account: two seated wallets, one actively vetoed.
+    with RosterStore(registry, create=True) as store:
+        add_account(store, "P1", {"W001": WALLETS[0], "W002": WALLETS[1]})
+        store.record_veto(WALLETS[1], reason="reviewed exclusion", actor="operator", at_ms=MS)
     with closing(sqlite3.connect(projection)) as con:
-        con.executescript("""
+        con.executescript(
+            """
             CREATE TABLE expert_equity(wallet_id TEXT, account_value TEXT);
-            INSERT INTO expert_equity VALUES ('0xsecret_one', '1245.75');
-        """)
+            INSERT INTO expert_equity VALUES ('%s', '1245.75');
+        """
+            % WALLETS[0].lower()
+        )
         con.commit()
     with closing(sqlite3.connect(ops)) as con:
         con.executescript("""
@@ -73,20 +66,24 @@ def source(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     return registry, projection, ops
 
 
-def test_registry_seal_alias_as_of_and_unknowns(source):
+def test_roster_seat_inventory_is_redacted_and_untrusted(source):
+    from roster_fixture import WALLETS
+
     registry, projection, ops = source
     before = [sha256(path.read_bytes()).hexdigest() for path in source]
     data = server.get_sqlite_state(registry, projection, ops)
     assert [sha256(path.read_bytes()).hexdigest() for path in source] == before
     assert len(data["wallets"]) == 2
-    assert data["wallets"][0]["alias"] == "W001"  # 2050 alias not known now
-    assert data["wallets"][1]["alias"] is None
-    assert data["wallets"][0]["address"] == "registry-wallet-1"
+    assert [wallet["alias"] for wallet in data["wallets"]] == ["W001", "W002"]
+    assert all(wallet["address"].startswith("wallet:") for wallet in data["wallets"])
     assert data["wallets"][0]["sourceEquityUsd"] == "1245.75"
     assert data["wallets"][0]["eligibility"] == "pending"
     assert data["wallets"][1]["eligibility"] == "ineligible"
     assert data["wallets"][0]["drawdownPct"] is None
-    assert data["portfolios"][0]["walletAddressesJson"] == '["W001"]'
+    assert data["wallets"][0]["evidenceQuality"] == "unverified"
+    assert json.loads(data["portfolios"][0]["walletAddressesJson"]) == [
+        wallet["address"] for wallet in data["wallets"]
+    ]
     assert data["portfolios"][0]["totalRiskUsd"] is None
     assert data["portfolios"][0]["podCount"] is None
     assert data["portfolios"][0]["detailsJson"].find('"paperRunning": "UNKNOWN"') >= 0
@@ -96,11 +93,14 @@ def test_registry_seal_alias_as_of_and_unknowns(source):
     assert data["registrySync"]["latestAccepted"] is None
     attempt = data["registrySync"]["latestAttempt"]
     assert attempt["databaseIntegrity"] == "VERIFIED"
+    assert attempt["sourceStatus"] == "VERIFIED"
     assert attempt["inventorySha256"] is None
-    assert attempt["sourceManifestSha256"] == "not-live-inventory"
-    assert attempt["walletUnresolved"] == 1
+    assert attempt["sourceManifestSha256"] is None
+    assert attempt["selectionState"] == "SEALED_RESEARCH_ONLY"
+    assert attempt["walletUnresolved"] == 0
+    assert attempt["walletSynced"] == 2
     assert data["runtime"]["observerMode"] == "NO_TRADE"
-    assert "0xSECRET_ONE" not in json.dumps(data)
+    assert WALLETS[0] not in json.dumps(data)
 
 
 @pytest.fixture()
@@ -248,7 +248,7 @@ def test_owner_view_http_is_exact_cli_view_and_read_only(source, http_server, mo
     calls = []
 
     def fake_explain(args):
-        calls.append((args.verb, args.portfolio, args.inspection, args.registry_db))
+        calls.append((args.policy, args.portfolio, args.inspection, args.roster_db))
         return original
 
     monkeypatch.setattr(projection, "explain_task", fake_explain)
@@ -260,14 +260,14 @@ def test_owner_view_http_is_exact_cli_view_and_read_only(source, http_server, mo
     expected = pm_operations.dispatch(
         pm_operations.parser().parse_args(
             [
-                "cwsa",
+                "release",
                 "chapter2",
                 "site-view",
                 "--portfolio",
                 "A",
                 "--inspection",
                 "evidence",
-                "--registry-db",
+                "--roster-db",
                 str(source[0]),
             ]
         )
@@ -330,18 +330,18 @@ def test_owner_view_uses_explicit_dependency_complete_interpreter(source, monkey
     """Actual pinned CLI module runs externally, not in the system Python daemon."""
     monkeypatch.delenv("COPYTRADE_OPS_OWNER_PYTHON", raising=False)
     with pytest.raises(FileNotFoundError, match="interpreter"):
-        server._invoke_owner_cli(["cwsa", "chapter2", "site-view", "--portfolio", "A"])
+        server._invoke_owner_cli(["release", "chapter2", "site-view", "--portfolio", "A"])
     monkeypatch.setenv("COPYTRADE_OPS_OWNER_PYTHON", sys.executable)
     payload = server._invoke_owner_cli(
         [
-            "cwsa",
+            "release",
             "chapter2",
             "site-view",
             "--portfolio",
             "A",
             "--inspection",
             "metadata",
-            "--registry-db",
+            "--roster-db",
             str(source[0]),
         ]
     )
@@ -366,7 +366,7 @@ def test_owner_view_rejects_owner_error_exit_and_untrusted_permission(monkeypatc
 
     monkeypatch.setattr(server.subprocess, "run", owner_error)
     with pytest.raises(OSError, match="inspection failed"):
-        server._invoke_owner_cli(["cwsa", "chapter2", "site-view"])
+        server._invoke_owner_cli(["release", "chapter2", "site-view"])
 
     result["trading_authorized"] = True
 
@@ -375,7 +375,7 @@ def test_owner_view_rejects_owner_error_exit_and_untrusted_permission(monkeypatc
 
     monkeypatch.setattr(server.subprocess, "run", unauthorized)
     with pytest.raises(ValueError, match="permission"):
-        server._invoke_owner_cli(["cwsa", "chapter2", "site-view"])
+        server._invoke_owner_cli(["release", "chapter2", "site-view"])
 
 
 def test_missing_authoritative_registry_fails_closed(

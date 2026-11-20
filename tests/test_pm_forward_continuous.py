@@ -1,6 +1,5 @@
 """Persistent observer public preflight and stream contracts."""
 
-from contextlib import closing
 from datetime import UTC, datetime
 import json
 import sqlite3
@@ -27,6 +26,7 @@ def test_preflight_rejects_collision_before_reading_registry(tmp_path):
             revision="a" * 40,
             as_of=AT,
             budget=SubscriptionBudget(),
+            portfolio_ids=("acct",),
         )
     assert old.path.read_bytes() == before
 
@@ -41,6 +41,7 @@ def test_preflight_has_no_network_or_directory_side_effect_on_bad_registry(tmp_p
             revision="a" * 40,
             as_of=AT,
             budget=SubscriptionBudget(),
+            portfolio_ids=("acct",),
         )
     assert not root.exists()
 
@@ -115,35 +116,14 @@ def test_newly_discovered_child_never_silently_exceeds_shared_ip_budget():
     assert child["order_route"] == "NONE"
 
 
-def test_preflight_manifest_binds_registry_and_old_evidence(tmp_path, monkeypatch):
-    import copytrade_pm.pm_forward_continuous as module
+def test_preflight_manifest_binds_registry_and_old_evidence(tmp_path):
+    from copytrade_pm.roster import RosterStore
+    from roster_fixture import WALLETS, add_account
 
     registry = tmp_path / "registry.sqlite"
-    with closing(sqlite3.connect(registry)) as db:
-        db.execute("CREATE TABLE marker(x)")
-    registry.chmod(0o600)
-    monkeypatch.setattr(
-        module,
-        "db_authority_health",
-        lambda _: {
-            "database_integrity": "VERIFIED",
-            "inventory_sha256": "b" * 64,
-        },
-    )
-    monkeypatch.setattr(
-        module,
-        "registry_watched_addresses",
-        lambda *_a, **_k: {
-            "0x" + "1" * 40: "wallet:1",
-        },
-    )
-    monkeypatch.setattr(
-        module,
-        "_portfolio_seals",
-        lambda *_a, **_k: {
-            "P1": {"version": 2, "definition_sha256": "c" * 64},
-        },
-    )
+    with RosterStore(registry, create=True) as store:
+        book = add_account(store, "P1", {"seat_1": WALLETS[0]})
+    inventory = RosterStore.authority_health(registry)["inventory_sha256"]
     old = PaperJournal(tmp_path / "old")
     before = old.path.read_bytes()
     report = candidate_preflight(
@@ -155,15 +135,15 @@ def test_preflight_manifest_binds_registry_and_old_evidence(tmp_path, monkeypatc
         as_of=AT,
         budget=SubscriptionBudget(),
         portfolio_ids=("P1",),
-        expected_inventory_sha="b" * 64,
+        expected_inventory_sha=inventory,
     )
     assert report["status"] == "PREFLIGHT_VERIFIED_OBSERVER_ONLY"
     assert report["unique_wallet_count"] == 1
     assert report["order_route"] == "NONE"
     assert report["financial_admission"] == "BLOCKED_NO_TRADE"
-    assert report["portfolio_seals"]["P1"]["definition_sha256"] == "c" * 64
+    assert report["portfolio_seals"]["P1"]["book_sha256"] == book.sha
     assert len(report["manifest_sha"]) == 64
-    assert "0x" + "1" * 40 not in json.dumps(report)
+    assert WALLETS[0] not in json.dumps(report)
     assert old.path.read_bytes() == before
     assert not (tmp_path / "new").exists()
     with pytest.raises(ValueError, match="REGISTRY_GENERATION_CHANGED"):
@@ -174,5 +154,6 @@ def test_preflight_manifest_binds_registry_and_old_evidence(tmp_path, monkeypatc
             revision="a" * 40,
             as_of=AT,
             budget=SubscriptionBudget(),
+            portfolio_ids=("acct",),
             expected_inventory_sha="d" * 64,
         )

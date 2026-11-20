@@ -51,6 +51,14 @@ def file_sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+LEGACY_WRITER_RETIRED = (
+    "WALLET_STORE_WRITER_RETIRED: the wallet-first layout "
+    "(wallet=<addr>/year=/month=/day=/data.parquet, Float64 money) is superseded by "
+    "copytrade_pm.facts. Run `copytrade-pm-facts migrate` instead. Pass "
+    "allow_retired_writer=True only to reproduce a historical archive."
+)
+
+
 def ingest(
     kind: str,
     wallet: str,
@@ -61,15 +69,23 @@ def ingest(
     *,
     store_dir: Path = DEFAULT_STORE_DIR,
     con: sqlite3.Connection | None = None,
+    allow_retired_writer: bool = False,
 ) -> dict[str, Any]:
     """Ingest a DataFrame into a canonical immutable partition.
 
     Never rewrites an existing data.parquet: writes to data.parquet.tmp, fsyncs,
     then renames. If partition exists with different content, writes data.<sha8>.parquet
     alongside and records both in catalog.
+
+    **Retired for the live store.** Writing new wallet-first partitions into
+    ``DEFAULT_STORE_DIR`` raises :data:`LEGACY_WRITER_RETIRED` unless the caller
+    opts in explicitly; new history belongs in ``copytrade_pm.facts``. Reads
+    (``scan``/``coverage``/``verify``) are unaffected.
     """
     if kind not in DATASET_SCHEMAS:
         raise ValueError(f"Unknown dataset kind: {kind!r}")
+    if not allow_retired_writer and _is_default_store(store_dir):
+        raise RuntimeError(LEGACY_WRITER_RETIRED)
 
     wallet_clean = wallet.lower().strip()
     if not (wallet_clean.startswith("0x") and len(wallet_clean) == 42):
@@ -199,6 +215,13 @@ def ingest(
             con.close()
 
     return sidecar_data
+
+
+def _is_default_store(store_dir: Path) -> bool:
+    try:
+        return Path(store_dir).expanduser().resolve() == DEFAULT_STORE_DIR.expanduser().resolve()
+    except OSError:  # pragma: no cover - unresolvable path cannot be the live store
+        return False
 
 
 def scan(

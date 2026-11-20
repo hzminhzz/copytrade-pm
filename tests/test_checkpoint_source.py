@@ -203,18 +203,12 @@ def test_collection_faults_and_all_dex_timing_are_nonactionable(tmp_path, fault)
         assert any("429" in reason for reason in sample.reasons)
 
 
-def test_selected_checkpoint_roster_reuses_verified_sqlite_selection(tmp_path, monkeypatch):
-    from contextlib import closing
-    import sqlite3
-    from test_pm_forward_multi_portfolio import full_registry, pin_reviewed_registry
+def test_selected_checkpoint_roster_reuses_verified_sqlite_selection(tmp_path):
+    from test_pm_forward_multi_portfolio import full_registry
     from test_pm_forward_observed_paper import at
     from copytrade_pm.pm_checkpoint_source import selected_checkpoint_sources
 
-    pin_reviewed_registry(monkeypatch)
     registry = full_registry(tmp_path)
-    with closing(sqlite3.connect(registry)) as db:
-        db.execute("CREATE TABLE portfolio_seals (id INTEGER PRIMARY KEY)")
-        db.commit()
     selected = selected_checkpoint_sources(
         registry,
         portfolios=("P1", "P14", "P16"),
@@ -226,7 +220,7 @@ def test_selected_checkpoint_roster_reuses_verified_sqlite_selection(tmp_path, m
     for source, address in selected.values():
         assert source.account_sha == sha256(address.encode()).hexdigest()
         assert source.dexes == ("default", "xyz")
-    with pytest.raises(ValueError, match="PORTFOLIO_UNAPPROVED"):
+    with pytest.raises(ValueError, match="SELECTION_UNKNOWN_AT_ASOF"):
         selected_checkpoint_sources(
             registry,
             portfolios=("unknown",),

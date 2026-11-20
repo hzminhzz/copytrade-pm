@@ -24,7 +24,6 @@ from uuid import uuid4
 from .pm03_account import Instrument, clock, digest, number
 from .pm_e4_prospective import WS_URL
 from .pm_forward_journal import PaperJournal
-from .pm_forward_portfolios import verify_sealed_definition_sha
 
 ADDRESS = re.compile(r"0x[0-9a-f]{40}\Z")
 MAX_NATIVE_MARKETS = 8  # legacy per-WS shard size, preserved for existing configurations
@@ -240,86 +239,58 @@ def validate_public_market_catalog(
 def registry_watched_addresses(
     db_path: Path, portfolio_ids: tuple[str, ...], *, as_of: str
 ) -> dict[str, str]:
-    """Resolve sealed portfolios from SQLite, never a Markdown alias map.
+    """Resolve sealed roster portfolios into a transport-only watch map.
 
-    Addresses are used in process memory only. The journal writes numeric
-    wallet references, not the underlying private roster.
+    The legacy wallet registry is retired: identity comes from the roster's
+    sealed seat books. Addresses are used in process memory only, and the
+    journal writes a digest reference, never the private roster.
     """
+    from hashlib import sha256
+
+    from copytrade_kernel import KnownAtTs
+
+    from .roster.sealed import SealedSelectionError, select_sealed_book, timestamp_ms
+    from .roster.store import RosterStore
+
     if not portfolio_ids or len(portfolio_ids) != len(set(portfolio_ids)):
         raise ValueError("PUBLIC_TRADE_PORTFOLIO_CENSUS_INVALID")
     clock(as_of)
     if db_path.is_symlink() or not db_path.is_file():
         raise ValueError("PUBLIC_TRADE_REGISTRY_MISSING")
-    conn = sqlite3.connect("file:" + str(db_path.resolve()) + "?mode=ro", uri=True)
-    conn.row_factory = sqlite3.Row
+    cutoff = timestamp_ms(as_of)
     watched: dict[str, str] = {}
     try:
-        conn.execute("PRAGMA query_only=ON")
-        conn.execute("BEGIN")  # one consistent SQLite registry generation across portfolios
-        for pid in portfolio_ids:
-            seal = conn.execute(
-                "SELECT version, definition_sha256, selection_known_at "
-                "FROM portfolio_seals WHERE portfolio_id=? "
-                "ORDER BY version DESC LIMIT 1",
-                (pid,),
-            ).fetchone()
-            if seal is None or clock(seal["selection_known_at"]) > clock(as_of):
-                raise ValueError("PUBLIC_TRADE_PORTFOLIO_NOT_SEALED_ASOF")
-            definition_sha = seal["definition_sha256"]
-            if (
-                not isinstance(definition_sha, str)
-                or len(definition_sha) != 64
-                or any(c not in "0123456789abcdef" for c in definition_sha)
-            ):
-                raise ValueError("PUBLIC_TRADE_UNVERIFIED_PORTFOLIO_SEAL")
-            version = seal["version"]
-            members = conn.execute(
-                "SELECT p.member_alias,p.wallet_id,w.address,w.venue,w.network "
-                "FROM portfolio_memberships p LEFT JOIN wallets w "
-                "ON p.wallet_id=w.wallet_id "
-                "WHERE p.portfolio_id=? AND p.version=? ORDER BY p.member_alias",
-                (pid, version),
-            ).fetchall()
-            if not members or any(row["wallet_id"] is None for row in members):
-                raise ValueError("PUBLIC_TRADE_PORTFOLIO_IDENTITY_UNRESOLVED")
-            verified = verify_sealed_definition_sha(
-                conn,
-                pid,
-                version,
-                tuple(row["member_alias"] for row in members),
-                seal["definition_sha256"],
-                as_of=as_of,
-            )
-            if verified["alias_resolution_complete"] is not True:
-                raise ValueError("PUBLIC_TRADE_PORTFOLIO_IDENTITY_UNRESOLVED")
-            for row in members:
-                if row["venue"] != "hyperliquid" or row["network"] != "mainnet":
-                    raise ValueError("PUBLIC_TRADE_NON_HL_WALLET")
-                address = row["address"].lower()
-                if ADDRESS.fullmatch(address) is None:
-                    raise ValueError("PUBLIC_TRADE_WALLET_ADDRESS_INVALID")
-                excluded = conn.execute(
-                    "SELECT 1 FROM exclusions WHERE wallet_id=? LIMIT 1",
-                    (row["wallet_id"],),
-                ).fetchone()
-                denylist_exists = conn.execute(
-                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='propfirm_exclusions'"
-                ).fetchone()
-                if denylist_exists is not None:
-                    additional = conn.execute(
-                        "SELECT 1 FROM propfirm_exclusions WHERE wallet_id=? LIMIT 1",
-                        (row["wallet_id"],),
-                    ).fetchone()
-                    if additional is not None:
-                        raise ValueError("PUBLIC_TRADE_WALLET_PROPFIRM_EXCLUDED")
-                if excluded is not None:
-                    raise ValueError("PUBLIC_TRADE_WALLET_EXCLUDED")
-                ref = "wallet:" + str(row["wallet_id"])
-                if address in watched and watched[address] != ref:
-                    raise ValueError("PUBLIC_TRADE_ADDRESS_IDENTITY_CONFLICT")
-                watched[address] = ref
-    finally:
-        conn.close()
+        with RosterStore(db_path) as store, store.read_snapshot():
+            # An operator veto removes a wallet from the next reconciled book; until
+            # that commit lands the sealed book can still name it, so the watch map
+            # refuses instead of streaming an excluded wallet's public trades.
+            vetoed = store.vetoed_wallets(as_of=KnownAtTs(cutoff))
+            for pid in portfolio_ids:
+                try:
+                    sealed = select_sealed_book(store, pid, cutoff, require_attestation=False)
+                except SealedSelectionError as exc:
+                    if str(exc) == "SELECTION_UNKNOWN_AT_ASOF":
+                        raise ValueError("PUBLIC_TRADE_PORTFOLIO_NOT_SEALED_ASOF") from exc
+                    raise ValueError("PUBLIC_TRADE_UNVERIFIED_PORTFOLIO_SEAL") from exc
+                if not sealed.members:
+                    raise ValueError("PUBLIC_TRADE_PORTFOLIO_IDENTITY_UNRESOLVED")
+                for member in sealed.members:
+                    address = member.wallet.lower()
+                    if address in vetoed:
+                        raise ValueError("PUBLIC_TRADE_WALLET_EXCLUDED")
+                    if ADDRESS.fullmatch(address) is None:
+                        raise ValueError("PUBLIC_TRADE_WALLET_ADDRESS_INVALID")
+                    ref = (
+                        "wallet:"
+                        + sha256(f"{sealed.account_id}:{member.seat_id}".encode()).hexdigest()[:24]
+                    )
+                    if address in watched and watched[address] != ref:
+                        raise ValueError("PUBLIC_TRADE_ADDRESS_IDENTITY_CONFLICT")
+                    watched[address] = ref
+    except (OSError, ValueError) as exc:
+        if isinstance(exc, ValueError) and str(exc).startswith("PUBLIC_TRADE_"):
+            raise
+        raise ValueError("PUBLIC_TRADE_REGISTRY_UNREADABLE") from exc
     return watched
 
 
@@ -601,7 +572,6 @@ def reconcile_public_wallet_fills(
     """
     from contextlib import closing
     from hashlib import sha256
-    import sqlite3
     from .pm_e4_prospective import guarded_info
     from .pm_forward_stream_journal import StreamProgress
 

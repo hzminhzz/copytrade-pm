@@ -50,9 +50,9 @@ for portfolio in ("A", "B", "C"):
     out = subprocess.check_output(
         [
             sys.executable, "-m", "copytrade_pm.pm_operations",
-            "cwsa", "chapter2", "site-view",
+            "release", "chapter2", "site-view",
             "--portfolio", portfolio, "--inspection", "evidence",
-            "--registry-db", str(env["registry_db"]),
+            "--roster-db", str(env["registry_db"]),
             "--source-db", str(env["source_db"]),
             "--paper-root", str(env["paper_root"]),
             "--quote-db", str(env["quote_db"]),
@@ -64,9 +64,9 @@ for portfolio in ("A", "B", "C"):
 meta_out = subprocess.check_output(
     [
         sys.executable, "-m", "copytrade_pm.pm_operations",
-        "cwsa", "chapter2", "site-view",
+        "release", "chapter2", "site-view",
         "--portfolio", "A", "--inspection", "metadata",
-        "--registry-db", str(env["registry_db"]),
+        "--roster-db", str(env["registry_db"]),
         "--source-db", str(env["source_db"]),
         "--paper-root", str(env["paper_root"]),
         "--quote-db", str(env["quote_db"]),

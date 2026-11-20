@@ -112,14 +112,14 @@ def chapter2(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys):
     def invoke(stage: str, *extra: str) -> tuple[int, dict]:
         code = pm_operations.cli(
             [
-                "cwsa",
+                "release",
                 "chapter2",
                 "verify",
                 "--stage",
                 stage,
                 "--root",
                 str(Path.cwd()),
-                "--registry-db",
+                "--roster-db",
                 str(tmp_path / "registry"),
                 "--source-db",
                 str(tmp_path / "source"),

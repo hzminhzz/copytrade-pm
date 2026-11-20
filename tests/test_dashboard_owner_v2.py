@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+import json
 
 import pytest
 
@@ -317,7 +318,7 @@ def test_scenario_rules_are_native_read_only_and_never_a_simulation():
 
     def native(args):
         calls.append(args)
-        assert args == ["contracts", "rules"]
+        assert args == ["research", "contracts", "rules"]
         return {
             "schema": "copytrade_contract_rule_catalog_v1",
             "trading_authorized": False,
@@ -339,7 +340,7 @@ def test_scenario_rules_are_native_read_only_and_never_a_simulation():
     assert result["status"] == "VERIFIED"
     assert result["data"]["status"] == "SCENARIO_ONLY"
     assert len(result["data"]["contracts"]) == 1
-    assert calls == [["contracts", "rules"]]
+    assert calls == [["research", "contracts", "rules"]]
     assert result["trading_authorized"] is False
 
 
@@ -362,36 +363,31 @@ def test_chart_rejects_unrepresentable_decimal_without_truncating_owner_finance(
         )
 
 
-def test_portfolio_filter_and_pagination_remain_bounded_and_read_only():
-    names = ["q3/A", "q3/B", "gemini.phase5/B"]
+def test_portfolio_filter_and_pagination_remain_bounded_and_read_only(tmp_path):
+    from copytrade_pm.roster import RosterStore
+    from roster_fixture import WALLETS, add_account
 
-    def native(args):
-        result = dict(fake_native(["portfolios", "current"]))
-        if args[:2] == ["portfolios", "list"]:
-            result.update(
-                status="VERIFIED",
-                data={
-                    name: {
-                        "portfolio_id": name,
-                        "version": 2,
-                        "definition_sha256": SHA,
-                        "members": ["W031"],
-                        "source_sealed": True,
-                    }
-                    for name in names
-                },
-            )
-        return result
+    db = tmp_path / "roster.sqlite"
+    with RosterStore(db, create=True) as store:
+        for index, name in enumerate(("q3.A", "q3.B", "gemini.phase5.B")):
+            add_account(store, name, {"W031": WALLETS[index]})
 
-    subject = reader(capture_with_history, native=native)
-    outcome = subject.portfolio_explorer(query="q3/", limit=1, offset=1)
+    subject = DashboardReader(
+        db=db,
+        clock=lambda: datetime(2026, 11, 5, tzinfo=UTC),
+        cache=SmallTTLCache(),
+        guardian_provider=capture_with_history,
+    )
+    outcome = subject.portfolio_explorer(query="q3.", limit=1, offset=1)
     assert outcome["total"] == 3
     assert outcome["total_matches"] == 2
-    assert outcome["records"][0]["portfolio_id"] == "q3/B"
+    assert outcome["records"][0]["portfolio_id"] == "q3.B"
     assert outcome["records"][0]["runtime_state"] == "UNKNOWN"
     assert outcome["truncated"] is False
     assert subject.portfolio_explorer(query="\n")["status"] == "BLOCKED"
     assert subject.portfolio_explorer(offset=10001)["status"] == "BLOCKED"
+    # Redacted member references only; the operator surface never renders an address.
+    assert "0x" not in json.dumps(subject.portfolio_explorer())
 
 
 def test_owner_history_separates_releases_without_promotion():

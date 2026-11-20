@@ -53,7 +53,9 @@ Software capability, installed release, source health, financial admission, econ
 | Independent agent-behavior measurement | [ANOS-02 pinned engineering-only baseline](ANOS-02-AGENT-EVAL-BASELINE-20261113.md), [independent host trace protocol](AGENT-TRACE-EVAL-20261105.md); fixtures and CLI smoke do not establish model behavior |
 | ANOS-15 eight-scenario engineering acceptance | [ANOS-15 acceptance handoff](ANOS-15-ACCEPTANCE-HANDOFF-20261113.md); S1–S8 parity and falsifiers verified, `#101` blocked (`BLOCKED_NO_INDEPENDENT_HOST_TRACE`), `#313` boundaries preserved |
 | Typed domain-contract maintenance | [Pydantic acceptance](PYDANTIC-NATIVE-ACCEPTANCE-RESULTS-20261109.md), [cross-repository compatibility](PYDANTIC-CROSS-REPOSITORY-COMPATIBILITY-20261109.md), [engineering record](PYDANTIC-NATIVE-ENGINEERING-20261109.md) |
-| Canonical wallet store (Hive parquet + catalog) | [Wallet store](WALLET-STORE.md) |
+| Canonical fact store (day-partitioned `Decimal(38,12)` + SQLite manifest) | [Fact store](FACTS-STORE.md), [ADR](decisions/2026-11-19-unified-bi-temporal-fact-store.md) |
+| Roster seats, leases and daily unsigned release proposals | [Roster](ROSTER.md) |
+| Legacy wallet store (Hive parquet + catalog; writer retired, reads only) | [Wallet store](WALLET-STORE.md) |
 | External historical data sources | [Reservoir and vike](DATA-SOURCES-RESERVOIR-VIKE-20261112.md), [data-source investigation](DATA-SOURCE-INVESTIGATION-20261112.md) |
 | Wallet-scoped Reservoir DuckDB queries, source budgets and PIT replay | [Reservoir acquisition plan](RESERVOIR-WALLET-DUCKDB-PLAN-20261112.md), [2026-11-12 pilot evidence](RESERVOIR-WALLET-PILOT-20261112.md), [2026-11-12 two-DEX backfill](RESERVOIR-SIX-PORTFOLIO-BACKFILL-20261112.md), [269-wallet completed acquisition and offline verification](RESERVOIR-MONITORED-PLUS-SIX-269-20261112.md) |
 | Follower 5-minute backtest (2026-09-01..2026-11-10) | [TriadA, E3 and Combo2 at k=1, and a $10,000 prop challenge at portfolio k](FOLLOWER-5M-BACKTEST-20261112.md) (in-sample uncalibrated exposure sensitivity; E3 has published k, TriadA/Combo2 `BLOCKED_NO_K`; funding, pod stops and PM-03/04 finance not modeled) |

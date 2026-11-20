@@ -1,64 +1,61 @@
 from contextlib import closing
+import sqlite3
 
-from test_wallet_registry import address, fixture
-from test_wallet_registry_portfolios import frozen
-from copytrade_pm import wallet_registry as reg
+import pytest
 
-
-def database(tmp_path):
-    _, snap = fixture(tmp_path)
-    snap["frozen_aliases"] = {"W028": address(1), "W042": address(2), "W030": address(3)}
-    db = tmp_path / "private" / "registry.sqlite"
-    reg.apply(db, snap, "2026-11-01T00:00:00+00:00")
-    snap["portfolio_contracts"] = frozen()
-    snap["sources"].update(
-        {f"portfolio_doc:{k}": v["payload"]["source_doc_sha256"] for k, v in frozen().items()}
-    )
-    reg.apply(db, snap, "2026-11-04T05:00:00+00:00")
-    return db
+from copytrade_pm.production_export import export_metadata
+from copytrade_pm.roster import RosterStore
+from copytrade_pm.roster.sealed import select_sealed_book
+from roster_fixture import AT, MS, WALLETS, database as database
 
 
-def test_default_fixed_k_export_is_repeatable_readonly_and_scope_gated(tmp_path):
-    from copytrade_pm.production_export import export_metadata
-
+def test_fixed_k_export_is_repeatable_readonly_and_scope_gated(tmp_path):
     db = database(tmp_path)
-    before = reg.db_authority_health(db)["inventory_sha256"]
-    first = export_metadata(db, "A", "2026-11-04T06:00:00+00:00")
-    second = export_metadata(db, "A", "2026-11-04T06:00:00+00:00")
-    assert first == second
-    assert first["state"] == "BLOCKED"
-    assert first["sizing_policy"] == "FIXED_K_NATIVE_QUANTITY"
-    assert "SOURCE_BOOK_NAV_ATTESTATION_MISSING" not in first["blockers"]
-    assert "SOURCE_POSITION_SCOPE_ATTESTATION_MISSING" in first["blockers"]
-    legacy = export_metadata(
-        db, "A", "2026-11-04T06:00:00+00:00", sizing_policy="ALLOCATION_OVER_LIVE_NAV"
-    )
-    assert "SOURCE_BOOK_NAV_ATTESTATION_MISSING" in legacy["blockers"]
-    assert legacy["export_sha256"] != first["export_sha256"]
-    assert first["registry_inventory_sha256"] == before
-    assert len(first["members"]) == 3
-    assert reg.db_authority_health(db)["inventory_sha256"] == before
+    before = db.read_bytes()
+    one = export_metadata(db, "A", AT)
+    assert one == export_metadata(db, "A", "2026-11-04T06:00:01+00:00")
+    assert one["state"] == "BLOCKED"
+    assert one["blockers"] == ["SOURCE_POSITION_SCOPE_ATTESTATION_MISSING"]
+    assert one["sizing_policy"] == "FIXED_K_NATIVE_QUANTITY"
+    assert not one["trading_authorized"]
+    assert db.read_bytes() == before
+    assert [m["pod_id"] for m in one["members"]] == ["seat_1", "seat_2", "seat_3"]
+    assert [m["source_identity"] for m in one["members"]] == list(WALLETS[:3])
+    with RosterStore(db) as store:
+        sealed = select_sealed_book(store, "A", MS, require_attestation=False)
+        assert sealed.definition_sha256 == one["sealed_definition_sha256"]
+        assert not sealed.attested and not sealed.trading_authorized
+        assert all(m.account_id == "A" and m.generation == 1 for m in sealed.members)
+        assert {m.owner_id for m in sealed.members} == {lease.owner for lease in sealed.book.leases}
 
 
-def test_missing_identity_is_not_filled_from_later_alias(tmp_path):
-    from copytrade_pm.production_export import export_metadata
-
+def test_future_book_and_unknown_account_fail_closed(tmp_path):
     db = database(tmp_path)
-    result = export_metadata(db, "P1", "2026-11-04T06:00:00+00:00")
-    assert result["state"] == "BLOCKED"
-    assert "MEMBER_IDENTITY_UNKNOWN_AT_SEAL" in result["blockers"]
+    with pytest.raises(ValueError, match="SELECTION_UNKNOWN_AT_ASOF"):
+        export_metadata(db, "A", "2026-11-04T05:59:59.999+00:00")
+    with pytest.raises(ValueError, match="SELECTION_UNKNOWN_AT_ASOF"):
+        export_metadata(db, "unknown", AT)
+    with pytest.raises(ValueError, match="SELECTION_MEMBER_DRIFT"):
+        export_metadata(db, "A", AT, version=2)
 
 
-def test_inventory_mutation_changes_export_approval_digest(tmp_path):
-    from copytrade_pm.production_export import export_metadata
-
+@pytest.mark.parametrize(
+    "table,column", [("books", "book_sha"), ("leases", "payload"), ("leases", "owner")]
+)
+def test_export_refuses_exact_book_or_lease_drift(tmp_path, table, column):
     db = database(tmp_path)
-    before = export_metadata(db, "A", "2026-11-04T06:00:00+00:00")
-    with closing(reg.connect(db, True)) as con:
-        con.execute(
-            "INSERT INTO wallets(venue,network,address) VALUES ('hyperliquid','mainnet',?)",
-            (address(999),),
-        )
-        con.commit()
-    after = export_metadata(db, "A", "2026-11-04T06:00:00+00:00")
-    assert after["export_sha256"] != before["export_sha256"]
+    with closing(sqlite3.connect(db)) as con, con:
+        con.execute(f"DROP TRIGGER {table}_no_update")
+        con.execute(f"UPDATE {table} SET {column}=?", ("{}",))
+    with pytest.raises(ValueError, match="SELECTION_MEMBER_DRIFT"):
+        export_metadata(db, "A", AT)
+
+
+def test_effective_but_uncommitted_book_is_not_pit_evidence(tmp_path):
+    db = database(tmp_path)
+    with closing(sqlite3.connect(db)) as con, con:
+        con.execute("DROP TRIGGER books_no_update")
+        con.execute("UPDATE books SET committed_ms=?", (MS + 1000,))
+    with pytest.raises(ValueError, match="SELECTION_UNKNOWN_AT_ASOF"):
+        export_metadata(db, "A", AT)
+    assert export_metadata(db, "A", "2026-11-04T06:00:01+00:00")["version"] == 1

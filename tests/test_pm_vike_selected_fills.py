@@ -43,14 +43,10 @@ def frame(wallet=W1, tid=101, cursor="1793930404464-0001"):
     }
 
 
-def test_selected_wallets_derive_from_sealed_registry_without_addresses_in_output(
-    tmp_path,
-    monkeypatch,
-):
-    from test_pm_forward_multi_portfolio import full_registry, pin_reviewed_registry
+def test_selected_wallets_derive_from_sealed_registry_without_addresses_in_output(tmp_path):
+    from test_pm_forward_multi_portfolio import full_registry
     from test_pm_forward_observed_paper import at
 
-    pin_reviewed_registry(monkeypatch)
     database = full_registry(tmp_path)
     selected = selected_wallets_from_registry(
         database,
@@ -66,11 +62,15 @@ def test_selected_wallets_derive_from_sealed_registry_without_addresses_in_outpu
             portfolios=("P14", "P14"),
             as_of=at(0),
         )
-    # Legacy fixture lacks authentic P1 portfolio seal; it is not silently
-    # promoted to a live allowlist by merely matching alias names.
-    with pytest.raises(ValueError, match="SEAL_NOT_VERIFIED"):
+    # A roster with no committed book for the profile resolves no selection: the
+    # profile name alone never promotes aliases into a live transport allowlist.
+    from copytrade_pm.roster import RosterStore
+
+    empty = tmp_path / "empty-roster.sqlite"
+    RosterStore(empty, create=True).close()
+    with pytest.raises(ValueError, match="SELECTION_UNKNOWN_AT_ASOF"):
         selected_wallets_from_registry(
-            database,
+            empty,
             portfolios=("P1",),
             as_of=at(0),
         )

@@ -7,7 +7,7 @@ public owner entrypoints without authorizing protected writes or trading.
 
 from __future__ import annotations
 
-from contextlib import closing, contextmanager, redirect_stdout
+from contextlib import contextmanager, redirect_stdout
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from hashlib import sha256
@@ -35,7 +35,7 @@ from copytrade_pm import (
     pm_bounded_acquisition as acq,
     pm_capabilities as cap,
     pm_ci_receipt as ci_receipt,
-    pm_copy_mandate as mandates,
+    pm_mandate as mandates,
     pm_cwsa_chapter2_gate as ch2_gate,
     pm_cwsa_chapter2_projection as ch2_proj,
     pm_cwsa_six_paper as six_paper,
@@ -45,15 +45,8 @@ from copytrade_pm import (
     pm_operations as ops,
     pm_runtime_readonly as runtime,
     pm_v4_sixteen_scenarios as v4_sixteen,
-    wallet_registry as reg,
-    wallet_registry_catalog as reg_cat,
-    wallet_registry_fp_journal as fp_journal,
-    wallet_registry_native as reg_native,
-    wallet_registry_portfolios as reg_portfolios,
-    wallet_registry_qualification as reg_qual,
-    wallet_registry_runs as reg_runs,
-    wallet_registry_signed_catalog as reg_signed,
 )
+from cwsa_fixture_registry import make_registry
 from copytrade_pm.pm03_account import Instrument, digest
 from copytrade_pm.pm03_rules import propr_rulebook
 from copytrade_pm.pm_checkpoint_journal import CheckpointScope, CwsaPolicy, SamplingLimits
@@ -112,12 +105,6 @@ def _ccxt_btc_market() -> dict[str, Any]:
     }
 
 
-@pytest.fixture(autouse=True)
-def _pin_synth_whale(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Bind synthetic whale digest so fixtures require zero private files."""
-    monkeypatch.setattr(reg_cat, "WHALE_ADDRESS_SHA256", sha256(WHALE_SYNTH.encode()).hexdigest())
-
-
 def _git_clean(*args: str) -> str:
     return subprocess.check_output(
         ["git", *args],
@@ -150,130 +137,37 @@ def _policy_for(tag: str) -> CwsaPolicy:
     return CwsaPolicy(limits=_default_limits(), measurement_sha=digest(["cwsa_policy", tag]))
 
 
-def _build_locked_registry(
-    tmp_path: Path,
-) -> tuple[Path, dict[str, dict[str, Any]]]:
-    """Create a sealed SQLite registry matching S1 and Chapter 2 requirements."""
-    tmp_path.mkdir(parents=True, exist_ok=True)
-    tmp_path.chmod(0o700)
-    db = tmp_path / "registry.sqlite"
-    with closing(reg.connect(db, True)) as con:
-        with con:
-            con.executescript(reg.DDL)
-            con.executescript(reg_portfolios.SEALED_DDL)
-            con.executescript(reg_cat.DDL)
-            con.executescript(reg_signed.DDL)
-            con.execute(
-                "INSERT INTO schema_migrations(version, applied_at) VALUES(8, ?)",
-                (REGISTRY_LOCK_AT,),
-            )
-            con.execute(
-                "INSERT INTO snapshot_meta(key, value) VALUES('observed_at', ?)",
-                ("2026-10-01T00:00:00+00:00",),
-            )
-            v2 = reg_cat.read_v2(REPO_ROOT, observed_at=SELECTION_ASOF)
-            wallet_id = 1
-            alias_to_id: dict[str, int] = {}
-            all_aliases = sorted(
-                {
-                    "W083",
-                    "ACT04",
-                    "W080",
-                    *six_paper.ALL_14_WALLETS,
-                    *(m for pid in reg_portfolios.DECISIONS for m in reg.PORTFOLIOS[pid]),
-                    *(m for d in v2["definitions"].values() for m in d["members"]),
-                }
-            )
-            for alias in all_aliases:
-                addr = _wallet_addr(alias)
-                con.execute(
-                    "INSERT INTO wallets(wallet_id, venue, network, address) VALUES(?,?,?,?)",
-                    (wallet_id, "hyperliquid", "mainnet", addr),
-                )
-                con.execute(
-                    "INSERT INTO wallet_aliases(namespace, alias, wallet_id, known_at) "
-                    "VALUES(?,?,?,?)",
-                    ("research_v2", alias, wallet_id, REGISTRY_LOCK_AT),
-                )
-                alias_to_id[alias] = wallet_id
-                wallet_id += 1
+def _roster_book(
+    tmp_path: Path, account: str, members: tuple[str, ...]
+) -> tuple[Path, dict[str, Any]]:
+    """One committed roster account whose seats are the scenario's members.
 
-            con.execute(
-                "INSERT INTO cohorts(cohort_id, version, source_sha256) VALUES(?,?,?)",
-                ("research-108", 1, digest(["cohort", "research-108"])),
-            )
-            for wid in alias_to_id.values():
-                con.execute(
-                    "INSERT INTO cohort_memberships(cohort_id, version, wallet_id, known_at) "
-                    "VALUES(?,?,?,?)",
-                    ("research-108", 1, wid, REGISTRY_LOCK_AT),
-                )
+    The legacy wallet registry is retired: the book hash is the seal and the
+    seat ids are the canonical member labels.
+    """
+    from copytrade_pm.roster import RosterStore
+    from copytrade_pm.roster.sealed import select_sealed_book
+    from roster_fixture import add_account
 
-            seals: dict[str, dict[str, Any]] = {}
-            portfolio_ids = list(
-                dict.fromkeys(
-                    [*reg_portfolios.DECISIONS.keys(), *six_paper.PORTFOLIO_CONFIGS.keys()]
-                )
-            )
-            for pid in portfolio_ids:
-                if pid in reg_portfolios.DECISIONS:
-                    dec = reg_portfolios.DECISIONS[pid]
-                    members = tuple(sorted(reg.PORTFOLIOS[pid]))
-                    known_at = dec["known_at"]
-                    doc_path = dec["path"]
-                    doc_sha = dec["sha256"]
-                    commit_sha = dec["commit"]
-                    p_status = dec["status"]
-                    p_sizing = dec["sizing"]
-                    def_payload = {
-                        "schema": reg_portfolios.SCHEMA,
-                        "portfolio_id": pid,
-                        "aliases": list(reg.PORTFOLIOS[pid]),
-                        "source_commit": commit_sha,
-                        "source_doc_sha256": doc_sha,
-                        "selection_known_at": known_at,
-                        "status": p_status,
-                        "sizing_contract": p_sizing,
-                        "source_identity_proven": False,
-                        "order_route": "NONE",
-                    }
-                    def_sha = sha256(reg_portfolios._canonical_json(def_payload)).hexdigest()
-                else:
-                    cfg = six_paper.PORTFOLIO_CONFIGS[pid]
-                    members = tuple(sorted(cfg["members"]))
-                    known_at = "2026-11-12T00:00:00+00:00"
-                    doc_path = f"docs/{pid}.md"
-                    doc_sha = digest(["doc", pid])
-                    commit_sha = "cafebabe" * 5
-                    p_status = "PAPER_RESEARCH_CANDIDATE"
-                    p_sizing = cfg["sizing_contract"]
-                    def_sha = digest({"portfolio_id": pid, "version": 2, "members": members})
-                con.execute(
-                    "INSERT INTO portfolio_versions VALUES(?,?,?,?,?,?)",
-                    (pid, 2, p_status, doc_path, known_at, p_sizing),
-                )
-                for member in members:
-                    con.execute(
-                        "INSERT INTO portfolio_memberships VALUES(?,?,?,?)",
-                        (pid, 2, member, alias_to_id[member]),
-                    )
-                con.execute(
-                    "INSERT INTO portfolio_seals VALUES(?,?,?,?,?,?)",
-                    (pid, 2, def_sha, doc_sha, commit_sha, known_at),
-                )
-                seals[pid] = {
-                    "portfolio_id": pid,
-                    "version": 2,
-                    "definition_sha256": def_sha,
-                    "selection_known_at": known_at,
-                    "members": members,
-                }
-            reg_cat.store_selection(con, v2, alias_to_id, REGISTRY_LOCK_AT)
-    db.chmod(0o600)
-    (tmp_path / "backups").mkdir(mode=0o700, exist_ok=True)
-    expected_sha = reg.db_authority_health(db)["inventory_sha256"]
-    reg_native.lock_legacy_import(db, expected=expected_sha, apply=True, now=REGISTRY_LOCK_AT)
-    return db, seals
+    path = tmp_path / "roster.sqlite"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with RosterStore(path, create=True, writable=True) as store:
+        book = add_account(
+            store,
+            account,
+            {seat: _wallet_addr(seat) for seat in members},
+            k={seat: "0.01" for seat in members},
+        )
+        sealed = select_sealed_book(store, account, book.as_of.value, require_attestation=False)
+    seal = {
+        "definition_sha256": sealed.definition_sha256,
+        "members": tuple(sorted(member.seat_id for member in sealed.members)),
+        "version": sealed.version,
+        "selection_known_at": datetime.fromtimestamp(
+            sealed.selection_known_at_ms / 1000, UTC
+        ).isoformat(),
+    }
+    return path, seal
 
 
 def _fresh_boundary_ms() -> int:
@@ -506,44 +400,29 @@ def test_s1_portfolio_navigation_two_link_target_namespace_and_no_finance_scan(
     code_val, val_doc = _call_cli(["capabilities", "validate", "--json"])
     assert code_val == 0 and val_doc["status"] == "VERIFIED" and val_doc["errors"] == []
 
-    db, _ = _build_locked_registry(tmp_path / "reg")
+    # Positive 2: read-only roster metadata resolution, no finance or journal scan.
+    db, seal = _roster_book(tmp_path / "reg", "A", six_paper.PORTFOLIO_CONFIGS["A"]["members"])
 
     def _forbid(*_args: Any, **_kwargs: Any) -> Any:
         raise AssertionError("finance/paper reader must not run for S1 metadata discovery")
 
-    monkeypatch.setattr(reg, "db_status", _forbid)
-    monkeypatch.setattr(reg, "registered_paper_status", _forbid)
-    monkeypatch.setattr(reg_runs, "inspect_run", _forbid)
-    monkeypatch.setattr(fp_journal, "inspect_fp_journal", _forbid)
-    monkeypatch.setattr(reg_qual, "status", _forbid)
     monkeypatch.setattr(ch2_proj, "explain_task", _forbid)
 
-    code_q3, q3 = _call_cli(
-        ["--db", str(db), "portfolios", "show", "q3/B", "--asof", SELECTION_ASOF]
-    )
-    code_p5, p5 = _call_cli(
-        ["--db", str(db), "portfolios", "show", "gemini.phase5/B", "--asof", SELECTION_ASOF]
-    )
-    code_w, w083 = _call_cli(["--db", str(db), "wallets", "show", "W083", "--asof", SELECTION_ASOF])
-    assert code_q3 == 0 and q3["status"] == "VERIFIED" and set(q3["data"]) == {"B"}
-    assert code_p5 == 0 and p5["status"] == "VERIFIED" and set(p5["data"]) == {"gemini.phase5/B"}
-    assert code_w == 0 and w083["status"] == "VERIFIED"
-    assert not RAW_ADDRESS_RE.search(json.dumps([q3, p5, w083]))
+    code_sel, sel = _call_cli(["--db", str(db), "release", "status", "--account", "A"])
+    components = sel["data"]["components"]
+    assert code_sel == 0
+    assert components["roster"]["status"] == "VERIFIED"
+    assert components["selection"]["status"] == "VERIFIED"
+    assert components["selection"]["data"]["sealed_definition_sha256"] == seal["definition_sha256"]
+    # Explicit falsifier: the retired registry is an explicit UNKNOWN, never a
+    # silently empty inventory that looks healthy.
+    assert components["research"]["status"] != "VERIFIED"
 
-    # Explicit falsifiers: bare-name collision fails closed; outdated Markdown never overrides SQLite.
-    code_amb, amb = _call_cli(
-        ["--db", str(db), "portfolios", "show", "B", "--asof", SELECTION_ASOF]
-    )
-    assert code_amb == 2
-    assert amb["status"] == "UNKNOWN"
-    assert amb["error_code"] == "REGISTRY_READ_FAILED"
-
-    stale_doc = tmp_path / "stale_roster.md"
-    stale_doc.write_text("# Obsolete roster: B resolves globally to W999\n")
-    code_cur, cur = _call_cli(["--db", str(db), "portfolios", "current", "--asof", SELECTION_ASOF])
-    assert code_cur == 0 and cur["status"] == "VERIFIED"
-    assert cur["data"]["portfolios"][0]["portfolio_id"] == "gemini.phase4/E6"
-    assert "W999" not in json.dumps(cur)
+    # Explicit falsifier: a bare account label is never a global identity.
+    code_amb, amb = _call_cli(["--db", str(db), "release", "status", "--account", "B"])
+    assert code_amb == 0
+    assert amb["data"]["components"]["selection"]["status"] == "NOT_REGISTERED_AT_ASOF"
+    assert amb["data"]["components"]["selection"]["error_code"] == "SELECTION_UNKNOWN_AT_ASOF"
 
 
 def _normalize_owner_view(view: dict[str, Any]) -> dict[str, Any]:
@@ -560,7 +439,7 @@ def test_s2_blocked_paper_separate_layers_and_real_ops_http_cli_parity(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """S2 + T12 Ops Control Center parity: CLI site-view == real HTTP /api/owner-view."""
-    db, _ = _build_locked_registry(tmp_path / "reg")
+    db = make_registry(tmp_path / "reg")
     env = _seed_chapter2_source_and_paper(tmp_path / "ch2", registry_db=db)
 
     b_ms = env["boundary_ms"]
@@ -568,14 +447,14 @@ def test_s2_blocked_paper_separate_layers_and_real_ops_http_cli_parity(
         sys.executable,
         "-m",
         "copytrade_pm.pm_operations",
-        "cwsa",
+        "release",
         "chapter2",
         "site-view",
         "--portfolio",
         "A",
         "--inspection",
         "evidence",
-        "--registry-db",
+        "--roster-db",
         str(env["registry_db"]),
         "--source-db",
         str(env["source_db"]),
@@ -818,8 +697,7 @@ def test_s4_change_frozen_k_future_generation_separate_admission_retains_obligat
     tmp_path: Path,
 ) -> None:
     """S4: Research k -> signed future generation -> new baseline; old exposure/HALT stay intact."""
-    db, seals = _build_locked_registry(tmp_path / "reg")
-    seal_a = seals["A"]
+    db, seal_a = _roster_book(tmp_path / "reg", "A", six_paper.PORTFOLIO_CONFIGS["A"]["members"])
     before = "2026-11-01T00:00:00+00:00"
     proposed = "2026-11-12T00:00:00+00:00"
     effective = "2026-11-12T00:15:00+00:00"
@@ -970,7 +848,7 @@ def test_s4_change_frozen_k_future_generation_separate_admission_retains_obligat
     )
     assert candidate.activated is False and candidate.trading_authorized is False
 
-    # Note: offline_preflight looks up SQLite portfolio_seals via portfolio_id="A", version=2.
+    # offline_preflight re-reads the committed roster book for account "A".
     preflight = k_recal.offline_preflight(
         candidate,
         sealed_definition_sha256=seal_a["definition_sha256"],
@@ -979,7 +857,7 @@ def test_s4_change_frozen_k_future_generation_separate_admission_retains_obligat
         open_inventory_count=1,
         registry_path=db,
         registry_portfolio_id="A",
-        registry_version=2,
+        registry_version=seal_a["version"],
     )
     assert preflight["registry_seal_independently_verified"] is True
     assert preflight["activated"] is False and preflight["release_eligible"] is False
@@ -1031,7 +909,7 @@ def test_s4_change_frozen_k_future_generation_separate_admission_retains_obligat
         open_inventory_count=0,
         registry_path=db,
         registry_portfolio_id="A",
-        registry_version=2,
+        registry_version=seal_a["version"],
     )
     assert bad_seal_preflight["status"] == "BLOCKED"
     assert "SQLITE_PORTFOLIO_SEAL_MISMATCH" in bad_seal_preflight["blockers"]
@@ -1042,7 +920,7 @@ def test_s4_change_frozen_k_future_generation_separate_admission_retains_obligat
     )
     key = Ed25519PrivateKey.generate()
     gen2_from = BOUNDARY_MS + GRID_MS
-    m2 = mandates.CopyMandate(
+    m2 = mandates.SignedMandate.from_fields(
         schema="copy_mandate_v1",
         mandate_id="m-w028",
         generation=2,
@@ -1059,7 +937,7 @@ def test_s4_change_frozen_k_future_generation_separate_admission_retains_obligat
         effective_from_ms=gen2_from,
         effective_until_ms=gen2_from + 86_400_000,
     )
-    signed_m2 = sign(m2.model_dump(mode="json"), key, "copy-mandate-v1")
+    signed_m2 = sign(m2.data, key, "copy-mandate-v1")
     verified_m2 = mandates.verify_mandate(signed_m2, key.public_key(), account_id="acct_a")
     assert verified_m2.generation == 2 and verified_m2.k == Decimal("0.005")
 
@@ -1116,7 +994,7 @@ def test_s5_wallet_local_source_gap_preserves_clocks_isolates_fault_and_ops_pari
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """S5: Wallet-local gap isolates B without blocking A, inventing flat, or rewriting clocks."""
-    db, _ = _build_locked_registry(tmp_path / "reg")
+    db = make_registry(tmp_path / "reg")
     b_ms = _fresh_boundary_ms()
     alt_policy = _policy_for("mixed-epoch")
     older_cp_ms = b_ms - GRID_MS
@@ -1512,7 +1390,7 @@ def test_s7_interrupted_action_recovery_preserves_original_intent_halt_and_floor
 
     code_grd = ops.cli(
         [
-            "cwsa",
+            "release",
             "chapter2",
             "recover",
             "--guardian-journal",
@@ -1547,7 +1425,7 @@ def test_s7_interrupted_action_recovery_preserves_original_intent_halt_and_floor
     valid_intent_id = "f" * 64
     code_abs = ops.cli(
         [
-            "cwsa",
+            "release",
             "chapter2",
             "recover",
             "--guardian-journal",
@@ -1595,16 +1473,26 @@ def test_s8_handoff_recovery_t02_baseline_comparison_no101_and_313_preserved(
     ):
         assert required_token in handoff_text
 
-    # 2. Candidate capability inventory compared monotonically against T02 frozen counts.
+    # 2. Candidate capability inventory validated against the consolidated surface.
+    #    The settled C4 cutover deletes superseded CLIs outright instead of shimming
+    #    them, so the T02 count of 114 is superseded by the five domain groups.
     val = cap.validate(REPO_ROOT)
     assert val["status"] == "VERIFIED" and val["errors"] == []
-    assert val["capability_count"] >= 114
-    assert val["cli_count"] >= 41
-    assert val["module_only_count"] >= 48
+    inventory = cap.inventory()
+    assert val["capability_count"] == len(inventory)
+    for group in ("capabilities", "facts", "research", "roster", "paper", "release"):
+        group_entries = [
+            entry for entry in inventory if entry["id"].startswith(f"operations.{group}.")
+        ]
+        assert group_entries, group
+        assert all(entry["available"] is True for entry in group_entries), group
+        assert all(entry["authority"] not in ("UNKNOWN", "") for entry in group_entries), group
 
     # 3. Deterministic 13-task baseline comparison preserves exact T02 invariants and #101 block.
     tasks = list(trace_eval.TASK_MAP.values())
     assert len(tasks) == 13
+    from test_pm_agent_trace_eval import query_argv
+
     runs = []
     for task in tasks:
         calls = [
@@ -1617,9 +1505,7 @@ def test_s8_handoff_recovery_t02_baseline_comparison_no101_and_313_preserved(
         ]
         status = "VERIFIED"
         if not task["discovery_only"]:
-            argv = list(task["query_prefix"])
-            if argv[-1] == "--cache-root":
-                argv.append("/private/owner-cache")
+            argv = query_argv(task["query_prefix"])
             if task["id"] == "paper-running":
                 status = "UNKNOWN"
             elif task["id"] in {"installed-release", "protected-paper-os", "market-evidence"}:

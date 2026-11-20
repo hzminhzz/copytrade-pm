@@ -81,7 +81,7 @@ def test_owner_runtime_installs_only_locked_core_and_smoke_tests(
             str(python),
             "-m",
             "copytrade_pm.pm_operations",
-            "cwsa",
+            "release",
             "chapter2",
             "site-view",
             "--help",

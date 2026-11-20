@@ -9,7 +9,6 @@ import sqlite3
 
 import pytest
 
-from copytrade_pm.pm03_account import digest
 from copytrade_pm.pm_forward_continuous import (
     ContinuousObserver,
     _private_candidate_path,
@@ -244,8 +243,8 @@ def test_public_cli_preflight_and_capture_with_fake_transports(
 ):
     import copytrade_pm.pm_forward_continuous as module
     import copytrade_pm.pm_forward_observer as cli
-    import copytrade_pm.pm_forward_registry_identity as identity
-    import copytrade_pm.pm_forward_source_campaign as campaign
+    from copytrade_pm.roster import RosterStore
+    from roster_fixture import add_account
 
     env, root = FakeEnvironment(), tmp_path / "candidate"
     config = {
@@ -261,28 +260,12 @@ def test_public_cli_preflight_and_capture_with_fake_transports(
     }
     path = tmp_path / "config.json"
     path.write_text(json.dumps(config))
-    manifest = {
-        "schema": "paper_continuous_preflight_v1",
-        "revision": "a" * 40,
-        "source_nav_attested": False,
-        "order_route": "NONE",
-    }
-    manifest["manifest_sha"] = digest(manifest)
     monkeypatch.setattr(module, "runtime_revision", lambda: "a" * 40)
-    monkeypatch.setattr(module, "candidate_preflight", lambda **kwargs: manifest)
-    monkeypatch.setattr(module, "registry_watched_addresses", lambda *a, **k: {WALLET: "wallet:17"})
-    monkeypatch.setattr(identity, "P1", ("member",))
-    monkeypatch.setattr(
-        identity,
-        "audit_frozen_member_resolution",
-        lambda **k: {
-            "portfolio_id": k["portfolio_id"],
-            "status": "BLOCKED",
-            "post_seal_binding_aliases": ["member"],
-        },
-    )
-    monkeypatch.setattr(identity, "_private_locator", lambda *a, **k: (None, WALLET, None))
-    monkeypatch.setattr(campaign, "_ALIAS", {"member": "S035"})
+    roster_path = tmp_path / "registry"
+    with RosterStore(roster_path, create=True) as store:
+        add_account(store, "P1", {"seat_1": WALLET})
+    config["inventory_sha256"] = RosterStore.authority_health(roster_path)["inventory_sha256"]
+    path.write_text(json.dumps(config))
 
     def observer(**kwargs):
         return ContinuousObserver(
@@ -318,12 +301,7 @@ def test_public_cli_preflight_and_capture_with_fake_transports(
     assert report["order_route"] == "NONE"
     if preflight_only:
         assert not root.exists() and env.requests == []
-        assert report["portfolio_historical_pit"]["P1"] == {
-            "original_selection_pit": "BLOCKED",
-            "post_seal_member_count": 1,
-            "capture_policy": "NEW_FIRST_KNOWN_OBSERVATION_ONLY",
-            "historical_replay_admitted": False,
-        }
+        assert report["portfolio_seals"]["P1"]["mode"] == "ACTIVE"
         assert report["prospective_first_known_not_before"]
     else:
         assert report["financial_events_committed"] == 0

@@ -2,6 +2,18 @@
 
 No scheduler, broker transport, standalone financial store or T0+300 path.
 All costs and timing limits are explicit inputs pinned by the signed mandate.
+
+Two decision semantics are implemented side by side:
+
+``checkpoint_decision_q15_v1`` (forward) is the kernel decision.  The shell
+resolves evidence, hands ``copytrade_kernel`` the normalized ``DecisionInputs``
+and consumes the kernel's risk decision, native-quantity targets and net order
+intents.  Paper fill simulation (``pm03_execution``) and the signed event hash
+stay in the shell; ``order_route`` stays ``NONE``.
+
+Everything written before the cutover replays through the frozen legacy body
+unchanged, byte for byte, which keeps existing journal snapshots and event
+payload hashes verifiable.
 """
 
 from __future__ import annotations
@@ -14,18 +26,56 @@ import json
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
-from .pm03_account import Account, Instrument, Rulebook, ZERO, clock, digest, number
+from copytrade_kernel import (
+    CheckpointBatch,
+    CheckpointMs,
+    DecisionMs,
+    FixedKSizing,
+    KernelState,
+    KnownAtTs,
+    NativeInstrument,
+    OwnerBook,
+    ProspectiveCWSA,
+    Q15_REJECTION,
+    SourceLeg,
+    SourceOutcome,
+)
+from copytrade_kernel import step_checkpoint
+
+from .pm03_account import (
+    Account,
+    Instrument,
+    RiskState,
+    Rulebook,
+    ZERO,
+    clock,
+    digest,
+    number,
+)
 from .pm03_execution import CostModel, MarketObservation, execute_targets
-from .pm03_risk import RiskEvidence, RiskPolicy, classify, loss_under_shock
+from .pm03_risk import RiskEvidence, RiskPolicy, classify, gate, loss_under_shock
+from .pm_checkpoint_decision import (
+    DECISION_VERSION,
+    SEMANTICS_FIELD,
+    KernelNoTrade,
+    clear_miss,
+    decide,
+    decision_inputs,
+    intent_sha,
+    memory,
+    record_miss,
+)
 from .pm_checkpoint_journal import CheckpointOutcome, history as source_history
 from .pm_checkpoint_opportunity import OpportunityState, advance
 from .pm_checkpoint_source import GRID_MS, source_marks
-from .pm_copy_mandate import CopyMandate, MandateState, verify_mandate
 from .pm_copy_mandate_journal import baseline, history as mandate_history
 from .pm_forward_observed_paper import candidate_market, read_quote
+from .pm_mandate import MandateState, SignedMandate, state_parse, verify_mandate
 from .pm_wire_evidence import read_wire
 
 KIND = "CWSA_PAPER_REVIEW"
+EFFECT = "checkpoint_paper_effect_v4"
+LEGACY_EFFECT = "checkpoint_paper_effect_v3"
 TERMINAL = {
     "COMMITTED_ONCE",
     "MISSED",
@@ -34,6 +84,7 @@ TERMINAL = {
     "RECOVERY_BASELINE",
     "COVERAGE_GAP",
 }
+RANK = list(RiskState)
 
 
 def at(ms):
@@ -93,7 +144,7 @@ def _policy(value):
 
 def validate_binding(db, run_id, event):
     """Replay source/mandate causality against their independently owned histories."""
-    m = CopyMandate.model_validate_json(json.dumps(event["mandate"]))
+    m = SignedMandate.parse(event["mandate"])
     outcome = CheckpointOutcome.model_validate_json(json.dumps(event["outcome"]))
     saved = db.execute("SELECT manifest FROM runs WHERE run_id=?", (run_id,)).fetchone()
     manifest = json.loads(saved[0])
@@ -105,7 +156,7 @@ def validate_binding(db, run_id, event):
     ):
         raise ValueError("CHECKPOINT_MANIFEST_POLICY_BINDING")
     transitions = mandate_history(db, m.owner)
-    if event["mandate_state"] not in [t.successor.model_dump(mode="json") for t in transitions]:
+    if event["mandate_state"] not in [t.successor.data for t in transitions]:
         raise ValueError("CHECKPOINT_MANDATE_STATE_PROOF")
     rows = db.execute(
         "SELECT outcome FROM cwsa_outcomes WHERE json_extract(outcome,'$.outcome_id')=?",
@@ -149,7 +200,7 @@ def consume(journal, run_id, owner, outcome_id, *, at_ms, policy, catalog):
             ).fetchone()
             if row is None:
                 raise ValueError("MANDATE_UNKNOWN")
-            m = CopyMandate.model_validate_json(row[0])
+            m = SignedMandate.from_json(row[0])
             if digest(policy) != m.risk_policy_sha:
                 raise ValueError("CHECKPOINT_POLICY_PIN")
             key = digest([run_id, owner, outcome_id])
@@ -171,7 +222,7 @@ def consume(journal, run_id, owner, outcome_id, *, at_ms, policy, catalog):
                 raise ValueError("CHECKPOINT_OUTCOME_UNKNOWN")
             stream, raw_outcome = rows[0]
             outcome = CheckpointOutcome.model_validate_json(raw_outcome)
-            current = MandateState.model_validate_json(row[1])
+            current = state_parse(row[1])
             if (
                 current.phase == "AWAITING_BASELINE"
                 and outcome.sample is not None
@@ -192,11 +243,12 @@ def consume(journal, run_id, owner, outcome_id, *, at_ms, policy, catalog):
             quotes = {k: value for k in sorted(keys) if (value := read_quote(db, k)) is not None}
             event = {
                 "kind": KIND,
+                "decision_version": DECISION_VERSION,
                 "run_id": run_id,
                 "event_at": at(at_ms),
                 "at_ms": at_ms,
-                "mandate": m.model_dump(mode="json"),
-                "mandate_state": current.model_dump(mode="json"),
+                "mandate": m.data,
+                "mandate_state": current.data,
                 "approval": json.loads(row[2]),
                 "authority_public": row[3],
                 "outcome": outcome.model_dump(mode="json"),
@@ -209,7 +261,7 @@ def consume(journal, run_id, owner, outcome_id, *, at_ms, policy, catalog):
                 "catalog": catalog,
                 "expected_sources": sorted(
                     {
-                        CopyMandate.model_validate_json(r[0]).source_id
+                        SignedMandate.from_json(r[0]).source_id
                         for r in db.execute(
                             "SELECT mandate FROM copy_mandate_heads WHERE account_id=?",
                             (m.account_id,),
@@ -220,7 +272,7 @@ def consume(journal, run_id, owner, outcome_id, *, at_ms, policy, catalog):
                 "evidence_class": "CWSA_MODELED_FOLLOWER_V3",
             }
             validate_binding(db, run_id, event)
-            event_id = digest(["checkpoint_paper_effect_v3", event])
+            event_id = digest([EFFECT, event])
             journal.append_locked(db, run_id, event_id, event)
             db.execute("COMMIT")
         except BaseException:
@@ -231,46 +283,20 @@ def consume(journal, run_id, owner, outcome_id, *, at_ms, policy, catalog):
 
 
 def apply(account: Account, event: dict) -> dict:
-    """Deterministic replay: protocol metadata and PM03 effects commit together."""
-    if event["order_route"] != "NONE" or event["evidence_class"] != "CWSA_MODELED_FOLLOWER_V3":
-        raise ValueError("CHECKPOINT_PAPER_AUTHORITY")
-    key = Ed25519PublicKey.from_public_bytes(bytes.fromhex(event["authority_public"]))
-    m = verify_mandate(event["approval"], key, account_id=event["mandate"]["account_id"])
-    if (
-        m.model_dump(mode="json") != event["mandate"]
-        or m.rulebook_sha != account.rulebook.sha
-        or m.risk_policy_sha != digest(event["policy"])
-    ):
-        raise ValueError("CHECKPOINT_MANDATE_POLICY")
-    lifecycle = MandateState.model_validate_json(json.dumps(event["mandate_state"]))
-    outcome = CheckpointOutcome.model_validate_json(json.dumps(event["outcome"]))
-    now = event["at_ms"]
-    risk_policy, costs = _policy(event["policy"])
-    state = account.pm04_state.setdefault(
-        "checkpoint_v3",
-        {
-            "schema": "checkpoint_paper_consumer_v3",
-            "outcomes": {},
-            "opportunities": {},
-            "last_checkpoint": {},
-            "coverage": {},
-            "consumed_quotes": {},
-        },
-    )
-    effect_key = digest([event["run_id"], m.owner, outcome.outcome_id])
-    if effect_key in state["outcomes"] and state["outcomes"][effect_key]["status"] in TERMINAL:
-        return state["outcomes"][effect_key]
-    if outcome.checkpoint_ms < state["last_checkpoint"].get(m.owner, 0):
-        raise ValueError("CHECKPOINT_CONSUMER_REORDER")
-    state["last_checkpoint"][m.owner] = outcome.checkpoint_ms
-    for source in event["expected_sources"]:
-        state["coverage"].setdefault(source, False)
-    state["coverage"][m.source_id] = outcome.kind not in ("UNAVAILABLE", "QUARANTINE")
-    evidence_sha = digest(event)
+    """Deterministic replay: dispatch on the persisted decision semantics."""
+    version = event.get("decision_version")
+    if version is None:
+        return _effect(account, event, legacy=True)
+    if version != DECISION_VERSION:
+        raise ValueError("CHECKPOINT_DECISION_SEMANTICS")
+    return _effect(account, event, legacy=False)
+
+
+def _expire(state: dict, *, owner: str, now: int, evidence_sha: str) -> None:
     for record in state["opportunities"].values():
         previous = OpportunityState.model_validate_json(json.dumps(record["state"]))
         if (
-            previous.owner == m.owner
+            previous.owner == owner
             and previous.phase not in ("COMMITTED_ONCE", "MISSED")
             and now >= previous.deadline_ms
         ):
@@ -287,7 +313,10 @@ def apply(account: Account, event: dict) -> dict:
             old_result = state["outcomes"].get(record["effect_key"])
             if old_result:
                 old_result.update(status="MISSED", opportunity=record["state"], reasons=["EXPIRED"])
-    result = {
+
+
+def _skeleton(outcome, state: dict) -> dict:
+    return {
         "status": "MISSED",
         "source_id": outcome.source_id,
         "outcome_id": outcome.outcome_id,
@@ -299,6 +328,56 @@ def apply(account: Account, event: dict) -> dict:
         "order_route": "NONE",
         "modeled_only": True,
     }
+
+
+def _effect(account: Account, event: dict, *, legacy: bool) -> dict:
+    """Protocol metadata and PM03 effects commit together for both semantics."""
+    if event["order_route"] != "NONE" or event["evidence_class"] != "CWSA_MODELED_FOLLOWER_V3":
+        raise ValueError("CHECKPOINT_PAPER_AUTHORITY")
+    key = Ed25519PublicKey.from_public_bytes(bytes.fromhex(event["authority_public"]))
+    m = verify_mandate(event["approval"], key, account_id=event["mandate"]["account_id"])
+    if (
+        m.data != event["mandate"]
+        or m.rulebook_sha != account.rulebook.sha
+        or m.risk_policy_sha != digest(event["policy"])
+    ):
+        raise ValueError("CHECKPOINT_MANDATE_POLICY")
+    lifecycle = MandateState.parse(event["mandate_state"])
+    outcome = CheckpointOutcome.model_validate_json(json.dumps(event["outcome"]))
+    now = event["at_ms"]
+    risk_policy, costs = _policy(event["policy"])
+    state = account.pm04_state.setdefault(
+        "checkpoint_v3",
+        {
+            "schema": "checkpoint_paper_consumer_v3",
+            "outcomes": {},
+            "opportunities": {},
+            "last_checkpoint": {},
+            "coverage": {},
+            "consumed_quotes": {},
+        },
+    )
+    if legacy:
+        # A journal that has already committed a forward decision can never be
+        # replayed backwards into the pre-cutover semantics.
+        if state.get(SEMANTICS_FIELD) is not None:
+            raise ValueError("CHECKPOINT_DECISION_SEMANTICS_DOWNGRADE")
+    else:
+        if state.get(SEMANTICS_FIELD) not in (None, DECISION_VERSION):
+            raise ValueError("CHECKPOINT_DECISION_SEMANTICS")
+        state[SEMANTICS_FIELD] = DECISION_VERSION
+    effect_key = digest([event["run_id"], m.owner, outcome.outcome_id])
+    if effect_key in state["outcomes"] and state["outcomes"][effect_key]["status"] in TERMINAL:
+        return state["outcomes"][effect_key]
+    if outcome.checkpoint_ms < state["last_checkpoint"].get(m.owner, 0):
+        raise ValueError("CHECKPOINT_CONSUMER_REORDER")
+    state["last_checkpoint"][m.owner] = outcome.checkpoint_ms
+    for source in event["expected_sources"]:
+        state["coverage"].setdefault(source, False)
+    state["coverage"][m.source_id] = outcome.kind not in ("UNAVAILABLE", "QUARANTINE")
+    evidence_sha = digest(event)
+    _expire(state, owner=m.owner, now=now, evidence_sha=evidence_sha)
+    result = _skeleton(outcome, state)
     if outcome.kind in ("UNAVAILABLE", "QUARANTINE"):
         result.update(status="COVERAGE_GAP", reasons=list(outcome.reasons))
     elif lifecycle.baseline_outcome_id == outcome.outcome_id or outcome.kind == "BASELINE":
@@ -346,97 +425,86 @@ def apply(account: Account, event: dict) -> dict:
 
         if record["state"]["phase"] == "MISSED":
             result.update(status="MISSED", opportunity=record["state"], reasons=["EXPIRED"])
+            if not legacy:
+                _remember_miss(state, account, m, outcome)
         elif (
             now >= deadline or lifecycle.phase != "ACTIVE" or event["source_phase"] != "CONTINUOUS"
         ):
             move("MISS", "EXPIRED_OR_INACTIVE_OR_SOURCE_FENCED")
+            if not legacy:
+                _remember_miss(state, account, m, outcome)
         else:
             move("REVIEW", "COMPLETE_PROOF", no_side_effect=True)
-            try:
-                marks = _marks(outcome, event["originals"])
-                if set(marks) != {p.instrument for p in outcome.positions}:
-                    raise ValueError("NATIVE_SOURCE_MARK_UNAVAILABLE")
-                proposed, observations = _proposal(account, m, outcome, marks, event)
-            except (KeyError, ValueError) as exc:
-                move("BLOCK", str(exc), no_side_effect=True)
+            if legacy:
+                _legacy_decision(
+                    account,
+                    event,
+                    m,
+                    outcome,
+                    state,
+                    risk_policy,
+                    costs,
+                    deadline,
+                    result,
+                    move,
+                )
             else:
-                quotes = {k: q.mark for k, q in observations.items()}
-                account.mark(quotes, event["event_at"])
-                shocks = tuple(
-                    {Instrument.parse(k): number(v) for k, v in row.items()}
-                    for row in event["policy"]["shocks"]
+                _kernel_decision(
+                    account,
+                    event,
+                    m,
+                    outcome,
+                    state,
+                    risk_policy,
+                    costs,
+                    deadline,
+                    result,
+                    move,
                 )
-                own = proposed.get(m.owner, {})
-                used = max(ZERO, -account.pm_equity_pnl().get(m.owner, ZERO))
-                stress = max((loss_under_shock(own, quotes, row) for row in shocks), default=ZERO)
-                gross = sum(
-                    (abs(q * quotes[k]) for book in proposed.values() for k, q in book.items()),
-                    ZERO,
-                )
-                if used + stress > number(event["policy"]["pod_loss_limit"]) or gross > number(
-                    event["policy"]["max_gross_notional"]
-                ):
-                    move("MISS", "POD_OR_GROSS_RISK_LIMIT")
-                else:
-                    evidence = RiskEvidence(
-                        True, True, True, True, False, "FORWARD_PAPER_SIMULATED_v1", False
-                    )
-                    decision = classify(account, proposed, quotes, shocks, evidence, risk_policy)
-                    result["requested_targets"] = {
-                        owner: {k.key: str(q) for k, q in book.items()}
-                        for owner, book in proposed.items()
-                    }
-                    result["risk"] = {
-                        "state": decision["state"],
-                        "reasons": decision["reason_codes"],
-                        "worst_stress_loss": decision["worst_stress_loss"],
-                        "headroom": decision["headroom"],
-                    }
-                    # Existing generations and unavailable leaders retain their exact inventory.
-                    unchanged = all(
-                        decision["approved"].get(owner, {}) == book
-                        for owner, book in account.pm_quantities.items()
-                        if owner != m.owner
-                    )
-                    if not decision["approved_new_risk"] or not unchanged:
-                        move("MISS", "ACCOUNT_RISK_OR_RESIDUAL_PROTECTION")
-                    else:
-                        claims = []
-                        target = account.external_targets(decision["approved"])
-                        for inst in set(target) | set(account.quantities):
-                            delta = target.get(inst, ZERO) - account.quantities.get(inst, ZERO)
-                            if delta:
-                                claim = digest(
-                                    [
-                                        inst.key,
-                                        "BUY" if delta > 0 else "SELL",
-                                        digest(event["quotes"][inst.key]),
-                                    ]
-                                )
-                                if claim in state["consumed_quotes"]:
-                                    break
-                                claims.append(claim)
-                        else:
-                            move("COMMIT", "MODELED_ATTEMPT")
-                            result["execution"] = execute_targets(
-                                account,
-                                decision["approved"],
-                                observations,
-                                costs,
-                                decision_at=event["event_at"],
-                                hypothetical_fill_at=event["event_at"],
-                                permitted=True,
-                            )
-                            for claim in claims:
-                                state["consumed_quotes"][claim] = opportunity_id
-                        if result["status"] == "REVIEWABLE":
-                            move("BLOCK", "QUOTE_ALREADY_CONSUMED", no_side_effect=True)
     state["outcomes"][effect_key] = result
     account.verify()
     return result
 
 
-def _proposal(account, mandate, outcome, marks, event):
+# ---------------------------------------------------------------------------
+# Q15 opening memory
+
+
+def _remember_miss(state: dict, account: Account, m, outcome) -> None:
+    """Retain ``qty_at_miss`` for an opening attempt that produced no entry."""
+    held = account.pm_quantities.get(m.owner, {})
+    for position in outcome.positions:
+        if not position.quantity:
+            continue
+        instrument = Instrument.parse(position.instrument)
+        current = held.get(instrument, ZERO)
+        if current and (current > 0) == (position.quantity > 0):
+            # A live same-side position is managed, never an opening retry.
+            continue
+        record_miss(
+            state,
+            m.owner,
+            position.instrument,
+            checkpoint_ms=outcome.checkpoint_ms,
+            quantity=position.quantity,
+        )
+
+
+def _clear_entries(state: dict, account: Account, owner: str, targets: dict) -> None:
+    """Clear a miss only where the paper ledger proves the owner's entry."""
+    held = account.pm_quantities.get(owner, {})
+    for instrument, quantity in targets.get(owner, {}).items():
+        current = held.get(instrument, ZERO)
+        if current and quantity and (current > 0) == (quantity > 0):
+            clear_miss(state, owner, instrument.key)
+
+
+# ---------------------------------------------------------------------------
+# Legacy fixed-k request (frozen pre-cutover semantics)
+
+
+def _legacy_proposal(account, mandate, outcome, marks, event, deadline_ms):
+    """Fixed-k request from the kernel; lot/min-notional contracts stay here."""
     proposed = deepcopy(account.pm_quantities)
     keys = {p.instrument for p in outcome.positions}
     if keys - set(mandate.allowed_markets):
@@ -474,13 +542,52 @@ def _proposal(account, mandate, outcome, marks, event):
             quantity_step=market.amount_step,
             minimum_notional=market.minimum_notional,
         )
+    # The fixed-k request (and Q15 opening-retry suppression) is kernel-owned.
+    frame = CheckpointBatch(
+        checkpoint_ms=CheckpointMs(outcome.checkpoint_ms),
+        outcomes=(
+            SourceOutcome(
+                owner=mandate.owner,
+                sizing=FixedKSizing(mandate.k),
+                published_at=KnownAtTs(outcome.published_ms),
+                deadline=DecisionMs(deadline_ms),
+                legs=_legs(outcome, marks),
+                provenance=ProspectiveCWSA(
+                    source_cursor=event["source_head_sequence"],
+                    chain_sha=event["source_head_sha"],
+                    packet_sha=outcome.outcome_id,
+                ),
+            ),
+        ),
+    )
+    step = step_checkpoint(
+        state=KernelState(
+            owner_books=(
+                OwnerBook(
+                    owner=mandate.owner,
+                    positions=tuple(
+                        sorted(
+                            (key.key, quantity)
+                            for key, quantity in proposed.get(mandate.owner, {}).items()
+                            if quantity
+                        )
+                    ),
+                    entry_memory=(),
+                ),
+            )
+        ),
+        frame=frame,
+    )
+    requested = dict(dict(step.notionals)[mandate.owner])
+    if dict(step.opening_rejections).get(mandate.owner):
+        raise ValueError(Q15_REJECTION)
     own = {}
     for position in outcome.positions:
         inst = Instrument.parse(position.instrument)
         market = native[position.instrument]
         raw = event["quotes"][position.instrument]
         executable = number(raw["best_ask"] if position.quantity > 0 else raw["best_bid"])
-        value = position.quantity * number(marks[position.instrument]) * mandate.k / executable
+        value = number(requested[position.instrument]) / executable
         value = (
             (abs(value) / market.amount_step).to_integral_value(rounding=ROUND_DOWN)
             * market.amount_step
@@ -490,3 +597,335 @@ def _proposal(account, mandate, outcome, marks, event):
             own[inst] = value
     proposed[mandate.owner] = own
     return proposed, observations
+
+
+def _legacy_decision(account, event, m, outcome, state, risk_policy, costs, deadline, result, move):
+    """Frozen pre-cutover decision body: paper tiers size, the kernel requests."""
+    try:
+        marks = _marks(outcome, event["originals"])
+        if set(marks) != {p.instrument for p in outcome.positions}:
+            raise ValueError("NATIVE_SOURCE_MARK_UNAVAILABLE")
+        proposed, observations = _legacy_proposal(account, m, outcome, marks, event, deadline)
+    except (KeyError, ValueError) as exc:
+        move("BLOCK", str(exc), no_side_effect=True)
+    else:
+        quotes = {k: q.mark for k, q in observations.items()}
+        account.mark(quotes, event["event_at"])
+        shocks = tuple(
+            {Instrument.parse(k): number(v) for k, v in row.items()}
+            for row in event["policy"]["shocks"]
+        )
+        own = proposed.get(m.owner, {})
+        used = max(ZERO, -account.pm_equity_pnl().get(m.owner, ZERO))
+        stress = max((loss_under_shock(own, quotes, row) for row in shocks), default=ZERO)
+        gross = sum(
+            (abs(q * quotes[k]) for book in proposed.values() for k, q in book.items()),
+            ZERO,
+        )
+        if used + stress > number(event["policy"]["pod_loss_limit"]) or gross > number(
+            event["policy"]["max_gross_notional"]
+        ):
+            move("MISS", "POD_OR_GROSS_RISK_LIMIT")
+        else:
+            evidence = RiskEvidence(
+                True, True, True, True, False, "FORWARD_PAPER_SIMULATED_v1", False
+            )
+            decision = classify(account, proposed, quotes, shocks, evidence, risk_policy)
+            result["requested_targets"] = {
+                owner: {k.key: str(q) for k, q in book.items()} for owner, book in proposed.items()
+            }
+            result["risk"] = {
+                "state": decision["state"],
+                "reasons": decision["reason_codes"],
+                "worst_stress_loss": decision["worst_stress_loss"],
+                "headroom": decision["headroom"],
+            }
+            # Existing generations and unavailable leaders retain their exact inventory.
+            unchanged = all(
+                decision["approved"].get(owner, {}) == book
+                for owner, book in account.pm_quantities.items()
+                if owner != m.owner
+            )
+            if not decision["approved_new_risk"] or not unchanged:
+                move("MISS", "ACCOUNT_RISK_OR_RESIDUAL_PROTECTION")
+            else:
+                _commit(
+                    account,
+                    event,
+                    m,
+                    state,
+                    risk_policy,
+                    costs,
+                    observations,
+                    decision["approved"],
+                    result,
+                    move,
+                )
+
+
+def _legs(outcome, marks):
+    return tuple(
+        SourceLeg(
+            instrument=NativeInstrument(position.instrument),
+            market=position.instrument,
+            quantity=position.quantity,
+            mark=number(marks[position.instrument]),
+        )
+        for position in outcome.positions
+    )
+
+
+def _commit(
+    account,
+    event,
+    m,
+    state,
+    risk_policy,
+    costs,
+    observations,
+    approved,
+    result,
+    move,
+    *,
+    clear_entries=False,
+):
+    """Shell commit path: quote claims, modeled fills, one-shot consumption."""
+    claims = []
+    target = account.external_targets(approved)
+    for inst in set(target) | set(account.quantities):
+        delta = target.get(inst, ZERO) - account.quantities.get(inst, ZERO)
+        if delta:
+            claim = digest(
+                [
+                    inst.key,
+                    "BUY" if delta > 0 else "SELL",
+                    digest(event["quotes"][inst.key]),
+                ]
+            )
+            if claim in state["consumed_quotes"]:
+                break
+            claims.append(claim)
+    else:
+        move("COMMIT", "MODELED_ATTEMPT")
+        result["execution"] = execute_targets(
+            account,
+            approved,
+            observations,
+            costs,
+            decision_at=event["event_at"],
+            hypothetical_fill_at=event["event_at"],
+            permitted=True,
+        )
+        for claim in claims:
+            state["consumed_quotes"][claim] = result["opportunity"]["opportunity_id"]
+        if clear_entries and result["status"] == "COMMITTED_ONCE":
+            _clear_entries(state, account, m.owner, approved)
+    if result["status"] == "REVIEWABLE":
+        move("BLOCK", "QUOTE_ALREADY_CONSUMED", no_side_effect=True)
+
+
+# ---------------------------------------------------------------------------
+# Forward kernel decision
+
+
+def _request(account, mandate, outcome, marks, event):
+    """Shell evidence: verified native markets and the quotes for this review."""
+    keys = {p.instrument for p in outcome.positions}
+    if keys - set(mandate.allowed_markets):
+        raise ValueError("CHECKPOINT_UNSUPPORTED_MARKET")
+    keys |= {k.key for book in account.pm_quantities.values() for k, q in book.items() if q}
+    keys |= {k.key for k, q in account.quantities.items() if q}
+    from .pm_forward_journal import PaperJournal
+
+    observations, native = {}, {}
+    for key in sorted(keys):
+        raw = event["quotes"].get(key)
+        if raw is None:
+            raise ValueError("INDEPENDENT_FOLLOWER_QUOTE_MISSING")
+        PaperJournal.validate_market_quote(raw)
+        age = event["at_ms"] - int(clock(raw["source_event_at"]).timestamp() * 1000)
+        if not 0 <= age <= event["policy"]["max_quote_age_ms"] or clock(
+            raw["first_known_at"]
+        ) > clock(event["event_at"]):
+            raise ValueError("INDEPENDENT_FOLLOWER_QUOTE_STALE_OR_FUTURE")
+        inst = Instrument.parse(key)
+        market = candidate_market(inst, event["catalog"], raw)
+        native[key] = market
+        observations[inst] = MarketObservation(
+            instrument=inst,
+            event_at=raw["source_event_at"],
+            first_known_at=raw["first_known_at"],
+            mark=number(raw["mid_quote"]),
+            volume_base=None,
+            quality="VERIFIED_QUOTE",
+            supported=market.session_eligible,
+            capacity_basis="DISPLAYED_L2_TOP_LEVEL",
+            best_bid=number(raw["best_bid"]),
+            best_ask=number(raw["best_ask"]),
+            bid_size=number(raw["bid_size"]),
+            ask_size=number(raw["ask_size"]),
+            quantity_step=market.amount_step,
+            minimum_notional=market.minimum_notional,
+        )
+    return observations, native
+
+
+def _frame(account, mandate, outcome, marks, event, deadline_ms, state):
+    """Kernel frame plus the owner book, including persisted Q15 memory."""
+    frame = CheckpointBatch(
+        checkpoint_ms=CheckpointMs(outcome.checkpoint_ms),
+        outcomes=(
+            SourceOutcome(
+                owner=mandate.owner,
+                sizing=FixedKSizing(mandate.k),
+                published_at=KnownAtTs(outcome.published_ms),
+                deadline=DecisionMs(deadline_ms),
+                legs=_legs(outcome, marks),
+                provenance=ProspectiveCWSA(
+                    source_cursor=event["source_head_sequence"],
+                    chain_sha=event["source_head_sha"],
+                    packet_sha=outcome.outcome_id,
+                ),
+            ),
+        ),
+    )
+    kernel_state = KernelState(
+        owner_books=(
+            OwnerBook(
+                owner=mandate.owner,
+                positions=tuple(
+                    sorted(
+                        (key.key, quantity)
+                        for key, quantity in account.pm_quantities.get(mandate.owner, {}).items()
+                        if quantity
+                    )
+                ),
+                entry_memory=memory(state, mandate.owner),
+            ),
+        )
+    )
+    return frame, kernel_state
+
+
+def _kernel_decision(account, event, m, outcome, state, risk_policy, costs, deadline, result, move):
+    """The shared kernel decides; the shell gates, simulates and signs."""
+    try:
+        marks = _marks(outcome, event["originals"])
+        if set(marks) != {p.instrument for p in outcome.positions}:
+            raise ValueError("NATIVE_SOURCE_MARK_UNAVAILABLE")
+        observations, native = _request(account, m, outcome, marks, event)
+        frame, kernel_state = _frame(account, m, outcome, marks, event, deadline, state)
+        inputs = decision_inputs(
+            account=account,
+            owner=m.owner,
+            event=event,
+            policy=risk_policy,
+            observations=observations,
+            markets=native,
+            costs_rate=number(event["policy"]["costs"]["fee_bps"]) / 10_000,
+            instruments=tuple(p.instrument for p in outcome.positions),
+        )
+        step = step_checkpoint(state=kernel_state, frame=frame, inputs=inputs)
+    except (KeyError, ValueError) as exc:
+        move("BLOCK", str(exc), no_side_effect=True)
+        return
+    if dict(step.opening_rejections).get(m.owner):
+        move("MISS", Q15_REJECTION)
+        _remember_miss(state, account, m, outcome)
+        return
+    try:
+        decision = decide(step.execution, risk_policy)
+    except KernelNoTrade as exc:
+        result["kernel_risk"] = {"status": "NO_TRADE"}
+        move("MISS", str(exc))
+        _remember_miss(state, account, m, outcome)
+        return
+    except ValueError as exc:
+        move("BLOCK", str(exc), no_side_effect=True)
+        return
+
+    quotes = {k: q.mark for k, q in observations.items()}
+    account.mark(quotes, event["event_at"])
+    shocks = tuple(
+        {Instrument.parse(k): number(v) for k, v in row.items()}
+        for row in event["policy"]["shocks"]
+    )
+    evidence = RiskEvidence(True, True, True, True, False, "FORWARD_PAPER_SIMULATED_v1", False)
+    veto = gate(account, decision.targets, quotes, shocks, evidence, risk_policy)
+    result["requested_targets"] = {
+        owner: {k.key: str(q) for k, q in book.items()}
+        for owner, book in _requested(step, m, outcome, event, native).items()
+    }
+    result["approved_targets"] = {
+        owner: {k.key: str(q) for k, q in sorted(book.items())}
+        for owner, book in sorted(decision.targets.items())
+    }
+    result["net_intents"] = list(decision.net_intents)
+    result["kernel_decision"] = {
+        "decision_version": DECISION_VERSION,
+        "status": decision.risk.get("status"),
+        "scale": str(decision.scale),
+        "projection": "checkpoint_execution_projection_v2",
+        "net_intent_sha": intent_sha(decision.net_intents),
+        "worst_stress_loss": decision.risk.get("worst_loss"),
+        "headroom_after_stress": decision.risk.get("headroom_after_stress"),
+        "gross_notional": decision.risk.get("gross_notional"),
+    }
+    result["risk"] = {
+        "state": decision.state.value,
+        "reasons": list(decision.reasons),
+        "worst_stress_loss": decision.risk.get("worst_loss"),
+        "headroom": decision.risk.get("headroom_after_stress"),
+    }
+    result["shell_gate"] = list(veto["reason_codes"])
+    # Only the kernel's reduction scale moves the paper risk label, never up.
+    account.risk = max(account.risk, decision.state, key=RANK.index)
+    account.risk_reasons = tuple(sorted(set(veto["reason_codes"]))) or decision.reasons
+    if veto["halt"]:
+        account.latch_halt(";".join(veto["reason_codes"]) or "CONTRACTUAL_FLOOR")
+    if not veto["permitted"] or veto["halt"]:
+        move("MISS", "SHELL_RISK_GATE:" + ",".join(veto["reason_codes"]))
+        _remember_miss(state, account, m, outcome)
+        return
+    unchanged = all(
+        {k: q for k, q in book.items() if q} == decision.targets.get(owner, {})
+        for owner, book in account.pm_quantities.items()
+        if owner != m.owner
+    )
+    if not unchanged:
+        move("MISS", "ACCOUNT_RESIDUAL_PROTECTION")
+        _remember_miss(state, account, m, outcome)
+        return
+    _commit(
+        account,
+        event,
+        m,
+        state,
+        risk_policy,
+        costs,
+        observations,
+        decision.targets,
+        result,
+        move,
+        clear_entries=True,
+    )
+
+
+def _requested(step, mandate, outcome, event, native) -> dict[str, dict[Instrument, object]]:
+    """Fixed-k request the kernel reported, in native lot-rounded quantities."""
+    requested = dict(dict(step.notionals)[mandate.owner])
+    own = {}
+    for position in outcome.positions:
+        inst = Instrument.parse(position.instrument)
+        market = native[position.instrument]
+        raw = event["quotes"][position.instrument]
+        executable = number(raw["best_ask"] if position.quantity > 0 else raw["best_bid"])
+        value = number(requested[position.instrument]) / executable
+        value = (
+            (abs(value) / market.amount_step).to_integral_value(rounding=ROUND_DOWN)
+            * market.amount_step
+            * (1 if value > 0 else -1)
+        )
+        if value and abs(value) * executable >= market.minimum_notional:
+            own[inst] = value
+    return {mandate.owner: own}

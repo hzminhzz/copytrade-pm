@@ -77,7 +77,7 @@ def test_postdeploy_active_service_stalled_finance_rejected(monkeypatch, tmp_pat
         stage="postdeploy",
         root=Path.cwd(),
         expected_sha=None,
-        registry_db=tmp_path,
+        roster_db=tmp_path,
         source_db=tmp_path,
         paper_root=tmp_path,
         expected_source_sha="a" * 40,

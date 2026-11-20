@@ -7,7 +7,7 @@ from copytrade_pm.pm_forward_journal import PaperJournal
 from copytrade_pm.pm_forward_observed_paper import ObservedP1Paper
 from copytrade_pm.pm_forward_source_stream import PersistentAccount
 from copytrade_pm.pm_vike_market_catalog import NativePaperContract
-from test_pm_forward_multi_portfolio import full_registry, pin_reviewed_registry
+from test_pm_forward_multi_portfolio import full_registry
 from test_pm_forward_observed_paper import ADDRESSES, BTC, at
 from test_pm_vike_paper_integration import official_observer, official_frame, price
 
@@ -15,7 +15,6 @@ from test_pm_vike_paper_integration import official_observer, official_frame, pr
 def test_cf05_shared_scope_change_offline_portfolio_and_independent_held_finance(
     tmp_path, monkeypatch
 ):
-    pin_reviewed_registry(monkeypatch)
     registry = full_registry(tmp_path)
     tape, prices = PaperJournal(tmp_path / "source"), PaperJournal(tmp_path / "prices")
     affected = official_observer(tape)

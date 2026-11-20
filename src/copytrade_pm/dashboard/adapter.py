@@ -1,9 +1,10 @@
 """Bounded, provenance-preserving readers for a strictly non-trading dashboard.
 
-The native registry reader is the authority for wallet identity. Protected
-Guardian data is read ONLY from independently published, restricted snapshots;
-this module never opens the financial journal, imports Guardian, or invokes a
-provider. No browser input can select a filesystem path or command.
+The committed roster seat book is the authority for wallet identity; the retired
+wallet registry is never read. Protected Guardian data is read ONLY from
+independently published, restricted snapshots; this module never opens the
+financial journal, imports Guardian, or invokes a provider. No browser input can
+select a filesystem path or command.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ from __future__ import annotations
 from collections import Counter
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
+from hashlib import sha256
 import json
 import os
 from pathlib import Path
@@ -23,7 +25,11 @@ from typing import Any, Callable, Mapping
 
 from copytrade_pm import pm_operations as operations
 from copytrade_pm import pm_runtime_readonly as runtime
-from copytrade_pm import wallet_registry as registry
+from copytrade_pm.pm_operations import ROSTER_DB
+
+# The only installed operation families; registry-era groups are retired.
+NATIVE_GROUPS = frozenset({"capabilities", "facts", "research", "roster", "paper", "release"})
+ROSTER_SCHEMA = "roster_wallet_inventory_v1"
 
 READ_SCHEMA = "dashboard_read_result_v1"
 PROJECTION_SCHEMA = "dashboard_guardian_capture_v1"
@@ -595,7 +601,7 @@ class DashboardReader:
         native_read: Callable[[list[str]], Mapping[str, Any]] | None = None,
         cache: SmallTTLCache | None = None,
     ) -> None:
-        self.db = db if db is not None else registry.DB
+        self.db = db if db is not None else ROSTER_DB
         self.observer_root = observer_root
         configured_capture = os.environ.get("DASHBOARD_GUARDIAN_CAPTURE_ROOT", "")
         self.guardian_provider = guardian_provider or GuardianCaptureDirectory(
@@ -620,8 +626,240 @@ class DashboardReader:
     def _native(self, args: list[str]) -> dict[str, Any]:
         if self._native_override is not None:
             return dict(self._native_override(args))
+        group = args[0] if args else ""
+        if group not in NATIVE_GROUPS:
+            # Registry-era commands are retired, not shimmed: an unknown group
+            # is an explicit refusal rather than an argparse exit.
+            raise ValueError("LEGACY_COMMAND_RETIRED")
         parsed = operations.parser().parse_args(["--db", str(self.db), *args])
+        if getattr(parsed, "verb", None) == "chapter2":
+            raise ValueError("NESTED_OWNER_COMMAND_NOT_PROXIED")
         return _bounded_native_read(lambda: operations.dispatch(parsed))
+
+    @staticmethod
+    def _wallet_ref(wallet: str) -> str:
+        """Public display key for one wallet; the operator surface never shows an address."""
+        return "wallet:" + sha256(wallet.encode()).hexdigest()[:16]
+
+    def _roster_view(self, cutoff: datetime | None, *, now: datetime) -> dict[str, Any]:
+        """One verified, read-only roster snapshot: identity, never assessment.
+
+        Wallet identity comes from committed seat books at the requested
+        known-at clock. Accounts with no committed book at that clock are
+        reported as unknown instead of being silently omitted.
+        """
+        from copytrade_kernel import KnownAtTs
+        from copytrade_pm.roster import RosterStore
+        from copytrade_pm.roster.sealed import timestamp_ms
+
+        path = Path(self.db)
+        if path.is_symlink() or not path.is_file():
+            raise FileNotFoundError(str(path))
+        as_of_ms = timestamp_ms((cutoff or now).isoformat())
+        health = RosterStore.authority_health(path)
+        wallets: list[dict[str, Any]] = []
+        selections: dict[str, dict[str, Any]] = {}
+        unknown_accounts: list[str] = []
+        observed_ms: int | None = None
+        store = RosterStore(self.db)
+        try:
+            with store.read_snapshot():
+                accounts = list(store.accounts())
+                vetoed = store.vetoed_wallets(as_of=KnownAtTs(as_of_ms))
+                for account in accounts:
+                    book = store.verified_book_at(account, as_of=KnownAtTs(as_of_ms))
+                    if book is None:
+                        unknown_accounts.append(account)
+                        continue
+                    members: list[str] = []
+                    for spec, lease in book.seats:
+                        if lease is None:
+                            continue
+                        reference = self._wallet_ref(lease.wallet)
+                        members.append(reference)
+                        wallets.append(
+                            {
+                                "wallet": reference,
+                                # The canonical roster identity, never an inferred alias.
+                                "alias": spec.seat_id,
+                                "seat_id": spec.seat_id,
+                                "account_id": account,
+                                "cohort": account,
+                                "owner": lease.owner,
+                                "generation": lease.generation,
+                                "occupancy": "OCCUPIED",
+                                "excluded": lease.wallet in vetoed,
+                                "research_state": "RESEARCH_ONLY",
+                                "as_of_ms": book.as_of.value,
+                            }
+                        )
+                    for entry in book.draining:
+                        reference = self._wallet_ref(entry.wallet)
+                        members.append(reference)
+                        wallets.append(
+                            {
+                                "wallet": reference,
+                                "alias": None,
+                                "seat_id": entry.seat_id,
+                                "account_id": account,
+                                "cohort": account,
+                                "owner": entry.owner,
+                                "generation": entry.generation,
+                                "occupancy": "DRAINING",
+                                "excluded": entry.wallet in vetoed,
+                                "research_state": "RESEARCH_ONLY",
+                                "as_of_ms": book.as_of.value,
+                            }
+                        )
+                    selections[account] = {
+                        "portfolio_id": account,
+                        "version": book.sequence,
+                        "definition_sha256": book.sha,
+                        "selection_known_at": utc_text(
+                            datetime.fromtimestamp(book.as_of.value / 1000, UTC)
+                        ),
+                        "members": members,
+                        "state": "RESEARCH",
+                        "source_sealed": True,
+                        "policy_epoch": book.policy_epoch,
+                    }
+                    observed_ms = (
+                        book.as_of.value
+                        if observed_ms is None
+                        else max(observed_ms, book.as_of.value)
+                    )
+        finally:
+            store.close()
+        return {
+            "integrity": "VERIFIED",
+            "inventory_sha256": health.get("inventory_sha256"),
+            "source_observed_at": (
+                utc_text(datetime.fromtimestamp(observed_ms / 1000, UTC))
+                if observed_ms is not None
+                else None
+            ),
+            "as_of_ms": as_of_ms,
+            "accounts": sorted(selections),
+            "unknown_accounts": sorted(unknown_accounts),
+            "wallets": wallets,
+            "selections": selections,
+        }
+
+    def wallets(
+        self,
+        *,
+        query: str | None = None,
+        cohort: str | None = None,
+        excluded: bool | None = None,
+        subscribed: bool | None = None,
+        asof: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        """Redacted roster seat inventory; a seat book is never an assessment."""
+        now = self.clock()
+        for value in (query, cohort):
+            if value is not None and (
+                not isinstance(value, str)
+                or not 1 <= len(value) <= 96
+                or value.startswith("-")
+                or any(ord(char) < 32 for char in value)
+            ):
+                return envelope(
+                    "roster.wallets",
+                    "BLOCKED",
+                    authority="roster_sqlite",
+                    now=now,
+                    error_code="INVALID_WALLET_FILTER",
+                )
+        if (
+            type(limit) is not int
+            or not 1 <= limit <= 100
+            or type(offset) is not int
+            or not 0 <= offset <= 10000
+            or excluded not in (None, True, False)
+            or subscribed not in (None, True, False)
+            or (asof is not None and parse_utc(asof) is None)
+        ):
+            return envelope(
+                "roster.wallets",
+                "BLOCKED",
+                authority="roster_sqlite",
+                now=now,
+                error_code="INVALID_WALLET_WINDOW_OR_ASOF",
+            )
+        cutoff = parse_utc(asof) if asof is not None else None
+        if cutoff is not None and cutoff > now:
+            return envelope(
+                "roster.wallets",
+                "BLOCKED",
+                authority="roster_sqlite",
+                now=now,
+                error_code="INVALID_WALLET_WINDOW_OR_ASOF",
+            )
+        try:
+            view = self._roster_view(cutoff, now=now)
+        except FileNotFoundError:
+            return envelope(
+                "roster.wallets",
+                "UNKNOWN",
+                authority="roster_sqlite",
+                now=now,
+                error_code="ROSTER_UNAVAILABLE",
+            )
+        except FileExistsError:  # pragma: no cover - defensive, never fabricated
+            return envelope(
+                "roster.wallets",
+                "BLOCKED",
+                authority="roster_sqlite",
+                now=now,
+                error_code="ROSTER_UNAVAILABLE",
+            )
+        except (OSError, ValueError, RuntimeError) as exc:
+            return envelope(
+                "roster.wallets",
+                "STALE",
+                authority="roster_sqlite",
+                now=now,
+                error_code="ROSTER_INTEGRITY_UNVERIFIED",
+                limitations=[type(exc).__name__],
+            )
+        rows = [
+            row
+            for row in view["wallets"]
+            if (query is None or query.casefold() in self._wallet_row_text(row))
+            and (cohort is None or row["cohort"] == cohort)
+            and (excluded is None or row["excluded"] is excluded)
+            and (subscribed is None or (row["occupancy"] == "OCCUPIED") is subscribed)
+        ]
+        return envelope(
+            "roster.wallets",
+            "VERIFIED",
+            authority="roster_sqlite",
+            now=now,
+            data={
+                "schema": ROSTER_SCHEMA,
+                "addresses_redacted": True,
+                "as_of_ms": view["as_of_ms"],
+                "accounts": view["accounts"],
+                "unknown_accounts": view["unknown_accounts"],
+                "total": len(rows),
+                "wallets": rows[offset : offset + limit],
+            },
+            source_schema=ROSTER_SCHEMA,
+            source_observed_at=view["source_observed_at"],
+            inventory_sha256=view["inventory_sha256"],
+            limitations=[
+                "A committed seat book is a research selection, not an assessment",
+                "Wallet display keys are hashed references; addresses never leave the host",
+            ],
+        )
+
+    @staticmethod
+    def _wallet_row_text(row: Mapping[str, Any]) -> str:
+        return " ".join(
+            str(row.get(key) or "") for key in ("wallet", "seat_id", "account_id", "owner")
+        ).casefold()
 
     def _native_envelope(self, args: list[str], capability: str) -> dict[str, Any]:
         now = self.clock()
@@ -745,108 +983,113 @@ class DashboardReader:
                 limitations=[type(exc).__name__],
             )
 
-    def wallets(
-        self,
-        *,
-        query: str | None = None,
-        cohort: str | None = None,
-        excluded: bool | None = None,
-        subscribed: bool | None = None,
-        asof: str | None = None,
-        limit: int = 50,
-        offset: int = 0,
-    ) -> dict[str, Any]:
+    def research_selection(self, *, account: str | None = None) -> dict[str, Any]:
+        """Committed roster seat selection; never an inferred portfolio membership."""
         now = self.clock()
-        for value in (query, cohort):
-            if value is not None and (
-                not isinstance(value, str)
-                or not 1 <= len(value) <= 96
-                or value.startswith("-")
-                or any(ord(char) < 32 for char in value)
-            ):
-                return envelope(
-                    "registry.wallets",
-                    "BLOCKED",
-                    authority="wallet_registry",
-                    now=now,
-                    error_code="INVALID_WALLET_FILTER",
-                )
-        if (
-            type(limit) is not int
-            or not 1 <= limit <= 100
-            or type(offset) is not int
-            or not 0 <= offset <= 10000
-            or excluded not in (None, True, False)
-            or subscribed not in (None, True, False)
-            or (asof is not None and parse_utc(asof) is None)
-        ):
+        if account is not None and (not isinstance(account, str) or not 1 <= len(account) <= 96):
             return envelope(
-                "registry.wallets",
+                "roster.research_selection",
                 "BLOCKED",
-                authority="wallet_registry",
+                authority="roster_sqlite",
                 now=now,
-                error_code="INVALID_WALLET_WINDOW_OR_ASOF",
+                error_code="INVALID_PORTFOLIO_FILTER",
             )
-        command = ["wallets", "list", "--limit", str(limit), "--offset", str(offset)]
-        if query:
-            command.extend(["--query", query])
-        if cohort:
-            command.extend(["--cohort", cohort])
-        if excluded is not None:
-            command.append("--excluded" if excluded else "--no-excluded")
-        if subscribed is not None:
-            command.append("--subscribed" if subscribed else "--no-subscribed")
-        if asof:
-            command.extend(["--asof", asof])
-        answer = self._native_envelope(command, "registry.wallets")
-        if answer["status"] not in {"VERIFIED", "STALE"}:
-            return answer
-        rows = answer.get("data")
-        if (
-            not isinstance(rows, dict)
-            or rows.get("schema") != "wallet_registry_private_inventory_v1"
-        ):
-            answer.update(status="BLOCKED", data=None, error_code="WALLET_NATIVE_SCHEMA_INVALID")
-            return answer
-        if (
-            rows.get("addresses_redacted") is not True
-            or not isinstance(rows.get("wallets"), list)
-            or len(rows["wallets"]) > limit
-        ):
-            answer.update(status="BLOCKED", data=None, error_code="WALLET_PRIVACY_CONTRACT_INVALID")
-            return answer
-        # Independent SQLite physical integrity & inventory SHA must match.
+        key = "selection:" + str(self.db) + (":" + account if account else "")
         try:
-            doctor = self.cache.get(
-                "doctor:" + str(self.db),
-                30.0,
-                lambda: _bounded_native_read(lambda: operations.doctor(self.db)),
-            )
-        except RuntimeError:
-            doctor = None
-        if not isinstance(doctor, dict) or not operations.sqlite_integrity_verified(doctor):
-            answer.update(status="STALE", error_code="REGISTRY_PARITY_UNVERIFIED")
-        elif doctor.get("data", {}).get("inventory_sha256") != answer["inventory_sha256"]:
-            answer.update(status="STALE", error_code="REGISTRY_GENERATION_MISMATCH")
-        return answer
-
-    def research_selection(self) -> dict[str, Any]:
-        try:
-            return self.cache.get(
-                "selection:" + str(self.db),
+            answer = self.cache.get(
+                key,
                 60.0,
-                lambda: self._native_envelope(
-                    ["portfolios", "current"], "registry.research_selection"
-                ),
+                lambda: self._roster_selection_envelope(account, now=now),
             )
         except RuntimeError:
             return envelope(
-                "registry.research_selection",
+                "roster.research_selection",
                 "UNKNOWN",
-                authority="wallet_registry",
-                now=self.clock(),
+                authority="roster_sqlite",
+                now=now,
                 error_code="DASHBOARD_NATIVE_READ_BUSY",
             )
+        if not isinstance(answer, dict):
+            return envelope(
+                "roster.research_selection",
+                "UNKNOWN",
+                authority="roster_sqlite",
+                now=now,
+                error_code="ROSTER_SELECTION_UNAVAILABLE",
+            )
+        return answer
+
+    def _roster_selection_envelope(self, account: str | None, *, now: datetime) -> dict[str, Any]:
+        try:
+            view = self._roster_view(None, now=now)
+        except FileNotFoundError:
+            return envelope(
+                "roster.research_selection",
+                "UNKNOWN",
+                authority="roster_sqlite",
+                now=now,
+                error_code="ROSTER_UNAVAILABLE",
+            )
+        except (OSError, ValueError, RuntimeError) as exc:
+            return envelope(
+                "roster.research_selection",
+                "STALE",
+                authority="roster_sqlite",
+                now=now,
+                error_code="ROSTER_INTEGRITY_UNVERIFIED",
+                limitations=[type(exc).__name__],
+            )
+        selections = view["selections"]
+        if account is not None:
+            kept = {account: selections[account]} if account in selections else {}
+        else:
+            kept = selections
+        if not kept:
+            state = "NOT_REGISTERED_AT_ASOF" if account is not None else "UNKNOWN"
+            return envelope(
+                "roster.research_selection",
+                state,
+                authority="roster_sqlite",
+                now=now,
+                data={
+                    "schema": "roster_selection_view_v1",
+                    "selection_state": "NO_COMMITTED_ROSTER_SELECTION",
+                    "portfolios": [],
+                    "accounts": view["accounts"],
+                    "unknown_accounts": view["unknown_accounts"],
+                },
+                source_schema="roster_selection_view_v1",
+                inventory_sha256=view["inventory_sha256"],
+                error_code=(
+                    "SELECTION_UNKNOWN_AT_ASOF"
+                    if state == "NOT_REGISTERED_AT_ASOF"
+                    else "ROSTER_SELECTION_UNAVAILABLE"
+                ),
+                limitations=[
+                    "Pass an account scope to read one sealed seat book",
+                    "No global selection default is invented for the dashboard",
+                ],
+            )
+        return envelope(
+            "roster.research_selection",
+            "VERIFIED",
+            authority="roster_sqlite",
+            now=now,
+            data={
+                "schema": "roster_selection_view_v1",
+                "selection_state": "SEALED_RESEARCH_ONLY",
+                "portfolios": [kept[key] for key in sorted(kept)],
+                "accounts": sorted(kept),
+                "unknown_accounts": view["unknown_accounts"],
+            },
+            source_schema="roster_selection_view_v1",
+            source_observed_at=view["source_observed_at"],
+            inventory_sha256=view["inventory_sha256"],
+            limitations=[
+                "Committed seat books are research selections",
+                "Attested release admission is verified by release metadata, never here",
+            ],
+        )
 
     def overview(self) -> dict[str, Any]:
         # Never call Guardian Journal.read in a polling path.
@@ -1301,7 +1544,7 @@ class DashboardReader:
     def portfolio_explorer(
         self, *, asof: str | None = None, query: str | None = None, limit: int = 25, offset: int = 0
     ) -> dict[str, Any]:
-        """Canonical frozen SQLite definitions, separate from financial runtime."""
+        """Committed roster accounts as research portfolios, separate from runtime."""
         now = self.clock()
         if (
             asof is not None
@@ -1318,86 +1561,93 @@ class DashboardReader:
             or not 0 <= offset <= 10000
         ):
             return envelope(
-                "registry.portfolio_explorer",
+                "roster.portfolio_explorer",
                 "BLOCKED",
-                authority="wallet_registry",
+                authority="roster_sqlite",
                 now=now,
                 error_code="INVALID_PORTFOLIO_FILTER",
             )
-        suffix = ["--asof", asof] if asof else []
-        catalog = self._native_envelope(["portfolios", "list", *suffix], "portfolio.list")
-        selection = (
-            self._native_envelope(["portfolios", "current", *suffix], "portfolio.current")
-            if asof
-            else self.research_selection()
+        cutoff = parse_utc(asof) if asof is not None else None
+        try:
+            view = self._roster_view(cutoff, now=now)
+        except FileNotFoundError:
+            return {
+                "schema": "dashboard_portfolios_v1",
+                "status": "UNKNOWN",
+                "records": [],
+                "catalog": envelope(
+                    "roster.portfolio_explorer",
+                    "UNKNOWN",
+                    authority="roster_sqlite",
+                    now=now,
+                    error_code="ROSTER_UNAVAILABLE",
+                ),
+                "selection": None,
+                "error_code": "ROSTER_UNAVAILABLE",
+                "trading_authorized": False,
+            }
+        except (OSError, ValueError, RuntimeError) as exc:
+            return {
+                "schema": "dashboard_portfolios_v1",
+                "status": "STALE",
+                "records": [],
+                "catalog": envelope(
+                    "roster.portfolio_explorer",
+                    "STALE",
+                    authority="roster_sqlite",
+                    now=now,
+                    error_code="ROSTER_INTEGRITY_UNVERIFIED",
+                    limitations=[type(exc).__name__],
+                ),
+                "selection": None,
+                "error_code": "ROSTER_INTEGRITY_UNVERIFIED",
+                "trading_authorized": False,
+            }
+        records = view["selections"]
+        catalog = envelope(
+            "roster.portfolio_explorer",
+            "VERIFIED",
+            authority="roster_sqlite",
+            now=now,
+            data={
+                "schema": "roster_portfolio_catalog_v1",
+                "accounts": view["accounts"],
+                "unknown_accounts": view["unknown_accounts"],
+                "total": len(records),
+            },
+            source_schema="roster_portfolio_catalog_v1",
+            source_observed_at=view["source_observed_at"],
+            inventory_sha256=view["inventory_sha256"],
+            limitations=["Committed roster seat books only; no release-wide mapping"],
         )
-        records = catalog.get("data")
-        if catalog["status"] not in {"VERIFIED", "STALE"} or not isinstance(records, dict):
-            return {
-                "schema": "dashboard_portfolios_v1",
-                "status": catalog["status"],
-                "records": [],
-                "catalog": catalog,
-                "selection": selection,
-                "error_code": catalog["error_code"] or "PORTFOLIO_CATALOG_UNAVAILABLE",
-                "trading_authorized": False,
-            }
-        if len(records) > 250:
-            return {
-                "schema": "dashboard_portfolios_v1",
-                "status": "BLOCKED",
-                "records": [],
-                "catalog": catalog,
-                "selection": selection,
-                "error_code": "PORTFOLIO_CATALOG_EXCEEDS_READ_BUDGET",
-                "trading_authorized": False,
-            }
-        selected_data = selection.get("data")
-        selected_data = selected_data if isinstance(selected_data, dict) else {}
-        selection_valid = selection["status"] in {"VERIFIED", "STALE"} and str(
-            selected_data.get("selection_state", "")
-        ).startswith("SIGNATURE_CHECKED")
-        selected = {
-            (p.get("portfolio_id"), p.get("version"), p.get("definition_sha256"))
-            for p in selected_data.get("portfolios", [])
-            if selection_valid and isinstance(p, dict)
-        }
         filtered = [
             (key, record)
             for key, record in sorted(records.items())
-            if isinstance(key, str) and (query is None or query.casefold() in key.casefold())
+            if query is None or query.casefold() in key.casefold()
         ]
         visible = []
         for key, record in filtered[offset : offset + limit]:
-            if not isinstance(record, dict) or not isinstance(key, str):
-                continue
-            identity = safe_text(record.get("portfolio_id"), 96)
-            if identity is None or identity != safe_text(key, 96):
-                continue
             members = record.get("members")
             members = members if isinstance(members, list) else []
-            chosen = (identity, record.get("version"), record.get("definition_sha256")) in selected
             visible.append(
                 {
-                    "portfolio_id": identity,
+                    "portfolio_id": safe_text(key, 96),
                     "version": record.get("version"),
                     "definition_sha256": safe_text(record.get("definition_sha256"), 96),
-                    "selection_known_at": safe_text(record.get("selection_known_at")),
+                    "selection_known_at": record.get("selection_known_at"),
                     "members": [safe_text(m, 96) for m in members[:50] if safe_text(m, 96)],
                     "members_truncated": len(members) > 50,
                     "source_state": safe_text(record.get("state")),
-                    "sizing_contract": safe_text(record.get("sizing_contract")),
+                    "sizing_contract": "FIXED_K_NATIVE_QUANTITY (policy only)",
                     "source_sealed": record.get("source_sealed") is True,
-                    "account_scope": safe_text(record.get("account_scope")),
-                    "market_scope": safe_text(record.get("market_scope")),
-                    "exclusions": sanitized(record.get("exclusions"))
-                    if isinstance(record.get("exclusions"), list)
-                    else None,
-                    "signed_fixed_k": sanitized(record.get("signed_fixed_k"))
-                    if isinstance(record.get("signed_fixed_k"), dict)
-                    else None,
+                    "account_scope": safe_text(record.get("portfolio_id"), 96),
+                    "market_scope": None,
+                    "exclusions": None,
+                    "signed_fixed_k": None,
                     "storage_state": "SAVED",
-                    "research_state": "RESEARCH_SELECTED" if chosen else "SAVED",
+                    # A committed seat book is the research selection; signed
+                    # release admission and runtime stay separately verified.
+                    "research_state": "RESEARCH_SELECTED",
                     "deployment_state": "UNKNOWN",
                     "runtime_state": "UNKNOWN",
                     "release_binding": "UNAVAILABLE_NO_VERIFIED_PORTFOLIO_RELEASE_MAPPING",
@@ -1405,7 +1655,7 @@ class DashboardReader:
             )
         return {
             "schema": "dashboard_portfolios_v1",
-            "status": catalog["status"],
+            "status": "VERIFIED",
             "records": visible,
             "total": len(records),
             "total_matches": len(filtered),
@@ -1413,7 +1663,7 @@ class DashboardReader:
             "limit": limit,
             "truncated": offset + limit < len(filtered),
             "catalog": catalog,
-            "selection": selection,
+            "selection": self.research_selection(),
             "asof": asof,
             "query": query,
             "trading_authorized": False,
@@ -1492,7 +1742,7 @@ class DashboardReader:
         """Show native unverified scenario archetypes; never simulate or read tapes."""
         now = self.clock()
         try:
-            native = self._native(["contracts", "rules"])
+            native = self._native(["research", "contracts", "rules"])
             rows = native.get("contracts")
             if (
                 native.get("schema") != "copytrade_contract_rule_catalog_v1"

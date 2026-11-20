@@ -18,6 +18,21 @@ from copytrade_pm import pm_agent_trace_eval as evaluator
 ROOT = Path(__file__).resolve().parents[1]
 
 
+QUERY_VALUES = {
+    "--cache-root": "/private/owner-cache",
+    "--account": "cft-10k-paper",
+    "--portfolio": "q3/B",
+}
+
+
+def query_argv(prefix: tuple[str, ...]) -> list[str]:
+    """Materialise a task's query prefix with a synthetic private value."""
+    argv = list(prefix)
+    if argv[-1] in QUERY_VALUES:
+        argv.append(QUERY_VALUES[argv[-1]])
+    return argv
+
+
 def _bundle(kind: str = "SYNTHETIC") -> dict:
     runs = []
     for task in evaluator.TASK_MAP.values():
@@ -31,9 +46,7 @@ def _bundle(kind: str = "SYNTHETIC") -> dict:
         ]
         status = "VERIFIED"
         if not task["discovery_only"]:
-            argv = list(task["query_prefix"])
-            if argv[-1] == "--cache-root":
-                argv.append("/private/owner-cache")
+            argv = query_argv(task["query_prefix"])
             if task["id"] == "paper-running":
                 status = "UNKNOWN"
             elif task["id"] in ("installed-release", "protected-paper-os", "market-evidence"):
@@ -241,7 +254,7 @@ def test_off_target_discovery_or_extra_query_counts_as_waste(tmp_path: Path) -> 
         0,
         {
             "sequence": 1,
-            "argv": ["copytrade-pm", "capabilities", "show", "wallet.lookup"],
+            "argv": ["copytrade-pm", "capabilities", "show", "operations.paper.status"],
             "exit_code": 0,
             "result_status": "FOUND",
         },
@@ -308,12 +321,22 @@ def test_failed_preflight_blocks_a_trace_even_when_lookup_succeeds(tmp_path: Pat
     assert result["tasks_passed"] == 12
 
 
-def test_late_alias_query_does_not_qualify_as_wallet_source(tmp_path: Path) -> None:
+def test_off_target_query_for_another_seat_book_does_not_qualify(tmp_path: Path) -> None:
     doc = _bundle()
-    doc["runs"][1]["calls"][1]["argv"][-1] = "W999"
+    # A read of a different surface is still a read, but not this task's query.
+    doc["runs"][1]["calls"][1]["argv"] = [
+        "copytrade-pm",
+        "paper",
+        "status",
+        "--store",
+        "PRIVATE_ROSTER_DB",
+        "--account",
+        "cft-10k-paper",
+    ]
     result = evaluator.evaluate(_store(tmp_path, doc))
     assert result["tasks_passed"] == 12
     assert result["scenarios"][1]["passed"] is False
+    assert result["scenarios"][1]["off_target_calls"] == 1
 
 
 def test_sensitive_tool_arguments_and_bare_wallet_addresses_rejected(tmp_path: Path) -> None:
@@ -357,6 +380,67 @@ def test_agent_trace_eval_capability_is_classified_and_documented() -> None:
     assert entries["agent.trace.eval"]["classification"] == "READ_ONLY"
     assert entries["agent.trace.eval"]["available"] is True
     assert (ROOT / entries["agent.trace.eval"]["documentation"]).is_file()
+
+
+# The pre-cutover routing table, kept as a historical replay fixture. These
+# commands and capability ids were deleted with the wallet registry; the current
+# evaluator must score them INVENTED so an old trace can never be mistaken for
+# current capability discovery.
+RETIRED_ROUTES = (
+    ("current-selection", "portfolio.current", ("copytrade-pm", "portfolios", "current")),
+    ("wallet-w083", "wallet.lookup", ("copytrade-pm", "wallets", "show", "W083")),
+    (
+        "wallet-inventory",
+        "wallet.inventory",
+        ("copytrade-pm", "wallets", "list", "--cohort", "research-108"),
+    ),
+    ("wallet-exclusions", "wallet.inventory", ("copytrade-pm", "wallets", "list", "--excluded")),
+    ("portfolio-e6", "portfolio.show", ("copytrade-pm", "portfolios", "show", "E6")),
+    ("portfolio-q3-b", "portfolio.show", ("copytrade-pm", "portfolios", "show", "q3/B")),
+)
+# The capability id survives the cutover; only its flat CLI route was deleted.
+RETIRED_HEALTH_ARGV = ("copytrade-pm", "health")
+
+
+def test_retired_registry_routes_are_invented_against_the_current_catalog() -> None:
+    from copytrade_pm.pm_capabilities import inventory
+
+    catalog = {item["id"]: item for item in inventory(ROOT)}
+    for task_id, capability, argv in RETIRED_ROUTES:
+        assert capability not in catalog, task_id
+        assert evaluator.TASK_MAP[task_id]["capability"] != capability, task_id
+        assert evaluator._classify(list(argv), catalog)[0] == "INVENTED", argv
+    assert evaluator._classify(list(RETIRED_HEALTH_ARGV), catalog)[0] == "INVENTED"
+    assert evaluator.TASK_MAP["installed-release"]["query_prefix"] != RETIRED_HEALTH_ARGV
+    assert "runtime.pinned_release" in catalog
+    assert evaluator._classify(["copytrade-pm", "status"], catalog)[0] == "INVENTED"
+    # The retired registry binary stays classified UNSAFE (never a valid route).
+    assert evaluator._classify(["copytrade-wallet-registry", "sync"], catalog)[0] == "UNSAFE"
+
+
+def test_historical_registry_replay_cannot_pass_current_routing(tmp_path: Path) -> None:
+    doc = _bundle("HOST_EXPORT")
+    retired = {task_id: (capability, argv) for task_id, capability, argv in RETIRED_ROUTES}
+    for run in doc["runs"]:
+        if run["task_id"] == "installed-release":
+            run["calls"][1]["argv"] = list(RETIRED_HEALTH_ARGV)
+            continue
+        if run["task_id"] not in retired:
+            continue
+        capability, argv = retired[run["task_id"]]
+        run["calls"][0]["argv"] = ["copytrade-pm", "capabilities", "show", capability]
+        run["calls"][1]["argv"] = list(argv)
+    trace = _store(tmp_path, doc)
+    signature, key, pinned = _sign(tmp_path, trace)
+    result = evaluator.evaluate(
+        trace, signature=signature, public_key=key, expected_key_sha256=pinned
+    )
+    # The replay is still readable and attestable, but it is not current evidence.
+    assert result["host_signature_verified"] is True
+    assert result["coverage_complete"] is True
+    assert result["invented_calls"] == 2 * len(RETIRED_ROUTES) + 1
+    assert result["tasks_passed"] < len(evaluator.TASKS)
+    assert result["status"] == "INDEPENDENT_TRACE_FAILED"
 
 
 def test_evaluator_never_writes_trace_file(tmp_path: Path) -> None:

@@ -32,13 +32,14 @@ The catalog discovers project scripts from `pyproject.toml`, checks installed di
 
 Operations are classified `READ_ONLY`, `LOCAL_MUTATION`, `PROTECTED_MUTATION` or `BROKER_OR_TRADING`. Unknown entrypoints are `UNCLASSIFIED` and fail validation. A parent CLI classification never permits arbitrary child commands or `--apply`. Each capability entry also carries backward-compatible `access` metadata (`read_targets`, `write_targets`, `network`, `credentials`, `privacy`), using explicit `"UNKNOWN"` for unverified `GROUPS`, `NATIVE` and `EXTRA_MODULES` entries rather than inferring permissions from safety classes.
 
-For `copytrade-wallet-registry` (`src/copytrade_pm/wallet_registry.py`), `validate` enforces fail-closed AST checks on parser leaves, `--apply` operations (disallowing `READ_ONLY`), parser-required flags vs dispatch-level requirements (`paper --apply`, `qualification --apply`), explicit access metadata, and unsupported parser constructs (`UNSUPPORTED_REGISTRY_PARSER_CONSTRUCT:*`).
+`validate` enforces fail-closed AST checks on parser leaves, `--apply` operations (disallowing `READ_ONLY`), parser-required flags vs dispatch-level requirements, explicit access metadata, and unsupported parser constructs. The registry-era inspector for `src/copytrade_pm/wallet_registry.py` was removed with that module; the equivalent checks now cover the `pm_operations.py` group parsers (`facts`, `research`, `roster`, `paper`, `release`, `capabilities`).
 
 As of ANOS-08 (`#342`), discovery and fail-closed validation cover all CLI entrypoints:
 - Missing `copytrade-pm` leaves (`cwsa chapter2 verify|projection|explain`, `capabilities list|show|validate`, `portfolios list`, `research show|preflight`, `contracts rules`, `status`) are cataloged as `SUBCOMMAND` records with verified `access`, preserving the 8 existing `NATIVE` `copytrade-pm` capability IDs without duplicate rows.
 - `GROUP_OPERATIONS` adds explicit `SUBCOMMAND` mode variants (`source.public_trades.*`, `paper.public_unit.*`, `account.pm03.simulate.*`, `source.receipts.*`, `paper.unit_bundle.*`, `production.export.cli.*`, `paper.standby.*`, `agent.trace.eval.*`, `paper.observed_execution.*`, `paper.observer.*`, `paper.observer_health.heartbeat`, `paper.identity.audit`, `market.ccxt.*`) with verified `access`, retaining conservative parent `GROUPS` classifications and keeping unverified entries explicitly `"UNKNOWN"`.
 - Entries separate argparse-enforced `required_arguments` from conditional/mode-specific `runtime_required_arguments`.
 - Owner-specific bounded AST inspectors validate `pm_operations.py` (+ `pm_cwsa_chapter2_gate.add_arguments`), all 39 flat `GROUPS` parsers, and `pm03_cli.execute` dynamic JSON `spec.action` dispatch (`UNLISTED_*`, `STALE_*`, `UNSAFE_*`, `UNSUPPORTED_*`), while `capabilities validate` reports explicit `limitations` instead of claiming universal Python completeness. Baseline historical limitations remain recorded above.
+- Phase D Slice 3 cutover: the flat `copytrade-pm` leaves named above (`cwsa chapter2`, `portfolios`, `contracts`, `status`, `health`) and the 39-entry `GROUPS` set were replaced by `facts | research | roster | paper | release` plus `capabilities`; the catalog now records `operations.*` ids for them. `copytrade-pm capabilities validate` reports `status: VERIFIED` with no errors at the current catalog. Treat earlier leaf names in this section as record of the pre-cutover surface.
 
 Before adding a module or data path, resolve the capability, read the public owner/tests, then reuse or deepen that owner. Introduce a new responsibility only when the existing boundary cannot express the behavior without exposing internals or violating authority. Update discovery, its guide and behavioral checks in the same change.
 
@@ -49,24 +50,43 @@ Examples below use an already installed environment or the reviewed repository e
 ```bash
 copytrade-pm --help
 copytrade-pm capabilities list
-copytrade-pm capabilities show portfolio.current
-copytrade-pm capabilities show wallet.lookup
+copytrade-pm capabilities show operations.roster.show
+copytrade-pm capabilities show operations.facts.capture-health
 copytrade-pm capabilities show research.offline
 copytrade-pm capabilities validate
 ```
 
 | Need | Existing route | Scope |
 | --- | --- | --- |
-| List/current/frozen portfolio | `copytrade-pm portfolios list`, `current`, `show q3/B` | Registry-backed; known facade limitations above |
-| Wallet lookup/inventory | `copytrade-pm wallets show W083`; `wallets list --cohort research-108 --limit 50` | Address-redacted metadata, not source/finance health |
-| Scoped native identity lookup | `copytrade-wallet-registry wallet --alias W083`; `portfolio q3/B --asof <UTC>` | Native SQLite owner; verify integrity and requested identity |
+| Sealed portfolio metadata | `copytrade-pm release metadata --portfolio NAMESPACE/ID --asof <ISO-8601 UTC>` | Read-only `production_metadata` selection; frozen 2026-11 pods live only in the archived legacy registry |
+| Seat and wallet identity | `copytrade-pm roster show --store ROSTER_DB --account ACCOUNT --identities`; `copytrade-pm release export --store ROSTER_DB --account ACCOUNT --identities` | Roster-backed seat leases; addresses stay `wallet:<sha16>` without `--identities` |
 | Immutable executed research & reuse preflight | `copytrade-pm research list --cache-root PRIVATE_CACHE`; `research show JOB_ID --cache-root PRIVATE_CACHE`; `research preflight --cache-root PRIVATE_CACHE --request REQUEST_JSON` | Only canonical `pm_offline_job` reports and `coverage_receipt` entries under that explicit root |
-| Aggregate diagnostics | `copytrade-pm status`, `copytrade-pm health` | Multiple owners; use only when their read scope is appropriate |
-| One paper run | `copytrade-pm-paper-status --db PRIVATE_DB --run-id RUN_ID` | Authorized independent journal/worker evidence |
-| Registry installed release | `python scripts/registry_release.py verify` | Registry release only, not all trading services |
-| Chapter 2 gates/projection | `copytrade-pm cwsa chapter2 --help` and [owning runbook](CWSA-CHAPTER2-20261112.md) | Premerge, predeploy and postdeploy are separate; runtime limitation applies |
+| Aggregate operations status/health | `copytrade-pm release status`; `copytrade-pm release health` | Read-only multi-owner roll-up; an aggregate JSON is not financial or trading evidence |
+| One paper run | `copytrade-pm paper status --store ROSTER_DB --account ACCOUNT --as-of <ISO-8601 UTC>` | Virtual seat view from the committed book; `order_route` is `NONE` |
+| Installed release evidence | `copytrade-pm release health` plus the owning deployment runbook | Configured, installed and running are separate; no aggregate command attests all services |
+| Chapter 2 gates/projection | `copytrade-pm release chapter2 verify`, `projection`, `explain`, `site-view`, `recover` and [owning runbook](CWSA-CHAPTER2-20261112.md) | Premerge, predeploy and postdeploy are separate; runtime limitation applies |
+| Fact store migration/verification | `copytrade-pm facts migrate`, `verify`, `coverage`, `benchmark` | Day-partitioned `Decimal(38,12)` Parquet; `--apply` required to write |
+| Seat leases and daily reconciliation | `copytrade-pm roster register`, `show`, `plan`, `commit`, `scorecard`, `bench`, `binding`, `veto`, `cusum`, `proposal` | [Roster](ROSTER.md) owns the contract; every write needs `--apply` |
+| Roster-backed research/paper views | `copytrade-pm research scorecards`, `copytrade-pm paper mandates` | Aggregate gates and staged mandates only; `order_route` is `NONE` |
+| Offline release signature | `copytrade-pm release propose`, `sign`, `verify`, `export` | One staged proposal per UTC day. Candidate roster signing accepts exact staged synthetic proposals through the existing `production_manifest` signature format. |
+| Wallet-health capture (scheduled) | `copytrade-pm facts capture-health --roster-db ROSTER_DB --store FACTS_ROOT --apply` | Read-only roster enumeration, official Hyperliquid facts only; see [fact store](FACTS-STORE.md) |
 
-For contract comparisons, discover `research.contract_selector`, then use `copytrade-pm contracts rules` and `contracts compare --portfolio NAMESPACE/ID --tape PRIVATE_TAPE`. Missing complete matched net follower evidence is BLOCKED. See [contract EV](CONTRACT-PORTFOLIO-EV-TOOL-20261105.md).
+### Phase D state paths
+
+One installed command (`copytrade-pm`) replaces the 41 flat experiment scripts. Default locations, all overridable per command:
+
+| State | Path | Owner |
+| --- | --- | --- |
+| Roster authority (`roster.sqlite`) | `~/.local/share/copytrade/roster.sqlite` (also `--db`) | `copytrade_pm.roster` |
+| Fact store (day-partitioned Parquet + `facts.sqlite` manifest) | `~/.local/share/copytrade/facts` | `copytrade_pm.facts` |
+| Private raw health capture generations | `~/.local/share/copytrade/health-research/g<UTCSTAMP>-<hex>` | `wallet_health_official` |
+| Archived legacy registry pods | `~/.local/share/copytrade/phase-d/archive/legacy_wallet_registry_20261119.sqlite` (mode `0400`) | historical evidence only |
+
+The legacy `wallet_registry.sqlite` (`~/.local/share/copytrade/registry/wallet_registry.sqlite`) is **not** a current read or write owner: all ten `wallet_registry*` modules, `pm_copy_mandate.py`, the `copytrade-wallet-registry` console script, `scripts/registry_release.py` and `scripts/verify_wr_fp_journal_contract.py` are deleted. `P1`, `P14`, `TriadA`, `E6` and the other frozen 2026-11 selections are readable only from the archived copy, and pre-cutover documents that cite them describe history, not current state.
+
+**Installed unit note (deploy, not code):** the repository jobs call the console command. Installed user units that still invoke `python -m copytrade_pm.wallet_health_official --db .../wallet_registry.sqlite` (or the retired `copytrade-registry-paper*` paper units) keep running the pre-cutover interface until an operator repoints them at `facts capture-health` and the roster; nothing in this repository rewrites an installed unit.
+
+For contract comparisons, discover `research.contract_selector`, then use `copytrade-pm research contracts rules` and `research contracts compare --portfolio NAMESPACE/ID --tape PRIVATE_TAPE`. Portfolio selection resolves from the roster (`_roster_identity`), so retired legacy pod ids are absent rather than silently substituted. Missing complete matched net follower evidence is BLOCKED. See [contract EV](CONTRACT-PORTFOLIO-EV-TOOL-20261105.md).
 
 `research.actuary` / `copytrade-pm-actuary` is a separate synthetic scenario capability. Its outputs remain scenario assumptions, not observed profitability; see [actuarial research](CONTRACT-ACTUARY-RESEARCH-20261105.md).
 
@@ -108,7 +128,9 @@ Discover `paper.observer.preflight`, `paper.observer.continuous`, `paper.observe
 
 `paper.public_unit` resolves the existing public-observer unit tool. Default behavior proposes a unit; `--apply` can write a reviewed user unit after its documented checks. It never starts/stops units or grants financial admission. See [observer deployment](FORWARD-PAPER-PUBLIC-OBSERVER-SERVICE-20261105.md) and [protected staging](FORWARD-PAPER-PROTECTED-OPS-STAGING-20261105.md).
 
-## Native metadata mutations
+## Native metadata mutations (retired)
+
+**Historical record — not a current route.** The `copytrade-wallet-registry native …` commands below were deleted with `wallet_registry*` in Phase D Slice 3. Roster writes replace them: `copytrade-pm roster register|scorecard|bench|veto|cusum|binding|commit` (each needs `--apply`) over the append-only `roster.sqlite` triggers. See [roster](ROSTER.md).
 
 `copytrade-wallet-registry native status` is read-only. `native lock`, `native register` and `native exclude` have reviewed previews; `--apply` requires the protected native contract, private backup and expected inventory SHA. Exclusions also require registered identity and exact private manifest SHA, and cannot revoke earlier exclusions. A locked database rejects legacy `sync --apply`. The read-only facade does not expose these writes. See [native controls](SQLITE-NATIVE-LEGACY-LOCK-20261105.md).
 
@@ -116,11 +138,11 @@ Discover `paper.observer.preflight`, `paper.observer.continuous`, `paper.observe
 
 The approved ANOS-12 operator UI is the existing public **Ops Control Center** at `ops.hzminhzz.space` (`ops/control-center/src/`, `scripts/dashboard_server.py`); it replaces ChatGPT Sites integration for this ticket. The Chapter 2 evidence/lineage/unknown-value contract still belongs to [the Chapter 2 runbook](CWSA-CHAPTER2-20261112.md). Historical [dashboard phase 3](DASHBOARD-PHASE3.md) and [audit](DASHBOARD-FINAL-AUDIT-20261107.md) describe earlier interfaces, not an installed Ops revision.
 
-Preserve bounded scalar filters, privacy-safe native projections, source clocks and evidence grades. Read saturation must remain unavailable, and unknown P&L remains null. **ANOS-12 Ops candidate:** `copytrade-pm cwsa chapter2 site-view --portfolio A --inspection evidence` returns a redacted, read-only view derived from the same `explain_task` assessment as `copytrade-pm cwsa chapter2 explain`. The existing Ops server exposes `GET /api/owner-view?portfolio=A&inspection=evidence`, with a fixed six-portfolio allowlist, bounded source read and no caller-controlled journal paths. The existing Gates & blockers page presents the returned owner schema, original checkpoint/first-known/publication clocks, independently scoped dimensions, affected/unaffected portfolios, causal blockers, null modeled economics, and descriptive READ_ONLY next operation. Neither CLI nor HTTP/UI grants trading or paper-financial permission. The deployed Ops release must be verified separately; the untracked historical Site and pinned dirty release are preserved. Ops HTTP is public read-only, not authenticated. Browser/fixture tests establish candidate parity but not a runtime promotion.
+Preserve bounded scalar filters, privacy-safe native projections, source clocks and evidence grades. Read saturation must remain unavailable, and unknown P&L remains null. **ANOS-12 Ops candidate:** `copytrade-pm release chapter2 site-view --portfolio A --inspection evidence` returns a redacted, read-only view derived from the same `explain_task` assessment as `copytrade-pm release chapter2 explain`. The existing Ops server exposes `GET /api/owner-view?portfolio=A&inspection=evidence`, with a fixed six-portfolio allowlist, bounded source read and no caller-controlled journal paths. The existing Gates & blockers page presents the returned owner schema, original checkpoint/first-known/publication clocks, independently scoped dimensions, affected/unaffected portfolios, causal blockers, null modeled economics, and descriptive READ_ONLY next operation. Neither CLI nor HTTP/UI grants trading or paper-financial permission. The deployed Ops release must be verified separately; the untracked historical Site and pinned dirty release are preserved. Ops HTTP is public read-only, not authenticated. Browser/fixture tests establish candidate parity but not a runtime promotion.
 
 ## Bounded causal evidence comparisons (ANOS-10)
 
-For one Chapter 2 portfolio, `copytrade-pm cwsa chapter2 explain --portfolio A --inspection evidence` exposes original native source checkpoint/receipt clocks and owner-specific heads. Optionally add `--prior-snapshot PATH` to compare against a previous JSON explanation for **the same portfolio and inspection**. This opens only one bounded caller-selected prior file (maximum 1,000,000 bytes); it never creates a shared status store or renews stale evidence. The causal delta distinguishes changed selected-wallet evidence from an unrelated 14-wallet aggregate head advance.
+For one Chapter 2 portfolio, `copytrade-pm release chapter2 explain --portfolio A --inspection evidence` exposes original native source checkpoint/receipt clocks and owner-specific heads. Optionally add `--prior-snapshot PATH` to compare against a previous JSON explanation for **the same portfolio and inspection**. This opens only one bounded caller-selected prior file (maximum 1,000,000 bytes); it never creates a shared status store or renews stale evidence. The causal delta distinguishes changed selected-wallet evidence from an unrelated 14-wallet aggregate head advance.
 
 Use `scope.new_risk_source_status` to see portfolio-local complete-position source readiness, and read `fault_isolation` to identify additional affected source portfolios. These are **not** Guardian account-risk or broker permissions. The separate Chapter 2 Site projection carries the same new-risk source distinction and preserves owner-paper history. Mixed native source policy epochs produce `MIXED`; independently sampled release/quote/mandate/Guardian generations remain `UNVERIFIED` absent external cross-owner proofs. Neither outcome is a globally VERIFIED snapshot. See [Chapter 2 runbook](CWSA-CHAPTER2-20261112.md#anos-10-causal-source-head-deltas-and-wallet-local-fault-isolation).
 

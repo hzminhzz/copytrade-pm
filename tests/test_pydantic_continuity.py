@@ -263,10 +263,9 @@ def test_ambiguous_shared_transport_fences_all_subscribed_accounts(tmp_path, mon
     asyncio.run(run())
 
 
-def test_scope_fence_reaches_only_dependent_portfolio_pods(tmp_path, monkeypatch):
-    from test_pm_forward_multi_portfolio import full_registry, pin_reviewed_registry
+def test_scope_fence_reaches_only_dependent_portfolio_pods(tmp_path):
+    from test_pm_forward_multi_portfolio import full_registry
 
-    pin_reviewed_registry(monkeypatch)
     registry_db = full_registry(tmp_path)
     source, prices = PaperJournal(tmp_path / "source"), PaperJournal(tmp_path / "prices")
     healthy = official_observer(source)
@@ -343,7 +342,7 @@ def test_same_clock_conflict_is_per_dex_even_if_another_dex_advances(tmp_path):
     assert source.checkpoint["positions"][BTC.key] == "20"
 
 
-def test_observer_metadata_refresh_retains_account_epoch_and_socket(tmp_path):
+def test_observer_metadata_refresh_retains_account_epoch_and_socket(tmp_path, monkeypatch):
     from copytrade_pm.pm_forward_continuous import ContinuousObserver, SubscriptionBudget
     from test_pm_forward_continuous_integration import FakeEnvironment, BTC, BRENT
 
@@ -386,7 +385,20 @@ def test_observer_metadata_refresh_retains_account_epoch_and_socket(tmp_path):
             heartbeat_seconds=0.04,
             min_free_bytes=0,
         )
-        await observer.run(asyncio.Event(), duration_seconds=0.6)
+        stop = asyncio.Event()
+        refresh_family = observer._refresh_family
+        completed_refreshes = 0
+
+        async def refresh_and_stop(writer, limiter):
+            nonlocal completed_refreshes
+            await refresh_family(writer, limiter)
+            completed_refreshes += 1
+            if completed_refreshes == 2:
+                stop.set()
+
+        monkeypatch.setattr(observer, "_refresh_family", refresh_and_stop)
+        await observer.run(stop, duration_seconds=15)
+        assert completed_refreshes == 2
         assert revisions >= 2
         account = verify_streams(journal.path)["streams"]["account:S035"]
         assert account["epoch_count"] == 1

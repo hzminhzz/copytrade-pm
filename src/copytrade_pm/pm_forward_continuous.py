@@ -21,10 +21,13 @@ from pathlib import Path
 import re
 import sqlite3
 
+from copytrade_kernel import KnownAtTs
+
 from .pm03_account import Instrument, clock, digest
 from .pm_forward_observer_health import readonly_tape_snapshot
-from .pm_forward_public_trades import native_coin, registry_watched_addresses
-from .wallet_registry import db_authority_health
+from .pm_forward_public_trades import native_coin
+from .roster.sealed import timestamp_ms
+from .roster.store import RosterStore, RosterStoreError
 
 
 @dataclass(frozen=True)
@@ -208,46 +211,40 @@ def _private_candidate_path(root: Path, protected_roots: tuple[Path, ...]) -> No
             os.close(fd)
 
 
-def _portfolio_seals(db_path: Path, ids: tuple[str, ...], *, as_of: str) -> dict:
-    result = {}
-    with closing(sqlite3.connect("file:" + str(db_path.resolve()) + "?mode=ro", uri=True)) as db:
-        db.execute("PRAGMA query_only=ON")
-        db.execute("BEGIN")
-        for pid in ids:
-            row = db.execute(
-                "SELECT version,definition_sha256,selection_known_at FROM portfolio_seals "
-                "WHERE portfolio_id=? ORDER BY version DESC LIMIT 1",
-                (pid,),
-            ).fetchone()
-            if row is None or clock(row[2]) > clock(as_of):
-                raise ValueError("STREAM_PORTFOLIO_NOT_SEALED_ASOF")
-            result[pid] = {
-                "version": row[0],
-                "definition_sha256": row[1],
-                "selection_known_at": row[2],
-            }
-    return result
+def _valid_scope(ids: tuple[str, ...]) -> bool:
+    return (
+        bool(ids)
+        and all(isinstance(item, str) and item and item == item.strip() for item in ids)
+        and len(ids) == len(set(ids))
+    )
 
 
-def _diagnostic_sealed_account_count(db_path: Path, seals: dict) -> int:
-    """Count unique recorded identities without admitting excluded accounts.
+def roster_watch_scope(
+    db_path: Path, account_ids: tuple[str, ...], *, as_of: str
+) -> tuple[dict, dict[str, str]]:
+    """Resolve book pins and the active plus unsettled draining wallet union."""
+    if not _valid_scope(account_ids):
+        raise ValueError("STREAM_CONFIG_PORTFOLIO_SCOPE_INVALID")
+    with RosterStore(db_path) as store:
+        books = store.observer_books_at(account_ids, as_of=KnownAtTs(timestamp_ms(as_of)))
+    seals = {
+        book.account_id: {
+            "version": book.sequence,
+            "book_sha256": book.sha if book.sequence else None,
+            "selection_known_at_ms": book.as_of.value if book.sequence else None,
+            "mode": book.mode.value,
+        }
+        for book in books
+    }
+    wallets = sorted(
+        {wallet for book in books for wallet in (*book.wallets, *book.draining_wallets)}
+    )
+    return seals, {wallet: f"wallet:{int(digest(wallet), 16)}" for wallet in wallets}
 
-    This is a capacity estimate only; no historical wallet identity, watchlist
-    membership or source NAV is certified by these metadata rows.
-    """
-    ids: set[int] = set()
-    with closing(sqlite3.connect("file:" + str(db_path.resolve()) + "?mode=ro", uri=True)) as db:
-        db.execute("PRAGMA query_only=ON")
-        db.execute("BEGIN")
-        for pid, seal in seals.items():
-            rows = db.execute(
-                "SELECT wallet_id FROM portfolio_memberships WHERE portfolio_id=? AND version=?",
-                (pid, seal["version"]),
-            ).fetchall()
-            if not rows or any(row[0] is None for row in rows):
-                raise ValueError("STREAM_DIAGNOSTIC_ACCOUNT_COUNT_UNKNOWN")
-            ids.update(row[0] for row in rows)
-    return len(ids)
+
+def _assert_inventory(db_path: Path, expected: str) -> None:
+    if RosterStore.authority_health(db_path)["inventory_sha256"] != expected:
+        raise ValueError("STREAM_REGISTRY_GENERATION_CHANGED")
 
 
 def diagnose_candidate_preflight(
@@ -259,7 +256,7 @@ def diagnose_candidate_preflight(
     as_of: str,
     budget: SubscriptionBudget,
     protected_roots: tuple[Path, ...] = (),
-    portfolio_ids: tuple[str, ...] = ("P1", "P14"),
+    portfolio_ids: tuple[str, ...],
     expected_inventory_sha: str | None = None,
 ) -> dict:
     """Read-only multi-gate report; never an alternative admission path.
@@ -274,24 +271,11 @@ def diagnose_candidate_preflight(
     def check(name: str, operation):
         try:
             result = operation()
-        except (OSError, ValueError, KeyError, TypeError, sqlite3.Error) as exc:
-            reason = (
-                "STREAM_SELECTION_PROOF_MISSING"
-                if name == "signed_selection"
-                and str(exc) == "unverified research selection provenance"
-                else _reason(exc)
-            )
+        except (OSError, ValueError, KeyError, TypeError, RosterStoreError, sqlite3.Error) as exc:
+            reason = _reason(exc)
             gates[name] = {"status": "BLOCKED", "reason_code": reason}
             return None
         gates[name] = {"status": "PASS"}
-        return result
-
-    def inspect_authority():
-        if registry_db.is_symlink() or not registry_db.is_file():
-            raise ValueError("STREAM_REGISTRY_FILE_INVALID")
-        result = db_authority_health(registry_db)
-        if result.get("database_integrity") != "VERIFIED":
-            raise ValueError("STREAM_REGISTRY_INTEGRITY_FAILED")
         return result
 
     check("private_state", lambda: _private_candidate_path(state_root, protected_roots))
@@ -300,9 +284,7 @@ def diagnose_candidate_preflight(
     else:
         gates["revision"] = {"status": "PASS"}
     registry_db = Path(registry_db)
-    authority = check("registry_integrity", inspect_authority)
-    seals = None
-    watched = None
+    authority = check("registry_integrity", lambda: RosterStore.authority_health(registry_db))
     account_count = None
     count_source = "UNKNOWN"
     if authority is None:
@@ -316,60 +298,36 @@ def diagnose_candidate_preflight(
         ):
             gates[name] = {"status": "UNKNOWN", "reason_code": "STREAM_REGISTRY_NOT_VERIFIED"}
     else:
-        # Global research priority is not an observer input. The requested
-        # portfolios are independently checked via their immutable seals;
-        # never report selected provenance as PASS before checking those seals.
+
         def compare_inventory():
             if (
                 expected_inventory_sha is not None
                 and authority["inventory_sha256"] != expected_inventory_sha
             ):
                 raise ValueError("STREAM_REGISTRY_GENERATION_CHANGED")
-            return True
 
         check("inventory_generation", compare_inventory)
-        seals = check(
-            "portfolio_seals",
-            lambda: _portfolio_seals(registry_db, portfolio_ids, as_of=as_of),
+        scope = check(
+            "portfolio_seals", lambda: roster_watch_scope(registry_db, portfolio_ids, as_of=as_of)
         )
-        gates["signed_selection"] = (
-            {"status": "PASS", "scope": "REQUESTED_PORTFOLIO_SEALS_ONLY"}
-            if seals is not None
-            else {
-                "status": "BLOCKED",
-                "reason_code": "STREAM_SELECTED_PORTFOLIO_NOT_VERIFIED",
-                "scope": "REQUESTED_PORTFOLIO_SEALS_ONLY",
-            }
-        )
-        watched = check(
-            "watched_wallets",
-            lambda: registry_watched_addresses(registry_db, portfolio_ids, as_of=as_of),
-        )
-        if watched is not None:
+        gates["signed_selection"] = {
+            "status": "BLOCKED",
+            "reason_code": "SELECTION_ATTESTATION_MISSING",
+        }
+        if scope is not None:
+            _, watched = scope
             account_count = len(watched)
-            count_source = "ELIGIBLE_WATCHLIST"
-            gates["account_census"] = {"status": "PASS"}
-        elif seals is not None:
-            account_count = check(
-                "account_census",
-                lambda: _diagnostic_sealed_account_count(registry_db, seals),
-            )
-            count_source = "SEALED_MEMBERSHIP_ESTIMATE" if account_count is not None else "UNKNOWN"
+            count_source = "ROSTER_WATCHLIST"
+            gates["watched_wallets"] = gates["account_census"] = {"status": "PASS"}
         else:
-            gates["account_census"] = {
+            gates["watched_wallets"] = gates["account_census"] = {
                 "status": "UNKNOWN",
                 "reason_code": "STREAM_ACCOUNT_COUNT_UNKNOWN",
             }
-
-        def recheck_inventory():
-            if (
-                db_authority_health(registry_db)["inventory_sha256"]
-                != authority["inventory_sha256"]
-            ):
-                raise ValueError("STREAM_REGISTRY_GENERATION_CHANGED")
-            return True
-
-        check("registry_stability", recheck_inventory)
+        check(
+            "registry_stability",
+            lambda: _assert_inventory(registry_db, authority["inventory_sha256"]),
+        )
 
     if account_count is not None:
         check("subscription_budget", lambda: budget.plan(instruments, account_count=account_count))
@@ -439,7 +397,7 @@ def candidate_preflight(
     as_of: str,
     budget: SubscriptionBudget,
     protected_roots: tuple[Path, ...] = (),
-    portfolio_ids: tuple[str, ...] = ("P1", "P14"),
+    portfolio_ids: tuple[str, ...],
     expected_inventory_sha: str | None = None,
 ) -> dict:
     """Read-only preflight. No directory creation, network, or service operation."""
@@ -448,22 +406,11 @@ def candidate_preflight(
         raise ValueError("STREAM_RELEASE_REVISION_INVALID")
     _private_candidate_path(state_root, protected_roots)
     registry_db = Path(registry_db)
-    if registry_db.is_symlink() or not registry_db.is_file():
-        raise ValueError("STREAM_REGISTRY_FILE_INVALID")
-    authority = db_authority_health(registry_db)
-    if authority.get("database_integrity") != "VERIFIED":
-        raise ValueError("STREAM_REGISTRY_INTEGRITY_FAILED")
-    # A missing proof for unrelated research priority cannot block a
-    # read-only observer. Explicit portfolio seals and watchlist identities
-    # are verified independently below and remain mandatory.
-    inventory_sha = authority["inventory_sha256"]
+    inventory_sha = RosterStore.authority_health(registry_db)["inventory_sha256"]
     if expected_inventory_sha is not None and inventory_sha != expected_inventory_sha:
         raise ValueError("STREAM_REGISTRY_GENERATION_CHANGED")
-    watched = registry_watched_addresses(registry_db, portfolio_ids, as_of=as_of)
-    seals = _portfolio_seals(registry_db, portfolio_ids, as_of=as_of)
-    # Refuse an identity/selection race between independent native readers.
-    if db_authority_health(registry_db)["inventory_sha256"] != inventory_sha:
-        raise ValueError("STREAM_REGISTRY_GENERATION_CHANGED")
+    seals, watched = roster_watch_scope(registry_db, portfolio_ids, as_of=as_of)
+    _assert_inventory(registry_db, inventory_sha)
     plan = budget.plan(instruments, account_count=len(watched))
     old_heads = {}
     for old in protected_roots:
@@ -564,11 +511,8 @@ def load_continuous_config(
         or config["schema"] != "paper_continuous_observer_config_v1"
     ):
         raise ValueError("STREAM_CONFIG_SCHEMA_INVALID")
-    if (
-        not isinstance(config["portfolio_ids"], list)
-        or not config["portfolio_ids"]
-        or len(set(config["portfolio_ids"])) != len(config["portfolio_ids"])
-        or not set(config["portfolio_ids"]) <= {"P1", "P14"}
+    if not isinstance(config["portfolio_ids"], list) or not _valid_scope(
+        tuple(config["portfolio_ids"])
     ):
         raise ValueError("STREAM_CONFIG_PORTFOLIO_SCOPE_INVALID")
     if (
@@ -633,13 +577,6 @@ def continuous_entrypoint(args) -> dict:
     import signal
     from .pm_forward_journal import PaperJournal
     from .pm_forward_observer import exclusive_observer_lease
-    from .pm_forward_registry_identity import (
-        P1,
-        P14,
-        audit_frozen_member_resolution,
-        private_locator,
-    )
-    from .pm_forward_source_campaign import alias_map
 
     diagnose = getattr(args, "diagnose_preflight", False)
     config, configured, budget = load_continuous_config(
@@ -680,43 +617,11 @@ def continuous_entrypoint(args) -> dict:
     manifest["market_scope_sha"] = config.get(
         "market_scope_sha", digest([i.key for i in configured])
     )
-    watched = registry_watched_addresses(args.registry, tuple(config["portfolio_ids"]), as_of=now)
-    parents = {}
-    historical_pit = {}
-    for pid in config["portfolio_ids"]:
-        audit = audit_frozen_member_resolution(
-            registry_db=args.registry,
-            primary_dir=args.primary_dir,
-            secondary_dir=args.secondary_dir,
-            portfolio_id=pid,
-        )
-        if (
-            not isinstance(audit, dict)
-            or audit.get("portfolio_id") != pid
-            or audit.get("status") not in ("PIT_IDENTITY_RESOLVED_ONLY", "BLOCKED")
-            or not isinstance(audit.get("post_seal_binding_aliases"), list)
-        ):
-            raise ValueError("STREAM_HISTORICAL_IDENTITY_AUDIT_INVALID")
-        # Current, independently resolved as-of watchlist is usable for NEW
-        # read-only receipts. A late historical binding never backdates the
-        # original frozen portfolio or supplies follower PnL admission.
-        historical_pit[pid] = {
-            "original_selection_pit": audit["status"],
-            "post_seal_member_count": len(audit["post_seal_binding_aliases"]),
-            "capture_policy": "NEW_FIRST_KNOWN_OBSERVATION_ONLY",
-            "historical_replay_admitted": False,
-        }
-        aliases = alias_map()
-        for member in P1 if pid == "P1" else P14:
-            _, address, _ = private_locator(
-                member, primary_dir=args.primary_dir, secondary_dir=args.secondary_dir
-            )
-            if address.lower() not in watched:
-                raise ValueError("STREAM_CANONICAL_PARENT_WATCHLIST_MISMATCH")
-            parents[aliases[member]] = address.lower()
-    if len(parents) != len(watched):
-        raise ValueError("STREAM_CANONICAL_PARENT_SCOPE_MISMATCH")
-    manifest["portfolio_historical_pit"] = historical_pit
+    _, watched = roster_watch_scope(args.registry, tuple(config["portfolio_ids"]), as_of=now)
+    _assert_inventory(args.registry, manifest["inventory_sha256"])
+    if digest(sorted(watched.items())) != manifest["watchlist_sha"]:
+        raise ValueError("STREAM_REGISTRY_GENERATION_CHANGED")
+    parents = {ref.replace("wallet:", "roster-", 1): address for address, ref in watched.items()}
     manifest["prospective_first_known_not_before"] = now
     manifest["manifest_sha"] = digest(manifest)
     if args.preflight_only:
@@ -733,6 +638,7 @@ def continuous_entrypoint(args) -> dict:
             manifest=manifest,
             parents=parents,
             watched=watched,
+            registry_db=args.registry,
             configured=configured,
             budget=budget,
             **{
@@ -1268,6 +1174,7 @@ class ContinuousObserver:
         ccxt_factory=None,
         receipt_clock_factory=None,
         now=_now,
+        registry_db: Path | None = None,
         refresh_seconds=300,
         heartbeat_seconds=10,
         min_free_bytes=2_000_000_000,
@@ -1293,6 +1200,7 @@ class ContinuousObserver:
         if type(queue_size) is not int or not 1 <= queue_size <= 4096:
             raise ValueError("STREAM_QUEUE_BOUND_INVALID")
         verify_streams(journal.path)
+        self.registry_db = registry_db
         self.journal, self.manifest, self.parents, self.watched = (
             journal,
             manifest,
@@ -1351,6 +1259,13 @@ class ContinuousObserver:
             read_public_collateral_scope,
         )
 
+        if self.registry_db is not None:
+            await asyncio.to_thread(
+                _assert_inventory, self.registry_db, self.manifest["inventory_sha256"]
+            )
+        if not self.parents:
+            self.census_status = "CURRENT_PUBLIC_CENSUS"
+            return
         family = await discover_persistent_family(self.parents, info=self.info, now=self.now)
         self.budget.plan(self.configured, account_count=len(family["accounts"]))
         old_identities = {
@@ -1590,7 +1505,11 @@ class ContinuousObserver:
                             try:
                                 await refresh_task
                             except Exception as exc:
-                                if writer.failed:
+                                if writer.failed or _reason(exc) in {
+                                    "STREAM_REGISTRY_GENERATION_CHANGED",
+                                    "STREAM_REGISTRY_INTEGRITY_FAILED",
+                                    "STREAM_REGISTRY_FILE_INVALID",
+                                }:
                                     raise
                                 self.census_status = "UNKNOWN_CENSUS_REFRESH_FAILED"
                                 await self.record(

@@ -174,9 +174,13 @@ uv run --frozen --group dev --extra market python -m copytrade_pm.pm_fill_diagno
   --research-root "$ROOT" --summary
 uv run --frozen --group dev --extra market python -m copytrade_pm.pm_source_audit \
   --research-root "$ROOT" --market-root "$MARKET" --out "$OUT"
-uv run --frozen --group dev --extra market copytrade-pm-market-audit \
+uv run --frozen --group dev --extra market copytrade-pm research market-audit \
   --research-root "$ROOT" --market-root "$MARKET" --out "$OUT"
 ```
+
+`research market-audit` prints the plan and writes nothing without `--apply`; append
+`--apply` to write the private evidence report. The same reader remains reachable as
+`python -m copytrade_pm.pm_market_audit --research-root … --market-root … --out …`.
 
 Capture each command's **actual** `evidence_file` or `evidence_path` and SHA; several independent PM-01 report types have the **same filename prefix** `pm01-36-wallets-<sha20>.json`. Inspect `schema` before passing the result to a consumer. Do not use an arbitrary wildcard or copy the sample October artifact filenames without checking their bytes.
 

@@ -68,7 +68,7 @@ def selected_wallets_from_registry(
     """
     from .pm_forward_observed_paper import (
         PAPER_PROFILES,
-        readonly,
+        portfolio_wallets,
         verify_portfolio_selection,
     )
 
@@ -77,7 +77,7 @@ def selected_wallets_from_registry(
     if any(portfolio not in PAPER_PROFILES for portfolio in portfolios):
         raise ValueError("VIKE_SELECTED_PORTFOLIO_NOT_FROZEN")
     _stamp(as_of)
-    accounts = set()
+    accounts: set[str] = set()
     for portfolio in portfolios:
         profile = PAPER_PROFILES[portfolio]
         seal = verify_portfolio_selection(registry_db, profile, as_of=as_of)
@@ -88,21 +88,8 @@ def selected_wallets_from_registry(
             or any(char not in "0123456789abcdef" for char in digest_value)
         ):
             raise ValueError("VIKE_SELECTED_PORTFOLIO_SEAL_NOT_VERIFIED")
-        with closing(readonly(registry_db)) as conn:
-            conn.execute("BEGIN")
-            try:
-                for alias in profile.full_aliases:
-                    rows = conn.execute(
-                        "SELECT DISTINCT w.address FROM wallets w "
-                        "JOIN wallet_aliases a ON a.wallet_id=w.wallet_id "
-                        "WHERE a.alias=? AND a.known_at<=?",
-                        (alias, as_of),
-                    ).fetchall()
-                    if len(rows) != 1:
-                        raise ValueError("VIKE_SELECTED_ALIAS_IDENTITY_AMBIGUOUS")
-                    accounts.add(allowed_wallet(rows[0][0]))
-            finally:
-                conn.execute("ROLLBACK")
+        for wallet in portfolio_wallets(registry_db, profile, as_of=as_of):
+            accounts.add(allowed_wallet(wallet))
     return tuple(sorted(accounts))
 
 

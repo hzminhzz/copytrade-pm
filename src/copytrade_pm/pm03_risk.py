@@ -60,14 +60,20 @@ def loss_under_shock(
     return max(ZERO, -change)
 
 
-def classify(
+def assess(
     account: Account,
     proposed: dict[str, dict[Instrument, D]],
     quotes: dict[Instrument, D],
     scenario_shocks: tuple[dict[Instrument, D], ...],
     evidence: RiskEvidence,
-    policy: RiskPolicy,
-) -> dict:
+    policy: "RiskPolicy",
+) -> tuple[list[str], D, D | None, dict[str, D], D, D]:
+    """Every no-trade precondition plus the modeled worst stress.
+
+    No scaling, no tier and no state mutation: ``classify`` consumes this to
+    derive its paper tiers, and the kernel-backed checkpoint path uses ``gate``
+    so the shared decision owns the size while the shell keeps its veto.
+    """
     target = account.external_targets(proposed)
     reasons: list[str] = []
     if account.breached or account.risk == RiskState.HALT:
@@ -118,6 +124,69 @@ def classify(
             )
     reserve = policy.reserve_fraction_initial * account.rulebook.initial_balance
     headroom = account.equity - floor if floor is not None else ZERO
+    return reasons, worst, floor, floors, headroom, reserve
+
+
+def gate(
+    account: Account,
+    approved: dict[str, dict[Instrument, D]],
+    quotes: dict[Instrument, D],
+    scenario_shocks: tuple[dict[Instrument, D], ...],
+    evidence: RiskEvidence,
+    policy: "RiskPolicy",
+) -> dict:
+    """Paper shell veto for a plan the shared kernel already sized.
+
+    The kernel owns the reduction scale and the net intents.  This keeps the
+    shell's independent no-trade authority: unverified evidence, an unconfirmed
+    rulebook, an unsupported market, a breached floor or a leverage/concentration
+    breach still refuses the checkpoint.  It never resizes the kernel's plan.
+    """
+    target = account.external_targets(approved)
+    reasons, worst, floor, floors, headroom, reserve = assess(
+        account, approved, quotes, scenario_shocks, evidence, policy
+    )
+    halt = account.breached or (floor is not None and headroom <= ZERO)
+    if halt:
+        reasons.append("CONTRACTUAL_FLOOR")
+    if target and all(k in quotes for k in target):
+        signed = target
+        gross = sum((abs(q * quotes[k]) for k, q in signed.items()), ZERO)
+        contract_leverage = account.rulebook.max_gross_leverage
+        leverage = (
+            min(policy.max_gross_leverage, contract_leverage)
+            if (contract_leverage is not None)
+            else policy.max_gross_leverage
+        )
+        concentration = max((abs(q * quotes[k]) for k, q in signed.items()), default=ZERO)
+        if gross > account.equity * leverage or (
+            concentration > account.equity * policy.max_instrument_fraction_equity
+        ):
+            reasons.append("LEVERAGE_OR_CONCENTRATION")
+    codes = sorted(set(reasons))
+    return {
+        "permitted": not codes,
+        "halt": halt,
+        "reason_codes": codes,
+        "worst_stress_loss": str(worst),
+        "headroom": str(headroom),
+        "reserve": str(reserve),
+        "floors": {k: str(v) for k, v in floors.items()},
+        "research_policy_only": True,
+    }
+
+
+def classify(
+    account: Account,
+    proposed: dict[str, dict[Instrument, D]],
+    quotes: dict[Instrument, D],
+    scenario_shocks: tuple[dict[Instrument, D], ...],
+    evidence: RiskEvidence,
+    policy: RiskPolicy,
+) -> dict:
+    reasons, worst, floor, floors, headroom, reserve = assess(
+        account, proposed, quotes, scenario_shocks, evidence, policy
+    )
     shock_requirement = worst + reserve
     tier = RiskState.GREEN
     if account.breached or headroom <= ZERO:

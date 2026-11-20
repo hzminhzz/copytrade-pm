@@ -6,13 +6,12 @@ from copytrade_pm.pm_forward_journal import PaperJournal
 from copytrade_pm.pm_forward_observed_paper import ObservedP1Paper
 from copytrade_pm.pm_vike_market_catalog import NativePaperContract
 from copytrade_pm.pm03_account import digest
-from test_pm_forward_multi_portfolio import full_registry, pin_reviewed_registry
+from test_pm_forward_multi_portfolio import full_registry
 from test_pm_forward_observed_paper import BTC, at
 from test_pm_vike_paper_integration import official_frame, official_observer, price
 
 
 def test_vike_price_reuse_across_three_sealed_virtual_financial_accounts(tmp_path, monkeypatch):
-    pin_reviewed_registry(monkeypatch)
     registry_path = full_registry(tmp_path)
     sources = PaperJournal(tmp_path / "shared-sources")
     prices = PaperJournal(tmp_path / "shared-vike-prices")

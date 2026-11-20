@@ -168,10 +168,10 @@ def _rows(
 
 def unavailable(name: str, reason: str = "NATIVE_EVIDENCE_UNAVAILABLE") -> dict:
     authority = {
-        "portfolios": "wallet_registry_and_protected_guardian",
+        "portfolios": "roster_seat_book_and_protected_guardian",
         "execution": "protected_guardian_execution_receipts",
         "health": "independent_operational_sources",
-        "wallets": "canonical_sqlite_registry",
+        "wallets": "roster_seat_book",
     }[name]
     row = dict.fromkeys(FIELDS[name])
     if name == "portfolios":
@@ -396,7 +396,7 @@ def build_capabilities(reader: object, *, asof: datetime | None = None) -> dict:
                     name,
                     rows if status == "VERIFIED" else rows or unavailable(name)["rows"],
                     status=status if status in STATES else "UNKNOWN",
-                    authority="canonical_sqlite_research_metadata",
+                    authority="roster_research_metadata",
                     observed=_clock(source.get("catalog", {}).get("source_observed_at"))
                     if isinstance(source.get("catalog"), dict)
                     else None,
@@ -576,7 +576,7 @@ def build_capabilities(reader: object, *, asof: datetime | None = None) -> dict:
                     name,
                     rows if status == "VERIFIED" else rows or unavailable(name)["rows"],
                     status=status if status in STATES else "UNKNOWN",
-                    authority="canonical_sqlite_registry",
+                    authority="roster_seat_book",
                     observed=_clock(source.get("source_observed_at")),
                     error=_text(source.get("error_code")),
                 )

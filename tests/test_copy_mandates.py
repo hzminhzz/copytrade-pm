@@ -3,9 +3,10 @@
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 import pytest
 
-from copytrade_pm.pm_copy_mandate import (
-    CopyMandate,
+from copytrade_pm.pm_mandate import (
+    SignedMandate,
     MandateState,
+    state_sha,
     transition_mandate,
     verify_mandate,
 )
@@ -14,7 +15,7 @@ from test_checkpoint_source import BOUNDARY
 
 
 def mandate(generation=1, start=BOUNDARY):
-    return CopyMandate(
+    return SignedMandate.from_fields(
         mandate_id="fixture-copy",
         generation=generation,
         source_id="fixture-leader",
@@ -35,7 +36,7 @@ def mandate(generation=1, start=BOUNDARY):
 def test_signed_generation_is_frozen_and_destination_activation_never_copies_current():
     m = mandate()
     key = Ed25519PrivateKey.generate()
-    envelope = sign(m.model_dump(mode="json"), key, "copy-mandate-v1")
+    envelope = sign(m.data, key, "copy-mandate-v1")
     verified = verify_mandate(envelope, key.public_key(), account_id="fixture-account")
     assert verified == m
     before = MandateState.initial(m)
@@ -66,9 +67,19 @@ def test_signed_generation_is_frozen_and_destination_activation_never_copies_cur
     assert mandate(2, BOUNDARY + 300_000).sha != m.sha
 
 
+def test_kernel_parse_preserves_wire_payload_and_evidence_digests():
+    from copytrade_pm.pm03_account import digest
+
+    m = mandate()
+    assert m.data["pod_id"] == "pod-a" and m.data["k"] == "0.025"
+    assert m.sha == digest(m.data)
+    assert m.owner == digest([m.data["account_id"], m.data["mandate_id"], m.data["generation"]])
+    assert SignedMandate.parse(m.data) == m
+
+
 def test_forged_in_place_and_wrong_destination_mandates_fail():
     key = Ed25519PrivateKey.generate()
-    envelope = sign(mandate().model_dump(mode="json"), key, "copy-mandate-v1")
+    envelope = sign(mandate().data, key, "copy-mandate-v1")
     with pytest.raises(ValueError):
         verify_mandate(
             envelope, Ed25519PrivateKey.generate().public_key(), account_id="fixture-account"
@@ -88,11 +99,11 @@ def test_paper_journal_generations_pause_and_resume_preserve_shared_source(tmp_p
 
     journal = PaperJournal(tmp_path / "paper")
     policy = register(journal)
-    values = mandate().model_dump()
+    values = mandate().data
     values.update(source_account_sha=scope().account_sha, policy_epoch=policy.epoch)
-    m = CopyMandate(**values)
+    m = SignedMandate.from_fields(**values)
     key = Ed25519PrivateKey.generate()
-    envelope = sign(m.model_dump(mode="json"), key, "copy-mandate-v1")
+    envelope = sign(m.data, key, "copy-mandate-v1")
     first = journal.activate_copy_mandate(
         envelope, key.public_key(), account_id=m.account_id, at_ms=BOUNDARY - 1
     )
@@ -103,9 +114,9 @@ def test_paper_journal_generations_pause_and_resume_preserve_shared_source(tmp_p
     active = journal.baseline_copy_mandate(m.owner, outcome.outcome_id, at_ms=BOUNDARY + 102)
     assert active.phase == "ACTIVE"
     shared = journal.checkpoint_history(scope(), policy.epoch)
-    revised = CopyMandate(
+    revised = SignedMandate.from_fields(
         **(
-            m.model_dump()
+            m.data
             | {
                 "generation": 2,
                 "effective_from_ms": BOUNDARY + 300_000,
@@ -113,7 +124,7 @@ def test_paper_journal_generations_pause_and_resume_preserve_shared_source(tmp_p
             }
         )
     )
-    signed_new = sign(revised.model_dump(mode="json"), key, "copy-mandate-v1")
+    signed_new = sign(revised.data, key, "copy-mandate-v1")
     with pytest.raises(ValueError, match="OVERLAP"):
         journal.activate_copy_mandate(
             signed_new, key.public_key(), account_id=m.account_id, at_ms=BOUNDARY + 102
@@ -123,7 +134,7 @@ def test_paper_journal_generations_pause_and_resume_preserve_shared_source(tmp_p
             "schema": "copy_mandate_control_v1",
             "owner": m.owner,
             "mandate_sha": m.sha,
-            "predecessor_sha": active.sha,
+            "predecessor_sha": state_sha(active),
             "event": "PAUSE",
             "issued_ms": BOUNDARY + 102,
             "expires_ms": BOUNDARY + 1000,
@@ -146,10 +157,10 @@ def test_paper_journal_generations_pause_and_resume_preserve_shared_source(tmp_p
     restarted = PaperJournal(journal.root)
     assert restarted.copy_mandate_state(m.owner) == paused
     assert restarted.checkpoint_history(scope(), policy.epoch) == shared
-    altered = CopyMandate(**(m.model_dump() | {"k": "0.05"}))
+    altered = SignedMandate.from_fields(**(m.data | {"k": "0.05"}))
     with pytest.raises(ValueError, match="GENERATION"):
         restarted.activate_copy_mandate(
-            sign(altered.model_dump(mode="json"), key, "copy-mandate-v1"),
+            sign(altered.data, key, "copy-mandate-v1"),
             key.public_key(),
             account_id=m.account_id,
             at_ms=BOUNDARY + 106,

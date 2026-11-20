@@ -16,8 +16,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .contract_actuary import CONTRACTS, simulate
-from .wallet_registry import DB
 from . import pm_operations as operations
+
+ROSTER_DB = Path("~/.local/share/copytrade/roster.sqlite").expanduser()
 
 if TYPE_CHECKING:
     import numpy as np
@@ -279,53 +280,48 @@ _SELECTION_PROOF_ERRORS = (
 )
 
 
-def _registry_identity(portfolio_id: str, *, db: Path, asof: str | None) -> dict:
+def _roster_identity(portfolio_id: str, *, db: Path, asof: str | None) -> dict:
+    """Resolve one sealed roster book; the retired registry is never consulted."""
+    from .roster.sealed import SealedSelectionError, select_sealed_book, timestamp_ms
+    from .roster.store import RosterStore
+
     parts = portfolio_id.split("/") if isinstance(portfolio_id, str) else []
     if not isinstance(portfolio_id, str) or not (
         portfolio_id in {"P1", "P14", "P16", "Combo2"} or (len(parts) == 2 and all(parts))
     ):
         # A bare "B" or "E6" is ambiguous across namespaces.
         raise ValueError("NAMESPACE_QUALIFIED_PORTFOLIO_REQUIRED")
-    doctor = operations.doctor(db)
-    if not operations.sqlite_integrity_verified(doctor):
-        raise ValueError("REGISTRY_SQLITE_INTEGRITY_NOT_VERIFIED")
-    generation = operations.registry_generation(db)
-    # The last CSV import clock is historical provenance, not a lease on
-    # the SQLite authority. A stale import must never remove a valid cohort.
-    if not generation["sha"]:
-        raise ValueError("REGISTRY_GENERATION_METADATA_MISSING")
-    cmd = ["portfolio", portfolio_id]
-    if asof is not None:
-        cmd += ["--asof", _utc(asof).isoformat()]
+    authority = operations.roster_authority(db)
+    if authority["status"] != "VERIFIED":
+        raise ValueError("ROSTER_SQLITE_INTEGRITY_NOT_VERIFIED")
+    inventory_sha = (authority.get("data") or {}).get("inventory_sha256")
+    if not inventory_sha:
+        raise ValueError("ROSTER_GENERATION_METADATA_MISSING")
+    cutoff = timestamp_ms(asof) if asof is not None else timestamp_ms(datetime.now(UTC).isoformat())
+    # Roster identifiers cannot carry `/`, so a namespaced label resolves through
+    # the shared campaign mapping (`q3/B` -> `q3:B`).
+    from .pm_cwsa_six_paper import roster_account_id
+
+    account_id = roster_account_id(portfolio_id) if "/" in portfolio_id else portfolio_id
     try:
-        records = operations.registry_query(db, cmd)
-    except ValueError as exc:
-        if any(msg in str(exc) for msg in _SELECTION_PROOF_ERRORS):
-            raise ValueError("PORTFOLIO_SELECTION_PROOF_BLOCKED") from exc
-        raise
-    record: Any = records.get(portfolio_id) if isinstance(records, dict) else None
-    if record is None and isinstance(records, dict) and len(records) == 1:
-        only = next(iter(records.values()))
-        if isinstance(only, dict):
-            # Scoped lookups like "q3/B" return canonical SQLite key "B".
-            record = only
-    if not isinstance(record, dict) or record.get("state") in {
-        "UNKNOWN_AT_ASOF",
-        "NOT_REGISTERED_AT_ASOF",
-    }:
-        raise ValueError("PORTFOLIO_NOT_REGISTERED_AT_ASOF")
-    if not record.get("source_sealed") or not record.get("definition_sha256"):
-        raise ValueError("PORTFOLIO_SOURCE_NOT_SEALED")
+        with RosterStore(db) as store:
+            sealed = select_sealed_book(store, account_id, cutoff, require_attestation=False)
+    except SealedSelectionError as exc:
+        if str(exc) == "SELECTION_UNKNOWN_AT_ASOF":
+            raise ValueError("PORTFOLIO_NOT_REGISTERED_AT_ASOF") from exc
+        raise ValueError("PORTFOLIO_SELECTION_PROOF_BLOCKED") from exc
     return {
         "portfolio_id": portfolio_id,
-        "definition_sha256": record["definition_sha256"],
-        "members": sorted(record["members"]),
-        "version": record["version"],
-        "selection_known_at": record["selection_known_at"],
-        "registry_generation_sha256": generation["sha"],
-        "registry_inventory_sha256": (doctor.get("data") or {}).get("inventory_sha256"),
-        "registry_observed_at": generation["observed_at"],
-        "registry_state": record.get("state"),
+        "definition_sha256": sealed.definition_sha256,
+        "members": sorted(member.seat_id for member in sealed.members),
+        "version": sealed.version,
+        "selection_known_at": datetime.fromtimestamp(
+            sealed.selection_known_at_ms / 1000, UTC
+        ).isoformat(),
+        "registry_generation_sha256": inventory_sha,
+        "registry_inventory_sha256": inventory_sha,
+        "registry_observed_at": authority["source"]["observed_at"],
+        "registry_state": "SEALED",
         "trading_authorized": False,
     }
 
@@ -552,7 +548,7 @@ def compare_portfolios(
     portfolio_ids: list[str],
     tapes: list[Path] | None = None,
     *,
-    db: Path = DB,
+    db: Path = ROSTER_DB,
     asof: str | None = None,
     **options: Any,
 ) -> dict:
@@ -564,7 +560,7 @@ def compare_portfolios(
     outcomes: list[dict] = []
     for i, portfolio_id in enumerate(portfolio_ids):
         try:
-            portfolio = _registry_identity(portfolio_id, db=db, asof=asof)
+            portfolio = _roster_identity(portfolio_id, db=db, asof=asof)
         except (ValueError, OSError, RuntimeError, KeyError, TypeError) as exc:
             outcomes.append(
                 {

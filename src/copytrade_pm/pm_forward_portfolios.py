@@ -12,11 +12,14 @@ from decimal import Decimal
 from pathlib import Path
 import sqlite3
 
+from .roster.sealed import select_sealed_book, timestamp_ms
+from .roster.store import DEFAULT_ROSTER_PATH, RosterStore
+
 from .pm03_account import digest
 from .pm_forward_admission import Admission
 from .pm_forward_paper import PaperCampaign, PaperManifest
 
-DEFAULT_REGISTRY_PATH = Path("/home/quant/.local/share/copytrade/registry/wallet_registry.sqlite")
+DEFAULT_REGISTRY_PATH = DEFAULT_ROSTER_PATH
 
 
 @dataclass(frozen=True)
@@ -56,7 +59,7 @@ P14 = FrozenPaperPortfolio("P14", ("S035", "S051", "S053", "S064", "Whale_0x5f94
 
 
 def verify_sealed_definition_sha(
-    conn: sqlite3.Connection,
+    store: RosterStore,
     portfolio_name: str,
     version: int,
     members: tuple[str, ...],
@@ -64,103 +67,45 @@ def verify_sealed_definition_sha(
     *,
     as_of: str | None = None,
 ) -> dict:
-    return _verify_sealed_definition_sha(
-        conn, portfolio_name, version, members, expected_sha, as_of=as_of
+    if not isinstance(store, RosterStore):
+        raise ValueError("UNSEALED_FORWARD_PAPER_PORTFOLIO")
+    sealed = select_sealed_book(
+        store,
+        portfolio_name,
+        timestamp_ms(as_of or datetime.now(UTC).isoformat()),
+        require_attestation=False,
     )
-
-
-def _verify_sealed_definition_sha(
-    conn: sqlite3.Connection,
-    portfolio_name: str,
-    version: int,
-    members: tuple[str, ...],
-    expected_sha: str,
-    *,
-    as_of: str | None = None,
-) -> dict:
-    """Use the registry owner to verify independent source, seal and membership."""
-    from .wallet_registry_portfolios import select_asof
-
-    try:
-        sealed = select_asof(
-            conn, portfolio_name, as_of or datetime.now(UTC).isoformat(), version=version
-        )
-    except (ValueError, sqlite3.DatabaseError) as exc:
-        raise ValueError("UNSEALED_FORWARD_PAPER_PORTFOLIO") from exc
     if (
-        sealed["definition_sha256"] != expected_sha
-        or tuple(sealed["members"]) != members
-        or sealed.get("version") != version
+        sealed.definition_sha256 != expected_sha
+        or tuple(member.seat_id for member in sealed.members) != members
+        or sealed.version != version
     ):
         raise ValueError("UNSEALED_FORWARD_PAPER_PORTFOLIO")
-    return sealed
+    return sealed.metadata()
 
 
 def load_sealed_paper_portfolio(
     portfolio_name: str,
     db_path: Path | str = DEFAULT_REGISTRY_PATH,
+    *,
+    as_of: str | None = None,
 ) -> FrozenPaperPortfolio:
-    """Load a sealed portfolio definition dynamically from SQLite registry.
-
-    Fails closed with UNSEALED_FORWARD_PAPER_PORTFOLIO if unsealed, unknown,
-    or if the stored membership does not match the sealed definition record.
-    """
-    path = Path(db_path)
-    if not path.is_file():
-        raise ValueError(f"REGISTRY_DATABASE_NOT_FOUND: {path}")
-
-    # Exact legacy FP-09 aliases match
-    if portfolio_name == "P1":
-        return P1
-    if portfolio_name == "P14":
-        return P14
-
-    uri = f"file:{path.resolve()}?mode=ro"
-    conn = sqlite3.connect(uri, uri=True, timeout=10.0)
-    conn.row_factory = sqlite3.Row
+    """Load the verified PIT book and expose only canonical seat labels."""
     try:
-        conn.execute("BEGIN")
-        cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT s.portfolio_id, s.version, s.definition_sha256
-            FROM portfolio_seals s
-            WHERE s.portfolio_id = ?
-            ORDER BY s.version DESC
-            LIMIT 1
-            """,
-            (portfolio_name,),
-        )
-        row = cur.fetchone()
-        if not row:
-            raise ValueError(f"UNSEALED_FORWARD_PAPER_PORTFOLIO: {portfolio_name}")
-
-        version = row["version"]
-        definition_sha256 = row["definition_sha256"]
-
-        cur.execute(
-            """
-            SELECT member_alias
-            FROM portfolio_memberships
-            WHERE portfolio_id = ? AND version = ?
-            ORDER BY member_alias
-            """,
-            (portfolio_name, version),
-        )
-        members = tuple(r["member_alias"] for r in cur.fetchall())
-        if not members:
-            raise ValueError(f"UNSEALED_FORWARD_PAPER_PORTFOLIO: empty members {portfolio_name}")
-
-        # Strictly verify definition hash matches canonical seal
-        _verify_sealed_definition_sha(conn, portfolio_name, version, members, definition_sha256)
-
-        return FrozenPaperPortfolio(
-            name=portfolio_name,
-            members=members,
-            definition_sha256=definition_sha256,
-        )
-    finally:
-        conn.close()
+        with RosterStore(db_path) as store:
+            selected = select_sealed_book(
+                store,
+                portfolio_name,
+                timestamp_ms(as_of or datetime.now(UTC).isoformat()),
+                require_attestation=False,
+            )
+    except (OSError, ValueError, sqlite3.Error) as exc:
+        raise ValueError("UNSEALED_FORWARD_PAPER_PORTFOLIO") from exc
+    return FrozenPaperPortfolio(
+        name=portfolio_name,
+        members=tuple(member.seat_id for member in selected.members),
+        definition_sha256=selected.definition_sha256,
+    )
 
 
 class PaperPortfolioView:
@@ -184,11 +129,20 @@ class PaperPortfolioView:
     def register(self, portfolio: FrozenPaperPortfolio, manifest: PaperManifest) -> dict:
         # Load authoritative sealed definition from SQLite
         try:
-            sealed = load_sealed_paper_portfolio(portfolio.name, self.registry_db)
+            sealed = load_sealed_paper_portfolio(
+                portfolio.name, self.registry_db, as_of=manifest.selected_at
+            )
         except ValueError as exc:
             raise ValueError("UNSEALED_FORWARD_PAPER_PORTFOLIO") from exc
 
-        if portfolio.name != sealed.name or portfolio.members != sealed.members:
+        if (
+            portfolio.name != sealed.name
+            or set(portfolio.members) != set(sealed.members)
+            or (
+                portfolio.definition_sha256 is not None
+                and portfolio.definition_sha256 != sealed.definition_sha256
+            )
+        ):
             raise ValueError("UNSEALED_FORWARD_PAPER_PORTFOLIO")
         if portfolio.name in self.portfolios:
             raise ValueError("PORTFOLIO_ALREADY_SEALED")

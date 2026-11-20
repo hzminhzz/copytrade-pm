@@ -46,10 +46,12 @@ def policy():
     }
 
 
-def setup_paper(tmp_path, *, run="p1", account="fixture-account", journal=None, k="0.025"):
+def setup_paper(
+    tmp_path, *, run="p1", account="fixture-account", journal=None, k="0.025", overrides=None
+):
     journal = journal or PaperJournal(tmp_path / "paper")
     source_policy = register(journal)
-    p = policy()
+    p = dict(policy(), **(overrides or {}))
     mfest = manifest(run, account)
     rules = replace(mfest.rulebook, permitted=(BTC,), confirmed=True)
     mfest = replace(mfest, rulebook=rules, policy_sha=digest(p))
@@ -129,8 +131,11 @@ def test_checkpoint_one_shot_has_independent_marks_costs_and_restart(tmp_path):
     account = j.restore("p1")["account"]
     # Native source value 3 * 10000; target notional 750; follower ASK 10001.
     assert D(result["requested_targets"][m.owner][BTC.key]) == D("0.07499")
-    assert result["risk"]["state"] == "YELLOW"
-    assert D(account["quantities"][BTC.key]) == D("0.05624")  # Existing risk policy scales 0.75.
+    # The shared kernel decides the scale: this account's stress reserve is more
+    # than three times the modeled loss, so the kernel takes the full request.
+    assert result["risk"]["state"] == "GREEN"
+    assert D(result["approved_targets"][m.owner][BTC.key]) == D("0.07499")
+    assert D(account["quantities"][BTC.key]) == D("0.07499")
     assert D(account["cash"]) < D("10000")
     reopened = PaperJournal(j.root)
     assert consume(reopened, m, changed, p, now + 4) == result
@@ -153,7 +158,8 @@ def test_expired_block_never_retries_on_unchanged_but_new_change_can_enter(tmp_p
     now = BOUNDARY + 3 * GRID + 102
     quote(j, now)
     assert consume(j, m, later, p, now + 2)["status"] == "COMMITTED_ONCE"
-    assert D(j.restore("p1")["account"]["quantities"][BTC.key]) == D("0.07499")
+    # Source 4 * 10000 * k 0.025 at ASK 10001, lot-rounded by the kernel.
+    assert D(j.restore("p1")["account"]["quantities"][BTC.key]) == D("0.09999")
 
 
 def test_gap_and_recovery_do_not_invent_close_or_opening(tmp_path):

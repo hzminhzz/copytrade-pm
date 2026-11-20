@@ -294,7 +294,7 @@ class PaperJournal:
         return result
 
     def activate_copy_mandate(self, envelope, key, *, account_id: str, at_ms: int):
-        from .pm_copy_mandate import verify_mandate
+        from .pm_mandate import verify_mandate
         from .pm_copy_mandate_journal import activate
 
         mandate = verify_mandate(envelope, key, account_id=account_id)

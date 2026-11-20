@@ -15,8 +15,8 @@ from copytrade_pm.pm_cwsa_six_paper import (
     Chapter2PaperSupervisor,
 )
 from copytrade_pm.pm_checkpoint_journal import CheckpointOutcome
+from cwsa_fixture_registry import make_registry
 
-REGISTRY = Path("/home/quant/.local/share/copytrade/registry/wallet_registry.sqlite")
 GRID = 300_000
 BASE = 1_794_470_200_000
 ALL = sorted({member for cfg in PORTFOLIO_CONFIGS.values() for member in cfg["members"]})
@@ -58,7 +58,7 @@ def new_supervisor(tmp_path: Path) -> Chapter2PaperSupervisor:
     return Chapter2PaperSupervisor(
         state_root=tmp_path / "paper",
         source_db=tmp_path / "source.sqlite",
-        registry_db=REGISTRY,
+        registry_db=make_registry(tmp_path),
         publication_grace_override_ms=180_000,
     )
 

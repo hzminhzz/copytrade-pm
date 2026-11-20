@@ -6,7 +6,6 @@ financial simulator, risk permit, paper-journal writer or active policy loader.
 
 from __future__ import annotations
 
-from contextlib import closing
 from decimal import Decimal
 from math import sqrt
 from statistics import NormalDist
@@ -627,20 +626,23 @@ def offline_preflight(
         if not registry_portfolio_id or registry_version is None:
             blockers.append("SQLITE_REGISTRY_SELECTOR_MISSING")
         else:
-            from .wallet_registry_portfolios import select_asof
+            from .roster.sealed import select_sealed_book, timestamp_ms
+            from .roster.store import RosterStore
 
             try:
-                db = Path(registry_path)
-                with closing(
-                    sqlite3.connect(f"file:{db.resolve(strict=True)}?mode=ro", uri=True)
-                ) as con:
-                    con.execute("PRAGMA query_only=ON")
-                    sealed = select_asof(
-                        con, registry_portfolio_id, candidate.proposed_at, version=registry_version
+                with RosterStore(registry_path) as store:
+                    sealed = select_sealed_book(
+                        store,
+                        registry_portfolio_id,
+                        timestamp_ms(candidate.proposed_at),
+                        require_attestation=False,
                     )
-                if sealed.get("definition_sha256") != candidate.portfolio_definition_sha256 or set(
-                    sealed.get("members", ())
-                ) != set(candidate.pod_membership):
+                if (
+                    sealed.definition_sha256 != candidate.portfolio_definition_sha256
+                    or sealed.version != registry_version
+                    or {member.seat_id for member in sealed.members}
+                    != set(candidate.pod_membership)
+                ):
                     blockers.append("SQLITE_INDEPENDENT_PORTFOLIO_MISMATCH")
                 else:
                     verified_registry = True

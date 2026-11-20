@@ -198,7 +198,7 @@ def test_read_only_recover_cli_uses_owner_and_never_dispatches(monkeypatch, caps
     owner_fixture(monkeypatch, status="UNKNOWN", sent=4000)
     code = pm_operations.cli(
         [
-            "cwsa",
+            "release",
             "chapter2",
             "recover",
             "--guardian-journal",

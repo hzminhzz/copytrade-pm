@@ -129,7 +129,7 @@ class PaperCampaign:
         import json
         import sqlite3
 
-        from .pm_copy_mandate import CopyMandate
+        from .pm_mandate import SignedMandate
         from .pm_source_campaign_roster import IDENTITIES
 
         if self._journal is None:
@@ -158,7 +158,7 @@ class PaperCampaign:
                         ).fetchone()
                         if saved is None:
                             raise ValueError("CHECKPOINT_SIGNED_MANDATE_MISSING")
-                        mandate = CopyMandate.model_validate_json(saved[0])
+                        mandate = SignedMandate.from_json(saved[0])
                         source = mandate.source_id
                         sources.append(source)
                         if (

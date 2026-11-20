@@ -4,7 +4,11 @@ version = "0.1.0"
 description = "Black-box wallet PM research and shadow-only prop-firm portfolio risk"
 readme = "README.md"
 requires-python = ">=3.14"
-dependencies = ["cryptography>=46.0", "pydantic==2.14.3"]
+dependencies = ["copytrade-kernel", "cryptography>=46.0", "pydantic==2.14.3"]
+
+[tool.uv.sources]
+# Single financial-math authority: prop-production hosts the stdlib kernel wheel.
+copytrade-kernel = { git = "https://github.com/hzminhzz/prop-production.git", subdirectory = "packages/copytrade-kernel", rev = "d0ad4c234f89049d91c88444d31a17286e3e684a" }
 
 [project.optional-dependencies]
 market = ["polars>=2.0,<3", "pandas>=2.3"]
@@ -18,47 +22,9 @@ prefect = ["prefect==3.9.2"]  # Opt-in Track B orchestration; never core/source/
 dev = ["pytest>=8.3", "pytest-xdist==3.8.0", "ruff>=0.8"]
 
 [project.scripts]
+# One installed entry point. Domain modules keep their own `python -m` parsers
+# for unit ExecStart compatibility; no per-experiment console script survives.
 copytrade-pm = "copytrade_pm.pm_operations:main"
-copytrade-pm-agent-eval = "copytrade_pm.pm_agent_trace_eval:main"
-copytrade-pm-replay = "copytrade_pm.pm_fill_replay:main"
-copytrade-pm-rank = "copytrade_pm.pm_manager:main"
-copytrade-pm-handoff = "copytrade_pm.pm_handoff:main"
-copytrade-pm-scope = "copytrade_pm.pm_propr_scope:main"
-copytrade-pm-market-audit = "copytrade_pm.pm_market_audit:main"
-copytrade-pm-research = "copytrade_pm.pm_research:main"
-copytrade-pm-shadow = "copytrade_pm.pm03_cli:main"
-copytrade-pm-actuary = "copytrade_pm.contract_actuary:main"
-copytrade-pm-receipts = "copytrade_pm.pm_prospective_cli:main"
-copytrade-pm-source = "copytrade_pm.pm_e4_stream:main"
-copytrade-pm-source-abc = "copytrade_pm.pm_source_rotation:main"
-copytrade-pm-source-audit = "copytrade_pm.pm_e4_source_readiness:main"
-copytrade-pm-combo2-paper = "copytrade_pm.pm_combo2_cli:main"
-copytrade-wallet-registry = "copytrade_pm.wallet_registry:main"
-copytrade-pm-review-gate = "copytrade_pm.pm_governance:main"
-copytrade-pm-paper-status = "copytrade_pm.pm_forward_status:main"
-copytrade-pm-paper-report = "copytrade_pm.pm_forward_report:main"
-copytrade-pm-paper-preflight = "copytrade_pm.pm_forward_release:main"
-copytrade-pm-paper-candidate-verify = "copytrade_pm.pm_forward_release_candidate:main"
-copytrade-pm-market-ccxt = "copytrade_pm.pm_forward_ccxt_market:main"
-copytrade-pm-market-stream = "copytrade_pm.pm_forward_market_stream:main"
-copytrade-pm-public-trades = "copytrade_pm.pm_forward_public_trades:main"
-copytrade-pm-source-scope = "copytrade_pm.pm_forward_source_stream:main"
-copytrade-pm-paper-watchdog = "copytrade_pm.pm_forward_heartbeat:main"
-copytrade-pm-paper-standby = "copytrade_pm.pm_forward_protected_ops:main"
-copytrade-pm-paper-unit-bundle = "copytrade_pm.pm_forward_protected_units:main"
-copytrade-pm-paper-registry-audit = "copytrade_pm.pm_forward_registry_identity:main"
-copytrade-pm-paper-readiness = "copytrade_pm.pm_forward_readiness:main"
-copytrade-pm-paper-source-campaign = "copytrade_pm.pm_forward_source_campaign:main"
-copytrade-pm-paper-observe = "copytrade_pm.pm_forward_observer:main"
-copytrade-pm-paper-observed = "copytrade_pm.pm_forward_observed_paper:main"
-copytrade-pm-vike-minute = "copytrade_pm.pm_vike_minute_collector:main"
-copytrade-pm-vike-fills = "copytrade_pm.pm_vike_selected_fills:main"
-copytrade-pm-paper-observer-health = "copytrade_pm.pm_forward_observer_health:main"
-copytrade-pm-public-observer-unit = "copytrade_pm.pm_forward_public_unit:main"
-copytrade-pm-production-export = "copytrade_pm.production_export:main"
-copytrade-pm-production-manifest = "copytrade_pm.production_manifest:main"
-copytrade-pm-production-economics = "copytrade_pm.production_economics:main"
-copytrade-pm-track-b-prefect = "copytrade_pm.strategy_health_prefect:main"
 
 [build-system]
 requires = ["hatchling"]

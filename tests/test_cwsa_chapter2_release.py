@@ -6,7 +6,6 @@ from dataclasses import replace
 from decimal import Decimal
 from hashlib import sha256
 import json
-from pathlib import Path
 from time import time_ns
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -23,13 +22,12 @@ from copytrade_pm.pm_cwsa_six_paper import (
 )
 from copytrade_pm.pm_forward_journal import PaperJournal
 from copytrade_pm.production_manifest import sign
+from cwsa_fixture_registry import make_registry
 from test_checkpoint_journal import register, sample
 from test_checkpoint_paper import BTC, GRID, policy, quote
 from test_checkpoint_source import BOUNDARY, scope
 from test_pm_forward_ccxt_market import ccxt_market
 from test_copy_mandates import mandate
-
-REGISTRY = Path("/home/quant/.local/share/copytrade/registry/wallet_registry.sqlite")
 
 
 def source_address(alias: str) -> str:
@@ -40,7 +38,7 @@ def signed_a(tmp_path, *, anchor_ms: int | None = None):
     source = PaperJournal(tmp_path / "source")
     cp = register(source)
     members = PORTFOLIO_CONFIGS["A"]["members"]
-    seals = load_registry_seals(REGISTRY)
+    seals = load_registry_seals(make_registry(tmp_path))
     p = policy()
     r = replace(
         propr_rulebook(
@@ -108,7 +106,7 @@ def signed_a(tmp_path, *, anchor_ms: int | None = None):
 
 def test_external_signature_sha_and_complete_membership_required(tmp_path):
     path, sha, pub, source = signed_a(tmp_path)
-    seals = load_registry_seals(REGISTRY)
+    seals = load_registry_seals(make_registry(tmp_path))
     approved = read_activation_bundle(
         path=path,
         expected_sha256=sha,
@@ -151,7 +149,7 @@ def test_legacy_provisional_cannot_be_promoted_to_approved_finance(tmp_path):
     initial = Chapter2PaperSupervisor(
         state_root=state,
         source_db=source,
-        registry_db=REGISTRY,
+        registry_db=make_registry(tmp_path),
         publication_grace_override_ms=180_000,
     )
     assert not initial.approved
@@ -159,7 +157,7 @@ def test_legacy_provisional_cannot_be_promoted_to_approved_finance(tmp_path):
         Chapter2PaperSupervisor(
             state_root=state,
             source_db=source,
-            registry_db=REGISTRY,
+            registry_db=make_registry(tmp_path),
             approval_path=path,
             approval_sha256=sha,
             trusted_authority_hex=pub,
@@ -169,7 +167,7 @@ def test_legacy_provisional_cannot_be_promoted_to_approved_finance(tmp_path):
     fresh = Chapter2PaperSupervisor(
         state_root=tmp_path / "approved-new-epoch",
         source_db=source,
-        registry_db=REGISTRY,
+        registry_db=make_registry(tmp_path),
         approval_path=path,
         approval_sha256=sha,
         trusted_authority_hex=pub,
@@ -189,7 +187,7 @@ def test_signed_three_wallet_portfolio_runs_pm03_entry_and_restart(tmp_path):
     settings = dict(
         state_root=approved_root,
         source_db=source_db,
-        registry_db=REGISTRY,
+        registry_db=make_registry(tmp_path),
         approval_path=path,
         approval_sha256=sha,
         trusted_authority_hex=pub,

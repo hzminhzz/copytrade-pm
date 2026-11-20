@@ -159,45 +159,35 @@ def test_duplicate_decision_or_release_mismatch_cannot_invent_link():
     )
 
 
-def test_portfolio_requires_signature_checked_selection_and_distinguishes_states():
-    record = {
-        "portfolio_id": "q3/B",
-        "version": 2,
-        "definition_sha256": "f" * 64,
-        "members": ["W031", "W044"],
-        "state": "RESEARCH",
-        "source_sealed": True,
-    }
+def test_portfolio_view_comes_from_committed_roster_books(tmp_path):
+    """A committed seat book is the research selection; runtime stays unknown."""
+    from copytrade_pm.roster import RosterStore
+    from roster_fixture import WALLETS, add_account
 
-    def native(command):
-        result = dict(fake_native(["portfolios", "current"]))
-        result.update(
-            status="VERIFIED",
-            data={
-                "q3/B": record,
-            }
-            if command[:2] == ["portfolios", "list"]
-            else {
-                "selection_state": "SIGNATURE_CHECKED_RESEARCH_ONLY",
-                "portfolios": [record],
-            },
+    db = tmp_path / "roster.sqlite"
+    with RosterStore(db, create=True) as store:
+        add_account(store, "q3.B", {"W031": WALLETS[0], "W044": WALLETS[1]})
+
+    def subject(**kwargs):
+        return DashboardReader(
+            db=db,
+            clock=lambda: datetime(2026, 11, 5, tzinfo=UTC),
+            cache=SmallTTLCache(),
+            guardian_provider=lambda cmd: capture(cmd),
+            **kwargs,
         )
-        return result
 
-    data = owner(native=native).portfolio_explorer()
-    assert data["records"][0]["portfolio_id"] == "q3/B"
+    data = subject().portfolio_explorer()
+    assert data["status"] == "VERIFIED"
+    assert data["records"][0]["portfolio_id"] == "q3.B"
     assert data["records"][0]["research_state"] == "RESEARCH_SELECTED"
     assert data["records"][0]["deployment_state"] == "UNKNOWN"
     assert data["records"][0]["runtime_state"] == "UNKNOWN"
-    assert owner(native=native).portfolio_explorer(asof="not utc")["status"] == "BLOCKED"
-
-    def untrusted(command):
-        result = native(command)
-        if command[:2] == ["portfolios", "current"]:
-            result["data"] = {"selection_state": "UNSIGNED", "portfolios": [record]}
-        return result
-
-    assert owner(native=untrusted).portfolio_explorer()["records"][0]["research_state"] == "SAVED"
+    assert data["records"][0]["source_sealed"] is True
+    assert data["total"] == 1
+    assert subject().portfolio_explorer(asof="not utc")["status"] == "BLOCKED"
+    # The roster is the only portfolio identity source for this reader.
+    assert data["catalog"]["authority"] == "roster_sqlite"
 
 
 def test_research_missing_cache_and_bounded_filters():
@@ -205,7 +195,7 @@ def test_research_missing_cache_and_bounded_filters():
 
     def native(command):
         calls.append(command)
-        result = dict(fake_native(["portfolios", "current"]))
+        result = dict(fake_native(["research", "show", "case1"]))
         result.update(
             status="VERIFIED",
             data={
@@ -293,7 +283,7 @@ def test_no_read_path_can_dispatch_financial_mutation(monkeypatch):
         raise AssertionError("DASHBOARD_FINANCIAL_MUTATION")
 
     monkeypatch.setattr(adapter.subprocess, "run", prohibited)
-    monkeypatch.setattr(adapter.registry, "connect", prohibited)
+    monkeypatch.setattr("copytrade_pm.roster.RosterStore", prohibited)
     app = owner()
     assert app.risk_status()["trading_authorized"] is False
     assert app.execution_monitor()["trading_authorized"] is False

@@ -1,6 +1,32 @@
 # Research operator runbook — verified CLI sequence
 
-**Before an operation:** read [AGENTS.md](../AGENTS.md), route the task through [INDEX](INDEX.md), and use the owning runbook for the exact candidate/installed release. Scope reads to the requested claim: metadata uses the [native registry workflow](WALLET-REGISTRY-AGENT-WORKFLOW.md); runtime/financial claims require their independent process, source and journal evidence. For V4 use the [position-first ADR](decisions/2026-11-08-position-first-t300.md) and [V4 campaign runbook](V4-CANONICAL-FRESH-PAPER-20261111.md); for the distinct sampled policy use [CWSA Chapter 2](CWSA-CHAPTER2-20261112.md). The [Vike-first ADR](decisions/2026-11-11-vike-first-wallet-source.md) records a transport target, not an activated source replacement. All `--apply` commands require their existing action-specific preflight and authorization.
+**Before an operation:** read [AGENTS.md](../AGENTS.md), route the task through [INDEX](INDEX.md), and use the owning runbook for the exact candidate/installed release. Scope reads to the requested claim: seats and identities come from the [roster](ROSTER.md) (`copytrade-pm roster`); runtime/financial claims require their independent process, source and journal evidence. For V4 use the [position-first ADR](decisions/2026-11-08-position-first-t300.md) and [V4 campaign runbook](V4-CANONICAL-FRESH-PAPER-20261111.md); for the distinct sampled policy use [CWSA Chapter 2](CWSA-CHAPTER2-20261112.md). The [Vike-first ADR](decisions/2026-11-11-vike-first-wallet-source.md) records a transport target, not an activated source replacement. All `--apply` commands require their existing action-specific preflight and authorization.
+
+## Current surface after the Phase D CLI cutover
+
+`copytrade-pm` is the only installed console script. Everything below this section that names a flat experiment script (`copytrade-pm-rank`, `copytrade-pm-shadow`, `copytrade-wallet-registry`, `copytrade-pm-paper-*`) is dated history; those entry points are deleted.
+
+```bash
+copytrade-pm --help
+copytrade-pm capabilities list|show|validate
+copytrade-pm facts    migrate|verify|coverage|benchmark|capture-health
+copytrade-pm research list|show|scorecards|preflight|contracts
+copytrade-pm roster   register|show|plan|commit|scorecard|bench|binding|veto|cusum|proposal
+copytrade-pm paper    status|mandates
+copytrade-pm release  propose|sign|verify|export|metadata|status|health|chapter2
+```
+
+Check `--help` on the exact revision before running any leaf; required flags differ per leaf and every write needs `--apply`.
+
+| State | Default path |
+| --- | --- |
+| Roster (`roster.sqlite`) | `~/.local/share/copytrade/roster.sqlite` |
+| Fact store | `~/.local/share/copytrade/facts` |
+| Private health generations | `~/.local/share/copytrade/health-research/g<UTCSTAMP>-<hex>` |
+| Archived legacy registry pods (`0400`) | `~/.local/share/copytrade/phase-d/archive/legacy_wallet_registry_20261119.sqlite` |
+
+The dated read-only research items in this runbook stay valid as records, but their registry commands no longer run: `wallet_registry*`, `pm_copy_mandate.py`, `scripts/registry_release.py` and the sealed 2026-11 pods are archived evidence, not current authority. Repository jobs call `copytrade-pm facts capture-health` and the roster. Installed units are a separate deploy step — see the unit note in [agent operations](AGENT-NATIVE-OPERATIONS.md#phase-d-state-paths) before assuming a scheduled unit uses the new interface.
+
 
 ## Read-only observer research-proof isolation (2026-11-07)
 
@@ -38,11 +64,15 @@ to verify as-known canonical aliases and private addresses for a **new**
 research-only signed selection. The output is unsigned; historical P1/P14
 seals are unchanged and remain blocked, and no paper execution is authorized.
 
-## Canonical SQLite registry; legacy importer is historical
+## Canonical SQLite registry; legacy importer is historical (retired by Phase D Slice 3)
+
+**Historical record.** The `copytrade-wallet-registry` commands in this section no longer exist; the module set and console script were deleted and the database is archived read-only. Retained for the decisions they recorded.
 
 Run `copytrade-wallet-registry doctor` for SQLite integrity and `native status` for the explicit legacy-writer lock. Current research cohorts and approved selections come from SQLite, not old CSV/Markdown catalogs. Optional `doctor --legacy-audit` reports importer provenance only. A reviewed `native lock --apply` blocks `sync --apply` and installed old binaries from replacing the operational registry. New cohorts use `native register` with a 0600 private manifest and exact inventory SHA. Reviewed, append-only exclusions use `native exclude` with exact manifest SHA plus inventory SHA; neither action revokes an old decision or writes tracker subscriptions, starts workers, calculates PnL or authorizes trades. See [the native authority/rollback contract](SQLITE-NATIVE-LEGACY-LOCK-20261105.md).
 
-## Authoritative SQLite metadata inventory (2026-11-05)
+## Authoritative SQLite metadata inventory (2026-11-05; retired by Phase D Slice 3)
+
+**Historical record.** `copytrade-wallet-registry` is deleted; current seat authority is `copytrade-pm roster` over `roster.sqlite`.
 
 Use `copytrade-wallet-registry doctor` for `authority=SQLITE`,
 `database_integrity=VERIFIED` and `inventory_sha256`. Query any registered
@@ -57,10 +87,10 @@ unverified. See [release/rollback contract](WALLET-REGISTRY-RELEASE-RUNBOOK.md).
 ## Portfolio x prop contract EV comparison (research only)
 
 Use the existing native capability `research.contract_selector`, exposed as
-`copytrade-pm contracts rules` and `copytrade-pm contracts compare`. This
-read-only tool consults the actual sealed portfolio registry and requires a
-complete joint **net follower MTM** per-pod PnL tape. E6/E2 without such
-independent evidence correctly return `BLOCKED` rather than speculative EV.
+`copytrade-pm research contracts rules` and `copytrade-pm research contracts compare`. This
+read-only tool resolves the selected portfolio from the roster and requires a
+complete joint **net follower MTM** per-pod PnL tape. Retired legacy pod ids and
+pods without such independent evidence return `BLOCKED` rather than speculative EV.
 See [the full tool input, CLI, stage-risk and limitation contract](CONTRACT-PORTFOLIO-EV-TOOL-20261105.md).
 
 
@@ -69,7 +99,7 @@ See [the full tool input, CLI, stage-risk and limitation contract](CONTRACT-PORT
 The 2026-11-05 [pinned public observer guide](FORWARD-PAPER-PUBLIC-OBSERVER-SERVICE-20261105.md)
 records the bounded five-wallet first-local canary and the independent
 `DEGRADED_OBSERVER_ONLY` heartbeat. Use the existing native
-`copytrade-pm-paper-observe` for source/market receipts, or the separate
+`copytrade-pm paper observe` for source/market receipts, or the separate
 `copytrade-pm-public-observer-unit` for a conservatively verified user-unit
 install. The latter's explicit `--apply` changes only an unprotected observer
 unit file; it does not start a service. P1/P14 financial paper-worker cutover
@@ -78,19 +108,20 @@ remains `BLOCKED_NO_TRADE` and requires separate protected review.
 ## Agent-native discovery and operator read
 
 When adding or changing an operation, run `copytrade-pm capabilities list`,
-`copytrade-pm capabilities show portfolio.current`, and
+`copytrade-pm capabilities show operations.roster.show`, and
 `copytrade-pm capabilities validate` before adding a module. The
 [agent-native guide](AGENT-NATIVE-OPERATIONS.md) documents scope,
-examples, failure semantics and protected boundaries. The `copytrade-pm`
-CLI provides read-only wallet, portfolio, paper and aggregate status adapters;
-research enumeration remains explicitly unknown without an authoritative run
-catalog. Original commands remain the owners.
+examples, failure semantics and protected boundaries. Current read-only
+wallet, seat, paper and aggregate adapters live under `copytrade-pm roster`,
+`paper` and `release`; the older flat `wallets`/`portfolios`/`status`/`health`
+leaves are gone. Research enumeration remains explicitly unknown without an
+authoritative run catalog.
 
 The 5 November extension supports *scoped* research discovery using the actual
-immutable job cache, plus private wallet inventory and independent release/
-paper-unit inspection; use `copytrade-pm wallets list --cohort research-108`,
+immutable job cache and independent release/paper-unit inspection; use
+`copytrade-pm roster show --store ROSTER_DB --account ACCOUNT --identities`,
 `copytrade-pm research list --cache-root PRIVATE_CACHE` and `copytrade-pm
-health`. The research listing is NOT a global all-study catalog. See
+release health`. The research listing is NOT a global all-study catalog. See
 [the acceptance record](AGENT-OPERATIONS-P1-ACCEPTANCE-20261105.md) and
 [operator guide](AGENT-NATIVE-OPERATIONS.md). Aggregate health is broader than metadata discovery. The guide records known facade classification and process-identity limitations; use native component evidence and preserve unknowns. Proposed corrections and bounded/reusable work belong to [the agent system plan](AGENT-SYSTEM-DESIGN.md), not a new runtime authority.
 
@@ -194,9 +225,9 @@ protected service restarts or deployments are authorized.
 
 **Scope:** the installed `copytrade-pm/main` commands checked against source/`--help` on 2026-10-31. Operations are offline by default; explicitly flagged acquisition commands can call paid/rate-limited vendors. **No live trading authority.** Begin with [INDEX](INDEX.md); for wallet fill acquisition and exact market sources read [DATA-ACQUISITION](DATA-ACQUISITION.md).
 
-## Mandatory agent lookup contract (registry-first)
+## Mandatory agent lookup contract (roster-first)
 
-Before answering or changing any wallet/portfolio/evaluation status, **MUST** follow [the registry-first agent workflow](WALLET-REGISTRY-AGENT-WORKFLOW.md). Run `copytrade-wallet-registry doctor` and `status` first, bind the result to the current source generation SHA/as-of, then query `portfolio --current`, namespace-qualified `portfolio`, `wallet --alias`, `cohort`, `paper` and independently verified worker evidence as the question requires. Inspect `scripts/registry_release.py verify` separately from `git log` or a merged PR; a merged source hotfix does not automatically update the pinned registry-only consumer. On stale/missing source or post-seal identity, fail closed without inventing a running/qualified/authorized wallet. OptMem is a pointer to this rule, not the current dataset.
+Before answering or changing any wallet/seat/evaluation status, **MUST** resolve the account's committed book with `copytrade-pm roster show --store ROSTER_DB --account ACCOUNT --as-of <ISO-8601 UTC> --identities` (and `copytrade-pm release export` for a redacted release view). Bind the answer to that book's `inventory_sha`, its policy epoch and the requested as-of clock, then read runtime, source and paper evidence from their own owners. When the question is about a frozen 2026-11 portfolio (`P1`, `P14`, `TriadA`, `E6`), read the read-only archive `~/.local/share/copytrade/phase-d/archive/legacy_wallet_registry_20261119.sqlite` and label the answer historical; the `copytrade-wallet-registry` CLI, `scripts/registry_release.py` and the live `wallet_registry.sqlite` writer are deleted. On missing/stale evidence or absent seats, fail closed without inventing a running/qualified/authorized wallet. OptMem is a pointer to this rule, not the current dataset.
 
 ## Research portfolio selection and private registry (2026-11-04)
 
@@ -264,8 +295,8 @@ uv run --frozen --group dev --extra market python -m copytrade_pm.pm_source_audi
   --research-root "$ROOT" --market-root "$MARKET" --out "$OUT"
 
 # Whole cohort native 1m instrument-day inventory, source SHA and gaps (offline).
-uv run --frozen --group dev --extra market copytrade-pm-market-audit \
-  --research-root "$ROOT" --market-root "$MARKET" --out "$OUT"
+uv run --frozen --group dev --extra market copytrade-pm research market-audit \
+  --research-root "$ROOT" --market-root "$MARKET" --out "$OUT" --apply
 ```
 
 Every CLI prints an output `evidence_path`/`evidence_file` and SHA. Record those values with the **schema and code commit**. `SOURCE_DAY_SHA_VERIFIED` proves integrity of the native day bytes, not executable minute capacity, actual bid/ask, a valid Propr order ID or a whole source account.
@@ -380,7 +411,7 @@ The checked-in fixture is fabricated, and the CLI works entirely offline. `pm03_
 | Invocation | Safe network class | Purpose |
 | --- | --- | --- |
 | `copytrade-pm-replay` | Offline | Frozen 36-wallet historical fill replay; native market marks |
-| `copytrade-pm-market-audit` | Offline | 1m native instrument-day SHA coverage |
+| `copytrade-pm research market-audit` | Offline | 1m native instrument-day SHA coverage |
 | `copytrade-pm-scope` | Offline | Frozen public Propr **display** market scope vs audit |
 | `copytrade-pm-rank` | Offline | PM-02 36-card manager research, optional sealed forward evidence |
 | `copytrade-pm-handoff` | Offline | Strict three-artifact dependency verdict |

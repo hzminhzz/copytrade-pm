@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import argparse
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from decimal import Decimal
 import json
 import os
@@ -107,35 +107,50 @@ ALL_14_WALLETS = (
 )
 
 
-def load_registry_seals(
-    registry_db: Path, *, portfolios: tuple[str, ...] | None = None
-) -> dict[str, dict]:
-    """Read version 2 seals and memberships directly from SQLite authority.
+def roster_account_id(portfolio_id: str) -> str:
+    """Map a campaign label to its roster account id.
 
-    Scoped diagnostics may request one portfolio without querying unrelated seals.
+    Roster identifiers are `[A-Za-z0-9][A-Za-z0-9_.:-]*`, so a namespaced
+    campaign label keeps its meaning with `:` in place of `/`.
     """
+    return portfolio_id.replace("/", ":")
+
+
+def load_registry_seals(
+    roster_db: Path,
+    *,
+    portfolios: tuple[str, ...] | None = None,
+    as_of: str | None = None,
+) -> dict[str, dict]:
+    """Read one sealed roster book per campaign portfolio.
+
+    The retired wallet registry is no longer an identity source: seat ids are
+    the campaign's canonical member labels and the book hash is the seal. A
+    missing or drifted book fails closed, so an unregistered campaign stays
+    BLOCKED_EVIDENCE rather than inheriting a legacy seal.
+    """
+    from .roster.sealed import SealedSelectionError, select_sealed_book, timestamp_ms
+    from .roster.store import RosterStore
+
     selected = portfolios if portfolios is not None else tuple(PORTFOLIO_CONFIGS)
     if not selected or any(pid not in PORTFOLIO_CONFIGS for pid in selected):
         raise ValueError("UNKNOWN_CHAPTER2_PORTFOLIO")
-    if not registry_db.is_file():
-        raise ValueError(f"REGISTRY_DB_NOT_FOUND: {registry_db}")
+    if roster_db.is_symlink() or not roster_db.is_file():
+        raise ValueError(f"ROSTER_DB_NOT_FOUND: {roster_db}")
+    cutoff = (
+        timestamp_ms(as_of) if as_of is not None else timestamp_ms(datetime.now(UTC).isoformat())
+    )
     seals: dict[str, dict] = {}
-    with closing(sqlite3.connect(f"file:{registry_db.resolve()}?mode=ro", uri=True)) as con:
-        con.row_factory = sqlite3.Row
-        cur = con.cursor()
+    with RosterStore(roster_db) as store:
         for pid in selected:
             cfg = PORTFOLIO_CONFIGS[pid]
-            row = cur.execute(
-                "SELECT portfolio_id, version, definition_sha256, selection_known_at FROM portfolio_seals WHERE portfolio_id=? AND version=2",
-                (pid,),
-            ).fetchone()
-            if not row:
-                raise ValueError(f"SEAL_V2_MISSING: {pid}")
-            members_rows = cur.execute(
-                "SELECT member_alias FROM portfolio_memberships WHERE portfolio_id=? AND version=2 ORDER BY member_alias",
-                (pid,),
-            ).fetchall()
-            actual_members = tuple(r["member_alias"] for r in members_rows)
+            try:
+                sealed = select_sealed_book(
+                    store, roster_account_id(pid), cutoff, require_attestation=False
+                )
+            except SealedSelectionError as exc:
+                raise ValueError(f"SEAL_MISSING: {pid}: {exc}") from exc
+            actual_members = tuple(sorted(member.seat_id for member in sealed.members))
             expected_members = tuple(sorted(cfg["members"]))
             if actual_members != expected_members:
                 raise ValueError(
@@ -143,9 +158,11 @@ def load_registry_seals(
                 )
             seals[pid] = {
                 "portfolio_id": pid,
-                "version": 2,
-                "definition_sha256": row["definition_sha256"],
-                "selection_known_at": row["selection_known_at"],
+                "version": sealed.version,
+                "definition_sha256": sealed.definition_sha256,
+                "selection_known_at": datetime.fromtimestamp(
+                    sealed.selection_known_at_ms / 1000, UTC
+                ).isoformat(),
                 "members": actual_members,
             }
     return seals
@@ -738,10 +755,16 @@ def main() -> None:
         help="Path to the canonical CWSA source database",
     )
     parser.add_argument(
+        "--roster-db",
         "--registry-db",
+        dest="registry_db",
+        metavar="PATH",
         type=Path,
-        default=Path("/home/quant/.local/share/copytrade/registry/wallet_registry.sqlite"),
-        help="Path to the SQLite wallet registry",
+        default=Path("~/.local/share/copytrade/roster.sqlite").expanduser(),
+        help=(
+            "Roster SQLite seat authority; --registry-db is a retained alias for"
+            " the pinned Chapter 2 unit"
+        ),
     )
     parser.add_argument(
         "--poll-seconds",

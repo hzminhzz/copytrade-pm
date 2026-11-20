@@ -67,7 +67,7 @@ def capture(
 
 
 def fake_native(args: list[str]) -> dict:
-    if args[:2] == ["portfolios", "current"]:
+    if args[:2] == ["research", "show"]:
         return {
             "schema": "copytrade_read_result_v1",
             "observed_at": T0.isoformat(),
@@ -75,10 +75,10 @@ def fake_native(args: list[str]) -> dict:
             "scientifically_qualified": False,
             "status": "BLOCKED",
             "source": {
-                "authority": "wallet_registry",
+                "authority": "immutable_offline_job_cache",
                 "observed_at": T0.isoformat(),
                 "sha256": "e" * 64,
-                "version": "sqlite_v8",
+                "version": "cache_v1",
             },
             "data": {"research_only": True},
             "limitations": ["SELECTION_PROOF_UNAVAILABLE"],
@@ -106,7 +106,9 @@ def test_equity_zero_is_not_unknown_and_provenance_survives():
     assert report["sources"]["risk"]["revision"] == "a" * 64
     assert report["sources"]["risk"]["source_observed_at"] == T0.isoformat()
     assert report["sources"]["risk"]["source_schema"] == "operator_risk_v1"
-    assert report["research_selection"]["status"] == "BLOCKED"
+    # No committed roster database is configured, so selection stays explicitly UNKNOWN.
+    assert report["research_selection"]["status"] == "UNKNOWN"
+    assert report["research_selection"]["error_code"] == "ROSTER_UNAVAILABLE"
     assert report["trading_authorized"] is False
     assert report["membership_authority"].startswith("UNKNOWN")
     assert "BROKER_STALE" in report["incidents"]
@@ -193,7 +195,7 @@ def test_partial_guardian_captures_never_authorize_financial_metric():
 def test_missing_capture_is_unavailable_only_for_guardian():
     out = reader(provider=lambda _: (_ for _ in ()).throw(PermissionError())).overview()
     assert out["metrics"]["equity"]["status"] == "UNAVAILABLE"
-    assert out["research_selection"]["status"] == "BLOCKED"
+    assert out["research_selection"]["status"] == "UNKNOWN"
     assert out["sources"]["broker"]["status"] == "UNAVAILABLE"
 
 
@@ -226,8 +228,7 @@ def test_no_network_mutation_or_privileged_calls(monkeypatch):
         raise AssertionError("FOREIGN_MUTATION_ATTEMPTED")
 
     monkeypatch.setattr(adapter.subprocess, "run", forbidden)
-    monkeypatch.setattr(adapter.registry, "apply", forbidden)
-    monkeypatch.setattr(adapter.registry, "connect", forbidden)
+    monkeypatch.setattr("copytrade_pm.roster.RosterStore", forbidden)
     a = reader()
     a.guardian("risk")
     a.overview()
@@ -253,33 +254,80 @@ def test_wallet_invalid_input_has_no_backend_calls():
     assert calls == []
 
 
-def test_wallet_native_schema_and_privacy_must_be_explicit():
-    payload = {
-        "schema": "copytrade_read_result_v1",
-        "status": "VERIFIED",
-        "observed_at": T0.isoformat(),
-        "trading_authorized": False,
-        "scientifically_qualified": False,
-        "source": {
-            "authority": "wallet_registry",
-            "observed_at": T0.isoformat(),
-            "sha256": "a" * 64,
-            "version": "sqlite_v8",
-        },
-        "data": {
-            "schema": "wallet_registry_private_inventory_v1",
-            "addresses_redacted": False,
-            "wallets": [{"address": "sensitive"}],
-        },
-    }
-    a = DashboardReader(native_read=lambda _: payload, clock=lambda: T0, cache=SmallTTLCache())
-    result = a.wallets()
-    assert result["status"] == "BLOCKED"
+def test_wallet_inventory_is_roster_derived_and_redacted(tmp_path):
+    from copytrade_pm.roster import RosterStore
+    from roster_fixture import WALLETS, add_account
+
+    db = tmp_path / "roster.sqlite"
+    with RosterStore(db, create=True) as store:
+        add_account(
+            store,
+            "A",
+            {"W001": WALLETS[0], "W002": WALLETS[1], "W003": WALLETS[2]},
+        )
+    before = db.read_bytes()
+    reader = DashboardReader(
+        db=db, clock=lambda: datetime(2026, 11, 5, tzinfo=UTC), cache=SmallTTLCache()
+    )
+    found = reader.wallets(query="W002", limit=1)
+    assert found["status"] == "VERIFIED"
+    assert found["authority"] == "roster_sqlite"
+    assert found["data"]["schema"] == "roster_wallet_inventory_v1"
+    assert found["data"]["addresses_redacted"] is True
+    assert found["data"]["total"] == 1
+    row = found["data"]["wallets"][0]
+    assert row["alias"] == "W002"
+    assert row["cohort"] == "A"
+    assert row["wallet"].startswith("wallet:")
+    assert row["occupancy"] == "OCCUPIED"
+    assert WALLETS[1] not in json.dumps(found)
+    assert "0x" not in json.dumps(found["data"])
+    assert len(found["inventory_sha256"]) == 64
+    # A VERIFIED capability row requires a real source clock (Grafana read model).
+    assert found["source_observed_at"] is not None
+    from copytrade_pm.dashboard.grafana_capabilities import build_capabilities
+
+    capabilities = build_capabilities(reader)
+    assert capabilities["wallets"]["status"] == "VERIFIED"
+    assert capabilities["wallets"]["authority"] == "roster_seat_book"
+    assert len(capabilities["wallets"]["rows"]) == 3
+    # A later known-at clock still resolves the committed book unchanged.
+    assert reader.wallets(query="W002")["data"]["total"] == 1
+    assert db.read_bytes() == before
+
+
+def test_wallet_inventory_rejects_unverifiable_roster(tmp_path):
+    from contextlib import closing
+    import sqlite3
+
+    from copytrade_pm.roster import RosterStore
+    from roster_fixture import WALLETS, add_account
+
+    db = tmp_path / "roster.sqlite"
+    with RosterStore(db, create=True) as store:
+        add_account(store, "A", {"W001": WALLETS[0]})
+    with closing(sqlite3.connect(db)) as con, con:
+        con.execute("UPDATE meta SET value='99' WHERE key='schema_version'")
+    result = DashboardReader(
+        db=db, clock=lambda: datetime(2026, 11, 5, tzinfo=UTC), cache=SmallTTLCache()
+    ).wallets()
+    assert result["status"] == "STALE"
+    assert result["error_code"] == "ROSTER_INTEGRITY_UNVERIFIED"
     assert result["data"] is None
 
 
-def test_native_reader_rejects_fake_authority_and_malformed_observation():
-    payload = fake_native(["portfolios", "current"])
+def test_wallet_inventory_absent_roster_is_unknown(tmp_path):
+    result = DashboardReader(
+        db=tmp_path / "missing.sqlite",
+        clock=lambda: datetime(2026, 11, 5, tzinfo=UTC),
+        cache=SmallTTLCache(),
+    ).wallets()
+    assert result["status"] == "UNKNOWN"
+    assert result["error_code"] == "ROSTER_UNAVAILABLE"
+
+
+def test_native_reader_rejects_fake_authority_and_malformed_observation(tmp_path):
+    payload = fake_native(["research", "show", "case1"])
     for modified in [
         {"schema": "unsupported"},
         {"trading_authorized": True},
@@ -288,21 +336,29 @@ def test_native_reader_rejects_fake_authority_and_malformed_observation():
         {"observed_at": (T0 + timedelta(seconds=1)).isoformat()},
     ]:
         source = {**payload, **modified}
-        a = DashboardReader(native_read=lambda _: source, clock=lambda: T0, cache=SmallTTLCache())
-        answer = a.research_selection()
+        a = DashboardReader(
+            research_root=tmp_path,
+            native_read=lambda _: source,
+            clock=lambda: T0,
+            cache=SmallTTLCache(),
+        )
+        answer = a.research_reports(run_id="case1")
         assert answer["status"] == "UNKNOWN"
         assert answer["data"] is None
         assert answer["error_code"] == "NATIVE_READ_UNAVAILABLE"
 
 
-def test_native_query_observed_during_read_is_not_falsely_future():
-    payload = fake_native(["portfolios", "current"])
+def test_native_query_observed_during_read_is_not_falsely_future(tmp_path):
+    payload = fake_native(["research", "show", "case1"])
     payload["observed_at"] = (T0 + timedelta(milliseconds=100)).isoformat()
-    observations = iter([T0, T0 + timedelta(seconds=1)])
+    observations = iter([T0, T0 + timedelta(seconds=1), T0 + timedelta(seconds=1)])
     a = DashboardReader(
-        native_read=lambda _: payload, clock=lambda: next(observations), cache=SmallTTLCache()
+        research_root=tmp_path,
+        native_read=lambda _: payload,
+        clock=lambda: next(observations),
+        cache=SmallTTLCache(),
     )
-    result = a.research_selection()
+    result = a.research_reports(run_id="case1")
     assert result["status"] == "BLOCKED"
     assert result["error_code"] is None
     assert result["retrieved_at"] == (T0 + timedelta(seconds=1)).isoformat()
@@ -341,34 +397,39 @@ def test_no_synthetic_health_and_services_from_pids(monkeypatch):
     assert all(s["attests_financial_health"] is False for s in report["services"].values())
 
 
-def test_actual_sqlite_readonly_pagination_asof_and_zero_write(tmp_path, monkeypatch):
-    from test_wallet_registry_catalog import AFTER, BEFORE, _v2_snapshot
-    from copytrade_pm import wallet_registry as native_registry
-    from copytrade_pm import wallet_registry_catalog as native_catalog
-    from hashlib import sha256
+def test_roster_pagination_asof_and_zero_write(tmp_path):
+    from copytrade_pm.roster import RosterStore
+    from roster_fixture import AT, MS, WALLETS, add_account
 
-    whale = "0x5f94" + "0" * 36
-    monkeypatch.setattr(native_catalog, "WHALE_ADDRESS_SHA256", sha256(whale.encode()).hexdigest())
-    # Existing, authoritative test-fixture schema. Writes only fixture setup.
-    db, snapshot = _v2_snapshot(tmp_path)
-    native_registry.apply(db, snapshot, AFTER)
+    db = tmp_path / "roster.sqlite"
+    with RosterStore(db, create=True) as store:
+        add_account(
+            store,
+            "A",
+            {"W001": WALLETS[0], "W002": WALLETS[1], "W003": WALLETS[2]},
+        )
+        store.record_veto(WALLETS[2], reason="reviewed exclusion", actor="operator", at_ms=MS)
     before_bytes = db.read_bytes()
-    # This test invokes the native SQLite owner, which timestamps its answer
-    # using the real clock. A fixed T0 makes valid reads look future-dated
-    # once the test date has passed; synthetic capture tests still use T0.
-    app = DashboardReader(db=db, clock=lambda: datetime.now(UTC), cache=SmallTTLCache())
-    found = app.wallets(query="W083", asof=AFTER, limit=1)
+    # The roster is read at a known-at clock, so the fixture instant is the floor.
+    app = DashboardReader(
+        db=db, clock=lambda: datetime(2026, 11, 5, tzinfo=UTC), cache=SmallTTLCache()
+    )
+    found = app.wallets(query="W00", asof=AT, limit=2)
     assert found["status"] == "VERIFIED"
-    assert found["data"]["total"] == 1
-    assert found["data"]["addresses_redacted"] is True
-    assert "W083" in [a["alias"] for a in found["data"]["wallets"][0]["aliases"]]
+    assert found["data"]["total"] == 3
+    assert len(found["data"]["wallets"]) == 2
     assert "0x" not in json.dumps(found["data"])
-    assert app.wallets(query="W083", asof=BEFORE)["data"]["total"] == 0
+    page = app.wallets(query="W00", asof=AT, limit=2, offset=2)
+    assert [row["alias"] for row in page["data"]["wallets"]] == ["W003"]
     excluded = app.wallets(excluded=True, limit=10)
-    assert excluded["data"]["total"] > 0
+    assert excluded["data"]["total"] == 1
     assert all(row["excluded"] for row in excluded["data"]["wallets"])
+    # A known-at clock before the first committed book cannot invent members.
+    early = app.wallets(asof="2026-11-03T00:00:00+00:00")
+    assert early["status"] == "VERIFIED"
+    assert early["data"]["total"] == 0
+    assert early["data"]["unknown_accounts"] == ["A"]
     assert db.read_bytes() == before_bytes
-    assert found["inventory_sha256"] is not None
     assert len(found["inventory_sha256"]) == 64
 
 
@@ -409,45 +470,37 @@ def test_decimal_and_clock_boundaries():
     assert parse_utc("2026-11-07T00:00:00Z") is not None
 
 
-def test_dashboard_wallets_continues_when_sqlite_verifies_despite_blocked_selection_proof(
-    tmp_path, monkeypatch
-):
-    """Seam 3 (dashboard wallet parity): catches over-blocking on selection-proof block; misses CLI contract comparison."""
-    from contextlib import closing
-    from hashlib import sha256
-    from test_wallet_registry_catalog import AFTER, _v2_snapshot
-    from copytrade_pm import pm_operations as operations
-    from copytrade_pm import wallet_registry as native_registry
-    from copytrade_pm import wallet_registry_catalog as native_catalog
+def test_wallet_inventory_and_selection_never_grant_authority(tmp_path):
+    """Seam 3 (dashboard wallet parity): roster identity never promotes authority."""
+    from copytrade_pm.roster import RosterStore
+    from roster_fixture import WALLETS, add_account
 
-    whale = "0x5f94" + "0" * 36
-    monkeypatch.setattr(native_catalog, "WHALE_ADDRESS_SHA256", sha256(whale.encode()).hexdigest())
-    db, snapshot = _v2_snapshot(tmp_path)
-    native_registry.apply(db, snapshot, AFTER)
-    with closing(native_registry.connect(db, True)) as con, con:
-        con.execute("UPDATE research_selections SET source_sha256=?", ("a" * 64,))
-
-    doctor = operations._doctor(db)
-    assert doctor["status"] == "BLOCKED"
-    assert doctor["data"]["database_integrity"] == "VERIFIED"
-    assert doctor["data"]["research_selection_integrity"] == "BLOCKED_MISSING_EXTERNAL_PROOF"
-
-    app = DashboardReader(db=db, clock=lambda: datetime.now(UTC), cache=SmallTTLCache())
-    found = app.wallets(query="W083", asof=AFTER, limit=1)
-    assert found["status"] == "VERIFIED"
-    assert found["data"]["total"] == 1
-    assert found["data"]["addresses_redacted"] is True
-
-    monkeypatch.setattr(
-        operations,
-        "_doctor",
-        lambda _: {
-            "status": "STALE",
-            "error_code": "REGISTRY_SQLITE_INTEGRITY_FAILED",
-            "data": {"database_integrity": "FAILED"},
-        },
+    db = tmp_path / "roster.sqlite"
+    with RosterStore(db, create=True) as store:
+        add_account(store, "A", {"W001": WALLETS[0]})
+    app = DashboardReader(
+        db=db, clock=lambda: datetime(2026, 11, 5, tzinfo=UTC), cache=SmallTTLCache()
     )
-    stale_app = DashboardReader(db=db, clock=lambda: datetime.now(UTC), cache=SmallTTLCache())
-    stale = stale_app.wallets(query="W083", asof=AFTER, limit=1)
-    assert stale["status"] == "STALE"
-    assert stale["error_code"] == "REGISTRY_PARITY_UNVERIFIED"
+    found = app.wallets(query="W001")
+    assert found["status"] == "VERIFIED"
+    assert found["trading_authorized"] is False
+    assert found["scientifically_qualified"] is False
+    selection = app.research_selection()
+    assert selection["status"] == "VERIFIED"
+    assert selection["data"]["selection_state"] == "SEALED_RESEARCH_ONLY"
+    assert selection["data"]["accounts"] == ["A"]
+    assert selection["trading_authorized"] is False
+    # An unattested selection is visible but never trading authorization.
+    assert all(p["source_sealed"] is True for p in selection["data"]["portfolios"])
+
+    missing = DashboardReader(
+        db=tmp_path / "absent.sqlite",
+        clock=lambda: datetime(2026, 11, 5, tzinfo=UTC),
+        cache=SmallTTLCache(),
+    )
+    assert missing.wallets()["status"] == "UNKNOWN"
+    assert missing.research_selection()["error_code"] == "ROSTER_UNAVAILABLE"
+    # An account with no committed book at the requested clock is not invented.
+    absent = app.research_selection(account="NO_SUCH_ACCOUNT")
+    assert absent["status"] == "NOT_REGISTERED_AT_ASOF"
+    assert absent["error_code"] == "SELECTION_UNKNOWN_AT_ASOF"

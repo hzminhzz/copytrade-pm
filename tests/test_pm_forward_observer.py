@@ -26,7 +26,7 @@ from copytrade_pm.pm_forward_source_observation import (
     read_public_all_dex_scope,
 )
 from test_pm_e4_prospective import sample_state
-from test_pm_forward_registry_identity import P14, prepare
+from legacy_registry_fixture import P14, prepare
 from test_pm_forward_source_stream import FakeSocket
 
 T = datetime.fromtimestamp(1793294400, UTC)

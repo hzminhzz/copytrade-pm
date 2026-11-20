@@ -52,23 +52,20 @@ def assessment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys):
     }
     monkeypatch.setattr(
         pm_operations,
-        "_doctor",
+        "roster_authority",
         lambda db: pm_operations.result(
-            "registry.doctor",
-            "BLOCKED",
-            {
-                "database_integrity": "VERIFIED",
-                "research_selection_integrity": "BLOCKED_MISSING_EXTERNAL_PROOF",
-                "inventory_sha256": "d" * 64,
-            },
-            authority="sqlite_wallet_registry",
+            "roster.authority",
+            "VERIFIED",
+            {"database_integrity": "VERIFIED", "inventory_sha256": "d" * 64},
+            authority="roster_sqlite",
+            sha256="d" * 64,
         ),
     )
 
     def seals(db, portfolios=None):
         return {
             pid: {
-                "version": 2,
+                "version": 1,
                 "definition_sha256": "e" * 64,
                 "selection_known_at": "2026-11-12T00:00:00+00:00",
                 "members": tuple(sorted(six.PORTFOLIO_CONFIGS[pid]["members"])),
@@ -94,14 +91,14 @@ def assessment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys):
 
     def invoke(pid: str = "A", *, prior: Path | None = None, inspection: str = "evidence"):
         argv = [
-            "cwsa",
+            "release",
             "chapter2",
             "explain",
             "--portfolio",
             pid,
             "--inspection",
             inspection,
-            "--registry-db",
+            "--roster-db",
             str(tmp_path / "registry"),
             "--source-db",
             str(tmp_path / "source"),
@@ -174,7 +171,7 @@ def test_site_owner_view_parity_redaction_and_no_side_effect(assessment, monkeyp
 
     # The actual CLI site-view verb uses the owner exactly once.
     monkeypatch.setattr(projection, "explain_task", lambda args: cli_owner)
-    assert pm_operations.cli(["cwsa", "chapter2", "site-view", "--portfolio", "A"]) == 0
+    assert pm_operations.cli(["release", "chapter2", "site-view", "--portfolio", "A"]) == 0
     routed = json.loads(capsys.readouterr().out)
     assert routed == clean
     assert source["head_sha256"] == "a" * 64

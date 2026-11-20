@@ -1,15 +1,13 @@
 """Versioned SQLite release approvals and immutable Ed25519 portfolio manifests.
 
-The namespace extension is installed only by explicit store_policy, never by a
-read or startup. It leaves registry schema v8 and all existing authority rows
-unchanged. No broker library or broker credential is used.
+Reviewer approvals are stored in the immutable roster policy table. Manifest
+signing verifies the exact selection and independently signed source proofs.
 """
 
 from __future__ import annotations
 
 import argparse
 import base64
-from contextlib import closing
 from decimal import Decimal
 from hashlib import sha256
 import json
@@ -20,9 +18,6 @@ import sqlite3
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
-
-from . import wallet_registry as registry
-from .production_export import export_metadata
 
 
 def canonical(value: object) -> bytes:
@@ -101,70 +96,32 @@ def _require_sha(value: object, reason: str = "INVALID_SHA256") -> str:
 def store_policy(
     db: Path, portfolio_id: str, metadata: dict, envelope: dict, reviewer: Ed25519PublicKey
 ) -> str:
-    """Explicit immutable metadata mutation; never called against the live DB automatically."""
+    """Verify a trusted reviewer and append its policy against the exact book."""
+    from .roster import RosterStore
+    from .roster.sealed import select_sealed_book
+
     policy = verify(envelope, reviewer, "research-release-policy")
-    if policy["metadata_export_sha256"] != metadata["export_sha256"]:
+    if (
+        policy.get("schema") != "production_release_policy_v1"
+        or policy.get("metadata_export_sha256") != metadata["export_sha256"]
+        or policy.get("account_binding") != portfolio_id
+    ):
         raise ValueError("APPROVAL_METADATA_MISMATCH")
-    if type(policy["generation"]) is not int or policy["generation"] < 1:
-        raise ValueError("POLICY_GENERATION")
-    from datetime import datetime, timezone
-
-    asof = datetime.fromtimestamp(metadata["asof_ms"] / 1000, timezone.utc).isoformat()
-    with closing(registry.connect(db, True)) as con:
-        con.execute("BEGIN IMMEDIATE")
-        current = export_metadata(
-            db,
-            portfolio_id,
-            asof,
-            version=metadata["version"],
-            sizing_policy=metadata["sizing_policy"],
-            _connection=con,
+    with RosterStore(db, writable=True) as store:
+        current = select_sealed_book(
+            store, portfolio_id, policy["created_at_ms"], require_attestation=False
         )
-        if current["export_sha256"] != metadata["export_sha256"]:
+        if current.metadata()["export_sha256"] != metadata["export_sha256"]:
             raise ValueError("REGISTRY_CHANGED_SINCE_APPROVAL")
-        con.execute(
-            "CREATE TABLE IF NOT EXISTS production_portfolio_policies ("
-            "portfolio_id TEXT NOT NULL,version INTEGER NOT NULL,generation INTEGER NOT NULL,"
-            "known_at_ms INTEGER NOT NULL,sha TEXT NOT NULL,envelope TEXT NOT NULL,"
-            "PRIMARY KEY(portfolio_id,version,generation),"
-            "FOREIGN KEY(portfolio_id,version) REFERENCES portfolio_versions(portfolio_id,version))"
+        return store.seal_policy(
+            portfolio_id,
+            generation=policy["generation"],
+            envelope=envelope,
+            known_at_ms=policy["created_at_ms"],
         )
-        con.execute(
-            "CREATE TRIGGER IF NOT EXISTS production_policy_no_update "
-            "BEFORE UPDATE ON production_portfolio_policies BEGIN "
-            "SELECT RAISE(ABORT,'IMMUTABLE_PRODUCTION_POLICY'); END"
-        )
-        con.execute(
-            "CREATE TRIGGER IF NOT EXISTS production_policy_no_delete "
-            "BEFORE DELETE ON production_portfolio_policies BEGIN "
-            "SELECT RAISE(ABORT,'IMMUTABLE_PRODUCTION_POLICY'); END"
-        )
-        rows = con.execute(
-            "SELECT generation,sha FROM production_portfolio_policies "
-            "WHERE portfolio_id=? AND version=? ORDER BY generation DESC",
-            (portfolio_id, metadata["version"]),
-        ).fetchall()
-        policy_sha = digest(policy)
-        if rows and policy["generation"] <= rows[0][0]:
-            if (policy["generation"], policy_sha) in rows:
-                return policy_sha
-            raise ValueError("POLICY_ROLLBACK_OR_EQUIVOCATION")
-        con.execute(
-            "INSERT INTO production_portfolio_policies VALUES(?,?,?,?,?,?)",
-            (
-                portfolio_id,
-                metadata["version"],
-                policy["generation"],
-                policy["created_at_ms"],
-                policy_sha,
-                canonical(envelope).decode(),
-            ),
-        )
-        con.commit()
-        return policy_sha
 
 
-def _build_release_v1_payload(
+def _approved_selection(
     *,
     db: Path,
     portfolio_id: str,
@@ -172,30 +129,36 @@ def _build_release_v1_payload(
     reviewer: Ed25519PublicKey,
     source_observer: Ed25519PublicKey,
     now_ms: int,
+):
+    from .roster import RosterStore
+    from .roster.sealed import _select_at, timestamp_ms
+
+    cutoff = timestamp_ms(asof)
+    if cutoff > now_ms:
+        raise ValueError("SELECTION_UNKNOWN_AT_ASOF")
+    with RosterStore(db) as store, store.read_snapshot():
+        selection = _select_at(store, portfolio_id, cutoff, now_ms, reviewer, source_observer, True)
+        current = _select_at(store, portfolio_id, now_ms, now_ms, None, None, False)
+        if (
+            current.definition_sha256 != selection.definition_sha256
+            or current.release_binding != selection.release_binding
+        ):
+            raise ValueError("SELECTION_MEMBER_DRIFT")
+        payload = selection.approved_payload
+        if payload["research_commit"] is None:
+            raise ValueError("RELEASE_BINDING_MISSING")
+        return selection
+
+
+def _approved_release_payload(
+    metadata: dict,
+    policy: dict,
+    *,
+    source_observer: Ed25519PublicKey,
+    now_ms: int,
 ) -> dict:
-    with closing(registry.connect(db, False)) as con:
-        con.execute("BEGIN")
-        metadata = export_metadata(db, portfolio_id, asof, _connection=con)
-        if not con.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' "
-            "AND name='production_portfolio_policies'"
-        ).fetchone():
-            raise ValueError("SEALED_PRODUCTION_POLICY_MISSING")
-        row = con.execute(
-            "SELECT sha,envelope FROM production_portfolio_policies "
-            "WHERE portfolio_id=? AND version=? AND known_at_ms<=? ORDER BY generation DESC LIMIT 1",
-            (portfolio_id, metadata["version"], now_ms),
-        ).fetchone()
-        if row is None:
-            raise ValueError("SEALED_PRODUCTION_POLICY_MISSING")
-        policy = verify(json.loads(row[1]), reviewer, "research-release-policy")
-        if policy["metadata_export_sha256"] != metadata["export_sha256"]:
-            # Existing approvals bind the original legacy export. Recompute it
-            # from the same snapshot; never rewrite or relax a signed digest.
-            metadata = export_metadata(
-                db, portfolio_id, asof, sizing_policy="ALLOCATION_OVER_LIVE_NAV", _connection=con
-            )
-    if row[0] != digest(policy) or policy["metadata_export_sha256"] != metadata["export_sha256"]:
+    """Validate observer evidence for independently reviewer-verified policy bytes."""
+    if policy["metadata_export_sha256"] != metadata["export_sha256"]:
         raise ValueError("POLICY_OR_INVENTORY_DRIFT")
     required = {
         "schema",
@@ -214,6 +177,8 @@ def _build_release_v1_payload(
         raise ValueError("POLICY_SCHEMA")
     if (
         type(now_ms) is not int
+        or type(policy["created_at_ms"]) is not int
+        or type(policy["expires_at_ms"]) is not int
         or not metadata["selection_known_at_ms"]
         <= policy["created_at_ms"]
         <= now_ms
@@ -248,6 +213,8 @@ def _build_release_v1_payload(
             or proof["account_scope"] != member["account_scope"]
             or member["source_identity"] not in member["account_scope"]
             or proof["source_mode"] != policy["source_mode"]
+            or type(proof["known_at_ms"]) is not int
+            or proof["known_at_ms"] < 0
             or not 0 <= policy["created_at_ms"] - proof["known_at_ms"] <= 600000
         ):
             raise ValueError("SOURCE_SCOPE_UNVERIFIED")
@@ -321,7 +288,7 @@ def build_manifest(
     release_signer: Ed25519PrivateKey,
     now_ms: int,
 ) -> dict:
-    payload = _build_release_v1_payload(
+    selection = _approved_selection(
         db=db,
         portfolio_id=portfolio_id,
         asof=asof,
@@ -329,7 +296,7 @@ def build_manifest(
         source_observer=source_observer,
         now_ms=now_ms,
     )
-    return sign(payload, release_signer, "approver")
+    return sign(selection.approved_payload, release_signer, "approver")
 
 
 def _validate_checkpoint_pins(checkpoint_policy: dict, checkpoint_scopes: dict[str, dict]) -> None:
@@ -406,9 +373,9 @@ def build_manifest_v2(
     checkpoint_scopes: dict[str, dict],
     mandates: list[dict],
 ) -> dict:
-    from .pm_copy_mandate import CopyMandate
+    from .pm_mandate import SignedMandate
 
-    payload = _build_release_v1_payload(
+    selection = _approved_selection(
         db=db,
         portfolio_id=portfolio_id,
         asof=asof,
@@ -416,6 +383,7 @@ def build_manifest_v2(
         source_observer=source_observer,
         now_ms=now_ms,
     )
+    payload = selection.approved_payload
     _validate_checkpoint_pins(checkpoint_policy, checkpoint_scopes)
     canonical_policy = json.loads(canonical(checkpoint_policy))
     canonical_scopes = json.loads(canonical(checkpoint_scopes))
@@ -435,7 +403,7 @@ def build_manifest_v2(
             raise ValueError("MANDATE_CONTRACT")
         if not isinstance(raw.get("k"), str):
             raise ValueError("MANDATE_K_TYPE")
-        m = CopyMandate.model_validate_json(canonical(raw))
+        m = SignedMandate.parse(json.loads(canonical(raw)))
         pod_identity = (m.account_id, m.pod_id)
         if pod_identity in seen_pods:
             raise ValueError("MANDATE_RELEASE_OPENING_OVERLAP")
@@ -476,6 +444,19 @@ def build_manifest_v2(
         serialized = json.loads(m.model_dump_json(by_alias=True))
         canonical(serialized)
         serialized_mandates.append(serialized)
+    binding = selection.release_binding
+    if (
+        binding is None
+        or canonical_policy != binding.checkpoint_policy
+        or canonical_scopes != binding.checkpoint_scopes
+        or any(
+            (m["generation"], m["mandate_id"]) != (lease.generation, lease.mandate_id)
+            for m in serialized_mandates
+            for lease in (selection.book.lease(m["pod_id"]),)
+            if lease is not None
+        )
+    ):
+        raise ValueError("MANDATE_RELEASE_BINDING_DRIFT")
     payload["schema"] = "portfolio_release_v2"
     payload["checkpoint_policy"] = canonical_policy
     payload["checkpoint_scopes"] = canonical_scopes
@@ -486,8 +467,8 @@ def build_manifest_v2(
     return sign(payload, release_signer, "approver")
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+def add_arguments(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    """Mount the manifest signing options onto an existing subparser."""
     parser.add_argument("--db", required=True, type=Path)
     parser.add_argument("--portfolio", required=True)
     parser.add_argument("--asof", required=True)
@@ -496,7 +477,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--source-public", required=True, type=Path)
     parser.add_argument("--release-signing-key", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    return run(add_arguments(argparse.ArgumentParser(description=__doc__)).parse_args(argv))
+
+
+def run(args: argparse.Namespace) -> int:
     try:
         if (
             args.release_signing_key.is_symlink()

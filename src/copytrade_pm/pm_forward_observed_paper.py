@@ -33,6 +33,8 @@ from .pm_exposure_sizing import target_from_fixed_k
 from .pm_forward_ccxt_market import NativeMarket, parse_ccxt_market
 from .pm_forward_journal import PaperJournal
 from .pm_forward_portfolios import FrozenPaperPortfolio, P1
+from .roster.sealed import SealedRosterSelection, select_sealed_book, timestamp_ms
+from .roster.store import DEFAULT_ROSTER_PATH, RosterStore
 from .pm_sqlite_readonly import connect_readonly
 from .pm_forward_single_shot import POLICY_VERSION, ESTIMATED_POLICY_VERSION
 from .pm_vike_minute import SCHEMA as VIKE_MINUTE_SCHEMA
@@ -44,8 +46,7 @@ from .pm_vike_market_catalog import (
 from .pm_forward_stream_journal import verify_official_position_transition
 
 P1_K = {"S035": "0.0282", "S051": "0.0430", "S053": "0.0296"}
-P1_REGISTRY_ALIASES = {"S035": "S035-ENA", "S051": "S051-BTC", "S053": "S053-HYPE"}
-DEFAULT_REGISTRY = Path("/home/quant/.local/share/copytrade/registry/wallet_registry.sqlite")
+DEFAULT_REGISTRY = DEFAULT_ROSTER_PATH
 SCHEMA = "observed_fixed_k_p1_single_shot_v3"
 VIKE_PAPER_SCHEMA = "observed_fixed_k_vike_minute_estimated_v4"
 SOURCE_NATIVE_MARK_SCHEMA = "observed_fixed_k_native_mark_v1"
@@ -140,52 +141,46 @@ PAPER_PROFILES = {
 }
 
 
-def _verify_portfolio_selection(
-    registry_db: Path,
-    profile: PaperPortfolioSpec,
-    *,
-    as_of: str,
-) -> dict[str, str | int]:
-    """Verify immutable portfolio definition from SQLite, not only alias names."""
-    from .wallet_registry_portfolios import select_asof
+def _profile_selection(
+    registry_db: Path, profile: PaperPortfolioSpec, *, as_of: str
+) -> SealedRosterSelection:
+    with RosterStore(registry_db) as store:
+        selected = select_sealed_book(
+            store, profile.registry_id, timestamp_ms(as_of), require_attestation=False
+        )
+    if (
+        {member.seat_id for member in selected.members} != set(profile.source_ids)
+        or any(lease.k != Decimal(profile.k[lease.seat_id]) for lease in selected.book.leases)
+        or any(
+            spec.risk_unit_usd != Decimal(profile.risk[spec.seat_id])
+            for spec, lease in selected.book.seats
+            if lease
+        )
+    ):
+        raise ValueError("PAPER_PORTFOLIO_SEAL_OR_SIZING_MISMATCH")
+    return selected
 
-    with closing(_readonly(registry_db)) as db:
-        db.execute("BEGIN")
-        try:
-            if (
-                profile.registry_id == "P1"
-                and not db.execute(
-                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='portfolio_seals'"
-                ).fetchone()
-            ):
-                # Legacy unit fixtures contain verified P1 wallet aliases,
-                # but no registry portfolio tables. Do NOT mislabel this SHA
-                # as a verified registry definition in source evidence.
-                return {
-                    "portfolio_id": "P1",
-                    "version": 0,
-                    "definition_sha256": None,
-                    "validation": "LEGACY_P1_TEST_FIXTURE_ONLY",
-                }
-            selected = select_asof(db, profile.registry_id, as_of)
-            if (
-                selected.get("state") == "UNKNOWN_AT_ASOF"
-                or not selected.get("alias_resolution_complete")
-                or not selected.get("sizing_contract", "").startswith(
-                    profile.registry_id + "_VIRTUAL_10000_USD_"
-                )
-                or set(selected.get("members", ())) != set(profile.full_aliases)
-                or len(selected.get("members", ())) != len(profile.full_aliases)
-                or not selected.get("definition_sha256")
-            ):
-                raise ValueError("PAPER_PORTFOLIO_SEAL_OR_SIZING_MISMATCH")
-        finally:
-            db.execute("ROLLBACK")
+
+def portfolio_wallets(
+    registry_db: Path, profile: PaperPortfolioSpec, *, as_of: str
+) -> tuple[str, ...]:
+    """Transport-only wallet set for one sealed paper profile; never logged."""
+    selected = _profile_selection(registry_db, profile, as_of=as_of)
+    return tuple(sorted(member.wallet for member in selected.members))
+
+
+def _selection_receipt(selected: SealedRosterSelection) -> dict[str, str | int]:
     return {
-        "portfolio_id": profile.registry_id,
-        "version": selected["version"],
-        "definition_sha256": selected["definition_sha256"],
+        "portfolio_id": selected.account_id,
+        "version": selected.version,
+        "definition_sha256": selected.definition_sha256,
     }
+
+
+def _verify_portfolio_selection(
+    registry_db: Path, profile: PaperPortfolioSpec, *, as_of: str
+) -> dict[str, str | int]:
+    return _selection_receipt(_profile_selection(registry_db, profile, as_of=as_of))
 
 
 def now_utc() -> str:
@@ -216,32 +211,6 @@ def _prestart_source_cursor(db: sqlite3.Connection, alias: str, durable_seen: in
     if cutoff < durable_seen:
         raise ValueError("PAPER_ORIGINAL_SOURCE_CURSOR_REGRESSED")
     return cutoff
-
-
-def _sealed_p1_accounts(
-    registry_db: Path,
-    *,
-    as_of: str,
-    aliases: Mapping[str, str] | None = None,
-) -> dict[str, str]:
-    """Pin canonical source-account identity once; never use a display label as ownership."""
-    selected: dict[str, str] = {}
-    with closing(_readonly(registry_db)) as db:
-        db.execute("BEGIN")
-        try:
-            for alias, full in (aliases or P1_REGISTRY_ALIASES).items():
-                rows = db.execute(
-                    "SELECT DISTINCT w.address FROM wallets w JOIN wallet_aliases a "
-                    "ON a.wallet_id=w.wallet_id "
-                    "WHERE a.alias=? AND a.known_at<=?",
-                    (full, as_of),
-                ).fetchall()
-                if len(rows) != 1:
-                    raise ValueError("SELECTED_P1_CANONICAL_ACCOUNT_NOT_UNIQUE:" + alias)
-                selected[alias] = sha256(rows[0][0].lower().encode()).hexdigest()
-        finally:
-            db.execute("ROLLBACK")
-    return selected
 
 
 @contextmanager
@@ -799,16 +768,12 @@ class ObservedP1Paper:
             )
         self.started_at = started_at
         if portfolio_id in PAPER_PROFILES:
-            self.portfolio_seal = _verify_portfolio_selection(
-                self.registry_db,
-                self.profile,
-                as_of=started_at,
-            )
-            self.selected_accounts = _sealed_p1_accounts(
-                self.registry_db,
-                as_of=started_at,
-                aliases=self.profile.registry_aliases,
-            )
+            selection = _profile_selection(self.registry_db, self.profile, as_of=started_at)
+            self.portfolio_seal = _selection_receipt(selection)
+            self.selected_accounts = {
+                member.seat_id: sha256(member.wallet.encode()).hexdigest()
+                for member in selection.members
+            }
             if study_accounts is not None and dict(study_accounts) != self.selected_accounts:
                 raise ValueError("V4_CAMPAIGN_LEGACY_IDENTITY_DRIFT")
         else:

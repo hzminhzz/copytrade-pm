@@ -1,30 +1,36 @@
 """Evidence-aware, read-only repo-wide operator queries.
 
-Registry, paper, research, release and PM-03 retain their own authorities.
-This module only adapts their public read interfaces. It never imports a
-writer or obtains broker access. Missing authorities are explicit UNKNOWN.
+Roster, paper, research and release retain their own authorities. This module
+only adapts their public read interfaces. It never imports a writer or obtains
+broker access. Retired authorities (the legacy wallet registry) are explicit
+UNKNOWN, never re-read through a compatibility shim.
 """
 
 from __future__ import annotations
 
 import argparse
-from contextlib import closing, redirect_stdout
 from datetime import UTC, datetime
-import io
 import json
 from pathlib import Path
 import subprocess
-import sqlite3
 
 from . import pm_capabilities as capabilities
+from . import pm_cwsa_chapter2_gate
+from . import pm_forward_ccxt_market
+from . import pm_forward_observer
+from . import pm_forward_observer_health
+from . import pm_forward_status
+from . import pm_health_arguments
+from . import pm_market_audit
 from . import pm_runtime_readonly as runtime
-from . import wallet_registry as registry
-from . import wallet_registry_catalog as catalog
+from . import production_export
 from .pm_bounded_acquisition import plan_bounded_acquisition
+from .roster import GateFailure
 from .pm_offline_job_catalog import assess_reuse, list_reports
 
 SCHEMA = "copytrade_read_result_v1"
 ROOT = Path(__file__).resolve().parents[2]
+ROSTER_DB = Path("~/.local/share/copytrade/roster.sqlite").expanduser()
 LIMITED = frozenset(
     {
         "VERIFIED",
@@ -77,158 +83,75 @@ def result(
     }
 
 
-def registry_query(db: Path, command: list[str]) -> object:
-    return _registry_query(db, command)
+def roster_authority(db: Path) -> dict:
+    """Roster SQLite integrity and content pin; the retired registry is UNKNOWN."""
+    return _roster_authority(db)
 
 
-def registry_generation(db: Path) -> dict:
-    return _generation(db)
+def roster_selection(db: Path, account: str, as_of: str | None = None) -> dict:
+    return _roster_selection(db, account, as_of)
 
 
-def doctor(db: Path) -> dict:
-    return _doctor(db)
+def _roster_authority(db: Path) -> dict:
+    from .roster.store import RosterStore
 
-
-def sqlite_integrity_verified(doctor_report: dict | None) -> bool:
-    return _sqlite_integrity_verified(doctor_report)
-
-
-def _registry_query(db: Path, command: list[str]) -> object:
-    """Invoke existing registry CLI without shelling out or modifying sources."""
-    sink = io.StringIO()
-    with redirect_stdout(sink):
-        code = registry.cli(["--db", str(db), *command])
-    if code != 0:
-        raise ValueError("AUTHORITATIVE_QUERY_UNAVAILABLE")
-    return json.loads(sink.getvalue())
-
-
-def _generation(db: Path) -> dict:
-    """The live SQLite inventory hash, never the age of the legacy importer."""
-    verified = registry.db_authority_health(db)
-    return {
-        "status": verified["database_integrity"],
-        "sha": verified["inventory_sha256"],
-        "observed_at": verified["observed_at"],
-    }
-
-
-def _doctor(db: Path) -> dict:
-    """Verify authoritative SQLite integrity independently from blocked selection proof."""
     try:
-        sink = io.StringIO()
-        with redirect_stdout(sink):
-            code = registry.cli(["--db", str(db), "doctor"])
-        payload = json.loads(sink.getvalue())
-        selection_integrity = payload.get("research_selection_integrity")
-        if (
-            code == 0
-            and payload.get("authority") == "SQLITE"
-            and payload.get("database_integrity") == "VERIFIED"
-        ):
-            state = "VERIFIED"
-            error_code = None
-        elif (
-            code == 2
-            and payload.get("authority") == "SQLITE"
-            and payload.get("database_integrity") == "VERIFIED"
-            and selection_integrity == "BLOCKED_MISSING_EXTERNAL_PROOF"
-        ):
-            state = "BLOCKED"
-            error_code = "RESEARCH_SELECTION_PROOF_BLOCKED"
-        elif code == 2 and payload.get("error_type") == "OperationalError":
-            state = "UNKNOWN"  # Missing/unavailable DB is not a stale SQLite snapshot.
-            error_code = None
-        elif code == 2 or payload.get("database_integrity") == "FAILED":
-            state = "STALE"
-            error_code = "REGISTRY_SQLITE_INTEGRITY_FAILED"
-        else:
-            state = "UNKNOWN"
-            error_code = None
-        # The native doctor does not report a stored index generation clock;
-        # that belongs to the independent status query.
+        verified = RosterStore.authority_health(db)
+    except (OSError, ValueError, RuntimeError) as exc:
         return result(
-            "registry.doctor",
-            state,
-            {
-                "database_integrity": payload.get("database_integrity"),
-                "research_selection_integrity": selection_integrity,
-                "current_research_selection": payload.get("current_research_selection"),
-                "inventory_sha256": payload.get("inventory_sha256"),
-                "indexed_import_clock_freshness": payload.get("indexed_import_clock_freshness"),
-                "unverified_cohort_import_provenance": payload.get(
-                    "unverified_cohort_import_provenance", []
-                ),
-            },
-            authority="sqlite_wallet_registry",
-            error_code=error_code,
-        )
-    except (ValueError, OSError, KeyError, TypeError, RuntimeError, sqlite3.Error) as exc:
-        return result(
-            "registry.doctor",
+            "roster.authority",
             "UNKNOWN",
-            authority="sqlite_wallet_registry",
-            error_code="REGISTRY_DOCTOR_UNAVAILABLE",
+            authority="roster_sqlite",
+            error_code=getattr(exc, "args", ("ROSTER_AUTHORITY_UNAVAILABLE",))[0],
             limitations=[type(exc).__name__],
         )
+    return result(
+        "roster.authority",
+        "VERIFIED",
+        {
+            "database_integrity": verified["database_integrity"],
+            "inventory_sha256": verified["inventory_sha256"],
+            "accounts": verified.get("accounts"),
+        },
+        authority="roster_sqlite",
+        sha256=verified["inventory_sha256"],
+        source_observed_at=verified.get("observed_at"),
+    )
 
 
-def _sqlite_integrity_verified(doctor: dict | None) -> bool:
-    """Return True when doctor attests verified SQLite integrity despite global selection block."""
-    if not isinstance(doctor, dict):
-        return False
-    data = doctor.get("data")
-    if isinstance(data, dict) and data.get("database_integrity") is not None:
-        if data.get("database_integrity") != "VERIFIED":
-            return False
-        if doctor.get("status") == "VERIFIED":
-            return True
-        return (
-            doctor.get("status") == "BLOCKED"
-            and data.get("research_selection_integrity") == "BLOCKED_MISSING_EXTERNAL_PROOF"
-        )
-    return doctor.get("status") == "VERIFIED"
+def _roster_selection(db: Path, account: str, as_of: str | None) -> dict:
+    """Current sealed seat book for one account, or an explicit refusal."""
+    from .roster.sealed import SealedSelectionError, select_sealed_book, timestamp_ms
+    from .roster.store import RosterStore
 
-
-def _read_registry(db: Path, command: list[str], capability: str, asof: str | None = None) -> dict:
     try:
-        gen = _generation(db)
-        args = [*command]
-        if asof:
-            args.extend(["--asof", asof])
-        payload = _registry_query(db, args)
-        status = "STALE" if gen["status"] != "VERIFIED" else "VERIFIED"
-        if command[:2] == ["portfolio", "--current"]:
-            if payload.get("selection_state") in (
-                "NOT_REGISTERED_AT_ASOF",
-                "SCHEMA_UPGRADE_REQUIRED",
-            ):
-                status = payload["selection_state"]
-        elif command and command[0] == "portfolio" and len(command) > 1:
-            record = next(iter(payload.values()), {})
-            if record.get("status") in ("UNKNOWN_AT_ASOF", "NOT_REGISTERED_AT_ASOF"):
-                status = "NOT_REGISTERED_AT_ASOF"
-        elif command and command[0] == "wallet" and not payload.get("found"):
-            status = "NOT_REGISTERED_AT_ASOF"
+        cutoff = timestamp_ms(as_of) if as_of else timestamp_ms(_now())
+        with RosterStore(db) as store:
+            sealed = select_sealed_book(store, account, cutoff, require_attestation=False)
         return result(
-            capability,
-            status,
-            payload,
-            authority="wallet_registry",
-            version="sqlite_v8",
-            sha256=gen["sha"],
-            source_observed_at=gen["observed_at"],
+            "roster.selection",
+            "VERIFIED",
+            sealed.metadata(),
+            authority="roster_sqlite",
+            sha256=sealed.book.sha,
+        )
+    except SealedSelectionError as exc:
+        state = "NOT_REGISTERED_AT_ASOF" if str(exc) == "SELECTION_UNKNOWN_AT_ASOF" else "UNKNOWN"
+        return result(
+            "roster.selection",
+            state,
+            authority="roster_sqlite",
+            error_code=str(exc),
             limitations=[
-                "SQLite integrity is authoritative; the dated legacy import timestamp is not an inventory freshness gate",
-                "Registry identity/read success does not establish worker health or trading authority",
+                "Selection integrity never establishes signed admission or trading authority"
             ],
         )
-    except (ValueError, OSError, KeyError, TypeError, RuntimeError, sqlite3.Error) as exc:
+    except (OSError, ValueError, RuntimeError) as exc:
         return result(
-            capability,
+            "roster.selection",
             "UNKNOWN",
-            authority="wallet_registry",
-            error_code="REGISTRY_READ_FAILED",
+            authority="roster_sqlite",
+            error_code="ROSTER_SELECTION_UNAVAILABLE",
             limitations=[type(exc).__name__],
         )
 
@@ -255,70 +178,9 @@ def _release(root: Path) -> dict:
         version=checked.get("release_revision"),
         error_code=checked.get("error_code"),
         limitations=[
-            "Only the pinned owner-private registry, not paper or broker services, was verified"
+            "Only the pinned installed release checkout, not paper or broker services, was verified"
         ],
     )
-
-
-def _paper(db: Path) -> dict:
-    observed = _read_registry(db, ["paper"], "paper.status")
-    if observed["status"] in ("VERIFIED", "STALE"):
-        payload = observed["data"]
-        records = payload.get("observations", [])
-        if records:
-            # Native registered_paper_status rechecks journals and liveness.
-            statuses = [x.get("state", "UNKNOWN") for x in records]
-            observed["status"] = (
-                "NOT_RUNNING"
-                if all(x == "NOT_RUNNING" for x in statuses)
-                else "DEGRADED"
-                if "DEGRADED" in statuses
-                else "UNKNOWN"
-            )
-        else:
-            observed["status"] = "UNKNOWN"
-            observed["limitations"].append(
-                "Zero indexed paper runs does not establish global worker absence"
-            )
-    return observed
-
-
-def _wallets(db: Path, args: argparse.Namespace) -> dict:
-    try:
-        generation = _generation(db)
-        cutoff = registry.asof_cutoff(args.asof)
-        with closing(registry.connect(db, False)) as con:
-            payload = catalog.list_wallets(
-                con,
-                cutoff,
-                query=args.query,
-                cohort=args.cohort,
-                excluded=args.excluded,
-                subscribed=args.subscribed,
-                limit=args.limit,
-                offset=args.offset,
-            )
-        return result(
-            "wallet.list",
-            "VERIFIED" if generation["status"] == "VERIFIED" else "STALE",
-            payload,
-            authority="wallet_registry",
-            version="sqlite_v8",
-            sha256=generation["sha"],
-            source_observed_at=generation["observed_at"],
-            limitations=[
-                "Indexed wallet attributes are source snapshots, not real-time equity or first-known trade receipts",
-                "Run registry doctor for SQLite integrity; live tracker freshness is independent",
-            ],
-        )
-    except (ValueError, OSError, RuntimeError, sqlite3.Error, KeyError, TypeError) as exc:
-        return result(
-            "wallet.list",
-            "UNKNOWN",
-            authority="wallet_registry",
-            error_code="WALLET_INVENTORY_READ_FAILED",
-            limitations=[type(exc).__name__],
-        )
 
 
 def _research(
@@ -453,7 +315,12 @@ def _research_preflight(
     )
 
 
-def _health(db: Path, root: Path, observer_root: Path | None = None) -> dict:
+def _health(
+    db: Path,
+    root: Path,
+    observer_root: Path | None = None,
+    account: str | None = None,
+) -> dict:
     parts: dict[str, dict] = {}
     try:
         parts["repository"] = result(
@@ -467,13 +334,19 @@ def _health(db: Path, root: Path, observer_root: Path | None = None) -> dict:
             error_code="GIT_READ_FAILED",
             limitations=[type(exc).__name__],
         )
-    parts["registry"] = _read_registry(db, ["status"], "registry.status")
-    parts["registry_source_parity"] = _doctor(db)
-    if parts["registry_source_parity"]["status"] != "VERIFIED":
-        # Cached indexed freshness is not an independently current source.
-        parts["registry"]["status"] = parts["registry_source_parity"]["status"]
-    parts["selection"] = _read_registry(db, ["portfolio", "--current"], "portfolio.current")
-    parts["paper"] = _paper(db)
+    parts["roster"] = _roster_authority(db)
+    if account:
+        parts["selection"] = _roster_selection(db, account, None)
+    else:
+        parts["selection"] = result(
+            "roster.selection",
+            "UNKNOWN",
+            authority="roster_sqlite",
+            error_code="ROSTER_ACCOUNT_SCOPE_REQUIRED",
+            limitations=[
+                "Pass --account to read one sealed seat book; no global selection default"
+            ],
+        )
     parts["research"] = _research("research.list")
     parts["installed_release"] = _release(root)
     paper_os = runtime.paper_unit_inventory()
@@ -531,41 +404,28 @@ def dispatch(args: argparse.Namespace) -> dict:
                 matches[0] if matches else {"status": "UNKNOWN", "error_code": "UNKNOWN_CAPABILITY"}
             )
         return capabilities.validate(args.root)
-    if args.group == "cwsa":
-        if args.verb == "projection":
-            from .pm_cwsa_chapter2_projection import build_runtime_projection
-
-            return build_runtime_projection(args)
-        if args.verb in ("explain", "site-view"):
-            from .pm_cwsa_chapter2_projection import explain_task, site_owner_view
-
-            original = explain_task(args)
-            return site_owner_view(original) if args.verb == "site-view" else original
-        if args.verb == "recover":
-            from .pm_cwsa_chapter2_projection import explain_native_guardian_intent
-
-            return explain_native_guardian_intent(
-                journal_path=args.guardian_journal,
-                intent_id=args.intent_id,
-                observed_at_ms=args.observed_at_ms,
-            )
-        from .pm_cwsa_chapter2_gate import verify
-
-        return verify(args)
-    if args.group == "wallets":
-        if args.verb == "show":
-            command = ["wallet", "--alias", args.id]
-            if args.namespace != "auto":
-                command.extend(["--namespace", args.namespace])
-            return _read_registry(db, command, "wallet.lookup", args.asof)
-        return _wallets(db, args)
-    if args.group == "portfolios":
-        if args.verb == "list":
-            return _read_registry(db, ["portfolio"], "portfolio.list", args.asof)
-        if args.verb == "current":
-            return _read_registry(db, ["portfolio", "--current"], "portfolio.current", args.asof)
-        return _read_registry(db, ["portfolio", args.id], "portfolio.show", args.asof)
     if args.group == "research":
+        if args.verb == "contracts":
+            from .pm_contract_selector import compare_portfolios, rules_catalog
+
+            if args.contract_verb == "rules":
+                return rules_catalog()
+            return compare_portfolios(
+                args.portfolio,
+                args.tape,
+                db=db,
+                asof=args.asof,
+                paths=args.paths,
+                seed=args.seed,
+                block_days=args.block_days,
+                evaluation_days=args.evaluation_days,
+                funded_days=args.funded_days,
+                evaluation_scales=tuple(args.evaluation_scales),
+                funded_scales=tuple(args.funded_scales),
+                extra_daily_cost=args.extra_daily_cost,
+                discount_rate=args.discount_rate,
+                max_no_first_payout_probability=args.max_no_first_payout_probability,
+            )
         if args.verb == "preflight":
             return _research_preflight(
                 cache_root=args.cache_root,
@@ -583,82 +443,54 @@ def dispatch(args: argparse.Namespace) -> dict:
             limit=args.limit,
             offset=args.offset,
         )
-    if args.group == "contracts":
-        from .pm_contract_selector import compare_portfolios, rules_catalog
+    if args.group == "release":
+        if args.verb == "chapter2":
+            return _chapter2(args)
+        return _health(db, args.root, args.observer_state_root, getattr(args, "account", None))
+    raise ValueError("UNKNOWN_OPERATIONS_GROUP")
 
-        if args.verb == "rules":
-            return rules_catalog()
-        return compare_portfolios(
-            args.portfolio,
-            args.tape,
-            db=db,
-            asof=args.asof,
-            paths=args.paths,
-            seed=args.seed,
-            block_days=args.block_days,
-            evaluation_days=args.evaluation_days,
-            funded_days=args.funded_days,
-            evaluation_scales=tuple(args.evaluation_scales),
-            funded_scales=tuple(args.funded_scales),
-            extra_daily_cost=args.extra_daily_cost,
-            discount_rate=args.discount_rate,
-            max_no_first_payout_probability=args.max_no_first_payout_probability,
+
+def _chapter2(args: argparse.Namespace) -> dict:
+    if args.policy == "projection":
+        from .pm_cwsa_chapter2_projection import build_runtime_projection
+
+        return build_runtime_projection(args)
+    if args.policy in ("explain", "site-view"):
+        from .pm_cwsa_chapter2_projection import explain_task, site_owner_view
+
+        original = explain_task(args)
+        return site_owner_view(original) if args.policy == "site-view" else original
+    if args.policy == "recover":
+        from .pm_cwsa_chapter2_projection import explain_native_guardian_intent
+
+        return explain_native_guardian_intent(
+            journal_path=args.guardian_journal,
+            intent_id=args.intent_id,
+            observed_at_ms=args.observed_at_ms,
         )
-    if args.group == "paper":
-        return _paper(db)
-    return _health(db, args.root, args.observer_state_root)
+    from .pm_cwsa_chapter2_gate import verify
+
+    return verify(args)
 
 
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="copytrade-pm",
-        description="Read-only agent-native capability discovery and operations",
+        description=(
+            "Evidence-aware operations: capabilities, facts, research, roster, paper, release"
+        ),
     )
-    p.add_argument("--db", type=Path, default=registry.DB)
+    p.add_argument(
+        "--db",
+        type=Path,
+        default=ROSTER_DB,
+        help="Roster SQLite: the only wallet/seat identity authority",
+    )
     p.add_argument("--root", type=Path, default=ROOT)
     p.add_argument("--observer-state-root", type=Path)
     top = p.add_subparsers(dest="group", required=True)
-    cwsa = top.add_parser("cwsa", help="CWSA acceptance gates (read-only)")
-    cwsa_sub = cwsa.add_subparsers(dest="policy", required=True)
-    chapter2 = cwsa_sub.add_parser("chapter2")
-    chapter2_sub = chapter2.add_subparsers(dest="verb", required=True)
-    verify_cmd = chapter2_sub.add_parser("verify")
-    from .pm_cwsa_chapter2_gate import add_arguments
 
-    verify_cmd.add_argument(
-        "--stage", required=True, choices=("premerge", "predeploy", "postdeploy")
-    )
-    add_arguments(verify_cmd)
-    projection_cmd = chapter2_sub.add_parser(
-        "projection", help="Read-only redacted source and PM03 proof"
-    )
-    add_arguments(projection_cmd)
-    projection_cmd.add_argument("--release-sha", required=True)
-    explain_cmd = chapter2_sub.add_parser(
-        "explain", help="Explain one portfolio's independent source and paper blockers"
-    )
-    explain_cmd.add_argument("--portfolio", required=True)
-    explain_cmd.add_argument("--inspection", choices=("metadata", "evidence"), default="metadata")
-    explain_cmd.add_argument(
-        "--prior-snapshot",
-        type=Path,
-        help="Compare with one bounded prior JSON explanation of the same portfolio and inspection",
-    )
-    add_arguments(explain_cmd)
-    site_cmd = chapter2_sub.add_parser(
-        "site-view", help="Redacted authenticated-Site view of the CLI owner explanation"
-    )
-    site_cmd.add_argument("--portfolio", required=True)
-    site_cmd.add_argument("--inspection", choices=("metadata", "evidence"), default="metadata")
-    site_cmd.add_argument("--prior-snapshot", type=Path)
-    add_arguments(site_cmd)
-    recover_cmd = chapter2_sub.add_parser(
-        "recover", help="Interpret an original Guardian intent using its read-only owner journal"
-    )
-    recover_cmd.add_argument("--guardian-journal", type=Path, required=True)
-    recover_cmd.add_argument("--intent-id", required=True)
-    recover_cmd.add_argument("--observed-at-ms", type=int, required=True)
-    cap = top.add_parser("capabilities")
+    cap = top.add_parser("capabilities", help="Reviewed capability discovery and validation")
     sub = cap.add_subparsers(dest="verb", required=True)
     cap_list = sub.add_parser("list")
     cap_list.add_argument("--json", action="store_true")
@@ -667,46 +499,90 @@ def parser() -> argparse.ArgumentParser:
     show.add_argument("--json", action="store_true")
     cap_validate = sub.add_parser("validate")
     cap_validate.add_argument("--json", action="store_true")
-    for domain in ("wallets", "portfolios", "research", "paper"):
-        node = top.add_parser(domain)
-        verbs = node.add_subparsers(dest="verb", required=True)
-        for op in {
-            "wallets": ("list", "show"),
-            "portfolios": ("list", "current", "show"),
-            "research": ("list", "show", "preflight"),
-            "paper": ("status",),
-        }[domain]:
-            operation = verbs.add_parser(op)
-            if op == "show":
-                operation.add_argument("id")
-            if domain in ("wallets", "portfolios"):
-                operation.add_argument("--asof")
-            if domain == "wallets" and op == "show":
-                operation.add_argument(
-                    "--namespace",
-                    default="auto",
-                    choices=registry.ALIAS_NAMESPACES,
-                )
-            if domain == "wallets" and op == "list":
-                operation.add_argument("--query")
-                operation.add_argument("--cohort")
-                operation.add_argument("--excluded", action=argparse.BooleanOptionalAction)
-                operation.add_argument("--subscribed", action=argparse.BooleanOptionalAction)
-                operation.add_argument("--limit", type=int, default=100)
-                operation.add_argument("--offset", type=int, default=0)
-            if domain == "research":
-                operation.add_argument("--cache-root", type=Path)
-                operation.add_argument("--cache-key")
-                operation.add_argument("--limit", type=int, default=100)
-                operation.add_argument("--offset", type=int, default=0)
-            if domain == "research" and op == "preflight":
-                operation.add_argument("--request", type=Path)
-                operation.add_argument("--purpose")
-                operation.add_argument("--require-pit", action="store_true")
-                operation.add_argument("--partition-root", type=Path)
-                operation.add_argument("--plan-acquisition", action="store_true")
-    contracts = top.add_parser("contracts", help="Read-only pod portfolio x contract EV screening")
-    contract_verbs = contracts.add_subparsers(dest="verb", required=True)
+
+    facts = top.add_parser(
+        "facts", help="Day-partitioned Decimal fact store: migrate, verify, coverage, benchmark"
+    )
+    facts_verbs = facts.add_subparsers(dest="verb", required=True)
+    facts_migrate = facts_verbs.add_parser(
+        "migrate", help="Idempotent migration from named sources"
+    )
+    facts_migrate.add_argument("--store", required=True)
+    facts_migrate.add_argument("--wallet-store")
+    facts_migrate.add_argument("--reservoir", action="append")
+    facts_migrate.add_argument("--wallet-store-catalog")
+    facts_migrate.add_argument("--kinds", default="fills,positions")
+    facts_migrate.add_argument("--pattern", default="**/*.parquet")
+    facts_migrate.add_argument("--require-all-sources", action="store_true")
+    facts_migrate.add_argument("--report")
+    facts_migrate.add_argument("--apply", action="store_true")
+    facts_migrate.add_argument("--json", action="store_true")
+    facts_verify = facts_verbs.add_parser("verify", help="Re-hash every batch against the manifest")
+    facts_verify.add_argument("--store", required=True)
+    facts_verify.add_argument("--kinds", default="fills,positions,equity,funding,ledger")
+    facts_verify.add_argument("--json", action="store_true")
+    facts_coverage = facts_verbs.add_parser("coverage", help="Day and row coverage per kind")
+    facts_coverage.add_argument("--store", required=True)
+    facts_coverage.add_argument("--kinds", default="fills,positions,equity,funding,ledger")
+    facts_coverage.add_argument("--json", action="store_true")
+    facts_benchmark = facts_verbs.add_parser(
+        "benchmark", help="250-wallet x 200-day synthetic cross-sectional scan"
+    )
+    facts_benchmark.add_argument("--store")
+    facts_benchmark.add_argument("--workdir")
+    facts_benchmark.add_argument("--wallets", type=int, default=250)
+    facts_benchmark.add_argument("--days", type=int, default=200)
+    facts_benchmark.add_argument("--rows-per-wallet-day", type=int, default=20)
+    facts_benchmark.add_argument("--repeats", type=int, default=3)
+    facts_benchmark.add_argument("--end-day")
+    facts_benchmark.add_argument("--keep", action="store_true")
+    facts_benchmark.add_argument("--apply", action="store_true")
+    facts_benchmark.add_argument("--json", action="store_true")
+    facts_capture = facts_verbs.add_parser(
+        "capture-health", help="Capture official wallet-health facts"
+    )
+    pm_health_arguments.add_arguments(facts_capture)
+    facts_capture.add_argument("--apply", action="store_true", help="Run and persist the capture")
+
+    research = top.add_parser(
+        "research",
+        help=("Offline job reports, bounded acquisition, native market evidence and contract EV"),
+    )
+    research_verbs = research.add_subparsers(dest="verb", required=True)
+    research_list = research_verbs.add_parser("list", help="List cached job reports")
+    research_list.add_argument("--cache-root", type=Path)
+    research_list.add_argument("--cache-key")
+    research_list.add_argument("--limit", type=int, default=100)
+    research_list.add_argument("--offset", type=int, default=0)
+    research_show = research_verbs.add_parser("show", help="Show one cached job report")
+    research_show.add_argument("id")
+    research_show.add_argument("--cache-root", type=Path)
+    research_show.add_argument("--cache-key")
+    research_show.add_argument("--limit", type=int, default=100)
+    research_show.add_argument("--offset", type=int, default=0)
+    research_scorecards = research_verbs.add_parser(
+        "scorecards", help="Recorded wallet scorecards at a known-at clock"
+    )
+    research_scorecards.add_argument("--store", required=True)
+    research_scorecards.add_argument("--as-of")
+    research_scorecards.add_argument("--cache-root", type=Path)
+    research_scorecards.add_argument("--cache-key")
+    research_scorecards.add_argument("--limit", type=int, default=100)
+    research_scorecards.add_argument("--offset", type=int, default=0)
+    research_scorecards.add_argument("--json", action="store_true")
+    research_preflight = research_verbs.add_parser(
+        "preflight", help="Verify reusable research without acquiring or qualifying"
+    )
+    research_preflight.add_argument("--cache-root", type=Path)
+    research_preflight.add_argument("--request", type=Path)
+    research_preflight.add_argument("--purpose")
+    research_preflight.add_argument("--require-pit", action="store_true")
+    research_preflight.add_argument("--partition-root", type=Path)
+    research_preflight.add_argument("--plan-acquisition", action="store_true")
+    contracts = research_verbs.add_parser(
+        "contracts", help="Read-only pod portfolio x contract EV screening"
+    )
+    contract_verbs = contracts.add_subparsers(dest="contract_verb", required=True)
     contract_verbs.add_parser("rules", help="Show the versioned, unverified rule scenarios")
     compare = contract_verbs.add_parser(
         "compare", help="Rank contracts from complete net PnL tapes"
@@ -739,31 +615,371 @@ def parser() -> argparse.ArgumentParser:
         default=1.0,
         help="Risk constraint for any selected contract/size policy",
     )
-    top.add_parser("status")
-    top.add_parser("health")
+    research_market_audit = research_verbs.add_parser(
+        "market-audit", help="Read-only native minute market coverage and integrity audit"
+    )
+    pm_market_audit.add_arguments(research_market_audit)
+    research_market_audit.add_argument(
+        "--apply", action="store_true", help="Write the private evidence report"
+    )
+    research_ccxt_probe = research_verbs.add_parser(
+        "ccxt-probe", help="Bounded read-only CCXT Pro Hyperliquid L2 probe"
+    )
+    pm_forward_ccxt_market.add_arguments(research_ccxt_probe)
+    research_ccxt_probe.add_argument(
+        "--apply", action="store_true", help="Permit a private recorded canary journal"
+    )
+
+    roster = top.add_parser(
+        "roster", help="Seat leases, sticky reconciliation and daily unsigned proposals"
+    )
+    roster_verbs = roster.add_subparsers(dest="verb", required=True)
+    roster_register = roster_verbs.add_parser("register", help="Declare one account's seats")
+    roster_register.add_argument("--store", required=True)
+    roster_register.add_argument("--account", required=True)
+    roster_register.add_argument(
+        "--seat",
+        action="append",
+        required=True,
+        help="seat_id:RISK_UNIT_USD:MAX_CDAR_SHARE (repeatable)",
+    )
+    roster_register.add_argument("--policy-epoch", required=True)
+    roster_register.add_argument("--apply", action="store_true")
+    roster_register.add_argument("--json", action="store_true")
+    roster_show = roster_verbs.add_parser("show", help="Current seat book at a known-at clock")
+    roster_show.add_argument("--store", required=True)
+    roster_show.add_argument("--account", required=True)
+    roster_show.add_argument("--as-of")
+    roster_show.add_argument("--identities", action="store_true")
+    roster_show.add_argument("--json", action="store_true")
+    roster_plan = roster_verbs.add_parser("plan", help="Pure reconciliation preview (no write)")
+    roster_plan.add_argument("--store", required=True)
+    roster_plan.add_argument("--account", required=True)
+    roster_plan.add_argument("--as-of")
+    roster_plan.add_argument("--identities", action="store_true")
+    roster_plan.add_argument("--json", action="store_true")
+    roster_commit = roster_verbs.add_parser("commit", help="Append the reconciled seat book")
+    roster_commit.add_argument("--store", required=True)
+    roster_commit.add_argument("--account", required=True)
+    roster_commit.add_argument("--as-of")
+    roster_commit.add_argument("--apply", action="store_true")
+    roster_commit.add_argument("--identities", action="store_true")
+    roster_commit.add_argument("--json", action="store_true")
+    roster_scorecard = roster_verbs.add_parser("scorecard", help="Record one wallet scorecard")
+    roster_scorecard.add_argument("--store", required=True)
+    roster_scorecard.add_argument("--wallet", required=True)
+    roster_scorecard.add_argument("--as-of")
+    roster_scorecard.add_argument("--account-value", required=True)
+    roster_scorecard.add_argument("--active-days", type=int, default=0)
+    roster_scorecard.add_argument("--markout-bps", default="0")
+    roster_scorecard.add_argument("--participation", default="0")
+    roster_scorecard.add_argument("--cdar", default="0")
+    roster_scorecard.add_argument("--k", default="1")
+    roster_scorecard.add_argument("--cluster", required=True)
+    roster_scorecard.add_argument("--source-sha", required=True)
+    roster_scorecard.add_argument(
+        "--copyable", action=argparse.BooleanOptionalAction, default=False
+    )
+    roster_scorecard.add_argument(
+        "--failure", action="append", choices=tuple(gate.value for gate in GateFailure)
+    )
+    roster_scorecard.add_argument("--identities", action="store_true")
+    roster_scorecard.add_argument("--apply", action="store_true")
+    roster_scorecard.add_argument("--json", action="store_true")
+    roster_bench = roster_verbs.add_parser("bench", help="Record a portfolio-conditioned bench")
+    roster_bench.add_argument("--store", required=True)
+    roster_bench.add_argument("--account", required=True)
+    roster_bench.add_argument("--as-of")
+    roster_bench.add_argument(
+        "--candidate",
+        action="append",
+        help="wallet:SCORECARD_SHA:k:MARGINAL_CDAR:CLUSTER_ID:CLUSTER_DISTANCE",
+    )
+    roster_bench.add_argument("--apply", action="store_true")
+    roster_bench.add_argument("--json", action="store_true")
+    roster_veto = roster_verbs.add_parser("veto", help="Record or revoke an operator veto")
+    roster_veto.add_argument("--store", required=True)
+    roster_veto.add_argument("--wallet", required=True)
+    roster_veto.add_argument("--reason", default="operator veto")
+    roster_veto.add_argument("--actor", default="operator")
+    roster_veto.add_argument("--at-ms", type=int, required=True)
+    roster_veto.add_argument("--expires-ms", type=int)
+    roster_veto.add_argument("--revoke", action="store_true")
+    roster_veto.add_argument("--apply", action="store_true")
+    roster_veto.add_argument("--identities", action="store_true")
+    roster_veto.add_argument("--json", action="store_true")
+    roster_cusum = roster_verbs.add_parser("cusum", help="Record one Q12 CUSUM increment")
+    roster_cusum.add_argument("--store", required=True)
+    roster_cusum.add_argument("--wallet", required=True)
+    roster_cusum.add_argument("--increment", required=True)
+    roster_cusum.add_argument("--threshold", required=True)
+    roster_cusum.add_argument("--epoch", required=True)
+    roster_cusum.add_argument("--at-ms", type=int, required=True)
+    roster_cusum.add_argument("--apply", action="store_true")
+    roster_cusum.add_argument("--json", action="store_true")
+    roster_binding = roster_verbs.add_parser(
+        "binding", help="Record one researched release binding (provenance pins)"
+    )
+    roster_binding.add_argument("--store", required=True)
+    roster_binding.add_argument("--file", required=True)
+    roster_binding.add_argument("--apply", action="store_true")
+    roster_binding.add_argument("--json", action="store_true")
+    roster_proposal = roster_verbs.add_parser(
+        "proposal", help="List staged unsigned release proposals"
+    )
+    roster_proposal.add_argument("--store", required=True)
+    roster_proposal.add_argument("--account")
+    roster_proposal.add_argument("--json", action="store_true")
+
+    paper = top.add_parser(
+        "paper",
+        help=(
+            "Virtual paper seat view, staged mandates, per-run status and the public observer "
+            "(NONE route)"
+        ),
+    )
+    paper_verbs = paper.add_subparsers(dest="verb", required=True)
+    paper_status = paper_verbs.add_parser("status", help="Virtual paper seat view")
+    paper_status.add_argument("--store", required=True)
+    paper_status.add_argument("--account", required=True)
+    paper_status.add_argument("--as-of")
+    paper_status.add_argument("--identities", action="store_true")
+    paper_status.add_argument("--json", action="store_true")
+    paper_mandates = paper_verbs.add_parser("mandates", help="Latest staged paper mandates")
+    paper_mandates.add_argument("--store", required=True)
+    paper_mandates.add_argument("--account", required=True)
+    paper_mandates.add_argument("--as-of")
+    paper_mandates.add_argument("--json", action="store_true")
+    paper_observe = paper_verbs.add_parser(
+        "observe",
+        help="Shared public-only observer: preflight, bounded epochs or continuous service",
+    )
+    pm_forward_observer.add_arguments(paper_observe)
+    paper_observe.add_argument(
+        "--apply",
+        action="store_true",
+        help="Start observation; without it only the read-only preflight or diagnosis runs",
+    )
+    paper_observer_health = paper_verbs.add_parser(
+        "observer-health", help="Independent observer health, watchdog and shadow report"
+    )
+    pm_forward_observer_health.add_arguments(paper_observer_health)
+    paper_observer_health.add_argument(
+        "--apply",
+        action="store_true",
+        help="Permit the mutating --watch witness; plain reads and shadow reports need no gate",
+    )
+    paper_run_status = paper_verbs.add_parser(
+        "run-status", help="Per-run forward-paper journal and heartbeat status"
+    )
+    pm_forward_status.add_arguments(paper_run_status)
+
+    release = top.add_parser(
+        "release", help="Staged proposals, offline signing, manifest signing and release evidence"
+    )
+    release_verbs = release.add_subparsers(dest="verb", required=True)
+    release_propose = release_verbs.add_parser(
+        "propose", help="Stage one unsigned portfolio_release_v2 proposal"
+    )
+    release_propose.add_argument("--store", required=True)
+    release_propose.add_argument("--account", required=True)
+    release_propose.add_argument("--as-of")
+    release_propose.add_argument("--out")
+    release_propose.add_argument("--apply", action="store_true")
+    release_propose.add_argument("--json", action="store_true")
+    release_sign = release_verbs.add_parser("sign", help="Sign a staged proposal offline")
+    release_sign.add_argument("--proposal", required=True)
+    release_sign.add_argument("--release-signing-key", required=True)
+    release_sign.add_argument("--reviewer-public", type=Path, required=True)
+    release_sign.add_argument("--source-observer-public", type=Path, required=True)
+    release_sign.add_argument("--now-ms", type=int)
+    release_sign.add_argument("--out", required=True)
+    release_sign.add_argument("--store", required=True)
+    release_sign.add_argument("--apply", action="store_true")
+    release_sign.add_argument("--json", action="store_true")
+    release_verify = release_verbs.add_parser("verify", help="Verify a signed release envelope")
+    release_verify.add_argument("--envelope", required=True)
+    release_verify.add_argument("--signer-public", required=True)
+    release_verify.add_argument("--json", action="store_true")
+    release_export = release_verbs.add_parser("export", help="Redacted roster release export")
+    release_export.add_argument("--store", required=True)
+    release_export.add_argument("--account", required=True)
+    release_export.add_argument("--as-of")
+    release_export.add_argument("--identities", action="store_true")
+    release_export.add_argument("--json", action="store_true")
+    release_metadata = release_verbs.add_parser(
+        "metadata", help="Export the read-only production metadata selection"
+    )
+    production_export.add_arguments(release_metadata)
+    release_status = release_verbs.add_parser(
+        "status", help="Aggregated read-only operations status"
+    )
+    release_status.add_argument("--account")
+    release_health = release_verbs.add_parser("health", help="Read-only operations health")
+    release_health.add_argument("--account")
+    chapter2 = release_verbs.add_parser(
+        "chapter2", help="CWSA Chapter 2 acceptance gates and evidence projections (read-only)"
+    )
+    chapter2_sub = chapter2.add_subparsers(dest="policy", required=True)
+    verify_cmd = chapter2_sub.add_parser("verify")
+    verify_cmd.add_argument(
+        "--stage", required=True, choices=("premerge", "predeploy", "postdeploy")
+    )
+    pm_cwsa_chapter2_gate.add_arguments(verify_cmd)
+    projection_cmd = chapter2_sub.add_parser(
+        "projection", help="Read-only redacted source and PM03 proof"
+    )
+    pm_cwsa_chapter2_gate.add_arguments(projection_cmd)
+    projection_cmd.add_argument("--release-sha", required=True)
+    explain_cmd = chapter2_sub.add_parser(
+        "explain", help="Explain one portfolio's independent source and paper blockers"
+    )
+    explain_cmd.add_argument("--portfolio", required=True)
+    explain_cmd.add_argument("--inspection", choices=("metadata", "evidence"), default="metadata")
+    explain_cmd.add_argument(
+        "--prior-snapshot",
+        type=Path,
+        help="Compare with one bounded prior JSON explanation of the same portfolio and inspection",
+    )
+    pm_cwsa_chapter2_gate.add_arguments(explain_cmd)
+    site_cmd = chapter2_sub.add_parser(
+        "site-view", help="Redacted authenticated-Site view of the CLI owner explanation"
+    )
+    site_cmd.add_argument("--portfolio", required=True)
+    site_cmd.add_argument("--inspection", choices=("metadata", "evidence"), default="metadata")
+    site_cmd.add_argument("--prior-snapshot", type=Path)
+    pm_cwsa_chapter2_gate.add_arguments(site_cmd)
+    recover_cmd = chapter2_sub.add_parser(
+        "recover", help="Interpret an original Guardian intent using its read-only owner journal"
+    )
+    recover_cmd.add_argument("--guardian-journal", type=Path, required=True)
+    recover_cmd.add_argument("--intent-id", required=True)
+    recover_cmd.add_argument("--observed-at-ms", type=int, required=True)
     return p
+
+
+def _live_leaf_failure(error_code: str, exc: Exception) -> int:
+    """Print one bounded refusal envelope for a ported live parser and return exit 2."""
+    print(
+        json.dumps(
+            {
+                "state": "BLOCKED",
+                "error_code": error_code,
+                "error_type": type(exc).__name__,
+                "detail": str(exc)[:300],
+                "order_route": "NONE",
+                "trading_authorized": False,
+            },
+            sort_keys=True,
+            indent=2,
+        )
+    )
+    return 2
+
+
+def _run_live_leaf(args: argparse.Namespace) -> int:
+    """Dispatch a ported live parser to its owner handler through the reviewed --apply gate."""
+    if args.group == "paper":
+        if args.verb == "observe":
+            if not (getattr(args, "apply", False) or getattr(args, "preflight_only", False)):
+                return _live_leaf_failure(
+                    "OBSERVER_APPLY_REQUIRED",
+                    ValueError(
+                        "pass --apply to start observation; --preflight-only and "
+                        "--diagnose-preflight stay read-only"
+                    ),
+                )
+            return pm_forward_observer.run(args)
+        if args.verb == "observer-health":
+            if args.watch and not getattr(args, "apply", False):
+                return _live_leaf_failure(
+                    "OBSERVER_WATCH_APPLY_REQUIRED",
+                    ValueError("--watch appends private witness samples; pass --apply"),
+                )
+            return pm_forward_observer_health.run(args)
+        return pm_forward_status.run(args)
+    if args.verb == "market-audit":
+        if not getattr(args, "apply", False):
+            print(
+                json.dumps(
+                    {
+                        "schema": "pm01_market_audit_plan_v1",
+                        "state": "DRY_RUN",
+                        "research_root": str(args.research_root),
+                        "market_root": str(args.market_root),
+                        "out": str(args.out),
+                        "order_route": "NONE",
+                        "trading_authorized": False,
+                    },
+                    sort_keys=True,
+                    indent=2,
+                )
+            )
+            return 0
+        return pm_market_audit.run(args)
+    if (
+        getattr(args, "record_root", None) is not None
+        or getattr(args, "continuous_canary_seconds", None) is not None
+    ) and not getattr(args, "apply", False):
+        return _live_leaf_failure(
+            "CCXT_PROBE_APPLY_REQUIRED",
+            ValueError("a recorded canary writes a private journal; pass --apply"),
+        )
+    return pm_forward_ccxt_market.run(args)
 
 
 def cli(argv: list[str] | None = None) -> int:
     p = parser()
     args = p.parse_args(argv)
+    if args.group in ("facts", "roster"):
+        from . import pm_roster_cli
+
+        handler = {"facts": pm_roster_cli.run_facts, "roster": pm_roster_cli.run_roster}[args.group]
+        return int(handler(args))
+    if (args.group == "paper" and args.verb in ("observe", "observer-health", "run-status")) or (
+        args.group == "research" and args.verb in ("market-audit", "ccxt-probe")
+    ):
+        # Ported live parsers keep their owner registration and handler; only the
+        # reviewed --apply gate is added here.
+        try:
+            return _run_live_leaf(args)
+        except (OSError, ValueError, FileNotFoundError) as exc:
+            return _live_leaf_failure("LIVE_PARSER_REFUSED", exc)
+    if args.group == "paper":
+        from . import pm_roster_cli
+
+        return int(pm_roster_cli.run_paper(args))
+    if args.group == "research" and args.verb == "scorecards":
+        from . import pm_roster_cli
+
+        return int(pm_roster_cli.run_research(args))
+    if args.group == "release":
+        from . import pm_roster_cli
+
+        if args.verb in ("propose", "sign", "verify", "export"):
+            return int(pm_roster_cli.run_release(args))
+        if args.verb == "metadata":
+            from . import production_export
+
+            return int(production_export.run(args))
     response = dispatch(args)
     print(json.dumps(response, sort_keys=True, indent=2))
-    if args.group == "cwsa":
-        if args.verb == "projection":
+    if args.group == "release" and args.verb == "chapter2":
+        if args.policy == "projection":
             return 0
-        if args.verb in ("explain", "site-view"):
+        if args.policy in ("explain", "site-view"):
             return 2 if response.get("error_code") else 0
-        if args.verb == "recover":
+        if args.policy == "recover":
             return 2 if response["dispatch_state"] == "EVIDENCE_UNAVAILABLE" else 0
         return {"PASS": 0, "BLOCKED_EVIDENCE": 2, "FAIL": 1}[response["verdict"]]
     if args.group == "capabilities":
         return 2 if response.get("status") in ("BLOCKED", "UNKNOWN") else 0
-    if args.group == "contracts" and response.get("status") == "BLOCKED":
-        return 2
+    if args.group == "research" and args.verb == "contracts":
+        if response.get("status") == "BLOCKED":
+            return 2
     if response.get("error_code"):
         return 2
-    if response.get("status") == "UNKNOWN" and args.group not in ("status", "health", "paper"):
+    if response.get("status") == "UNKNOWN" and args.group not in ("release",):
         return 2
     return 0
 

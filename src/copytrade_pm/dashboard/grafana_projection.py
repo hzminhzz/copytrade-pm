@@ -153,13 +153,9 @@ def create_app(
         }:
             return JSONResponse({"error": "HOST_NOT_ALLOWED"}, status_code=403)
         if request.url.path == HEALTH_PATH:
-            from copytrade_pm.wallet_health_projection import read as read_health
-
-            try:
-                result = read_health(snapshot_dir, now=datetime.now().astimezone())
-            except OSError, ValueError, KeyError, TypeError, UnicodeDecodeError:
-                return JSONResponse({"error": "HEALTH_EVIDENCE_UNAVAILABLE"}, status_code=503)
-            return JSONResponse(result, headers={"Cache-Control": "no-store"})
+            # The legacy wallet-health projection was registry-derived and is
+            # retired with the registry; the bridge stays explicitly unavailable.
+            return JSONResponse({"error": "WALLET_HEALTH_PROJECTION_RETIRED"}, status_code=503)
         if request.url.path == STRATEGY_HEALTH_PATH:
             from copytrade_pm.strategy_health_projection import read as read_strategy_health
 

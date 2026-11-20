@@ -3,7 +3,6 @@
 from contextlib import closing
 from hashlib import sha256
 import json
-import sqlite3
 
 import pytest
 
@@ -14,18 +13,13 @@ from copytrade_pm.pm_forward_stream_journal import (
     verify_streams,
 )
 from copytrade_pm.pm_source_selection import official_accounts, selected_parents
-from test_pm_forward_multi_portfolio import full_registry, pin_reviewed_registry
+from test_pm_forward_multi_portfolio import full_registry
 from test_pm_forward_observed_paper import at
 from test_pm_vike_paper_integration import official_frame
 
 
-def test_selected_service_uses_exact_verified_p1_p14_p16_parent_union(tmp_path, monkeypatch):
-    pin_reviewed_registry(monkeypatch)
+def test_selected_service_uses_exact_verified_p1_p14_p16_parent_union(tmp_path):
     db = full_registry(tmp_path)
-    # This synthetic registry fixture predates the P1 seal table.
-    with closing(sqlite3.connect(db)) as conn:
-        conn.execute("CREATE TABLE portfolio_seals (id INTEGER PRIMARY KEY)")
-        conn.commit()
     parents = selected_parents(
         db,
         portfolios=("P1", "P14", "P16"),
@@ -35,7 +29,7 @@ def test_selected_service_uses_exact_verified_p1_p14_p16_parent_union(tmp_path, 
     assert len(set(parents.values())) == 5
     with pytest.raises(ValueError, match="DUPLICATE_ACCOUNTS|PORTFOLIOS_INVALID"):
         selected_parents(db, portfolios=("P14", "P14"), as_of=at(0))
-    with pytest.raises(ValueError, match="PORTFOLIO_UNAPPROVED"):
+    with pytest.raises(ValueError, match="SELECTION_UNKNOWN_AT_ASOF"):
         selected_parents(db, portfolios=("unknown",), as_of=at(0))
 
 

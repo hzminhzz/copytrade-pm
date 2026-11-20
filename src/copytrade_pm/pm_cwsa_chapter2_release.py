@@ -20,14 +20,14 @@ from .pm03_rules import propr_rulebook
 from .pm_checkpoint_journal import CwsaPolicy
 from .pm_checkpoint_paper import _policy
 from .pm_checkpoint_source import CheckpointScope
-from .pm_copy_mandate import CopyMandate, verify_mandate
+from .pm_mandate import SignedMandate, verify_mandate
 
 
 @dataclass(frozen=True)
 class ApprovedPortfolio:
     policy: dict
     catalog: dict
-    mandates: tuple[tuple[CopyMandate, dict], ...]
+    mandates: tuple[tuple[SignedMandate, dict], ...]
     rulebook: Rulebook
     trusted_authority: Ed25519PublicKey
 

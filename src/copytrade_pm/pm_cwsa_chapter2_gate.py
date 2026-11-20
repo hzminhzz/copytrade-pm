@@ -34,7 +34,7 @@ EXPECTED_PORTFOLIOS = {
     name: tuple(sorted(value["members"])) for name, value in PORTFOLIO_CONFIGS.items()
 }
 EXPECTED_WALLETS = frozenset(ALL_14_WALLETS)
-DEFAULT_REGISTRY = Path("/home/quant/.local/share/copytrade/registry/wallet_registry.sqlite")
+DEFAULT_ROSTER = Path("~/.local/share/copytrade/roster.sqlite").expanduser()
 DEFAULT_SOURCE = Path(
     "/home/quant/.local/share/copytrade/prospective/"
     "cwsa-5m-source-chapter2-20261112/paper-events.sqlite3"
@@ -553,7 +553,7 @@ def verify(args: argparse.Namespace) -> dict:
             checks.append(GateCheck("adversarial_contracts", "FAIL", "REQUIRED_TESTS_MISSING"))
     else:
         try:
-            seals = load_registry_seals(args.registry_db)
+            seals = load_registry_seals(args.roster_db)
             checks.append(
                 assess_portfolio_roster({pid: set(s["members"]) for pid, s in seals.items()})
             )
@@ -777,7 +777,7 @@ def verify(args: argparse.Namespace) -> dict:
                     qualified = inspect_qualification(
                         args.qualification,
                         args.research_public_key,
-                        load_registry_seals(args.registry_db),
+                        load_registry_seals(args.roster_db),
                         args.source_db,
                     )
                     checks.append(qualified)
@@ -786,7 +786,7 @@ def verify(args: argparse.Namespace) -> dict:
                             path=args.approved_paper_bundle,
                             expected_sha256=args.approved_paper_sha256,
                             trusted_authority_hex=args.trusted_paper_public_key,
-                            seals=load_registry_seals(args.registry_db),
+                            seals=load_registry_seals(args.roster_db),
                             configs=PORTFOLIO_CONFIGS,
                             run_label=args.epoch,
                             source_db=args.source_db,
@@ -794,7 +794,7 @@ def verify(args: argparse.Namespace) -> dict:
                         qualified_body = read_qualification(
                             args.qualification,
                             args.research_public_key,
-                            load_registry_seals(args.registry_db),
+                            load_registry_seals(args.roster_db),
                             args.source_db,
                         )
                         k_errors = mandate_k_blockers(approved, qualified_body)
@@ -863,7 +863,7 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
     p.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
     p.add_argument("--expected-sha")
     p.add_argument("--receipt", type=Path)
-    p.add_argument("--registry-db", type=Path, default=DEFAULT_REGISTRY)
+    p.add_argument("--roster-db", type=Path, default=DEFAULT_ROSTER)
     p.add_argument("--source-db", type=Path, default=DEFAULT_SOURCE)
     p.add_argument("--paper-root", type=Path, default=DEFAULT_PAPER)
     p.add_argument("--rollback-sha")

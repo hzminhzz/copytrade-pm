@@ -25,85 +25,18 @@ def _parse_static_source(source: str) -> ast.Module:
 
 
 DOC = "docs/AGENT-NATIVE-OPERATIONS.md"
+ROSTER_DOC = "docs/ROSTER.md"
 CLASSES = frozenset({"READ_ONLY", "LOCAL_MUTATION", "PROTECTED_MUTATION", "BROKER_OR_TRADING"})
 # Classifications describe the exposed DEFAULT entry point; subcommands have
 # their own reviewed records. Never infer safety from a command name.
 GROUPS = {
-    "copytrade-pm-production-export": ("production.export.cli", "registry", "LOCAL_MUTATION"),
-    "copytrade-pm-production-manifest": (
-        "production.manifest.cli",
-        "registry",
-        "PROTECTED_MUTATION",
-    ),
-    "copytrade-pm-production-economics": ("production.economics.cli", "research", "READ_ONLY"),
-    "copytrade-pm-track-b-prefect": ("research.track_b_prefect", "research", "LOCAL_MUTATION"),
-    "copytrade-pm-replay": ("historical.replay", "historical", "LOCAL_MUTATION"),
-    "copytrade-pm-rank": ("manager.rank", "qualification", "LOCAL_MUTATION"),
-    "copytrade-pm-handoff": ("portfolio.handoff", "portfolio", "LOCAL_MUTATION"),
-    "copytrade-pm-scope": ("market.scope", "market", "LOCAL_MUTATION"),
-    "copytrade-pm-market-audit": ("market.audit", "market", "LOCAL_MUTATION"),
-    "copytrade-pm-research": ("research.pm01", "research", "LOCAL_MUTATION"),
-    "copytrade-pm-actuary": ("research.actuary.cli", "research", "READ_ONLY"),
-    "copytrade-pm-shadow": ("account.pm03.simulate", "account", "LOCAL_MUTATION"),
-    "copytrade-pm-receipts": ("source.receipts", "source", "PROTECTED_MUTATION"),
-    "copytrade-pm-source": ("source.e4", "source", "PROTECTED_MUTATION"),
-    "copytrade-pm-source-abc": ("source.rotation", "source", "PROTECTED_MUTATION"),
-    "copytrade-pm-source-audit": ("source.audit", "source", "READ_ONLY"),
-    "copytrade-pm-combo2-paper": ("paper.combo2", "paper", "LOCAL_MUTATION"),
-    "copytrade-wallet-registry": ("registry.cli", "registry", "PROTECTED_MUTATION"),
-    "copytrade-pm-review-gate": ("qualification.review", "qualification", "READ_ONLY"),
-    "copytrade-pm-paper-status": ("paper.journal_status", "paper", "READ_ONLY"),
-    "copytrade-pm-paper-report": ("paper.report", "paper", "READ_ONLY"),
-    "copytrade-pm-paper-preflight": ("paper.preflight", "paper", "READ_ONLY"),
-    "copytrade-pm-paper-candidate-verify": ("paper.release_candidate", "paper", "READ_ONLY"),
-    "copytrade-pm-market-ccxt": ("market.ccxt", "market", "PROTECTED_MUTATION"),
-    "copytrade-pm-market-stream": ("market.stream", "market", "PROTECTED_MUTATION"),
-    "copytrade-pm-public-trades": ("source.public_trades", "source", "PROTECTED_MUTATION"),
-    "copytrade-pm-source-scope": ("source.scope", "source", "PROTECTED_MUTATION"),
-    "copytrade-pm-paper-watchdog": ("paper.watchdog", "paper", "PROTECTED_MUTATION"),
-    "copytrade-pm-paper-standby": ("paper.standby", "paper", "PROTECTED_MUTATION"),
-    "copytrade-pm-paper-unit-bundle": ("paper.unit_bundle", "paper", "LOCAL_MUTATION"),
-    "copytrade-pm-paper-registry-audit": ("paper.identity", "paper", "READ_ONLY"),
-    "copytrade-pm-paper-readiness": ("paper.readiness", "paper", "READ_ONLY"),
-    "copytrade-pm-paper-source-campaign": ("paper.source_campaign", "paper", "PROTECTED_MUTATION"),
-    "copytrade-pm-paper-observe": ("paper.observer", "paper", "PROTECTED_MUTATION"),
-    "copytrade-pm-paper-observed": ("paper.observed_execution", "paper", "LOCAL_MUTATION"),
-    "copytrade-pm-vike-minute": ("market.vike_minute", "market", "LOCAL_MUTATION"),
-    "copytrade-pm-vike-fills": ("source.vike_selected_fills", "source", "LOCAL_MUTATION"),
-    "copytrade-pm-paper-observer-health": ("paper.observer_health", "paper", "LOCAL_MUTATION"),
-    "copytrade-pm-public-observer-unit": ("paper.public_unit", "paper", "PROTECTED_MUTATION"),
     "copytrade-pm": ("operations.cli", "operations", "READ_ONLY"),
-    "copytrade-pm-agent-eval": ("agent.trace.eval", "operations", "READ_ONLY"),
 }
 # These are reviewed, individual operations, not default safety assertions
 # for the broader parent executable. No subcommand inherits READ_ONLY.
-REGISTRY_OPERATIONS = {
-    "status": "READ_ONLY",
-    "native status": "READ_ONLY",
-    "native lock": "READ_ONLY",
-    "native lock --apply": "PROTECTED_MUTATION",
-    "native register": "READ_ONLY",
-    "native register --apply": "PROTECTED_MUTATION",
-    "native exclude": "READ_ONLY",
-    "native exclude --apply": "PROTECTED_MUTATION",
-    "doctor": "READ_ONLY",
-    "runtime": "READ_ONLY",
-    "report --redacted": "READ_ONLY",
-    "wallet --alias": "READ_ONLY",
-    "wallet --address": "READ_ONLY",
-    "cohort": "READ_ONLY",
-    "portfolio": "READ_ONLY",
-    "portfolio --current": "READ_ONLY",
-    "paper": "READ_ONLY",
-    "qualification": "READ_ONLY",
-    "sync --dry-run": "READ_ONLY",
-    "sync --apply": "PROTECTED_MUTATION",
-    "backup --to": "LOCAL_MUTATION",
-    "paper --apply": "PROTECTED_MUTATION",
-    "qualification --apply": "PROTECTED_MUTATION",
-    "signed-selection": "READ_ONLY",
-    "signed-selection --apply": "PROTECTED_MUTATION",
-}
+REGISTRY_OPERATIONS = {}
+# The legacy wallet registry CLI and its reviewed operations are retired; the
+# roster owns identity and no shim keeps the old surface alive.
 NATIVE = {
     "production.metadata": (
         "copytrade_pm.production_export",
@@ -126,13 +59,6 @@ NATIVE = {
         "READ_ONLY",
         "MATCHED_PREDECLARED_NET_FOLLOWER_POLICY_TAPES_REQUIRED",
     ),
-    "wallet.inventory": (
-        "copytrade_pm.wallet_registry_catalog",
-        "copytrade-pm wallets list --cohort research-108",
-        "registry",
-        "READ_ONLY",
-        "PRIVATE_VERSIONED_WALLET_REGISTRY",
-    ),
     "research.report.catalog": (
         "copytrade_pm.pm_offline_job_catalog",
         "copytrade-pm research list --cache-root PRIVATE_CACHE",
@@ -142,80 +68,24 @@ NATIVE = {
     ),
     "runtime.pinned_release": (
         "copytrade_pm.pm_runtime_readonly",
-        "copytrade-pm health",
+        "copytrade-pm release health",
         "operations",
         "READ_ONLY",
         "PINNED_REGISTRY_RELEASE_VERIFIER",
     ),
     "runtime.paper_units": (
         "copytrade_pm.pm_runtime_readonly",
-        "copytrade-pm health",
+        "copytrade-pm release health",
         "paper",
         "READ_ONLY",
         "SYSTEMD_USER_UNIT_INVENTORY",
     ),
     "runtime.market_observer": (
         "copytrade_pm.pm_runtime_readonly",
-        "copytrade-pm --observer-state-root STATE_ROOT health",
+        "copytrade-pm --observer-state-root STATE_ROOT release health",
         "market",
         "READ_ONLY",
         "PUBLIC_OBSERVER_RECEIPT_EVIDENCE",
-    ),
-    "wallet.lookup": (
-        "copytrade_pm.wallet_registry",
-        "copytrade-pm wallets show W083",
-        "registry",
-        "READ_ONLY",
-        "PRIVATE_VERSIONED_WALLET_REGISTRY",
-    ),
-    "wallet.alias": (
-        "copytrade_pm.wallet_registry_catalog",
-        "copytrade-pm wallets show W083",
-        "registry",
-        "READ_ONLY",
-        "PRIVATE_VERSIONED_WALLET_REGISTRY",
-    ),
-    "portfolio.current": (
-        "copytrade_pm.wallet_registry_catalog",
-        "copytrade-pm portfolios current",
-        "portfolio",
-        "READ_ONLY",
-        "PRIVATE_VERSIONED_WALLET_REGISTRY",
-    ),
-    "portfolio.show": (
-        "copytrade_pm.wallet_registry_portfolios",
-        "copytrade-pm portfolios show E6",
-        "portfolio",
-        "READ_ONLY",
-        "SEALED_PORTFOLIO_REGISTRY",
-    ),
-    "registry.doctor": (
-        "copytrade_pm.wallet_registry",
-        "copytrade-pm health",
-        "registry",
-        "READ_ONLY",
-        "PRIVATE_VERSIONED_WALLET_REGISTRY",
-    ),
-    "paper.status": (
-        "copytrade_pm.wallet_registry_runs",
-        "copytrade-pm paper status",
-        "paper",
-        "READ_ONLY",
-        "INDEPENDENT_JOURNAL_AND_WORKER",
-    ),
-    "paper.account": (
-        "copytrade_pm.pm_forward_journal",
-        "copytrade-pm-paper-status --help",
-        "paper",
-        "READ_ONLY",
-        "PM03_FINANCIAL_JOURNAL",
-    ),
-    "paper.identity_reseal_preview": (
-        "copytrade_pm.pm_forward_registry_identity",
-        "copytrade-pm-paper-registry-audit --prospective-reseal-preview --portfolio P1",
-        "paper",
-        "READ_ONLY",
-        "UNSIGNED_ASOF_ALIAS_MATCH_ONLY_NOT_PAPER_ADMISSION",
     ),
     "research.offline": (
         "copytrade_pm.pm_offline_job",
@@ -240,14 +110,21 @@ NATIVE = {
     ),
     "research.contract_selector": (
         "copytrade_pm.pm_contract_selector",
-        "copytrade-pm contracts compare --portfolio gemini.phase4/E6",
+        "copytrade-pm research contracts compare --portfolio gemini.phase4/E6",
         "research",
         "READ_ONLY",
         "SEALED_PORTFOLIO_AND_FULL_NET_FOLLOWER_TAPE_REQUIRED",
     ),
+    "agent.trace.eval": (
+        "copytrade_pm.pm_agent_trace_eval",
+        "python -m copytrade_pm.pm_agent_trace_eval --list-tasks",
+        "operations",
+        "READ_ONLY",
+        "AGENT_TRACE_EVALUATION",
+    ),
     "research.actuary": (
         "copytrade_pm.contract_actuary",
-        "copytrade-pm-actuary --help",
+        "python -m copytrade_pm.contract_actuary --help",
         "research",
         "READ_ONLY",
         "SYNTHETIC_CONTRACT_SCENARIO_NOT_FINANCIAL_AUTHORITY",
@@ -280,40 +157,12 @@ NATIVE = {
         "PROTECTED_MUTATION",
         "PROSPECTIVE_SOURCE_RECEIPTS",
     ),
-    "market.native": (
-        "copytrade_pm.pm_shadow",
-        "copytrade-pm-market-audit --help",
-        "market",
-        "READ_ONLY",
-        "VERIFIED_NATIVE_MINUTE_DATA",
-    ),
-    "qualification.science": (
-        "copytrade_pm.wallet_registry_qualification",
-        "copytrade-wallet-registry qualification",
-        "qualification",
-        "READ_ONLY",
-        "SIGNED_QUALIFICATION_EVIDENCE",
-    ),
-    "release.verify": (
-        "scripts/registry_release.py",
-        "python scripts/registry_release.py verify",
-        "operations",
-        "READ_ONLY",
-        "PINNED_INSTALLED_RELEASE",
-    ),
     "runtime.health": (
         "copytrade_pm.pm_forward_observer_health",
-        "copytrade-pm health",
+        "copytrade-pm release status",
         "operations",
         "READ_ONLY",
         "INDEPENDENT_RUNTIME_OBSERVATIONS",
-    ),
-    "source.exclusions": (
-        "copytrade_pm.wallet_registry",
-        "copytrade-wallet-registry status",
-        "registry",
-        "READ_ONLY",
-        "PRIVATE_VERSIONED_WALLET_REGISTRY",
     ),
     "pm04.batching": (
         "copytrade_pm.pm04_shadow",
@@ -324,45 +173,24 @@ NATIVE = {
     ),
     "paper.observer.preflight": (
         "copytrade_pm.pm_forward_continuous",
-        "copytrade-pm-paper-observe --continuous-config CONFIG --preflight-only",
+        "copytrade-pm paper observe --continuous-config CONFIG --preflight-only",
         "paper",
         "READ_ONLY",
         "PINNED_REGISTRY_AND_ISOLATED_OBSERVER_PREFLIGHT",
     ),
-    "paper.observer.continuous": (
-        "copytrade_pm.pm_forward_continuous",
-        "copytrade-pm-paper-observe --continuous-config CONFIG",
-        "paper",
-        "PROTECTED_MUTATION",
-        "PUBLIC_ONLY_CONTINUOUS_OBSERVATION_JOURNAL",
-    ),
     "paper.observer.continuous_health": (
         "copytrade_pm.pm_forward_observer_health",
-        "copytrade-pm-paper-observer-health --continuous --state-root ROOT",
+        "copytrade-pm paper observer-health --continuous --state-root ROOT",
         "paper",
         "READ_ONLY",
         "INDEPENDENT_STREAM_AND_PROCESS_EVIDENCE",
     ),
-    "paper.observer.continuous_watchdog": (
-        "copytrade_pm.pm_forward_observer_health",
-        "copytrade-pm-paper-observer-health --continuous --watch --state-root ROOT",
-        "paper",
-        "LOCAL_MUTATION",
-        "INDEPENDENT_PRIVATE_WATCHDOG_HISTORY",
-    ),
     "paper.observer.shadow_report": (
         "copytrade_pm.pm_forward_observer_health",
-        "copytrade-pm-paper-observer-health --shadow-report --state-root ROOT",
+        "copytrade-pm paper observer-health --shadow-report --state-root ROOT",
         "paper",
         "READ_ONLY",
         "ACTUAL_WATCHDOG_WINDOW_AND_RECEIPT_CHAINS",
-    ),
-    "market.continuous_canary": (
-        "copytrade_pm.pm_forward_ccxt_market",
-        "copytrade-pm-market-ccxt --continuous-canary-seconds 135 --record-root ROOT",
-        "market",
-        "PROTECTED_MUTATION",
-        "BOUNDED_PUBLIC_MARKET_TRANSPORT_ONLY",
     ),
     "recovery.guide": (
         "docs/BLOCKER-RECOVERY.md",
@@ -380,6 +208,7 @@ NATIVE = {
     ),
 }
 DOCS = {
+    "roster": ROSTER_DOC,
     "registry": "docs/WALLET-REGISTRY-AGENT-WORKFLOW.md",
     "portfolio": "docs/WALLET-REGISTRY-AGENT-WORKFLOW.md",
     "paper": "docs/FORWARD-PAPER-CHECKPOINT-20261104.md",
@@ -391,44 +220,8 @@ DOCS = {
     "operations": DOC,
     "historical": "docs/RUNBOOK.md",
 }
-REGISTRY_REQUIRED_ARGUMENTS = {
-    "native lock": ["--expected-inventory-sha SHA256"],
-    "native lock --apply": ["--expected-inventory-sha SHA256"],
-    "native register": ["--manifest PRIVATE_PATH", "--expected-inventory-sha SHA256"],
-    "native register --apply": ["--manifest PRIVATE_PATH", "--expected-inventory-sha SHA256"],
-    "native exclude": [
-        "--expected-inventory-sha SHA256",
-        "--expected-manifest-sha SHA256",
-        "--manifest PRIVATE_PATH",
-    ],
-    "native exclude --apply": [
-        "--expected-inventory-sha SHA256",
-        "--expected-manifest-sha SHA256",
-        "--manifest PRIVATE_PATH",
-    ],
-    "wallet --alias": ["--alias ALIAS"],
-    "wallet --address": ["--address ADDRESS"],
-    "cohort": ["NAME"],
-    "backup --to": ["--to PATH"],
-    "paper --apply": ["--run-dir PATH", "--portfolio NAME"],
-    "signed-selection": ["--manifest PATH"],
-    "signed-selection --apply": ["--manifest PATH"],
-    "qualification --apply": [
-        "--attestation-file PATH",
-        "--evidence-file PATH",
-        "--auditor-public-key-file PATH",
-    ],
-}
-# Dispatch-enforced requirements for --apply modes whose flags are optional at
-# argparse parse time because the preview/list mode omits them.
-REGISTRY_DISPATCH_REQUIRED_ARGUMENTS = {
-    "paper --apply": ("--run-dir", "--portfolio"),
-    "qualification --apply": (
-        "--attestation-file",
-        "--evidence-file",
-        "--auditor-public-key-file",
-    ),
-}
+REGISTRY_REQUIRED_ARGUMENTS = {}
+REGISTRY_DISPATCH_REQUIRED_ARGUMENTS = {}
 UNKNOWN_ACCESS = {
     "read_targets": "UNKNOWN",
     "write_targets": "UNKNOWN",
@@ -508,8 +301,8 @@ def _registry_access_entry(
 # Reviewed subcommands for copytrade-pm (pm_operations.py) not already covered
 # by existing NATIVE capability IDs. Already-cataloged leaves remain in NATIVE.
 OPERATIONS_SUBCOMMANDS: dict[str, _OperationsSubcommandSpec] = {
-    "cwsa chapter2 verify": {
-        "id": "operations.cwsa.chapter2.verify",
+    "release chapter2 verify": {
+        "id": "operations.release.chapter2.verify",
         "owner": "copytrade_pm.pm_cwsa_chapter2_gate",
         "family": "operations",
         "classification": "READ_ONLY",
@@ -546,8 +339,8 @@ OPERATIONS_SUBCOMMANDS: dict[str, _OperationsSubcommandSpec] = {
             "postdeploy optionally queries HTTPS dashboard using a bearer token file"
         ],
     },
-    "cwsa chapter2 explain": {
-        "id": "operations.cwsa.chapter2.explain",
+    "release chapter2 explain": {
+        "id": "operations.release.chapter2.explain",
         "owner": "copytrade_pm.pm_cwsa_chapter2_projection",
         "family": "operations",
         "classification": "READ_ONLY",
@@ -573,8 +366,8 @@ OPERATIONS_SUBCOMMANDS: dict[str, _OperationsSubcommandSpec] = {
             "Missing evidence never implies Guardian financial or broker authorization",
         ],
     },
-    "cwsa chapter2 site-view": {
-        "id": "operations.cwsa.chapter2.site.view",
+    "release chapter2 site-view": {
+        "id": "operations.release.chapter2.site.view",
         "owner": "copytrade_pm.pm_cwsa_chapter2_projection",
         "family": "operations",
         "classification": "READ_ONLY",
@@ -600,8 +393,8 @@ OPERATIONS_SUBCOMMANDS: dict[str, _OperationsSubcommandSpec] = {
             "No financial effects or Guardian permission",
         ],
     },
-    "cwsa chapter2 recover": {
-        "id": "operations.cwsa.chapter2.recover",
+    "release chapter2 recover": {
+        "id": "operations.release.chapter2.recover",
         "owner": "copytrade_pm.pm_cwsa_chapter2_projection",
         "family": "operations",
         "classification": "READ_ONLY",
@@ -624,8 +417,8 @@ OPERATIONS_SUBCOMMANDS: dict[str, _OperationsSubcommandSpec] = {
             "Missing owner evidence remains UNKNOWN; results never grant dispatch, retry, or trading authorization",
         ],
     },
-    "cwsa chapter2 projection": {
-        "id": "operations.cwsa.chapter2.projection",
+    "release chapter2 projection": {
+        "id": "operations.release.chapter2.projection",
         "owner": "copytrade_pm.pm_cwsa_chapter2_projection",
         "family": "operations",
         "classification": "READ_ONLY",
@@ -705,24 +498,6 @@ OPERATIONS_SUBCOMMANDS: dict[str, _OperationsSubcommandSpec] = {
             "dynamic JSON/config dispatch uses explicit owner contracts"
         ],
     },
-    "portfolios list": {
-        "id": "portfolio.list",
-        "owner": "copytrade_pm.wallet_registry_portfolios",
-        "family": "portfolio",
-        "classification": "READ_ONLY",
-        "authority": "PRIVATE_VERSIONED_WALLET_REGISTRY",
-        "documentation": "docs/WALLET-REGISTRY-AGENT-WORKFLOW.md",
-        "required_arguments": [],
-        "runtime_required_arguments": [],
-        "access": _access_entry(
-            ["private_sqlite_registry", "decision_repo"],
-            [],
-            privacy="OWNER_PRIVATE_REDACTED",
-        ),
-        "limitations": [
-            "Registry portfolio listing never proves worker health or trading authority"
-        ],
-    },
     "research show": {
         "id": "research.show",
         "owner": "copytrade_pm.pm_offline_job_catalog",
@@ -770,7 +545,7 @@ OPERATIONS_SUBCOMMANDS: dict[str, _OperationsSubcommandSpec] = {
             "--cache-root PATH and --request PATH are runtime-required for VERIFIED results",
         ],
     },
-    "contracts rules": {
+    "research contracts rules": {
         "id": "research.contract_selector.rules",
         "owner": "copytrade_pm.pm_contract_selector",
         "family": "research",
@@ -788,8 +563,8 @@ OPERATIONS_SUBCOMMANDS: dict[str, _OperationsSubcommandSpec] = {
             "Archetype rule parameters are scenario assumptions, not broker guarantees"
         ],
     },
-    "status": {
-        "id": "operations.status",
+    "release status": {
+        "id": "operations.release.status",
         "owner": "copytrade_pm.pm_operations",
         "family": "operations",
         "classification": "READ_ONLY",
@@ -815,757 +590,668 @@ OPERATIONS_SUBCOMMANDS: dict[str, _OperationsSubcommandSpec] = {
             "independent UNKNOWN/BLOCKED components"
         ],
     },
-}
-
-
-# Reviewed GROUPS mode variants that distinguish READ_ONLY vs MUTATION/network/dispatch
-# modes while retaining conservative parent GROUPS classifications.
-GROUP_OPERATIONS: dict[str, _GroupOperationSpec] = {
-    "source.public_trades.observe": {
-        "script": "copytrade-pm-public-trades",
-        "owner": "copytrade_pm.pm_forward_public_trades",
-        "family": "source",
-        "interface": "copytrade-pm-public-trades --mode observe",
-        "classification": "PROTECTED_MUTATION",
-        "authority": "PUBLIC_ONLY_PROVISIONAL_TRADE_CAPTURE",
-        "documentation": "docs/FORWARD-PAPER-PUBLIC-TRADES-20261105.md",
-        "required_arguments": [
-            "--instrument SYMBOL | --market-file PATH",
-            "--portfolio ID",
-            "--registry PATH",
-            "--state-root PATH",
-        ],
-        "runtime_required_arguments": [
-            "--ack-shared-ip-connection-budget",
-            "--propr-snapshot PATH",
-        ],
-        "access": _access_entry(
-            [
-                "private_sqlite_registry",
-                "optional_market_shards",
-                "optional_propr_snapshot",
-                "public_hyperliquid_api",
-            ],
-            ["private_observer_journal"],
-            network=True,
-            privacy="OWNER_PRIVATE_REDACTED",
-        ),
-        "limitations": [
-            "Uses public WebSocket/REST and writes private observer journal; never produces paper admission"
-        ],
-    },
-    "source.public_trades.plan": {
-        "script": "copytrade-pm-public-trades",
-        "owner": "copytrade_pm.pm_forward_public_trades",
-        "family": "source",
-        "interface": "copytrade-pm-public-trades --mode plan",
-        "classification": "PROTECTED_MUTATION",
-        "authority": "PUBLIC_ONLY_PROVISIONAL_TRADE_CAPTURE",
-        "documentation": "docs/FORWARD-PAPER-PUBLIC-TRADES-20261105.md",
-        "required_arguments": [
-            "--instrument SYMBOL | --market-file PATH",
-            "--portfolio ID",
-            "--registry PATH",
-            "--state-root PATH",
-        ],
-        "runtime_required_arguments": ["--propr-snapshot PATH"],
-        "access": _access_entry(
-            ["private_sqlite_registry", "optional_market_shards", "optional_propr_snapshot"],
-            ["private_observer_journal"],
-            network=False,
-            privacy="OWNER_PRIVATE_REDACTED",
-        ),
-        "limitations": [
-            "No live network capture in plan mode, but writes planned bucket records to PaperJournal"
-        ],
-    },
-    "paper.public_unit.preview": {
-        "script": "copytrade-pm-public-observer-unit",
-        "owner": "copytrade_pm.pm_forward_public_unit",
-        "family": "paper",
-        "interface": "copytrade-pm-public-observer-unit",
-        "classification": "READ_ONLY",
-        "authority": "SYSTEMD_USER_UNIT_PLAN",
-        "documentation": "docs/FORWARD-PAPER-PUBLIC-OBSERVER-SERVICE-20261105.md",
-        "required_arguments": [
-            "--primary-dir PATH",
-            "--registry PATH",
-            "--revision SHA40",
-            "--secondary-dir PATH",
-            "--state-root PATH",
-        ],
-        "runtime_required_arguments": [],
-        "access": _access_entry(
-            [
-                "pinned_release_dir",
-                "private_sqlite_registry",
-                "source_dirs",
-                "observer_state_root",
-                "optional_systemd_user_unit_file",
-            ],
-            [],
-            privacy="OWNER_PRIVATE",
-        ),
-        "limitations": ["Preview only when --apply is omitted; never installs or starts units"],
-    },
-    "paper.public_unit.apply": {
-        "script": "copytrade-pm-public-observer-unit",
-        "owner": "copytrade_pm.pm_forward_public_unit",
-        "family": "paper",
-        "interface": "copytrade-pm-public-observer-unit --apply",
-        "classification": "PROTECTED_MUTATION",
-        "authority": "SYSTEMD_USER_UNIT_INSTALL",
-        "documentation": "docs/FORWARD-PAPER-PUBLIC-OBSERVER-SERVICE-20261105.md",
-        "required_arguments": [
-            "--primary-dir PATH",
-            "--registry PATH",
-            "--revision SHA40",
-            "--secondary-dir PATH",
-            "--state-root PATH",
-        ],
-        "runtime_required_arguments": [],
-        "access": _access_entry(
-            [
-                "pinned_release_dir",
-                "private_sqlite_registry",
-                "source_dirs",
-                "observer_state_root",
-                "optional_systemd_user_unit_file",
-            ],
-            ["systemd_user_unit_file"],
-            privacy="OWNER_PRIVATE",
-        ),
-        "limitations": [
-            "Writes systemd user unit file only; never runs systemctl or grants paper admission"
-        ],
-    },
-    "account.pm03.simulate.compare": {
-        "script": "copytrade-pm-shadow",
-        "owner": "copytrade_pm.pm03_cli",
-        "family": "account",
-        "interface": "copytrade-pm-shadow --input SPEC.json --output-dir DIR",
+    # --- Slice 3: facts / roster / release domain groups -------------------
+    # These five groups are one entry point over the fact and roster owners.
+    # Every mutation is gated by an explicit --apply flag; every read declares
+    # no write target, so the reviewed classification cannot silently drift.
+    "facts capture-health": {
+        "id": "operations.facts.capture-health",
+        "owner": "copytrade_pm.wallet_health_official",
+        "family": "roster",
         "classification": "LOCAL_MUTATION",
-        "authority": "PM03_FINANCIAL_AUTHORITY",
-        "documentation": "docs/PM-03-shadow-account.md",
-        "required_arguments": ["--input PATH", "--output-dir PATH"],
-        "runtime_required_arguments": ["spec.action=compare", "spec.mode=RESEARCH_SYNTHETIC"],
-        "access": _access_entry(
-            ["private_pm03_input_json"],
-            ["private_pm03_report_dir"],
-            privacy="OWNER_PRIVATE",
-        ),
-        "limitations": [
-            "Dynamic JSON dispatch: requires spec.action='compare' inside --input JSON; "
-            "verified against explicit owner contract rather than CLI flags"
-        ],
-    },
-    "account.pm03.simulate.compare_pm04": {
-        "script": "copytrade-pm-shadow",
-        "owner": "copytrade_pm.pm03_cli",
-        "family": "account",
-        "interface": "copytrade-pm-shadow --input SPEC.json --output-dir DIR",
-        "classification": "LOCAL_MUTATION",
-        "authority": "PM03_FINANCIAL_AUTHORITY",
-        "documentation": "docs/PM-03-shadow-account.md",
-        "required_arguments": ["--input PATH", "--output-dir PATH"],
-        "runtime_required_arguments": [
-            "spec.action=compare_pm04",
-            "spec.schema=pm04_compare_input_v1",
-        ],
-        "access": _access_entry(
-            ["private_pm03_input_json"],
-            ["private_pm03_report_dir"],
-            privacy="OWNER_PRIVATE",
-        ),
-        "limitations": [
-            "Dynamic JSON dispatch: requires spec.action='compare_pm04' and schema='pm04_compare_input_v1'"
-        ],
-    },
-    "account.pm03.simulate.replay": {
-        "script": "copytrade-pm-shadow",
-        "owner": "copytrade_pm.pm03_cli",
-        "family": "account",
-        "interface": "copytrade-pm-shadow --input SPEC.json --output-dir DIR",
-        "classification": "LOCAL_MUTATION",
-        "authority": "PM03_FINANCIAL_AUTHORITY",
-        "documentation": "docs/PM-03-shadow-account.md",
-        "required_arguments": ["--input PATH", "--output-dir PATH"],
-        "runtime_required_arguments": ["spec.action=replay"],
-        "access": _access_entry(
-            ["private_pm03_input_json"],
-            ["private_pm03_report_dir", "private_pm03_runs_dir"],
-            privacy="OWNER_PRIVATE",
-        ),
-        "limitations": ["Dynamic JSON dispatch: requires spec.action='replay' inside --input JSON"],
-    },
-    "source.receipts.init": {
-        "script": "copytrade-pm-receipts",
-        "owner": "copytrade_pm.pm_prospective_cli",
-        "family": "source",
-        "interface": "copytrade-pm-receipts init",
-        "classification": "PROTECTED_MUTATION",
-        "authority": "PROSPECTIVE_SOURCE_RECEIPTS",
-        "documentation": "docs/RUNBOOK.md",
-        "required_arguments": [
-            "--auditor-public-key PATH",
-            "--ledger PATH",
-            "--research-root PATH",
-        ],
-        "runtime_required_arguments": [],
-        "access": _access_entry(
-            ["private_cohort_manifest", "auditor_public_key"],
-            ["private_prospective_ledger"],
-            privacy="OWNER_PRIVATE",
-        ),
-        "limitations": ["Initializes owner-private prospective ledger"],
-    },
-    "source.receipts.ingest": {
-        "script": "copytrade-pm-receipts",
-        "owner": "copytrade_pm.pm_prospective_cli",
-        "family": "source",
-        "interface": "copytrade-pm-receipts ingest",
-        "classification": "PROTECTED_MUTATION",
-        "authority": "PROSPECTIVE_SOURCE_RECEIPTS",
-        "documentation": "docs/RUNBOOK.md",
-        "required_arguments": [
-            "--auditor-public-key PATH",
-            "--ledger PATH",
-            "--research-root PATH",
-        ],
-        "runtime_required_arguments": ["--receipts PATH"],
-        "access": _access_entry(
-            [
-                "private_cohort_manifest",
-                "auditor_public_key",
-                "private_prospective_ledger",
-                "private_producer_receipts",
-            ],
-            ["private_prospective_ledger"],
-            privacy="OWNER_PRIVATE",
-        ),
-        "limitations": ["--receipts PATH is runtime-required in ingest mode"],
-    },
-    "source.receipts.audit": {
-        "script": "copytrade-pm-receipts",
-        "owner": "copytrade_pm.pm_prospective_cli",
-        "family": "source",
-        "interface": "copytrade-pm-receipts audit",
-        "classification": "PROTECTED_MUTATION",
-        "authority": "PROSPECTIVE_SOURCE_RECEIPTS",
-        "documentation": "docs/RUNBOOK.md",
-        "required_arguments": [
-            "--auditor-public-key PATH",
-            "--ledger PATH",
-            "--research-root PATH",
-        ],
-        "runtime_required_arguments": ["--attestation-file PATH"],
-        "access": _access_entry(
-            [
-                "private_cohort_manifest",
-                "auditor_public_key",
-                "private_prospective_ledger",
-                "signed_attestation_file",
-            ],
-            ["private_prospective_ledger"],
-            privacy="OWNER_PRIVATE",
-        ),
-        "limitations": ["--attestation-file PATH (0600) is runtime-required in audit mode"],
-    },
-    "source.receipts.outcome": {
-        "script": "copytrade-pm-receipts",
-        "owner": "copytrade_pm.pm_prospective_cli",
-        "family": "source",
-        "interface": "copytrade-pm-receipts outcome",
-        "classification": "PROTECTED_MUTATION",
-        "authority": "PROSPECTIVE_SOURCE_RECEIPTS",
-        "documentation": "docs/RUNBOOK.md",
-        "required_arguments": [
-            "--auditor-public-key PATH",
-            "--ledger PATH",
-            "--research-root PATH",
-        ],
-        "runtime_required_arguments": ["--attestation-file PATH"],
-        "access": _access_entry(
-            [
-                "private_cohort_manifest",
-                "auditor_public_key",
-                "private_prospective_ledger",
-                "signed_attestation_file",
-            ],
-            ["private_prospective_ledger"],
-            privacy="OWNER_PRIVATE",
-        ),
-        "limitations": ["--attestation-file PATH (0600) is runtime-required in outcome mode"],
-    },
-    "source.receipts.inspect": {
-        "script": "copytrade-pm-receipts",
-        "owner": "copytrade_pm.pm_prospective_cli",
-        "family": "source",
-        "interface": "copytrade-pm-receipts inspect",
-        "classification": "READ_ONLY",
-        "authority": "PROSPECTIVE_SOURCE_RECEIPTS",
-        "documentation": "docs/RUNBOOK.md",
-        "required_arguments": [
-            "--auditor-public-key PATH",
-            "--ledger PATH",
-            "--research-root PATH",
-        ],
-        "runtime_required_arguments": ["--asof UTC"],
-        "access": _access_entry(
-            ["private_cohort_manifest", "auditor_public_key", "private_prospective_ledger"],
-            [],
-            privacy="OWNER_PRIVATE_REDACTED",
-        ),
-        "limitations": ["Read-only readiness inspection; --asof UTC is runtime-required"],
-    },
-    "paper.unit_bundle.stage": {
-        "script": "copytrade-pm-paper-unit-bundle",
-        "owner": "copytrade_pm.pm_forward_protected_units",
-        "family": "paper",
-        "interface": "copytrade-pm-paper-unit-bundle --revision SHA40 --out DIR",
-        "classification": "LOCAL_MUTATION",
-        "authority": "PROTECTED_UNIT_CANDIDATE_STAGE",
-        "documentation": "docs/FORWARD-PAPER-PROTECTED-OPS-STAGING-20261105.md",
-        "required_arguments": ["--out PATH"],
-        "runtime_required_arguments": ["--revision SHA40"],
-        "access": _access_entry(
-            ["git_checkout"],
-            ["protected_unit_bundle"],
-            privacy="OWNER_PRIVATE",
-        ),
-        "limitations": [
-            "Stages candidate files locally; --revision is runtime-required without --verify"
-        ],
-    },
-    "paper.unit_bundle.verify": {
-        "script": "copytrade-pm-paper-unit-bundle",
-        "owner": "copytrade_pm.pm_forward_protected_units",
-        "family": "paper",
-        "interface": "copytrade-pm-paper-unit-bundle --verify --out DIR",
-        "classification": "READ_ONLY",
-        "authority": "PROTECTED_UNIT_CANDIDATE_VERIFY",
-        "documentation": "docs/FORWARD-PAPER-PROTECTED-OPS-STAGING-20261105.md",
-        "required_arguments": ["--out PATH"],
-        "runtime_required_arguments": [],
-        "access": _access_entry(
-            ["protected_unit_bundle"],
-            [],
-            privacy="OWNER_PRIVATE",
-        ),
-        "limitations": ["Read-only bundle verification"],
-    },
-    "production.export.cli.stdout": {
-        "script": "copytrade-pm-production-export",
-        "owner": "copytrade_pm.production_export",
-        "family": "registry",
-        "interface": "copytrade-pm-production-export",
-        "classification": "READ_ONLY",
-        "authority": "PRIVATE_VERSIONED_WALLET_REGISTRY",
-        "documentation": "docs/WALLET-REGISTRY-AGENT-WORKFLOW.md",
-        "required_arguments": ["--asof UTC", "--portfolio ID"],
-        "runtime_required_arguments": [],
-        "access": _access_entry(
-            ["private_sqlite_registry"],
-            [],
-            privacy="OWNER_PRIVATE_REDACTED",
-        ),
-        "limitations": ["Prints redacted view when --private-output is omitted"],
-    },
-    "production.export.cli.write": {
-        "script": "copytrade-pm-production-export",
-        "owner": "copytrade_pm.production_export",
-        "family": "registry",
-        "interface": "copytrade-pm-production-export --private-output PATH",
-        "classification": "LOCAL_MUTATION",
-        "authority": "PRIVATE_VERSIONED_WALLET_REGISTRY",
-        "documentation": "docs/WALLET-REGISTRY-AGENT-WORKFLOW.md",
-        "required_arguments": ["--asof UTC", "--portfolio ID"],
-        "runtime_required_arguments": ["--private-output PATH"],
-        "access": _access_entry(
-            ["private_sqlite_registry"],
-            ["private_export_file"],
-            privacy="OWNER_PRIVATE",
-        ),
-        "limitations": ["Writes 0600 private export artifact when --private-output is supplied"],
-    },
-    "paper.standby.worker": {
-        "script": "copytrade-pm-paper-standby",
-        "owner": "copytrade_pm.pm_forward_protected_ops",
-        "family": "paper",
-        "interface": "copytrade-pm-paper-standby worker",
-        "classification": "PROTECTED_MUTATION",
-        "authority": "PROTECTED_PAPER_STANDBY",
-        "documentation": "docs/FORWARD-PAPER-PROTECTED-OPS-STAGING-20261105.md",
-        "required_arguments": ["--release PATH", "--revision SHA40", "--state-root PATH"],
-        "runtime_required_arguments": ["--portfolio P1|P14"],
-        "access": _access_entry(
-            ["pinned_release_dir", "protected_paper_state_root"],
-            ["protected_standby_worker_state"],
-            privacy="OWNER_PRIVATE",
-        ),
-        "limitations": [
-            "--portfolio is runtime-required in worker role; standby writes status only"
-        ],
-    },
-    "paper.standby.watchdog": {
-        "script": "copytrade-pm-paper-standby",
-        "owner": "copytrade_pm.pm_forward_protected_ops",
-        "family": "paper",
-        "interface": "copytrade-pm-paper-standby watchdog",
-        "classification": "PROTECTED_MUTATION",
-        "authority": "PROTECTED_PAPER_STANDBY",
-        "documentation": "docs/FORWARD-PAPER-PROTECTED-OPS-STAGING-20261105.md",
-        "required_arguments": ["--release PATH", "--revision SHA40", "--state-root PATH"],
-        "runtime_required_arguments": ["--p1-root PATH", "--p14-root PATH"],
-        "access": _access_entry(
-            ["pinned_release_dir", "protected_standby_worker_state"],
-            ["protected_standby_watchdog_state"],
-            privacy="OWNER_PRIVATE",
-        ),
-        "limitations": ["--p1-root and --p14-root are runtime-required in watchdog role"],
-    },
-    "agent.trace.eval.list_tasks": {
-        "script": "copytrade-pm-agent-eval",
-        "owner": "copytrade_pm.pm_agent_trace_eval",
-        "family": "operations",
-        "interface": "copytrade-pm-agent-eval --list-tasks",
-        "classification": "READ_ONLY",
-        "authority": "AGENT_TRACE_EVALUATION",
-        "documentation": "docs/AGENT-TRACE-EVAL-20261105.md",
+        "authority": "BI_TEMPORAL_FACT_STORE",
+        "documentation": ROSTER_DOC,
         "required_arguments": [],
         "runtime_required_arguments": [],
         "access": _access_entry(
-            ["static_task_map"],
+            ["roster_sqlite", "optional_fact_store", "hyperliquid_public_info"],
+            ["facts_store_parquet_and_manifest", "optional_private_capture_archive"],
+            network=True,
+            credentials=False,
+            privacy="OWNER_PRIVATE_REDACTED",
+        ),
+        "limitations": ["Capture requires --apply and grants no trading authorization"],
+    },
+    "facts migrate": {
+        "id": "operations.facts.migrate",
+        "owner": "copytrade_pm.facts",
+        "family": "roster",
+        "classification": "LOCAL_MUTATION",
+        "authority": "BI_TEMPORAL_FACT_STORE",
+        "documentation": ROSTER_DOC,
+        "required_arguments": ["--store STORE_PATH"],
+        "runtime_required_arguments": [],
+        "access": _access_entry(
+            [
+                "optional_legacy_wallet_store_parquet",
+                "optional_reservoir_parquet",
+                "optional_legacy_wallet_store_catalog",
+            ],
+            ["facts_store_parquet_and_manifest"],
+            network=False,
+            credentials=False,
+            privacy="OWNER_PRIVATE_REDACTED",
+        ),
+        "limitations": [
+            "Dry run unless --apply is passed",
+            "Never invents a known-at clock; unclocked archive rows stay PIT-invisible",
+        ],
+    },
+    "facts verify": {
+        "id": "operations.facts.verify",
+        "owner": "copytrade_pm.facts",
+        "family": "roster",
+        "classification": "READ_ONLY",
+        "authority": "BI_TEMPORAL_FACT_STORE",
+        "documentation": ROSTER_DOC,
+        "required_arguments": ["--store STORE_PATH"],
+        "runtime_required_arguments": [],
+        "access": _access_entry(
+            ["facts_store_parquet_and_manifest"],
             [],
+            network=False,
+            credentials=False,
+            privacy="OWNER_PRIVATE_REDACTED",
+        ),
+        "limitations": [
+            "Re-hashes batches; a hash mismatch is a hard failure",
+        ],
+    },
+    "facts coverage": {
+        "id": "operations.facts.coverage",
+        "owner": "copytrade_pm.facts",
+        "family": "roster",
+        "classification": "READ_ONLY",
+        "authority": "BI_TEMPORAL_FACT_STORE",
+        "documentation": ROSTER_DOC,
+        "required_arguments": ["--store STORE_PATH"],
+        "runtime_required_arguments": [],
+        "access": _access_entry(
+            ["facts_store_parquet_and_manifest"],
+            [],
+            network=False,
+            credentials=False,
+            privacy="OWNER_PRIVATE_REDACTED",
+        ),
+        "limitations": [
+            "Coverage is not qualification and not a trading permission",
+        ],
+    },
+    "facts benchmark": {
+        "id": "operations.facts.benchmark",
+        "owner": "copytrade_pm.facts",
+        "family": "roster",
+        "classification": "LOCAL_MUTATION",
+        "authority": "BI_TEMPORAL_FACT_STORE",
+        "documentation": ROSTER_DOC,
+        "required_arguments": [],
+        "runtime_required_arguments": [],
+        "access": _access_entry(
+            ["optional_facts_store_parquet"],
+            ["optional_synthetic_facts_store"],
+            network=False,
+            credentials=False,
+            privacy="SYNTHETIC",
+        ),
+        "limitations": [
+            "Dry run unless --apply is passed",
+            "Synthetic benchmark numbers never describe a real wallet universe",
+        ],
+    },
+    "roster register": {
+        "id": "operations.roster.register",
+        "owner": "copytrade_pm.roster",
+        "family": "roster",
+        "classification": "PROTECTED_MUTATION",
+        "authority": "ROSTER_SEAT_LEASE",
+        "documentation": ROSTER_DOC,
+        "required_arguments": [
+            "--store STORE_PATH",
+            "--account ACCOUNT_ID",
+            "--seat SEAT_SPEC",
+            "--policy-epoch POLICY_EPOCH_SHA256",
+        ],
+        "runtime_required_arguments": [],
+        "access": _access_entry(
+            [],
+            ["roster_sqlite"],
+            network=False,
+            credentials=False,
+            privacy="OWNER_PRIVATE_REDACTED",
+        ),
+        "limitations": [
+            "Dry run unless --apply is passed",
+            "Seat drift or a policy-epoch change on an existing account is refused",
+        ],
+    },
+    "roster show": {
+        "id": "operations.roster.show",
+        "owner": "copytrade_pm.roster",
+        "family": "roster",
+        "classification": "READ_ONLY",
+        "authority": "ROSTER_SEAT_LEASE",
+        "documentation": ROSTER_DOC,
+        "required_arguments": ["--store STORE_PATH", "--account ACCOUNT_ID"],
+        "runtime_required_arguments": [],
+        "access": _access_entry(
+            ["roster_sqlite"],
+            [],
+            network=False,
+            credentials=False,
+            privacy="OWNER_PRIVATE_REDACTED",
+        ),
+        "limitations": [
+            "Wallet addresses are redacted unless --identities is passed",
+            "A vacant book reports FLAT; it is not a missing-evidence state",
+        ],
+    },
+    "roster plan": {
+        "id": "operations.roster.plan",
+        "owner": "copytrade_pm.roster",
+        "family": "roster",
+        "classification": "READ_ONLY",
+        "authority": "ROSTER_SEAT_LEASE",
+        "documentation": ROSTER_DOC,
+        "required_arguments": ["--store STORE_PATH", "--account ACCOUNT_ID"],
+        "runtime_required_arguments": [],
+        "access": _access_entry(
+            ["roster_sqlite"],
+            [],
+            network=False,
+            credentials=False,
+            privacy="OWNER_PRIVATE_REDACTED",
+        ),
+        "limitations": [
+            "Pure preview: no book, lease or proposal is written",
+            "A plan is never a trading authorization",
+        ],
+    },
+    "roster commit": {
+        "id": "operations.roster.commit",
+        "owner": "copytrade_pm.roster",
+        "family": "roster",
+        "classification": "PROTECTED_MUTATION",
+        "authority": "ROSTER_SEAT_LEASE",
+        "documentation": ROSTER_DOC,
+        "required_arguments": ["--store STORE_PATH", "--account ACCOUNT_ID"],
+        "runtime_required_arguments": [],
+        "access": _access_entry(
+            ["roster_sqlite"],
+            ["roster_sqlite"],
+            network=False,
+            credentials=False,
+            privacy="OWNER_PRIVATE_REDACTED",
+        ),
+        "limitations": [
+            "Dry run unless --apply is passed",
+            "Books and leases are append-only; a stale plan is refused",
+        ],
+    },
+    "roster scorecard": {
+        "id": "operations.roster.scorecard",
+        "owner": "copytrade_pm.roster",
+        "family": "roster",
+        "classification": "PROTECTED_MUTATION",
+        "authority": "ROSTER_SEAT_LEASE",
+        "documentation": ROSTER_DOC,
+        "required_arguments": [
+            "--store STORE_PATH",
+            "--wallet WALLET_ADDRESS",
+            "--account-value ACCOUNT_VALUE_USD",
+            "--cluster CLUSTER_ID",
+            "--source-sha SOURCE_SHA256",
+        ],
+        "runtime_required_arguments": [],
+        "access": _access_entry(
+            [],
+            ["roster_sqlite"],
+            network=False,
+            credentials=False,
+            privacy="OWNER_PRIVATE_REDACTED",
+        ),
+        "limitations": [
+            "Dry run unless --apply is passed",
+            "Idempotent by content SHA; gates are supplied evidence, never inferred",
+        ],
+    },
+    "roster bench": {
+        "id": "operations.roster.bench",
+        "owner": "copytrade_pm.roster",
+        "family": "roster",
+        "classification": "PROTECTED_MUTATION",
+        "authority": "ROSTER_SEAT_LEASE",
+        "documentation": ROSTER_DOC,
+        "required_arguments": ["--store STORE_PATH", "--account ACCOUNT_ID"],
+        "runtime_required_arguments": [],
+        "access": _access_entry(
+            [],
+            ["roster_sqlite"],
+            network=False,
+            credentials=False,
+            privacy="OWNER_PRIVATE_REDACTED",
+        ),
+        "limitations": [
+            "Dry run unless --apply is passed",
+            "A candidate must cite the exact scorecard SHA it was scored from",
+        ],
+    },
+    "roster binding": {
+        "id": "operations.roster.binding",
+        "owner": "copytrade_pm.roster",
+        "family": "roster",
+        "classification": "PROTECTED_MUTATION",
+        "authority": "ROSTER_RELEASE_PROPOSAL",
+        "documentation": ROSTER_DOC,
+        "required_arguments": ["--store STORE_PATH", "--file BINDING_JSON_PATH"],
+        "runtime_required_arguments": [],
+        "access": _access_entry(
+            ["private_binding_json"],
+            ["roster_sqlite"],
+            network=False,
+            credentials=False,
+            privacy="OWNER_PRIVATE_REDACTED",
+        ),
+        "limitations": [
+            "Dry run unless --apply is passed",
+            "Provenance fields are validated, never invented; a rollback generation is refused",
+        ],
+    },
+    "roster veto": {
+        "id": "operations.roster.veto",
+        "owner": "copytrade_pm.roster",
+        "family": "roster",
+        "classification": "PROTECTED_MUTATION",
+        "authority": "ROSTER_OPERATOR_CONTAINMENT",
+        "documentation": ROSTER_DOC,
+        "required_arguments": ["--store STORE_PATH", "--wallet WALLET_ADDRESS", "--at-ms UTC_MS"],
+        "runtime_required_arguments": [],
+        "access": _access_entry(
+            [],
+            ["roster_sqlite"],
+            network=False,
+            credentials=False,
+            privacy="OWNER_PRIVATE_REDACTED",
+        ),
+        "limitations": [
+            "Dry run unless --apply is passed",
+            "A veto contains without proving; it never grants admission",
+        ],
+    },
+    "roster cusum": {
+        "id": "operations.roster.cusum",
+        "owner": "copytrade_pm.roster",
+        "family": "roster",
+        "classification": "PROTECTED_MUTATION",
+        "authority": "ROSTER_EPOCH_LATCH",
+        "documentation": ROSTER_DOC,
+        "required_arguments": [
+            "--store STORE_PATH",
+            "--wallet WALLET_ADDRESS",
+            "--increment CUSUM_DECIMAL",
+            "--threshold CUSUM_THRESHOLD",
+            "--epoch POLICY_EPOCH_SHA256",
+            "--at-ms UTC_MS",
+        ],
+        "runtime_required_arguments": [],
+        "access": _access_entry(
+            [],
+            ["roster_sqlite"],
+            network=False,
+            credentials=False,
+            privacy="OWNER_PRIVATE_REDACTED",
+        ),
+        "limitations": [
+            "Dry run unless --apply is passed",
+            "A latched kill is terminal for its policy epoch and never self-clears",
+        ],
+    },
+    "roster proposal": {
+        "id": "operations.roster.proposal",
+        "owner": "copytrade_pm.roster",
+        "family": "roster",
+        "classification": "READ_ONLY",
+        "authority": "ROSTER_RELEASE_PROPOSAL",
+        "documentation": ROSTER_DOC,
+        "required_arguments": ["--store STORE_PATH"],
+        "runtime_required_arguments": [],
+        "access": _access_entry(
+            ["roster_sqlite"],
+            [],
+            network=False,
+            credentials=False,
+            privacy="OWNER_PRIVATE_REDACTED",
+        ),
+        "limitations": [
+            "A staged proposal is unsigned and is not a release or an authorization",
+        ],
+    },
+    "release propose": {
+        "id": "operations.release.propose",
+        "owner": "copytrade_pm.roster",
+        "family": "roster",
+        "classification": "PROTECTED_MUTATION",
+        "authority": "ROSTER_RELEASE_PROPOSAL",
+        "documentation": ROSTER_DOC,
+        "required_arguments": ["--store STORE_PATH", "--account ACCOUNT_ID"],
+        "runtime_required_arguments": [],
+        "access": _access_entry(
+            ["roster_sqlite"],
+            ["roster_sqlite", "optional_private_proposal_json"],
+            network=False,
+            credentials=False,
+            privacy="OWNER_PRIVATE_REDACTED",
+        ),
+        "limitations": [
+            "Dry run unless --apply is passed",
+            "Refuses to propose from a changed or unrecorded release binding",
+        ],
+    },
+    "release sign": {
+        "id": "operations.release.sign",
+        "owner": "copytrade_pm.production_manifest",
+        "family": "roster",
+        "classification": "PROTECTED_MUTATION",
+        "authority": "PRODUCTION_MANIFEST_SIGNING",
+        "documentation": ROSTER_DOC,
+        "required_arguments": [
+            "--proposal PROPOSAL_JSON_PATH",
+            "--release-signing-key PRIVATE_ED25519_KEY_PATH",
+            "--reviewer-public ED25519_PUBLIC_KEY_PATH",
+            "--source-observer-public ED25519_PUBLIC_KEY_PATH",
+            "--out SIGNED_ENVELOPE_PATH",
+            "--store ROSTER_SQLITE_PATH",
+        ],
+        "runtime_required_arguments": [],
+        "access": _access_entry(
+            [
+                "roster_sqlite",
+                "private_proposal_json",
+                "private_ed25519_key",
+                "trusted_public_key",
+            ],
+            ["private_signed_release_envelope", "roster_sqlite"],
+            network=False,
+            credentials=True,
+            privacy="OWNER_PRIVATE_REDACTED",
+        ),
+        "limitations": [
+            "Requires an exact match to a staged SYNTHETIC proposal",
+            "Independent reviewer and source-observer approval is verified against the staged selection before any key is opened",
+            "Dry run does not load the key; --apply requires a regular 0600 key",
+            "Requires a new output in a private directory",
+        ],
+    },
+    "release verify": {
+        "id": "operations.release.verify",
+        "owner": "copytrade_pm.production_manifest",
+        "family": "roster",
+        "classification": "READ_ONLY",
+        "authority": "PRODUCTION_MANIFEST_SIGNING",
+        "documentation": ROSTER_DOC,
+        "required_arguments": [
+            "--envelope SIGNED_ENVELOPE_PATH",
+            "--signer-public ED25519_PUBLIC_KEY_PATH",
+        ],
+        "runtime_required_arguments": [],
+        "access": _access_entry(
+            ["private_signed_release_envelope", "ed25519_public_key"],
+            [],
+            network=False,
+            credentials=False,
             privacy="PUBLIC_METADATA",
         ),
-        "limitations": ["Read-only task catalog listing"],
+        "limitations": [
+            "A verified envelope is evidence of an offline signature, not a trading authorization",
+        ],
     },
-    "agent.trace.eval.trace": {
-        "script": "copytrade-pm-agent-eval",
-        "owner": "copytrade_pm.pm_agent_trace_eval",
-        "family": "operations",
-        "interface": "copytrade-pm-agent-eval --trace PATH",
+    "release export": {
+        "id": "operations.release.export",
+        "owner": "copytrade_pm.roster",
+        "family": "roster",
         "classification": "READ_ONLY",
-        "authority": "AGENT_TRACE_EVALUATION",
-        "documentation": "docs/AGENT-TRACE-EVAL-20261105.md",
-        "required_arguments": [],
-        "runtime_required_arguments": ["--trace PATH"],
+        "authority": "ROSTER_RELEASE_PROPOSAL",
+        "documentation": ROSTER_DOC,
+        "required_arguments": ["--store STORE_PATH", "--account ACCOUNT_ID"],
+        "runtime_required_arguments": [],
         "access": _access_entry(
-            ["private_agent_trace_json", "optional_signature_and_public_key"],
+            ["roster_sqlite"],
+            [],
+            network=False,
+            credentials=False,
+            privacy="OWNER_PRIVATE_REDACTED",
+        ),
+        "limitations": [
+            "Wallet addresses are redacted unless --identities is passed",
+            "Export order_route is always NONE",
+        ],
+    },
+    "research scorecards": {
+        "id": "operations.research.scorecards",
+        "owner": "copytrade_pm.roster",
+        "family": "roster",
+        "classification": "READ_ONLY",
+        "authority": "ROSTER_SCORECARD_READ_MODEL",
+        "documentation": ROSTER_DOC,
+        "required_arguments": ["--store STORE_PATH"],
+        "runtime_required_arguments": [],
+        "access": _access_entry(
+            ["roster_sqlite"],
+            [],
+            network=False,
+            credentials=False,
+            privacy="OWNER_PRIVATE_REDACTED",
+        ),
+        "limitations": [
+            "Aggregate gate counts only; never a qualification claim",
+            "A missing scorecard is missing evidence, not a pass or a fail",
+        ],
+    },
+    "research contracts compare": {
+        "id": "research.contract_selector.compare",
+        "owner": "copytrade_pm.pm_contract_selector",
+        "family": "research",
+        "classification": "READ_ONLY",
+        "authority": "USER_SUPPLIED_UNVERIFIED_ARCHETYPE",
+        "documentation": "docs/CONTRACT-PORTFOLIO-EV-TOOL-20261105.md",
+        "required_arguments": ["--portfolio NAMESPACE/ID"],
+        "runtime_required_arguments": ["--tape PRIVATE_TAPE"],
+        "access": _access_entry(
+            ["roster_sqlite", "private_follower_pnl_tape"],
             [],
             privacy="OWNER_PRIVATE_REDACTED",
         ),
-        "limitations": ["--trace PATH is runtime-required when --list-tasks is omitted"],
+        "limitations": [
+            "Synthetic EV is SCENARIO_ONLY and never a trading permission",
+            "A missing tape is BLOCKED, never inferred",
+        ],
     },
-    "paper.observed_execution.l2": {
-        "script": "copytrade-pm-paper-observed",
-        "owner": "copytrade_pm.pm_forward_observed_paper",
+    "paper status": {
+        "id": "operations.paper.status",
+        "owner": "copytrade_pm.pm_roster_cli",
         "family": "paper",
-        "interface": "copytrade-pm-paper-observed --price-mode l2",
-        "classification": "LOCAL_MUTATION",
-        "authority": "PM04_VIRTUAL_PAPER",
-        "documentation": "docs/FORWARD-PAPER-CHECKPOINT-20261104.md",
-        "required_arguments": ["--run-id ID", "--source-db PATH", "--state-root PATH"],
+        "classification": "READ_ONLY",
+        "authority": "ROSTER_SEAT_LEASE",
+        "documentation": ROSTER_DOC,
+        "required_arguments": ["--store ROSTER_SQLITE_PATH", "--account ACCOUNT_ID"],
+        "runtime_required_arguments": [],
+        "access": _access_entry(["roster_sqlite"], [], privacy="OWNER_PRIVATE_REDACTED"),
+        "limitations": [
+            "The seat view is virtual paper only; order_route is always NONE",
+        ],
+    },
+    "release metadata": {
+        "id": "operations.release.metadata",
+        "owner": "copytrade_pm.production_export",
+        "family": "roster",
+        "classification": "READ_ONLY",
+        "authority": "ROSTER_SEALED_SELECTION",
+        "documentation": ROSTER_DOC,
+        "required_arguments": ["--portfolio ACCOUNT_ID", "--asof UTC_TIMESTAMP"],
+        "runtime_required_arguments": [],
+        "access": _access_entry(["roster_sqlite"], [], privacy="OWNER_PRIVATE_REDACTED"),
+        "limitations": [
+            "Read-only metadata handoff; no broker or signing authority",
+        ],
+    },
+    "paper mandates": {
+        "id": "operations.paper.mandates",
+        "owner": "copytrade_pm.roster",
+        "family": "roster",
+        "classification": "READ_ONLY",
+        "authority": "ROSTER_PAPER_BRIDGE",
+        "documentation": ROSTER_DOC,
+        "required_arguments": ["--store STORE_PATH", "--account ACCOUNT_ID"],
         "runtime_required_arguments": [],
         "access": _access_entry(
-            [
-                "private_source_db",
-                "private_sqlite_registry",
-                "optional_markets_json",
-                "optional_public_ccxt_catalog",
-            ],
-            ["private_paper_journal"],
-            network=True,
-            privacy="OWNER_PRIVATE_REDACTED",
-        ),
-        "limitations": [
-            "RETIRED_V4_T300: historical capability only; entrypoint refuses new runs",
-            "Legacy CCXT catalog path was used before retirement",
-        ],
-    },
-    "paper.observed_execution.vike_minute": {
-        "script": "copytrade-pm-paper-observed",
-        "owner": "copytrade_pm.pm_forward_observed_paper",
-        "family": "paper",
-        "interface": "copytrade-pm-paper-observed --price-mode vike_minute",
-        "classification": "LOCAL_MUTATION",
-        "authority": "PM04_VIRTUAL_PAPER",
-        "documentation": "docs/FORWARD-PAPER-CHECKPOINT-20261104.md",
-        "required_arguments": ["--run-id ID", "--source-db PATH", "--state-root PATH"],
-        "runtime_required_arguments": ["--price-db PATH", "--propr-catalog PATH"],
-        "access": _access_entry(
-            [
-                "private_source_db",
-                "private_sqlite_registry",
-                "private_vike_price_db",
-                "propr_native_catalog",
-            ],
-            ["private_paper_journal"],
+            ["roster_sqlite"],
+            [],
             network=False,
+            credentials=False,
             privacy="OWNER_PRIVATE_REDACTED",
         ),
         "limitations": [
-            "RETIRED_V4_T300: historical capability only; entrypoint refuses new runs",
-            "Legacy Vike path required --propr-catalog PATH and --price-db PATH",
+            "Reads the staged unsigned proposal at or before --as-of; no journal or broker",
         ],
     },
-    "paper.observer.diagnose_preflight": {
-        "script": "copytrade-pm-paper-observe",
-        "owner": "copytrade_pm.pm_forward_continuous",
+    # --- Ported live parsers: one owner registration, mounted once under a group --
+    # Each owner module still exposes its own `python -m` route; the consolidated
+    # leaf adds only the reviewed --apply gate for a mutating mode.
+    "paper observe": {
+        "id": "paper.observer.continuous",
+        "owner": "copytrade_pm.pm_forward_observer",
         "family": "paper",
-        "interface": (
-            "copytrade-pm-paper-observe --continuous-config CONFIG "
-            "--preflight-only --diagnose-preflight"
-        ),
-        "classification": "READ_ONLY",
-        "authority": "PINNED_REGISTRY_AND_ISOLATED_OBSERVER_PREFLIGHT",
+        "classification": "PROTECTED_MUTATION",
+        "authority": "PUBLIC_ONLY_CONTINUOUS_OBSERVATION_JOURNAL",
         "documentation": "docs/FORWARD-PAPER-CONTINUOUS-OBSERVER.md",
         "required_arguments": [
-            "--primary-dir PATH",
-            "--registry PATH",
-            "--secondary-dir PATH",
-            "--state-root PATH",
+            "--registry REGISTRY_SQLITE_PATH",
+            "--primary-dir PRIMARY_SOURCE_DIR",
+            "--secondary-dir SECONDARY_SOURCE_DIR",
+            "--state-root OBSERVER_STATE_ROOT",
         ],
-        "runtime_required_arguments": [
-            "--continuous-config PATH",
-            "--diagnose-preflight",
-            "--preflight-only",
-        ],
+        "runtime_required_arguments": ["--continuous-config CONFIG", "--preflight-only"],
         "access": _access_entry(
             [
                 "private_sqlite_registry",
                 "source_dirs",
                 "continuous_observer_config",
                 "pinned_release_dir",
-            ],
-            [],
-            privacy="OWNER_PRIVATE_REDACTED",
-        ),
-        "limitations": [
-            "Read-only budget diagnostic; requires --continuous-config, --preflight-only, and --diagnose-preflight"
-        ],
-    },
-    "paper.observer.finite": {
-        "script": "copytrade-pm-paper-observe",
-        "owner": "copytrade_pm.pm_forward_observer",
-        "family": "paper",
-        "interface": "copytrade-pm-paper-observe",
-        "classification": "PROTECTED_MUTATION",
-        "authority": "PUBLIC_ONLY_FINITE_OBSERVER_JOURNAL",
-        "documentation": "docs/FORWARD-PAPER-CHECKPOINT-20261104.md",
-        "required_arguments": [
-            "--primary-dir PATH",
-            "--registry PATH",
-            "--secondary-dir PATH",
-            "--state-root PATH",
-        ],
-        "runtime_required_arguments": [],
-        "access": _access_entry(
-            [
-                "private_sqlite_registry",
-                "source_dirs",
-                "pinned_release_dir",
                 "public_hyperliquid_api",
             ],
             ["private_observer_journal"],
             network=True,
+            credentials=False,
             privacy="OWNER_PRIVATE_REDACTED",
         ),
-        "limitations": ["Finite shared observer mode when --continuous-config is omitted"],
+        "limitations": [
+            "Without --apply only the read-only preflight/diagnosis runs; starting observation "
+            "requires an explicit --apply",
+            "Continuous capture creates no PM-03 run and commits no financial event",
+        ],
     },
-    "paper.observer_health.heartbeat": {
-        "script": "copytrade-pm-paper-observer-health",
+    "paper observer-health": {
+        "id": "paper.observer.continuous_watchdog",
         "owner": "copytrade_pm.pm_forward_observer_health",
         "family": "paper",
-        "interface": "copytrade-pm-paper-observer-health --state-root ROOT",
-        "classification": "READ_ONLY",
-        "authority": "INDEPENDENT_OBSERVER_HEARTBEAT",
-        "documentation": "docs/FORWARD-PAPER-CHECKPOINT-20261104.md",
-        "required_arguments": ["--state-root PATH"],
-        "runtime_required_arguments": [],
-        "access": _access_entry(["private_observer_journal"], []),
-        "limitations": ["Default single-run heartbeat check without --continuous or --watch"],
-    },
-    "paper.identity.audit": {
-        "script": "copytrade-pm-paper-registry-audit",
-        "owner": "copytrade_pm.pm_forward_registry_identity",
-        "family": "paper",
-        "interface": "copytrade-pm-paper-registry-audit --portfolio P1|P14",
-        "classification": "READ_ONLY",
-        "authority": "PINNED_REGISTRY_IDENTITY_AUDIT",
-        "documentation": "docs/FORWARD-PAPER-CHECKPOINT-20261104.md",
-        "required_arguments": [
-            "--portfolio P1|P14",
-            "--primary-dir PATH",
-            "--registry PATH",
-            "--secondary-dir PATH",
-        ],
-        "runtime_required_arguments": [],
-        "access": _access_entry(["private_sqlite_registry", "source_dirs"], []),
-        "limitations": ["Read-only portfolio identity audit without --prospective-reseal-preview"],
-    },
-    "market.ccxt.probe": {
-        "script": "copytrade-pm-market-ccxt",
-        "owner": "copytrade_pm.pm_forward_ccxt_market",
-        "family": "market",
-        "interface": "copytrade-pm-market-ccxt --instrument SYMBOL",
-        "classification": "READ_ONLY",
-        "authority": "PUBLIC_CCXT_L2_PROBE",
-        "documentation": "docs/DATA-ACQUISITION.md",
-        "required_arguments": ["--instrument SYMBOL"],
-        "runtime_required_arguments": [],
-        "access": _access_entry(["public_hyperliquid_api"], [], network=True),
-        "limitations": [
-            "Read-only public L2 quote probe when --record-root and --continuous-canary-seconds are omitted"
-        ],
-    },
-    "market.ccxt.record": {
-        "script": "copytrade-pm-market-ccxt",
-        "owner": "copytrade_pm.pm_forward_ccxt_market",
-        "family": "market",
-        "interface": "copytrade-pm-market-ccxt --instrument SYMBOL --record-root PATH",
         "classification": "LOCAL_MUTATION",
-        "authority": "PRIVATE_CCXT_QUOTE_RECORD",
+        "authority": "INDEPENDENT_PRIVATE_WATCHDOG_HISTORY",
+        "documentation": "docs/FORWARD-PAPER-CONTINUOUS-OBSERVER.md",
+        "required_arguments": ["--state-root OBSERVER_STATE_ROOT"],
+        "runtime_required_arguments": ["--continuous", "--watch"],
+        "access": _access_entry(
+            ["private_observer_journal", "private_continuous_heartbeat", "proc_pid"],
+            ["private_watchdog_state"],
+            network=False,
+            credentials=False,
+            privacy="OWNER_PRIVATE_REDACTED",
+        ),
+        "limitations": [
+            "Plain health and --shadow-report reads are read-only; only --watch appends private "
+            "witness samples and requires --apply",
+            "A healthy heartbeat is flawed observer evidence, never PAPER_RUNNING",
+        ],
+    },
+    "paper run-status": {
+        "id": "paper.account",
+        "owner": "copytrade_pm.pm_forward_status",
+        "family": "paper",
+        "classification": "READ_ONLY",
+        "authority": "PM03_FINANCIAL_JOURNAL",
+        "documentation": "docs/FORWARD-PAPER-OBSERVER-HEALTH-20261104.md",
+        "required_arguments": ["--db PAPER_EVENT_DB", "--run-id RUN_ID"],
+        "runtime_required_arguments": [],
+        "access": _access_entry(
+            ["private_paper_journal", "private_heartbeat_root"],
+            [],
+            network=False,
+            credentials=False,
+            privacy="OWNER_PRIVATE_REDACTED",
+        ),
+        "limitations": [
+            "Reads one sealed run's journal and heartbeat; unverifiable worker identity stays "
+            "NOT_RUNNING, never PROMOTED",
+            "Runtime status is not scientific validity or trading authorization",
+        ],
+    },
+    "research market-audit": {
+        "id": "market.native",
+        "owner": "copytrade_pm.pm_market_audit",
+        "family": "market",
+        "classification": "LOCAL_MUTATION",
+        "authority": "VERIFIED_NATIVE_MINUTE_DATA",
         "documentation": "docs/DATA-ACQUISITION.md",
-        "required_arguments": ["--instrument SYMBOL"],
-        "runtime_required_arguments": ["--record-root PATH"],
+        "required_arguments": [
+            "--research-root RESEARCH_ROOT",
+            "--market-root NATIVE_MARKET_ROOT",
+            "--out EVIDENCE_OUT",
+        ],
+        "runtime_required_arguments": [],
+        "access": _access_entry(
+            ["research_root", "native_minute_market_lake"],
+            ["private_evidence_store"],
+            network=False,
+            credentials=False,
+            privacy="OWNER_PRIVATE_REDACTED",
+        ),
+        "limitations": [
+            "Dry runs print the plan; writing the private evidence report requires --apply",
+            "Per-instrument-day coverage never proves every requested minute is executable",
+        ],
+    },
+    "research ccxt-probe": {
+        "id": "market.continuous_canary",
+        "owner": "copytrade_pm.pm_forward_ccxt_market",
+        "family": "market",
+        "classification": "PROTECTED_MUTATION",
+        "authority": "BOUNDED_PUBLIC_MARKET_TRANSPORT_ONLY",
+        "documentation": "docs/FORWARD-PAPER-CONTINUOUS-OBSERVER.md",
+        "required_arguments": ["--instrument INSTRUMENT"],
+        "runtime_required_arguments": [
+            "--record-root RECORD_ROOT",
+            "--continuous-canary-seconds SECONDS",
+            "--ack-shared-ip-connection-budget",
+        ],
         "access": _access_entry(
             ["public_hyperliquid_api"],
             ["private_market_canary_record"],
             network=True,
+            credentials=False,
+            privacy="PUBLIC_METADATA",
         ),
-        "limitations": ["Appends L2 quote receipts to PaperJournal when --record-root is supplied"],
+        "limitations": [
+            "A one-shot probe without --record-root is read-only; recording a canary journal "
+            "requires --apply",
+            "Best-level public depth is not traded volume or independent quote authority",
+        ],
     },
 }
 
 
-# Backwards-compatible aliases: _registry_access_entry stays identical.
-REGISTRY_ACCESS = {
-    "status": _registry_access_entry(
-        ["private_sqlite_registry", "optional_private_paper_journal", "decision_repo"],
-        [],
-    ),
-    "native status": _registry_access_entry(
-        ["private_sqlite_registry", "private_evidence_archive"],
-        [],
-    ),
-    "native lock": _registry_access_entry(
-        ["private_sqlite_registry", "private_evidence_archive"],
-        [],
-    ),
-    "native lock --apply": _registry_access_entry(
-        ["private_sqlite_registry", "private_evidence_archive"],
-        ["private_sqlite_registry", "private_sqlite_backup"],
-    ),
-    "native register": _registry_access_entry(
-        ["private_sqlite_registry", "private_evidence_archive", "private_cohort_manifest"],
-        [],
-    ),
-    "native register --apply": _registry_access_entry(
-        ["private_sqlite_registry", "private_evidence_archive", "private_cohort_manifest"],
-        ["private_sqlite_registry", "private_sqlite_backup", "private_evidence_archive"],
-    ),
-    "native exclude": _registry_access_entry(
-        ["private_sqlite_registry", "private_evidence_archive", "private_exclusion_manifest"],
-        [],
-    ),
-    "native exclude --apply": _registry_access_entry(
-        ["private_sqlite_registry", "private_evidence_archive", "private_exclusion_manifest"],
-        ["private_sqlite_registry", "private_sqlite_backup", "private_evidence_archive"],
-    ),
-    "doctor": _registry_access_entry(
-        [
-            "private_sqlite_registry",
-            "private_evidence_archive",
-            "decision_repo",
-            "optional_legacy_import_sources",
-            "optional_tracker_env_config",
-            "optional_tracker_subscription_sqlite",
-            "optional_observation_ledger_sqlite",
-        ],
-        [],
-    ),
-    "runtime": _registry_access_entry(
-        ["tracker_env_config", "tracker_subscription_sqlite", "observation_ledger_sqlite"],
-        [],
-    ),
-    "backup --to": _registry_access_entry(
-        ["private_sqlite_registry"],
-        ["private_sqlite_backup"],
-        privacy="OWNER_PRIVATE",
-    ),
-    "report --redacted": _registry_access_entry(
-        ["private_sqlite_registry", "optional_private_paper_journal", "decision_repo"],
-        [],
-    ),
-    "wallet --alias": _registry_access_entry(["private_sqlite_registry"], []),
-    "wallet --address": _registry_access_entry(["private_sqlite_registry"], []),
-    "cohort": _registry_access_entry(["private_sqlite_registry"], []),
-    "portfolio": _registry_access_entry(["private_sqlite_registry", "decision_repo"], []),
-    "portfolio --current": _registry_access_entry(
-        ["private_sqlite_registry", "decision_repo"],
-        [],
-    ),
-    "paper": _registry_access_entry(
-        ["private_sqlite_registry", "decision_repo", "optional_private_paper_journal"],
-        [],
-    ),
-    "paper --apply": _registry_access_entry(
-        ["private_sqlite_registry", "decision_repo", "private_paper_journal"],
-        ["private_sqlite_registry"],
-    ),
-    "qualification": _registry_access_entry(
-        [
-            "private_sqlite_registry",
-            "optional_signed_negative_evidence",
-            "optional_auditor_public_key",
-        ],
-        [],
-    ),
-    "qualification --apply": _registry_access_entry(
-        ["private_sqlite_registry", "signed_negative_evidence", "auditor_public_key"],
-        ["private_sqlite_registry"],
-    ),
-    "sync --dry-run": _registry_access_entry(
-        [
-            "legacy_import_sources",
-            "tracker_env_config",
-            "tracker_subscription_sqlite",
-            "observation_ledger_sqlite",
-            "decision_repo",
-        ],
-        [],
-    ),
-    "sync --apply": _registry_access_entry(
-        [
-            "private_sqlite_registry",
-            "legacy_import_sources",
-            "tracker_env_config",
-            "tracker_subscription_sqlite",
-            "observation_ledger_sqlite",
-            "decision_repo",
-        ],
-        ["private_sqlite_registry"],
-    ),
-    "signed-selection": _registry_access_entry(
-        ["signed_selection_manifest", "detached_signature", "trusted_public_key"],
-        [],
-    ),
-    "signed-selection --apply": _registry_access_entry(
-        [
-            "private_sqlite_registry",
-            "signed_selection_manifest",
-            "detached_signature",
-            "trusted_public_key",
-        ],
-        ["private_sqlite_registry", "private_sqlite_backup"],
-    ),
-}
+# Reviewed GROUPS mode variants that distinguish READ_ONLY vs MUTATION/network/dispatch
+# modes while retaining conservative parent GROUPS classifications.
+GROUP_OPERATIONS: dict[str, _GroupOperationSpec] = {}
+REGISTRY_ACCESS = {}
 NATIVE_REQUIRED_ARGUMENTS = {
-    "wallet.inventory": [],
-    "portfolio.current": [],
-    "paper.status": [],
     "research.report.catalog": [],
     "research.catalog": [],
     "research.contract_selector": ["--portfolio NAMESPACE/ID"],
@@ -1573,10 +1259,6 @@ NATIVE_REQUIRED_ARGUMENTS = {
     "runtime.paper_units": [],
     "runtime.market_observer": [],
     "runtime.health": [],
-    "registry.doctor": [],
-    "wallet.lookup": ["ALIAS"],
-    "wallet.alias": ["ALIAS"],
-    "portfolio.show": ["PORTFOLIO"],
     "research.offline": ["JOB", "--input-root PATH", "--market-root PATH", "--cache-root PATH"],
     "paper.observer.preflight": [
         "--primary-dir PATH",
@@ -1594,12 +1276,6 @@ NATIVE_REQUIRED_ARGUMENTS = {
     "paper.observer.continuous_watchdog": ["--state-root PATH"],
     "paper.observer.shadow_report": ["--state-root PATH"],
     "market.continuous_canary": ["--instrument SYMBOL"],
-    "paper.identity_reseal_preview": [
-        "--portfolio P1|P14",
-        "--primary-dir PATH",
-        "--registry PATH",
-        "--secondary-dir PATH",
-    ],
 }
 NATIVE_RUNTIME_REQUIRED_ARGUMENTS = {
     "research.report.catalog": ["--cache-root PATH"],
@@ -1616,17 +1292,8 @@ NATIVE_RUNTIME_REQUIRED_ARGUMENTS = {
         "--continuous-canary-seconds SECONDS",
         "--record-root PATH",
     ],
-    "paper.identity_reseal_preview": ["--prospective-reseal-preview"],
 }
 NATIVE_ACCESS = {
-    "wallet.inventory": _access_entry(["private_sqlite_registry"], []),
-    "wallet.lookup": _access_entry(["private_sqlite_registry"], []),
-    "wallet.alias": _access_entry(["private_sqlite_registry"], []),
-    "portfolio.current": _access_entry(["private_sqlite_registry", "decision_repo"], []),
-    "portfolio.show": _access_entry(["private_sqlite_registry"], []),
-    "paper.status": _access_entry(
-        ["private_sqlite_registry", "optional_private_paper_journal"], []
-    ),
     "research.report.catalog": _access_entry(["sha_verified_immutable_offline_job_cache"], []),
     "research.catalog": _access_entry(["sha_verified_immutable_offline_job_cache"], []),
     "research.contract_selector": _access_entry(
@@ -1649,9 +1316,6 @@ NATIVE_ACCESS = {
     ),
     "runtime.paper_units": _access_entry(["systemd_user_and_system_units", "proc_pid"], []),
     "runtime.market_observer": _access_entry(["optional_observer_state_root"], []),
-    "registry.doctor": _access_entry(
-        ["private_sqlite_registry", "private_evidence_archive", "decision_repo"], []
-    ),
     "paper.observer.preflight": _access_entry(
         [
             "private_sqlite_registry",
@@ -1687,7 +1351,6 @@ NATIVE_ACCESS = {
         ["private_market_canary_record"],
         network=True,
     ),
-    "paper.identity_reseal_preview": _access_entry(["private_sqlite_registry", "source_dirs"], []),
     "wallet_store": _access_entry(
         ["private_sqlite_registry", "private_wallet_store_parquet_and_catalog"],
         ["private_wallet_store_parquet_and_catalog"],
@@ -1702,9 +1365,6 @@ EXTRA_MODULES = {
     "pm_forward_journal": ("paper.journal", "paper", "LOCAL_MUTATION"),
     "pm03_account": ("account.financial", "account", "LOCAL_MUTATION"),
     "pm03_execution": ("account.fill", "account", "LOCAL_MUTATION"),
-    "wallet_registry": ("registry.owner", "registry", "PROTECTED_MUTATION"),
-    "wallet_registry_catalog": ("registry.selection", "registry", "READ_ONLY"),
-    "wallet_registry_portfolios": ("registry.portfolio", "registry", "READ_ONLY"),
 }
 
 
@@ -1712,19 +1372,10 @@ ACCESS_KEYS = frozenset({"read_targets", "write_targets", "network", "credential
 
 
 _OPERATIONS_NATIVE_LEAVES = {
-    "wallets list": "wallet.inventory",
-    "wallets show": "wallet.lookup",
-    "portfolios current": "portfolio.current",
-    "portfolios show": "portfolio.show",
     "research list": "research.report.catalog",
-    "paper status": "paper.status",
-    "contracts compare": "research.contract_selector",
-    "health": "runtime.health",
+    "release health": "runtime.health",
 }
-_OPERATIONS_NATIVE_MIRRORS = (
-    ("wallet.alias", "wallets show"),
-    ("research.catalog", "research list"),
-)
+_OPERATIONS_NATIVE_MIRRORS = (("research.catalog", "research list"),)
 _PM03_CLI_ACTIONS = frozenset({"compare", "compare_pm04", "replay"})
 _PM03_CAPABILITIES = {
     "compare": "account.pm03.simulate.compare",
@@ -1737,156 +1388,15 @@ _CLASS_RANK = {
     "PROTECTED_MUTATION": 2,
     "BROKER_OR_TRADING": 3,
 }
-_NON_READ_ONLY_GROUP_MODES = frozenset(
-    {
-        "source.public_trades.observe",
-        "source.public_trades.plan",
-        "paper.public_unit.apply",
-        "account.pm03.simulate.compare",
-        "account.pm03.simulate.compare_pm04",
-        "account.pm03.simulate.replay",
-        "source.receipts.init",
-        "source.receipts.ingest",
-        "source.receipts.audit",
-        "source.receipts.outcome",
-        "paper.unit_bundle.stage",
-        "production.export.cli.write",
-        "paper.standby.worker",
-        "paper.standby.watchdog",
-        "paper.observed_execution.l2",
-        "paper.observed_execution.vike_minute",
-        "paper.observer.finite",
-        "paper.observer.continuous",
-        "paper.observer.continuous_watchdog",
-        "market.ccxt.record",
-        "market.continuous_canary",
-    }
-)
-_GROUP_NATIVE_SCRIPTS = {
-    "paper.observer.preflight": "copytrade-pm-paper-observe",
-    "paper.observer.continuous": "copytrade-pm-paper-observe",
-    "paper.observer.continuous_health": "copytrade-pm-paper-observer-health",
-    "paper.observer.continuous_watchdog": "copytrade-pm-paper-observer-health",
-    "paper.observer.shadow_report": "copytrade-pm-paper-observer-health",
-    "market.continuous_canary": "copytrade-pm-market-ccxt",
-    "paper.identity_reseal_preview": "copytrade-pm-paper-registry-audit",
-}
-_GROUP_SCRIPT_MODE_CONTRACTS: dict[str, _GroupModeContract] = {
-    "copytrade-pm-actuary": {"store_true": frozenset(), "choices": {}},
-    "copytrade-pm-agent-eval": {"store_true": frozenset({"--list-tasks"}), "choices": {}},
-    "copytrade-pm-combo2-paper": {"store_true": frozenset(), "choices": {}},
-    "copytrade-pm-handoff": {"store_true": frozenset(), "choices": {}},
-    "copytrade-pm-market-audit": {"store_true": frozenset(), "choices": {}},
-    "copytrade-pm-market-ccxt": {
-        "store_true": frozenset({"--ack-shared-ip-connection-budget"}),
-        "choices": {},
-    },
-    "copytrade-pm-market-stream": {"store_true": frozenset(), "choices": {}},
-    "copytrade-pm-paper-candidate-verify": {"store_true": frozenset(), "choices": {}},
-    "copytrade-pm-paper-observe": {
-        "store_true": frozenset({"--preflight-only", "--diagnose-preflight"}),
-        "choices": {},
-    },
-    "copytrade-pm-paper-observed": {
-        "store_true": frozenset({"--watch"}),
-        "choices": {
-            "--portfolio": ("P1", "P14", "P16"),
-            "--price-mode": ("l2", "vike_minute"),
-        },
-    },
-    "copytrade-pm-paper-observer-health": {
-        "store_true": frozenset(
-            {"--continuous", "--watch", "--require-watchdog", "--shadow-report"}
-        ),
-        "choices": {},
-    },
-    "copytrade-pm-paper-preflight": {
-        "store_true": frozenset({"--inspect-services"}),
-        "choices": {},
-    },
-    "copytrade-pm-paper-readiness": {
-        "store_true": frozenset(),
-        "choices": {
-            "--portfolio": ("P1", "P14"),
-            "--sizing-policy": ("FIXED_K_NATIVE_QUANTITY", "ALLOCATION_OVER_LIVE_NAV"),
-        },
-    },
-    "copytrade-pm-paper-registry-audit": {
-        "store_true": frozenset({"--prospective-reseal-preview"}),
-        "choices": {"--portfolio": ("P1", "P14")},
-    },
-    "copytrade-pm-paper-report": {"store_true": frozenset({"--cost-stress"}), "choices": {}},
-    "copytrade-pm-paper-source-campaign": {
-        "store_true": frozenset({"--include-subaccounts", "--include-collateral"}),
-        "choices": {"--portfolio": ("P1", "P14")},
-    },
-    "copytrade-pm-paper-standby": {
-        "store_true": frozenset({"--once", "--unprotected-canary"}),
-        "choices": {"role": ("worker", "watchdog"), "--portfolio": ("P1", "P14")},
-    },
-    "copytrade-pm-paper-status": {"store_true": frozenset(), "choices": {}},
-    "copytrade-pm-paper-unit-bundle": {"store_true": frozenset({"--verify"}), "choices": {}},
-    "copytrade-pm-paper-watchdog": {"store_true": frozenset(), "choices": {}},
-    "copytrade-pm-production-economics": {"store_true": frozenset(), "choices": {}},
-    "copytrade-pm-production-export": {
-        "store_true": frozenset(),
-        "choices": {"--sizing-policy": ("FIXED_K_NATIVE_QUANTITY", "ALLOCATION_OVER_LIVE_NAV")},
-    },
-    "copytrade-pm-production-manifest": {"store_true": frozenset(), "choices": {}},
-    "copytrade-pm-public-observer-unit": {"store_true": frozenset({"--apply"}), "choices": {}},
-    "copytrade-pm-public-trades": {
-        "store_true": frozenset({"--ack-shared-ip-connection-budget"}),
-        "choices": {
-            "--mode": ("observe", "plan"),
-            "--timing-policy": ("UTC_BUCKET_CLOSE", "UTC_BUCKET_PLUS_5M"),
-        },
-    },
-    "copytrade-pm-rank": {"store_true": frozenset(), "choices": {}},
-    "copytrade-pm-receipts": {
-        "store_true": frozenset(),
-        "choices": {"action": ("init", "ingest", "audit", "outcome", "inspect")},
-    },
-    "copytrade-pm-replay": {"store_true": frozenset(), "choices": {}},
-    "copytrade-pm-research": {"store_true": frozenset(), "choices": {}},
-    "copytrade-pm-review-gate": {
-        "store_true": frozenset(),
-        "choices": {
-            "--operation": (
-                "FROZEN_ROSTER_PROMOTION",
-                "MATERIAL_POLICY_CHANGE",
-                "PERMANENT_ROSTER_DELETION",
-                "SCIENTIFIC_QUALIFICATION",
-            )
-        },
-    },
-    "copytrade-pm-scope": {"store_true": frozenset(), "choices": {}},
-    "copytrade-pm-shadow": {"store_true": frozenset(), "choices": {}},
-    "copytrade-pm-source": {
-        "store_true": frozenset({"--forever"}),
-        "choices": {"--portfolio": "tuple(PORTFOLIO_PODS)"},
-    },
-    "copytrade-pm-source-abc": {"store_true": frozenset({"--forever"}), "choices": {}},
-    "copytrade-pm-source-audit": {
-        "store_true": frozenset(),
-        "choices": {"--portfolio": "tuple(PORTFOLIOS)"},
-    },
-    "copytrade-pm-source-scope": {"store_true": frozenset(), "choices": {}},
-    "copytrade-pm-track-b-prefect": {"store_true": frozenset(), "choices": {}},
-    "copytrade-pm-vike-fills": {
-        "store_true": frozenset({"--positions", "--dedicated-key-only"}),
-        "choices": {},
-    },
-    "copytrade-pm-vike-minute": {"store_true": frozenset({"--watch"}), "choices": {}},
-}
+_NON_READ_ONLY_GROUP_MODES = frozenset()
+_GROUP_SCRIPT_MODE_CONTRACTS: dict[str, _GroupModeContract] = {}
+_GROUP_NATIVE_SCRIPTS = {}
 _VALIDATE_LIMITATIONS = [
-    "Owner-specific bounded AST inspectors cover wallet_registry.py, pm_operations.py (+ pm_cwsa_chapter2_gate.add_arguments), 39 GROUPS script parsers, and pm03_cli.execute rather than arbitrary dynamic Python.",
+    "Owner-specific bounded AST inspectors cover pm_operations.py (+ pm_cwsa_chapter2_gate, pm_health_arguments, production_export, pm_forward_observer, pm_forward_observer_health, pm_forward_status, pm_market_audit and pm_forward_ccxt_market leaf parsers), production_manifest, and pm03_cli.execute rather than arbitrary dynamic Python.",
     "pm03_cli.execute (--input JSON spec.action) and production_economics.py POLICIES flag generation rely on reviewed owner contracts rather than arbitrary dynamic dispatch inference.",
     "Conditional runtime_required_arguments capture mode-specific runtime requirements verified from owner dispatch contracts and are kept separate from argparse required_arguments.",
     "CLI/NATIVE/MODULE entries outside reviewed subcommands/modes retain UNKNOWN access rather than inferred safety.",
 ]
 
 
-_GROUP_MODE_POSITIONALS = {
-    "copytrade-pm-receipts": frozenset({"action"}),
-    "copytrade-pm-paper-standby": frozenset({"role"}),
-}
+_GROUP_MODE_POSITIONALS = {}

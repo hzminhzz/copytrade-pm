@@ -9,19 +9,26 @@ financial worker, change a frozen portfolio, or submit orders.
 
 | Purpose | Native interface / owner |
 | --- | --- |
-| Registry and frozen membership | Existing SQLite registry doctor, sealed portfolios and exclusions |
-| Candidate preflight | `copytrade-pm-paper-observe --continuous-config CONFIG --preflight-only` |
+| Roster and frozen membership | Roster SQLite (`RosterStore.authority_health`), sealed seat books/leases and operator vetoes |
+| Candidate preflight | `copytrade-pm paper observe --registry ROSTER_DB --primary-dir … --secondary-dir … --state-root … --continuous-config CONFIG --preflight-only` |
 | Independent blocker report | Same command with `--diagnose-preflight` (read-only, never admits startup) |
-| Persistent capture | Same command without `--preflight-only` |
-| Independent current health | `copytrade-pm-paper-observer-health --continuous --state-root ROOT` |
-| Independent continuous witness | Same health command with `--watch --expected-revision SHA` |
-| Measured shadow report | `copytrade-pm-paper-observer-health --shadow-report --state-root ROOT` |
-| Aggregate status | `copytrade-pm --observer-state-root ROOT health` |
-| Bounded real market probe | `copytrade-pm-market-ccxt --continuous-canary-seconds 135` with explicit instrument, private new root and shared-IP acknowledgment |
+| Persistent capture | Same command with `--apply` and without `--preflight-only` |
+| Independent current health | `copytrade-pm paper observer-health --continuous --state-root ROOT` |
+| Independent continuous witness | Same health command with `--watch --expected-revision SHA --apply` |
+| Measured shadow report | `copytrade-pm paper observer-health --shadow-report --state-root ROOT` |
+| Aggregate status | `copytrade-pm --observer-state-root ROOT release health` |
+| Bounded real market probe | `copytrade-pm research ccxt-probe --instrument INSTRUMENT --continuous-canary-seconds 135 --record-root ROOT --apply` with explicit instrument, private new root and shared-IP acknowledgment |
 | Atomic progress / legacy receipts | `PaperJournal` plus additive `pm_forward_stream_journal` tables |
 | Recovery comparison | `reconcile_public_wallet_fills` in the existing public-trade owner |
 | Uninstalled shadow-unit templates | `pm_forward_public_unit.continuous_unit_templates` |
 | Unsigned wheel staging | Existing `stage_unprotected_release_candidate` / candidate verifier |
+
+The consolidated leaves mount the identical owner registration; the owner modules
+remain runnable as `python -m copytrade_pm.pm_forward_observer …` and
+`python -m copytrade_pm.pm_forward_observer_health …`, which is what the
+repository-generated unit templates emit. Starting observation, or the mutating
+`--watch` witness, needs the explicit `--apply` gate; preflight, diagnosis, plain
+health and the shadow report stay read-only without it.
 
 `--shadow-report` requires a continuous stream journal. When pointed at an older
 bounded public-observer journal sharing the same SQLite filename, it returns
@@ -88,8 +95,8 @@ drop HIP-3 prefixes or shrink the required denominator.
 Preflight example, from the pinned environment:
 
 ```bash
-copytrade-pm-paper-observe \
-  --registry /absolute/private/wallet_registry.sqlite \
+copytrade-pm paper observe \
+  --registry /absolute/private/roster.sqlite \
   --primary-dir /absolute/wallet_fills_90d \
   --secondary-dir /absolute/nansen_smart_money_fills_90d \
   --state-root /absolute/new/private/shadow \
@@ -97,7 +104,7 @@ copytrade-pm-paper-observe \
   --preflight-only
 ```
 
-Preflight is read-only. It checks native registry physical integrity,
+Preflight is read-only. It checks roster SQLite physical integrity,
 **selected** sealed portfolio identities/exclusions, inventory-generation
 stability, private paths, symlinks/hardlinks, writer lease, financial-journal
 collisions, protected legacy heads and resource plan. It creates no journal
@@ -138,7 +145,7 @@ is always reported: configured reservations do not prove real-world connection
 capacity. The diagnostic never changes a research selection, repairs missing
 Ed25519 proofs, drops an excluded member or relaxes financial admission.
 
-The owner-private registry doctor distinguishes verified SQLite structural
+The owner-private roster authority check (`RosterStore.authority_health`) distinguishes verified SQLite structural
 integrity from a missing cryptographic proof for the latest research selection:
 `database_integrity=VERIFIED` with
 `research_selection_integrity=BLOCKED_MISSING_EXTERNAL_PROOF` is a truthful

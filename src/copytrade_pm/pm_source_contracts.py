@@ -10,7 +10,9 @@ from decimal import Decimal, InvalidOperation
 import re
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
+from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, model_validator
+
+from copytrade_kernel import NativeInstrument
 
 from .pm03_account import digest
 
@@ -20,7 +22,16 @@ class Contract(BaseModel):
 
 
 Sha = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
-NativeKey = Annotated[str, Field(pattern=r"^hyperliquid/mainnet:perp:[^/\s:]+/[^/\s:]+$")]
+
+
+def _canonical_native_key(value: str) -> str:
+    """Native-instrument grammar is owned by the kernel; PM never re-declares it."""
+    if not NativeInstrument.valid(value):
+        raise ValueError("CWSA_NATIVE_KEY_OR_QUANTITY")
+    return value
+
+
+NativeKey = Annotated[str, AfterValidator(_canonical_native_key)]
 
 
 def exact_decimal(value: object) -> Decimal:

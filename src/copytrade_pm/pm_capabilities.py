@@ -8,9 +8,9 @@ reviewed operation metadata; unknown operations fail closed.
 from __future__ import annotations
 
 import ast
+from collections.abc import Mapping
 import json
 from pathlib import Path
-import re
 
 from .pm_capabilities_catalog import (
     ACCESS_KEYS as ACCESS_KEYS,
@@ -25,31 +25,46 @@ from .pm_capabilities_catalog import (
     NATIVE_REQUIRED_ARGUMENTS as NATIVE_REQUIRED_ARGUMENTS,
     NATIVE_RUNTIME_REQUIRED_ARGUMENTS as NATIVE_RUNTIME_REQUIRED_ARGUMENTS,
     OPERATIONS_SUBCOMMANDS as OPERATIONS_SUBCOMMANDS,
-    REGISTRY_ACCESS as REGISTRY_ACCESS,
-    REGISTRY_DISPATCH_REQUIRED_ARGUMENTS as REGISTRY_DISPATCH_REQUIRED_ARGUMENTS,
-    REGISTRY_OPERATIONS as REGISTRY_OPERATIONS,
-    REGISTRY_REQUIRED_ARGUMENTS as REGISTRY_REQUIRED_ARGUMENTS,
     ROOT as ROOT,
     UNKNOWN_ACCESS as UNKNOWN_ACCESS,
     _VALIDATE_LIMITATIONS as _VALIDATE_LIMITATIONS,
     _access_entry as _access_entry,
     _parse_static_source as _parse_static_source,
-    _registry_access_entry as _registry_access_entry,
 )
 from .pm_capabilities_inspector import (
     PARSER_CALL_NAMES as PARSER_CALL_NAMES,
     _copy_access as _copy_access,
     _declared_scripts as _declared_scripts,
     _inspect_group_script_parser as _inspect_group_script_parser,
+    _inspect_operations_parser as _inspect_operations_parser,
     _installed_scripts as _installed_scripts,
     _module_available as _module_available,
-    _registry_runtime_args as _registry_runtime_args,
     _required_cli_args as _required_cli_args,
     _subcommand_entry as _subcommand_entry,
     _validate_group_scripts as _validate_group_scripts,
     _validate_operations_cli as _validate_operations_cli,
-    _validate_registry_operations as _validate_registry_operations,
 )
+
+
+def _interface_route_problem(
+    interface: object, declared: Mapping[str, str], leaves: Mapping[str, object]
+) -> str:
+    """Return the script the interface names when that script/route is not current."""
+    words = str(interface or "").split()
+    if not words:
+        return ""
+    head = words[0]
+    if head.startswith("copytrade-pm-"):
+        return "" if head in declared else head
+    if head != "copytrade-pm" or len(words) == 1:
+        return ""
+    # Global options may precede the group; match a real parser leaf anywhere in
+    # the remaining tokens so `copytrade-pm --observer-state-root X release health`
+    # is accepted only because `release health` exists.
+    if "copytrade-pm" not in declared:
+        return head
+    body = f" {' '.join(words[1:])} "
+    return "" if any(f" {leaf} " in body for leaf in leaves) else str(interface)
 
 
 def inventory(root: Path = ROOT) -> list[dict]:
@@ -91,24 +106,6 @@ def inventory(root: Path = ROOT) -> list[dict]:
                 ],
                 "evidence_freshness": "VERIFY_ON_USE",
             }
-        )
-    for op, safety in sorted(REGISTRY_OPERATIONS.items()):
-        results.append(
-            _subcommand_entry(
-                cap_id="registry.operation." + re.sub(r"[^a-z0-9]+", ".", op).strip("."),
-                description="Reviewed registry operation",
-                owner="copytrade_pm.wallet_registry",
-                interface="copytrade-wallet-registry " + op,
-                classification=safety,
-                authority="PRIVATE_VERSIONED_WALLET_REGISTRY",
-                access=REGISTRY_ACCESS.get(op, UNKNOWN_ACCESS),
-                required_arguments=REGISTRY_REQUIRED_ARGUMENTS.get(op, []),
-                runtime_required_arguments=_registry_runtime_args(op),
-                preflight=["registry.doctor"] if op not in ("doctor", "status") else [],
-                documentation=DOCS["registry"],
-                available=True,
-                limitations=["Protect owner-private input and output"],
-            )
         )
     for subcmd, spec in sorted(OPERATIONS_SUBCOMMANDS.items()):
         owner = str(spec["owner"])
@@ -224,6 +221,7 @@ def validate(root: Path = ROOT) -> dict:
     entries = inventory(root)
     declared = _declared_scripts(root)
     installed = _installed_scripts()
+    leaves, _leaf_problems = _inspect_operations_parser(root)
     problems = []
     ids = [e["id"] for e in entries]
     if len(ids) != len(set(ids)):
@@ -243,6 +241,11 @@ def validate(root: Path = ROOT) -> dict:
             problems.append(f"INVALID_SCHEMA:{item['id']}")
         if set(item.get("access", {})) != ACCESS_KEYS:
             problems.append(f"INVALID_ACCESS_SCHEMA:{item['id']}")
+        # An interface may only name a console script and route this repository
+        # still declares. A deleted script or verb left in the catalogue
+        # advertises a route that no longer exists, so discovery would be a trap.
+        if _interface_route_problem(item.get("interface"), declared, leaves):
+            problems.append(f"UNKNOWN_CLI_INTERFACE:{item['id']}")
     for name, entry in declared.items():
         if ":" not in entry or entry.rsplit(":", 1)[1] != "main":
             problems.append(f"INVALID_ENTRY_POINT:{name}")
@@ -258,7 +261,6 @@ def validate(root: Path = ROOT) -> dict:
                     for x in tree.body
                 ):
                     problems.append(f"MISSING_MAIN:{name}")
-    problems.extend(_validate_registry_operations(root))
     problems.extend(_validate_operations_cli(root))
     problems.extend(_validate_group_scripts(root, declared))
     return {

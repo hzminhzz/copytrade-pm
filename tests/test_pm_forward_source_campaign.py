@@ -8,7 +8,7 @@ from hashlib import sha256
 from copytrade_pm.pm_forward_journal import PaperJournal
 from copytrade_pm.pm_forward_source_campaign import observe_frozen_portfolio_readonly
 from test_pm_e4_prospective import sample_state
-from test_pm_forward_registry_identity import prepare
+from legacy_registry_fixture import prepare
 from test_pm_forward_source_stream import FakeSocket
 
 

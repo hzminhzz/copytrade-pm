@@ -291,3 +291,40 @@ def test_no_increase_in_historical_only_and_no_automatic_inventory_change():
     assert p.decision == "INSUFFICIENT_EVIDENCE"
     assert p.evidence_class == "HISTORICAL_ONLY"
     assert evaluate_k(_input(k="0.005")).decision == "INSUFFICIENT_EVIDENCE"
+
+
+def test_offline_k_preflight_pins_canonical_roster_seat_and_book(tmp_path):
+    from copytrade_pm.roster import RosterStore, select_sealed_book
+    from roster_fixture import MS, WALLETS, add_account
+
+    path = tmp_path / "roster.sqlite"
+    with RosterStore(path, create=True) as store:
+        add_account(store, "study", {"wallet-A": WALLETS[0]})
+        selection = select_sealed_book(store, "study", MS, require_attestation=False)
+    proposal = evaluate_k(_input(k="0.01", portfolio_definition_sha256=selection.definition_sha256))
+    release = make_candidate(
+        portfolio_version=proposal.portfolio_version,
+        portfolio_definition_sha256=selection.definition_sha256,
+        pod_membership=("wallet-A",),
+        sizing_policy_version="fixed-k-v1",
+        cost_policy_version="v4-paper-5bps-2bps",
+        risk_policy_version="pm03-v1",
+        effective_at=AFTER,
+        proposed_at=NOW,
+        rollback_release_sha256=U,
+        proposals=(proposal,),
+    )
+    args = dict(
+        sealed_definition_sha256=selection.definition_sha256,
+        observed_current_release_sha256=U,
+        pending_opportunity_count=1,
+        open_inventory_count=2,
+        registry_path=path,
+        registry_portfolio_id="study",
+    )
+    receipt = offline_preflight(release, registry_version=selection.version, **args)
+    assert receipt["registry_seal_independently_verified"]
+    assert receipt["status"] == "RESEARCH_PREFLIGHT_ONLY"
+    assert not receipt["release_eligible"] and not receipt["activated"]
+    drift = offline_preflight(release, registry_version=2, **args)
+    assert drift["blockers"] == ["SQLITE_INDEPENDENT_PORTFOLIO_MISMATCH"]

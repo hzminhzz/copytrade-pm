@@ -13,12 +13,14 @@ The inspector is **not cryptographically signed**, the current agent's OS identi
 ## Read-only CLI
 
 ```bash
-uv run --group dev copytrade-pm-paper-watchdog \
+uv run --group dev copytrade-pm paper run-status \
   --db /path/to/owner-private/paper-events.sqlite3 \
   --heartbeat-root /path/to/owner-private/heartbeats \
   --run-id <sealed-run-id>
 ```
 
-`copytrade-pm-paper-status --db ... --run-id ... --heartbeat-root ...` consumes that same independent observer report without elevating it to a protected worker. The read-only CLI avoids initializing the paper journal or creating SQLite/lock files.
+`copytrade-pm paper run-status --db ... --run-id ... --heartbeat-root ...` consumes that same independent observer report without elevating it to a protected worker. The read-only CLI avoids initializing the paper journal or creating SQLite/lock files. The same reader remains reachable as `python -m copytrade_pm.pm_forward_status`.
+
+> Phase D CLI cutover (2026-11-20): the retired `copytrade-pm-paper-watchdog` and `copytrade-pm-paper-status` console scripts were replaced by the `paper run-status` leaf under the single `copytrade-pm` entry point. The read-only behaviour and exit codes above are unchanged; the dated evidence below is retained as written.
 
 **Outstanding FP-11/12 acceptance:** install separately authorized OS users for protected release and financial state, audited ability/inability of the coding user to control units, immutable service releases, independent watchdog unit/alert delivery, bounded process crash/restart and feed outage tests under that protected environment. No unit installation, restart, broker mutation, or live pilot was performed.

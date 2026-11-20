@@ -49,17 +49,13 @@ def explained(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys):
     }
     monkeypatch.setattr(
         pm_operations,
-        "_doctor",
+        "roster_authority",
         lambda db: pm_operations.result(
-            "registry.doctor",
-            "BLOCKED",
-            {
-                "database_integrity": "VERIFIED",
-                "research_selection_integrity": "BLOCKED_MISSING_EXTERNAL_PROOF",
-                "inventory_sha256": "c" * 64,
-            },
-            authority="sqlite_wallet_registry",
-            error_code="RESEARCH_SELECTION_PROOF_BLOCKED",
+            "roster.authority",
+            "VERIFIED",
+            {"database_integrity": "VERIFIED", "inventory_sha256": "c" * 64},
+            authority="roster_sqlite",
+            sha256="c" * 64,
         ),
     )
 
@@ -68,7 +64,7 @@ def explained(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys):
         return {
             pid: {
                 "portfolio_id": pid,
-                "version": 2,
+                "version": 1,
                 "selection_known_at": "2026-11-12T00:00:00+00:00",
                 "definition_sha256": "d" * 64,
                 "members": tuple(sorted(six.PORTFOLIO_CONFIGS[pid]["members"])),
@@ -97,12 +93,12 @@ def explained(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys):
     def invoke(*extra: str):
         code = pm_operations.cli(
             [
-                "cwsa",
+                "release",
                 "chapter2",
                 "explain",
                 "--portfolio",
                 "A",
-                "--registry-db",
+                "--roster-db",
                 str(tmp_path / "registry"),
                 "--source-db",
                 str(tmp_path / "source"),
@@ -130,8 +126,8 @@ def test_scoped_metadata_never_reads_source_market_or_financial_journals(explain
     assert code == 0
     assert report["schema"] == "cwsa_chapter2_task_explanation_v1"
     assert report["scope"]["inspection"] == "metadata"
-    assert report["dimensions"]["registry_integrity"]["state"] == "VERIFIED"
-    assert report["dimensions"]["research_selection_proof"]["state"] == "BLOCKED"
+    assert report["dimensions"]["roster_integrity"]["state"] == "VERIFIED"
+    assert report["dimensions"]["research_selection_proof"]["state"] == "VERIFIED"
     assert report["dimensions"]["portfolio_seal"]["state"] == "VERIFIED"
     assert report["dimensions"]["source_observation"]["state"] == "NOT_INSPECTED"
     assert report["limits"]["financial_journals_opened"] == 0
@@ -289,8 +285,10 @@ def test_even_modeled_fixture_cannot_attest_guardian_or_live_permission(explaine
 
 def test_unknown_portfolio_fails_closed_before_owner_reads(explained, monkeypatch, capsys):
     _, _, _ = explained
-    monkeypatch.setattr(pm_operations, "_doctor", lambda *a: pytest.fail("unexpected read"))
-    code = pm_operations.cli(["cwsa", "chapter2", "explain", "--portfolio", "../X"])
+    monkeypatch.setattr(
+        pm_operations, "roster_authority", lambda *a: pytest.fail("unexpected read")
+    )
+    code = pm_operations.cli(["release", "chapter2", "explain", "--portfolio", "../X"])
     response = json.loads(capsys.readouterr().out)
     assert code == 2
     assert response["error_code"] == "UNKNOWN_CHAPTER2_PORTFOLIO"

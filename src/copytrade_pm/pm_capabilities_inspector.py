@@ -20,10 +20,6 @@ from .pm_capabilities_catalog import (
     NATIVE_REQUIRED_ARGUMENTS,
     NATIVE_RUNTIME_REQUIRED_ARGUMENTS,
     OPERATIONS_SUBCOMMANDS,
-    REGISTRY_ACCESS,
-    REGISTRY_DISPATCH_REQUIRED_ARGUMENTS,
-    REGISTRY_OPERATIONS,
-    REGISTRY_REQUIRED_ARGUMENTS,
     _CLASS_RANK,
     _GROUP_MODE_POSITIONALS,
     _GROUP_NATIVE_SCRIPTS,
@@ -140,13 +136,34 @@ def _subcommand_entry(
     }
 
 
-def _registry_runtime_args(op: str) -> list[str]:
-    dispatch = set(REGISTRY_DISPATCH_REQUIRED_ARGUMENTS.get(op, ()))
-    if not dispatch:
-        return []
-    return [arg for arg in REGISTRY_REQUIRED_ARGUMENTS.get(op, []) if arg.split()[0] in dispatch]
+OPERATIONS_MUTATING_CLASSES = frozenset({"LOCAL_MUTATION", "PROTECTED_MUTATION"})
 
-
+# Owner modules that mount their own reviewed leaf parser onto a subparser.
+LEAF_OWNER_MODULES = {
+    "pm_health_arguments": "health",
+    "production_export": "metadata",
+    "pm_cwsa_chapter2_gate": "cwsa",
+    "pm_forward_observer": "observer",
+    "pm_forward_observer_health": "observer_health",
+    "pm_forward_status": "paper_run_status",
+    "pm_market_audit": "market_audit",
+    "pm_forward_ccxt_market": "ccxt_probe",
+}
+LEAF_OWNER_LEAVES = {
+    "pm_health_arguments": {("facts", "capture-health")},
+    "production_export": {("release", "metadata")},
+    "pm_cwsa_chapter2_gate": {
+        ("release", "chapter2", "verify"),
+        ("release", "chapter2", "projection"),
+        ("release", "chapter2", "explain"),
+        ("release", "chapter2", "site-view"),
+    },
+    "pm_forward_observer": {("paper", "observe")},
+    "pm_forward_observer_health": {("paper", "observer-health")},
+    "pm_forward_status": {("paper", "run-status")},
+    "pm_market_audit": {("research", "market-audit")},
+    "pm_forward_ccxt_market": {("research", "ccxt-probe")},
+}
 PARSER_CALL_NAMES = frozenset(
     {
         "ArgumentParser",
@@ -327,136 +344,6 @@ def _assignment_target_call(stmt: ast.stmt) -> tuple[str | None, ast.Call | None
     return None, None, False
 
 
-def _inspect_registry_parser(registry_path: Path) -> tuple[dict[str, dict[str, Any]], list[str]]:
-    """Small, registry-specific AST inspector; fails closed on unsupported constructs."""
-    if not registry_path.is_file():
-        return {}, ["MISSING_ENTRY_MODULE:copytrade-wallet-registry"]
-    tree = _parse_static_source(registry_path.read_text(encoding="utf-8"))
-    all_parser_calls = {
-        id(node)
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call) and _call_name(node) in PARSER_CALL_NAMES
-    }
-    cli_defs = [
-        node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "cli"
-    ]
-    if len(cli_defs) != 1:
-        return {}, ["UNSUPPORTED_REGISTRY_PARSER_CONSTRUCT:missing_cli"]
-
-    parser_vars: dict[str, tuple[str, ...]] = {}
-    subparser_vars: dict[str, tuple[str, ...]] = {}
-    group_vars: dict[str, tuple[tuple[str, ...], int | None, bool]] = {}
-    nodes: dict[tuple[str, ...], dict[str, Any]] = {}
-    visited_calls: set[int] = set()
-    errors: list[str] = []
-    saw_parse_args = False
-
-    for stmt in cli_defs[0].body:
-        target: str | None = None
-        if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1:
-            if isinstance(stmt.targets[0], ast.Name):
-                target = stmt.targets[0].id
-            call = stmt.value if isinstance(stmt.value, ast.Call) else None
-        elif isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
-            call = stmt.value
-        else:
-            continue
-        if call is None or not isinstance(call.func, ast.Attribute):
-            continue
-        attr = call.func.attr
-        if attr == "parse_args" and isinstance(call.func.value, ast.Name):
-            if parser_vars.get(call.func.value.id) == ():
-                saw_parse_args = True
-                break
-        if attr not in PARSER_CALL_NAMES:
-            continue
-        visited_calls.add(id(call))
-        recv = call.func.value
-        recv_name = recv.id if isinstance(recv, ast.Name) else None
-
-        if attr == "ArgumentParser":
-            if (
-                isinstance(recv, ast.Name)
-                and recv.id == "argparse"
-                and target is not None
-                and () not in nodes
-            ):
-                nodes[()] = _new_parser_node()
-                parser_vars[target] = ()
-            else:
-                errors.append("UNSUPPORTED_REGISTRY_PARSER_CONSTRUCT:ArgumentParser")
-        elif attr == "add_subparsers":
-            if recv_name not in parser_vars or target is None or len(parser_vars[recv_name]) > 1:
-                errors.append("UNSUPPORTED_REGISTRY_PARSER_CONSTRUCT:add_subparsers")
-            else:
-                path = parser_vars[recv_name]
-                nodes[path]["has_subparsers"] = True
-                subparser_vars[target] = path
-        elif attr == "add_parser":
-            kwargs = _keyword_map(call)
-            name = _const_str(call.args[0]) if call.args else None
-            if recv_name not in subparser_vars or kwargs is None or name is None:
-                errors.append("UNSUPPORTED_REGISTRY_PARSER_CONSTRUCT:add_parser")
-            elif not set(kwargs) <= {"help", "description"}:
-                errors.append("UNSUPPORTED_REGISTRY_PARSER_CONSTRUCT:add_parser_kwargs")
-            else:
-                child = (*subparser_vars[recv_name], name)
-                if child in nodes:
-                    errors.append("UNSUPPORTED_REGISTRY_PARSER_CONSTRUCT:duplicate_parser")
-                else:
-                    nodes[child] = _new_parser_node()
-                    if target is not None:
-                        parser_vars[target] = child
-        elif attr == "add_mutually_exclusive_group":
-            kwargs = _keyword_map(call)
-            req = kwargs.get("required") if kwargs is not None else None
-            req_valid = req is None or (
-                isinstance(req, ast.Constant) and isinstance(req.value, bool)
-            )
-            if recv_name not in parser_vars or target is None or kwargs is None or not req_valid:
-                errors.append("UNSUPPORTED_REGISTRY_PARSER_CONSTRUCT:add_mutually_exclusive_group")
-            else:
-                path = parser_vars[recv_name]
-                req_flag = bool(req.value) if isinstance(req, ast.Constant) else False
-                idx: int | None = None
-                if req_flag:
-                    idx = len(nodes[path]["required_groups"])
-                    nodes[path]["required_groups"].append([])
-                group_vars[target] = (path, idx, req_flag)
-        elif attr == "add_argument":
-            if recv_name in parser_vars:
-                err = _register_registry_argument(
-                    nodes[parser_vars[recv_name]], call, group_idx=None, group_required=False
-                )
-            elif recv_name in group_vars:
-                path, idx, required = group_vars[recv_name]
-                err = _register_registry_argument(
-                    nodes[path], call, group_idx=idx, group_required=required
-                )
-            else:
-                err = "untracked_add_argument"
-            if err:
-                errors.append(f"UNSUPPORTED_REGISTRY_PARSER_CONSTRUCT:{err}")
-        else:
-            errors.append(f"UNSUPPORTED_REGISTRY_PARSER_CONSTRUCT:{attr}")
-
-    if not saw_parse_args:
-        errors.append("UNSUPPORTED_REGISTRY_PARSER_CONSTRUCT:missing_parse_args")
-    if visited_calls != all_parser_calls:
-        errors.append("UNSUPPORTED_REGISTRY_PARSER_CONSTRUCT:non_linear_parser_call")
-
-    for path, spec in nodes.items():
-        if path and not spec["has_subparsers"]:
-            continue
-        if _has_parent_node_constraint(spec):
-            errors.append("UNSUPPORTED_REGISTRY_PARSER_CONSTRUCT:parent_node_constraint")
-
-    leaves = {
-        " ".join(path): spec for path, spec in nodes.items() if path and not spec["has_subparsers"]
-    }
-    return leaves, errors
-
-
 def _validate_access_entry(
     access: Mapping[str, object] | None,
     *,
@@ -570,99 +457,6 @@ def _split_declared_required_args(tokens: list[str]) -> tuple[set[str], int, lis
     return opts, pos_count, groups
 
 
-def _validate_registry_operations(root: Path) -> list[str]:
-    """Validate copytrade-wallet-registry leaves, --apply modes, required flags and access."""
-    leaves, problems = _inspect_registry_parser(root / "src/copytrade_pm/wallet_registry.py")
-    if problems:
-        return problems
-
-    op_to_leaf: dict[str, str] = {}
-    covered_leaves: set[str] = set()
-    for op, safety in REGISTRY_OPERATIONS.items():
-        parts = op.split()
-        leaf = None
-        for size in range(len(parts), 0, -1):
-            candidate = " ".join(parts[:size])
-            if candidate in leaves:
-                leaf = candidate
-                break
-        if leaf is None:
-            problems.append(f"STALE_REGISTRY_OP:{op}")
-            continue
-        mode_flags = parts[len(leaf.split()) :]
-        options = leaves[leaf]["options"]
-        if any(flag not in options for flag in mode_flags):
-            problems.append(f"STALE_REGISTRY_OP:{op}")
-            continue
-        op_to_leaf[op] = leaf
-        covered_leaves.add(leaf)
-        if "--apply" in mode_flags and safety == "READ_ONLY":
-            problems.append(f"UNSAFE_REGISTRY_CLASSIFICATION:{op}")
-
-    for leaf, spec in leaves.items():
-        required_groups = [opts for opts in spec["required_groups"] if opts]
-        if required_groups:
-            for opts in required_groups:
-                for opt in opts:
-                    op_name = f"{leaf} {opt}"
-                    if op_name not in op_to_leaf:
-                        problems.append(f"UNLISTED_REGISTRY_OP:{op_name}")
-        elif leaf not in covered_leaves:
-            problems.append(f"UNLISTED_REGISTRY_OP:{leaf}")
-        if "--apply" in spec["options"] and f"{leaf} --apply" not in op_to_leaf:
-            problems.append(f"MISSING_REGISTRY_APPLY_OP:{leaf} --apply")
-
-    for op, leaf in op_to_leaf.items():
-        spec = leaves[leaf]
-        op_mode_flags = set(op.split()[len(leaf.split()) :])
-        parser_required: set[str] = set()
-        for opt, meta in spec["options"].items():
-            in_selected_group = meta["group_idx"] is not None and opt in op_mode_flags
-            if (meta["required"] or in_selected_group) and not (
-                meta["flag_only"] and opt in op_mode_flags
-            ):
-                parser_required.add(opt)
-        for pos, meta in spec["positionals"].items():
-            if meta["required"]:
-                parser_required.add(pos.lower())
-
-        declared = {
-            tok.split()[0] if tok.startswith("-") else tok.split()[0].lower()
-            for tok in REGISTRY_REQUIRED_ARGUMENTS.get(op, [])
-        }
-        for missing in sorted(parser_required - declared):
-            problems.append(f"MISSING_REGISTRY_REQUIRED_ARG:{op}:{missing}")
-
-        dispatch_reqs = set(REGISTRY_DISPATCH_REQUIRED_ARGUMENTS.get(op, ()))
-        for flag in sorted(dispatch_reqs):
-            if flag not in spec["options"] or flag in parser_required:
-                problems.append(f"STALE_REGISTRY_DISPATCH_ARG:{op}:{flag}")
-        for missing in sorted(dispatch_reqs - declared):
-            problems.append(f"MISSING_REGISTRY_DISPATCH_ARG:{op}:{missing}")
-        for extra in sorted(declared - parser_required - dispatch_reqs):
-            problems.append(f"STALE_REGISTRY_REQUIRED_ARG:{op}:{extra}")
-
-        problems.extend(
-            _validate_access_entry(
-                REGISTRY_ACCESS.get(op),
-                safety=REGISTRY_OPERATIONS[op],
-                missing_code=f"MISSING_REGISTRY_ACCESS:{op}",
-                invalid_code=f"INVALID_ACCESS_SCHEMA:{op}",
-                unverified_code=f"UNVERIFIED_REGISTRY_ACCESS:{op}",
-                inconsistent_code=f"INCONSISTENT_REGISTRY_ACCESS:{op}",
-            )
-        )
-
-    for op in set(REGISTRY_ACCESS) - set(REGISTRY_OPERATIONS):
-        problems.append(f"STALE_REGISTRY_ACCESS:{op}")
-    for op in set(REGISTRY_REQUIRED_ARGUMENTS) - set(REGISTRY_OPERATIONS):
-        problems.append(f"STALE_REGISTRY_REQUIRED_ARG_ENTRY:{op}")
-    for op in set(REGISTRY_DISPATCH_REQUIRED_ARGUMENTS) - set(REGISTRY_OPERATIONS):
-        problems.append(f"STALE_REGISTRY_DISPATCH_ARG_ENTRY:{op}")
-
-    return problems
-
-
 def _eval_static_condition(test: ast.AST, env: dict[str, str]) -> bool | None:
     if isinstance(test, ast.BoolOp):
         vals = [_eval_static_condition(v, env) for v in test.values]
@@ -689,11 +483,21 @@ def _eval_static_condition(test: ast.AST, env: dict[str, str]) -> bool | None:
     return None
 
 
-def _inspect_cwsa_add_arguments(root: Path, target_node: dict[str, Any]) -> list[str]:
-    cwsa_path = root / "src/copytrade_pm/pm_cwsa_chapter2_gate.py"
-    if not cwsa_path.is_file():
-        return ["MISSING_OWNER_MODULE:copytrade_pm.pm_cwsa_chapter2_gate"]
-    tree = _parse_static_source(cwsa_path.read_text(encoding="utf-8"))
+def _inspect_leaf_arguments(root: Path, target_node: dict[str, Any], *, module: str) -> list[str]:
+    label = {
+        "pm_cwsa_chapter2_gate": "cwsa",
+        "pm_health_arguments": "health",
+        "production_export": "metadata",
+        "pm_forward_observer": "observer",
+        "pm_forward_observer_health": "observer_health",
+        "pm_forward_status": "paper_run_status",
+        "pm_market_audit": "market_audit",
+        "pm_forward_ccxt_market": "ccxt_probe",
+    }.get(module, "owner")
+    path = root / "src/copytrade_pm" / f"{module}.py"
+    if not path.is_file():
+        return [f"MISSING_OWNER_MODULE:copytrade_pm.{module}"]
+    tree = _parse_static_source(path.read_text(encoding="utf-8"))
     constants = _extract_module_constants(tree)
     funcs = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "add_arguments"]
     if len(funcs) != 1 or len(funcs[0].args.args) != 1:
@@ -705,9 +509,23 @@ def _inspect_cwsa_add_arguments(root: Path, target_node: dict[str, Any]) -> list
         if isinstance(n, ast.Call) and _call_name(n) in PARSER_CALL_NAMES
     }
     visited: set[int] = set()
-    for stmt in funcs[0].body:
+    body = list(funcs[0].body)
+    if (
+        body
+        and isinstance(body[-1], ast.Return)
+        and isinstance(body[-1].value, ast.Name)
+        and body[-1].value.id == param_name
+    ):
+        body.pop()
+    for stmt in body:
+        if (
+            isinstance(stmt, ast.Expr)
+            and isinstance(stmt.value, ast.Constant)
+            and isinstance(stmt.value.value, str)
+        ):
+            continue  # owner docstring
         if not isinstance(stmt, ast.Expr) or not isinstance(stmt.value, ast.Call):
-            return ["UNSUPPORTED_OPERATIONS_PARSER_CONSTRUCT:cwsa_add_arguments_stmt"]
+            return [f"UNSUPPORTED_OPERATIONS_PARSER_CONSTRUCT:{label}_add_arguments_stmt"]
         call = stmt.value
         if (
             not isinstance(call.func, ast.Attribute)
@@ -810,7 +628,29 @@ def _inspect_operations_parser(root: Path) -> tuple[dict[str, dict[str, Any]], l
             if arg_path is None:
                 errors.append("UNSUPPORTED_OPERATIONS_PARSER_CONSTRUCT:cwsa_unknown_parser")
                 return
-            errors.extend(_inspect_cwsa_add_arguments(root, nodes[arg_path]))
+            errors.extend(
+                _inspect_leaf_arguments(root, nodes[arg_path], module="pm_cwsa_chapter2_gate")
+            )
+            return
+        if (
+            isinstance(call.func, ast.Attribute)
+            and isinstance(call.func.value, ast.Name)
+            and call.func.attr == "add_arguments"
+            and call.func.value.id in LEAF_OWNER_MODULES
+        ):
+            owner = call.func.value.id
+            if len(call.args) != 1 or call.keywords or not isinstance(call.args[0], ast.Name):
+                errors.append(
+                    f"UNSUPPORTED_OPERATIONS_PARSER_CONSTRUCT:{LEAF_OWNER_MODULES[owner]}_add_arguments_call"
+                )
+                return
+            arg_path = local_parsers.get(call.args[0].id)
+            if arg_path not in LEAF_OWNER_LEAVES[owner]:
+                errors.append(
+                    f"UNSUPPORTED_OPERATIONS_PARSER_CONSTRUCT:{LEAF_OWNER_MODULES[owner]}_unknown_parser"
+                )
+                return
+            errors.extend(_inspect_leaf_arguments(root, nodes[arg_path], module=owner))
             return
 
         if not isinstance(call.func, ast.Attribute):
@@ -1050,7 +890,10 @@ def _validate_operations_cli(root: Path) -> list[str]:
         runtime_required_arguments: Sequence[str],
         access: Mapping[str, object] | None,
     ) -> None:
-        if safety != "READ_ONLY" or "--apply" in parser_spec["options"]:
+        # A reviewed mutation must be explicitly gated by --apply; a reviewed
+        # read must not expose a write switch at all. Anything else is unsafe.
+        mutating = safety in OPERATIONS_MUTATING_CLASSES
+        if mutating != ("--apply" in parser_spec["options"]):
             problems.append(f"UNSAFE_OPERATIONS_CLASSIFICATION:{leaf}")
         problems.extend(
             _validate_declared_contract(

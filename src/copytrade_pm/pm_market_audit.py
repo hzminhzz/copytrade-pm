@@ -9,6 +9,7 @@ does NOT prove every requested minute has a valid/open executable bar.
 from __future__ import annotations
 
 import argparse
+from collections.abc import Sequence
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from hashlib import sha256
@@ -262,12 +263,16 @@ def inventory(research_root: Path, market_root: Path) -> dict:
     }
 
 
-def main():
-    p = argparse.ArgumentParser()
+def add_arguments(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    """Mount the minute market audit onto an existing subparser."""
     p.add_argument("--research-root", type=Path, required=True)
     p.add_argument("--market-root", type=Path, required=True)
     p.add_argument("--out", type=Path, required=True)
-    args = p.parse_args()
+    return p
+
+
+def run(args: argparse.Namespace) -> int:
+    """Handler shared by `python -m copytrade_pm.pm_market_audit` and the CLI group."""
     report = inventory(args.research_root, args.market_root)
     path, digest = _write_private_evidence(args.out, report)
     print(
@@ -284,7 +289,14 @@ def main():
             indent=2,
         )
     )
+    return 0
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    p = argparse.ArgumentParser(prog="copytrade-pm research market-audit")
+    add_arguments(p)
+    return run(p.parse_args(argv))
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

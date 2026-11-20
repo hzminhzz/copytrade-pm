@@ -2,10 +2,12 @@
 
 from contextlib import closing
 from decimal import Decimal as D
+import sqlite3
 
 import pytest
 
-from copytrade_pm import wallet_registry_portfolios
+from copytrade_pm.roster import RosterStore
+from roster_fixture import WALLETS, add_account
 from copytrade_pm.pm_forward_journal import PaperJournal
 from copytrade_pm.pm_forward_observed_paper import (
     ObservedP1Paper,
@@ -14,6 +16,7 @@ from copytrade_pm.pm_forward_observed_paper import (
     _verify_portfolio_selection,
 )
 from test_pm_forward_observed_paper import (
+    ADDRESSES,
     BTC,
     RAW_MARKET,
     add_quote,
@@ -24,60 +27,31 @@ from test_pm_forward_observed_paper import (
 
 
 def full_registry(tmp_path):
-    """Source aliases and addresses are entirely fictitious test fixtures."""
-    import sqlite3
-
-    path = registry(tmp_path / "registry.sqlite")
-    with closing(sqlite3.connect(path)) as conn, conn:
-        for i, alias in enumerate(("S064-xyz:BRENTOIL", "Whale_0x5f94"), 4):
-            address = "0x" + f"{i:02x}" * 20
-            conn.execute("INSERT INTO wallets VALUES (?,?)", (i, address))
-            conn.execute(
-                "INSERT INTO wallet_aliases VALUES (?,?,?)",
-                (i, alias, "2026-11-01T00:00:00+00:00"),
+    path = registry(tmp_path / "roster.sqlite")
+    addresses = {**ADDRESSES, "S064": WALLETS[3], "Whale_0x5f94": WALLETS[4]}
+    with RosterStore(path, writable=True) as store:
+        for name in ("P14", "P16"):
+            profile = PAPER_PROFILES[name]
+            add_account(
+                store,
+                name,
+                {seat: addresses[seat] for seat in profile.source_ids},
+                k=profile.k,
+                risk=profile.risk,
             )
     return path
 
 
-def pin_reviewed_registry(monkeypatch):
-    def verified(_db, name, _as_of):
-        profile = PAPER_PROFILES[name]
-        return {
-            "portfolio_id": name,
-            "version": 2,
-            "state": "PAPER_RESEARCH_CHALLENGER" if name == "P14" else "RESEARCH_OPTIONAL_CONTROL",
-            "definition_sha256": ("ab" if name == "P14" else "cd") * 32,
-            "sizing_contract": name + "_VIRTUAL_10000_USD_TOTAL_NOMINAL_LOSS_600_USD",
-            "alias_resolution_complete": True,
-            "members": sorted(profile.full_aliases),
-        }
-
-    monkeypatch.setattr(wallet_registry_portfolios, "select_asof", verified)
-
-
-def test_registry_profile_requires_real_seal_not_just_matching_names(tmp_path, monkeypatch):
+def test_registry_profile_requires_real_seal_not_just_matching_names(tmp_path):
     path = full_registry(tmp_path)
-    pin_reviewed_registry(monkeypatch)
-    for name, sha in (("P14", "ab" * 32), ("P16", "cd" * 32)):
-        selection = _verify_portfolio_selection(
-            path,
-            PAPER_PROFILES[name],
-            as_of=at(0),
-        )
-        assert selection["definition_sha256"] == sha
-        assert selection["version"] == 2
-
-    def tampered(_db, name, _as_of):
-        return {
-            "state": "PAPER_RESEARCH_CHALLENGER",
-            "alias_resolution_complete": True,
-            "sizing_contract": "P14_VIRTUAL_10000_USD_TOTAL_NOMINAL_LOSS_600_USD",
-            "members": ["S035-ENA"],
-            "definition_sha256": "a" * 64,
-        }
-
-    monkeypatch.setattr(wallet_registry_portfolios, "select_asof", tampered)
-    with pytest.raises(ValueError, match="PAPER_PORTFOLIO_SEAL_OR_SIZING_MISMATCH"):
+    for name in ("P14", "P16"):
+        selection = _verify_portfolio_selection(path, PAPER_PROFILES[name], as_of=at(0))
+        assert selection["definition_sha256"]
+        assert selection["version"] == 1
+    with closing(sqlite3.connect(path)) as con, con:
+        con.execute("DROP TRIGGER leases_no_update")
+        con.execute("UPDATE leases SET wallet='drift' WHERE account_id='P14'")
+    with pytest.raises(ValueError, match="SELECTION_MEMBER_DRIFT"):
         _verify_portfolio_selection(path, PAPER_PROFILES["P14"], as_of=at(0))
 
 
@@ -99,9 +73,7 @@ def test_only_reviewed_paper_scenarios_admitted(tmp_path):
 
 def test_two_sealed_research_portfolios_receive_same_source_in_independent_accounts(
     tmp_path,
-    monkeypatch,
 ):
-    pin_reviewed_registry(monkeypatch)
     tape = PaperJournal(tmp_path / "source")
     add_quote(tape, 10, size=200)
     path = full_registry(tmp_path)
@@ -161,9 +133,7 @@ def test_two_sealed_research_portfolios_receive_same_source_in_independent_accou
 
 def test_wrong_portfolio_id_or_new_registry_seal_cannot_open_existing_run(
     tmp_path,
-    monkeypatch,
 ):
-    pin_reviewed_registry(monkeypatch)
     tape = PaperJournal(tmp_path / "source")
     add_quote(tape, 10)
     path = full_registry(tmp_path)
@@ -187,19 +157,10 @@ def test_wrong_portfolio_id_or_new_registry_seal_cannot_open_existing_run(
             portfolio_id="P16",
         )
 
-    def redefined(_db, name, _as_of):
-        return {
-            "portfolio_id": "P14",
-            "version": 3,
-            "state": "PAPER_RESEARCH_CHALLENGER",
-            "definition_sha256": "ef" * 32,
-            "sizing_contract": "P14_VIRTUAL_10000_USD_TOTAL_NOMINAL_LOSS_600_USD",
-            "alias_resolution_complete": True,
-            "members": list(PAPER_PROFILES["P14"].full_aliases),
-        }
-
-    monkeypatch.setattr(wallet_registry_portfolios, "select_asof", redefined)
-    with pytest.raises(ValueError, match="PAPER_RESTART_CANONICAL_ACCOUNT_POLICY_DRIFT"):
+    with closing(sqlite3.connect(path)) as con, con:
+        con.execute("DROP TRIGGER books_no_update")
+        con.execute("UPDATE books SET book_sha='drift' WHERE account_id='P14'")
+    with pytest.raises(ValueError, match="SELECTION_MEMBER_DRIFT"):
         ObservedP1Paper(
             source_db=tape.path,
             registry_db=path,

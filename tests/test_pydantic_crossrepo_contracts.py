@@ -159,19 +159,10 @@ def test_critical_candidate_source_damage_fails_consumer(tmp_path, damage):
         )
 
 
-@pytest.mark.parametrize("mode", ["ALLOCATION_OVER_LIVE_NAV", "FIXED_K_NATIVE_QUANTITY"])
-def test_candidate_real_sqlite_release_matches_existing_schema(tmp_path, mode):
+def test_candidate_real_sqlite_release_matches_existing_schema(tmp_path):
     from prop_production.release import ReleaseVerifier
 
-    db, metadata, policy, reviewer, source = fixture_policy(tmp_path, sizing_policy=mode)
-    if mode == "FIXED_K_NATIVE_QUANTITY":
-        body = policy["payload"]
-        for member in body["members"]:
-            member.update(sizing_policy=mode, k="0.04")
-        for index, envelope in enumerate(body["source_attestations"]):
-            proof = {**envelope["payload"], "nav": None}
-            body["source_attestations"][index] = sign(proof, source, "source-observer")
-        policy = sign(body, reviewer, "research-release-policy")
+    db, metadata, policy, reviewer, source = fixture_policy(tmp_path)
     store_policy(db, "A", metadata, policy, reviewer.public_key())
     candidate = build_manifest(
         db=db,
@@ -186,7 +177,7 @@ def test_candidate_real_sqlite_release_matches_existing_schema(tmp_path, mode):
     verifier = ReleaseVerifier(
         reviewer.public_key(),
         "approver",
-        "fixture-account",
+        "A",
         body["risk_policy_sha"],
         body["rulebook_sha"],
     )

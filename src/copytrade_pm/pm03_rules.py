@@ -1,5 +1,11 @@
 """Dated public Propr rules: research contract snapshots, never account authorization.
 
+Terms are owned by the single canonical ``copytrade_kernel.RulebookCatalog``.
+The observed public page is quoted below only as evidence for the snapshot
+digest, and every quoted fraction is reconciled against the catalog at
+construction time: drift fails closed instead of silently re-deriving a second
+rulebook.
+
 Source: https://www.propr.xyz/rules (consulted 2026-10-31)
 Cross-check: owner-private 2026-10-30 risk/contract snapshot.
 Published conditions can differ from the user's purchased/account-specific terms.
@@ -9,7 +15,9 @@ from __future__ import annotations
 
 from decimal import Decimal as D
 
-from .pm03_account import Rulebook, digest, clock
+from copytrade_kernel import RulebookCatalog
+
+from .pm03_account import Rulebook, clock, digest
 
 SOURCE = "https://www.propr.xyz/rules"
 TERMS = "https://www.propr.xyz/terms"
@@ -35,6 +43,40 @@ PUBLIC_SNAPSHOT_SHA = digest(
         "account_specific_terms": "UNCONFIRMED",
     }
 )
+TERM_SOURCES = tuple(RulebookCatalog.list_keys("propr"))
+
+
+def _challenge_key(program: str, stage: str) -> str:
+    """Resolve the catalog key for a Propr program/stage; the catalog decides existence."""
+    if program not in PUBLIC_RULES:
+        raise ValueError("UNKNOWN_PROPR_PROGRAM")
+    if stage not in ("evaluation", "step1", "step2", "funded"):
+        raise ValueError("UNKNOWN_PROPR_STAGE")
+    if program == "classic_2step":
+        if stage == "evaluation":
+            raise ValueError("USE_EXPLICIT_TWO_STEP_STAGE")
+        phase = {"step1": "phase_1", "step2": "phase_2", "funded": "funded"}[stage]
+    elif stage in ("step1", "step2"):
+        raise ValueError("STAGE_NOT_APPLICABLE")
+    else:
+        phase = "phase_1" if stage == "evaluation" else "funded"
+    return f"propr:{program}:{phase}"
+
+
+def _reconcile(spec, program: str, stage: str) -> None:
+    """Fail closed when the quoted page and the canonical catalog disagree."""
+    base = D(spec.initial)
+    quoted = PUBLIC_RULES[program]
+    checks = [(spec.daily_loss, quoted["daily"])]
+    if "target" in quoted or stage in quoted:
+        checks.append((spec.target, quoted[stage]))
+    if spec.trailing_basis == "STATIC":
+        checks.append((spec.trailing_loss, quoted["static"]))
+    else:
+        checks.append((spec.trailing_loss, quoted["trailing"]))
+    for amount, fraction in checks:
+        if D(amount) != D(fraction) * base:
+            raise ValueError("PROPR_RULEBOOK_CATALOG_DRIFT")
 
 
 def propr_rulebook(
@@ -50,20 +92,15 @@ def propr_rulebook(
     this factory deliberately cannot set confirmed=True.
     """
     if clock(observed_at) < clock("2026-10-31T00:00:00+00:00"):
-        raise ValueError("PUBLIC_RULE_OBSERVATION_CANNOT_BE_BACKDATED")
-    if program not in PUBLIC_RULES:
-        raise ValueError("UNKNOWN_PROPR_PROGRAM")
+        raise ValueError("PUBLIC_RULE_OBSERVATION_CANNOT_BACKDATED")
+    key = _challenge_key(program, stage)
+    spec = RulebookCatalog.get(key)
+    _reconcile(spec, program, stage)
     data = PUBLIC_RULES[program]
-    if stage not in ("evaluation", "step1", "step2", "funded"):
-        raise ValueError("UNKNOWN_PROPR_STAGE")
     if program == "classic_2step":
-        if stage == "evaluation":
-            raise ValueError("USE_EXPLICIT_TWO_STEP_STAGE")
-        fraction = data.get(stage)
-    elif stage in ("step1", "step2"):
-        raise ValueError("STAGE_NOT_APPLICABLE")
+        fraction = None if stage == "funded" else data[stage]
     else:
-        fraction = data.get("evaluation") if stage == "evaluation" else None
+        fraction = data["evaluation"] if stage == "evaluation" else None
     starting = D(str(initial_balance))
     return Rulebook(
         program=program,

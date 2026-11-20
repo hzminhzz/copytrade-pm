@@ -1,5 +1,6 @@
 """Native portfolio-contract component: evidence and rule boundary tests."""
 
+from contextlib import closing
 from datetime import UTC, datetime, timedelta
 import json
 from pathlib import Path
@@ -227,7 +228,7 @@ def test_over_leverage_scenario_blocks_optimum(tmp_path: Path) -> None:
 def test_missing_tapes_return_blocked_for_each_saved_portfolio(monkeypatch) -> None:
     monkeypatch.setattr(
         selector,
-        "_registry_identity",
+        "_roster_identity",
         lambda pid, **k: {
             **_identity(),
             "portfolio_id": pid,
@@ -263,7 +264,7 @@ def test_global_portfolio_winner_requires_identical_pnl_windows(
     p2.write_text(json.dumps(second))
     monkeypatch.setattr(
         selector,
-        "_registry_identity",
+        "_roster_identity",
         lambda pid, **kw: {
             **_identity(),
             "portfolio_id": pid,
@@ -290,18 +291,21 @@ def test_global_portfolio_winner_requires_identical_pnl_windows(
     assert matched["portfolio_window_alignment_verified"]
 
 
-def test_real_registry_integrity_fail_closed(monkeypatch) -> None:
-    monkeypatch.setattr(operations, "_doctor", lambda _: {"status": "STALE"})
-    with pytest.raises(ValueError, match="REGISTRY_SQLITE_INTEGRITY"):
-        selector._registry_identity("gemini.phase4/E6", db=Path("missing"), asof=None)
+def test_real_roster_integrity_fail_closed(monkeypatch) -> None:
+    monkeypatch.setattr(
+        operations, "roster_authority", lambda _: {"status": "BLOCKED", "data": None}
+    )
+    with pytest.raises(ValueError, match="ROSTER_SQLITE_INTEGRITY"):
+        selector._roster_identity("gemini.phase4/E6", db=Path("missing"), asof=None)
     with pytest.raises(ValueError, match="NAMESPACE"):
-        selector._registry_identity("E6", db=Path("missing"), asof=None)
+        selector._roster_identity("E6", db=Path("missing"), asof=None)
 
 
 def test_operations_contracts_rule_and_parser(tmp_path: Path) -> None:
-    assert operations.cli(["contracts", "rules"]) == 0
+    assert operations.cli(["research", "contracts", "rules"]) == 0
     args = operations.parser().parse_args(
         [
+            "research",
             "contracts",
             "compare",
             "--portfolio",
@@ -360,75 +364,57 @@ def _write_portfolio_tape(
 
 
 def _blocked_selection_native_db(tmp_path: Path) -> tuple[Path, str]:
-    """Build a locked SQLite fixture with valid SQLite integrity and native exit-2 selection block."""
-    from contextlib import closing
-    from hashlib import sha256
-    from test_wallet_registry_catalog import AFTER, WHALE, _v2_snapshot
-    from test_wallet_registry_signed_catalog import _signed_source
+    """Two sealed roster accounts, one of them with a later generation after vetoes.
 
-    from copytrade_pm import wallet_registry as reg
-    from copytrade_pm import wallet_registry_catalog as cat
-    from copytrade_pm import wallet_registry_native as native
-    from copytrade_pm import wallet_registry_signed_catalog as signed
+    The retired wallet registry is never read: the committed roster book is the
+    seal, a `q3/B` label resolves through the shared `q3:B` campaign mapping, and
+    an account with no committed book is an explicit not-registered result.
+    """
+    from copytrade_kernel import KnownAtTs
+    from roster_fixture import MS, add_account
 
-    cat.WHALE_ADDRESS_SHA256 = sha256(WHALE.encode()).hexdigest()
+    from copytrade_pm.roster import RosterStore, reconcile_roster
+
     db_dir = tmp_path / "registry_dir"
     db_dir.mkdir(mode=0o700)
-    db, snapshot = _v2_snapshot(db_dir)
-    reg.apply(db, snapshot, AFTER)
-    src, sig, pub, fp = _signed_source(db_dir, replace_e6=True)
-    now = datetime.now(UTC)
-    signed_at = (now - timedelta(seconds=5)).isoformat()
-    record = signed.inspect(src, sig, pub, expected_public_key_sha256=fp, first_known_at=signed_at)
-    with closing(reg.connect(db, True)) as con, con:
-        signed.store(con, record)
-        # Explicitly unsealed candidate and unproved seal for negative compare coverage.
-        con.execute(
-            "INSERT INTO portfolio_versions VALUES(?,?,?,?,?,?)",
-            (
-                "gemini.phase9/UNSEALED",
-                1,
-                "RESEARCH_ONLY",
-                "docs/unsealed.md",
-                AFTER,
-                "NON_EXECUTABLE",
-            ),
+    db = db_dir / "roster.sqlite"
+    veto_ms = MS + 3_599_000
+    with RosterStore(db, create=True, writable=True) as store:
+        add_account(store, "q3:B", {seat: _wallet(seat) for seat in Q3_B}, at_ms=MS)
+        add_account(store, "gemini.phase4:E6", {seat: _wallet(seat) for seat in E6_V1}, at_ms=MS)
+        # Three of the E6 sources decay: a veto hard-evicts them and frees the seats.
+        for alias in ("CM-002", "S051-BTC", "Whale_0x5f94"):
+            store.record_veto(
+                _wallet(alias), reason="decayed source scope", actor="research", at_ms=veto_ms
+            )
+        at = KnownAtTs(veto_ms)
+        book = store.book_at("gemini.phase4:E6", as_of=at)
+        plan = reconcile_roster(
+            current=book,
+            scorecard=store.latest_scorecard(as_of=at, policy_epoch=book.policy_epoch),
+            bench=store.latest_bench("gemini.phase4:E6", as_of=at),
+            vetoes=store.active_vetoes(as_of=at),
+            latches={},
+            cooldowns=store.cooldowns(),
+            as_of=at,
         )
-        con.execute(
-            "INSERT INTO portfolio_versions VALUES(?,?,?,?,?,?)",
-            (
-                "gemini.phase9/UNPROVED_SEAL",
-                1,
-                "RESEARCH_SELECTION_ONLY",
-                "docs/unproved.md",
-                AFTER,
-                "NON_EXECUTABLE",
-            ),
-        )
-        con.execute(
-            "INSERT INTO portfolio_seals VALUES(?,?,?,?,?,?)",
-            ("gemini.phase9/UNPROVED_SEAL", 1, "c" * 64, "d" * 64, "0" * 40, AFTER),
-        )
-        # Unsigned latest research selection triggers native doctor exit 2 with SQLite VERIFIED.
-        unsigned_at = (now - timedelta(seconds=2)).isoformat()
-        con.execute(
-            "INSERT INTO research_selections VALUES(?,?,?,?,?,?,?)",
-            (
-                "a" * 64,
-                "NEW_FORWARD_PAPER_RESEARCH",
-                "gemini.phase9/UNSEALED",
-                1,
-                "UNVERIFIED_LATEST_CANDIDATE",
-                1,
-                unsigned_at,
-            ),
-        )
-    (db_dir / "backups").mkdir(mode=0o700, exist_ok=True)
-    expected_sha = reg.db_authority_health(db)["inventory_sha256"]
-    native.lock_legacy_import(
-        db, expected=expected_sha, apply=True, now="2026-11-05T01:00:00+00:00"
-    )
-    return db, signed_at
+        store.commit_plan(plan, committed_ms=MS + 3_600_000, with_proposal=False)
+    db.chmod(0o600)
+    return db, E6_V2_AT
+
+
+def _wallet(alias: str) -> str:
+    """Deterministic fictitious address per member label; never a real wallet."""
+    from hashlib import sha256
+
+    return "0x" + sha256(alias.encode()).hexdigest()[:40]
+
+
+Q3_B = ("CA-005", "W031", "W044")
+E6_V1 = ("ACT04", "CM-002", "S051-BTC", "S053-HYPE", "Whale_0x5f94")
+E6_V2 = ("ACT04", "S053-HYPE")
+E6_V1_AT = "2026-11-04T06:00:00+00:00"
+E6_V2_AT = "2026-11-04T07:00:00+00:00"
 
 
 _COMPARE_CLI_FLAGS = (
@@ -448,8 +434,8 @@ _COMPARE_CLI_FLAGS = (
 def _write_sealed_pair_tapes(
     tmp_path: Path, db: Path, *, asof: str, prefix: str = ""
 ) -> tuple[Path, Path]:
-    q3_b = selector._registry_identity("q3/B", db=db, asof=asof)
-    e6_v2 = selector._registry_identity("gemini.phase4/E6", db=db, asof=asof)
+    q3_b = selector._roster_identity("q3/B", db=db, asof=asof)
+    e6 = selector._roster_identity("gemini.phase4/E6", db=db, asof=asof)
     tape_q3b = _write_portfolio_tape(
         tmp_path / f"{prefix}q3b.json",
         portfolio_id="q3/B",
@@ -460,8 +446,8 @@ def _write_sealed_pair_tapes(
     tape_e6 = _write_portfolio_tape(
         tmp_path / f"{prefix}e6.json",
         portfolio_id="gemini.phase4/E6",
-        definition_sha256=e6_v2["definition_sha256"],
-        members=e6_v2["members"],
+        definition_sha256=e6["definition_sha256"],
+        members=e6["members"],
         base_pnl=7.0,
     )
     return tape_q3b, tape_e6
@@ -477,52 +463,48 @@ def _run_compare_cli(db: Path, targets: list[tuple[str, Path]], *, asof: str):
         "copytrade_pm.pm_operations",
         "--db",
         str(db),
+        "research",
         "contracts",
         "compare",
     ]
     for portfolio_id, tape_path in targets:
         cmd += ["--portfolio", portfolio_id, "--tape", str(tape_path)]
     cmd += ["--asof", asof, *_COMPARE_CLI_FLAGS]
-    return subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=30)
+    return subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=60)
 
 
 def test_native_blocked_selection_doctor_exit_2_allows_unaffected_sealed_comparison(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
-    """Seam 2 (selector & compare_portfolios): catches exit-2 isolation, namespaces, as-of & unverified blocks; misses CLI exit codes."""
-    from contextlib import closing
-    from hashlib import sha256
+    """Seam 2 (selector & compare_portfolios): namespaces, as-of generations, corrupt DB, zero writes."""
     import shutil
-    from test_wallet_registry_catalog import WHALE
+    import sqlite3
 
-    from copytrade_pm import wallet_registry as reg
-    from copytrade_pm import wallet_registry_catalog as cat
-
-    monkeypatch.setattr(cat, "WHALE_ADDRESS_SHA256", sha256(WHALE.encode()).hexdigest())
-    db, signed_at = _blocked_selection_native_db(tmp_path)
+    db, v2_at = _blocked_selection_native_db(tmp_path)
     before_bytes = db.read_bytes()
 
-    doctor = operations._doctor(db)
-    assert doctor["status"] == "BLOCKED"
-    assert doctor["error_code"] != "REGISTRY_SQLITE_INTEGRITY_FAILED"
-    assert doctor["data"]["database_integrity"] == "VERIFIED"
-    assert doctor["data"]["research_selection_integrity"] == "BLOCKED_MISSING_EXTERNAL_PROOF"
+    authority = operations.roster_authority(db)
+    assert authority["status"] == "VERIFIED"
+    assert authority["data"]["database_integrity"] == "VERIFIED"
+    assert authority["data"]["inventory_sha256"] == authority["source"]["sha256"]
 
-    # Namespace-qualified "q3/B" resolves canonical SQLite key "B", and signed E6 keeps both v1 & v2 as-of.
-    q3_b = selector._registry_identity("q3/B", db=db, asof="2026-11-03T00:00:00+00:00")
+    # Namespace-qualified "q3/B" resolves the canonical roster account "q3:B", and
+    # E6 keeps both generations selectable at their own as-of clocks.
+    q3_b = selector._roster_identity("q3/B", db=db, asof=E6_V1_AT)
     assert q3_b["portfolio_id"] == "q3/B"
-    assert q3_b["members"] == ["CA-005", "W031", "W044"]
+    assert q3_b["members"] == sorted(Q3_B)
     assert q3_b["trading_authorized"] is False
 
-    e6_v1 = selector._registry_identity("gemini.phase4/E6", db=db, asof="2026-11-04T09:06:33+00:00")
+    e6_v1 = selector._roster_identity("gemini.phase4/E6", db=db, asof=E6_V1_AT)
     assert e6_v1["version"] == 1
-    assert e6_v1["members"] == ["ACT04", "CM-002", "S051-BTC", "S053-HYPE", "Whale_0x5f94"]
+    assert e6_v1["members"] == sorted(E6_V1)
 
-    e6_v2 = selector._registry_identity("gemini.phase4/E6", db=db, asof=signed_at)
+    e6_v2 = selector._roster_identity("gemini.phase4/E6", db=db, asof=v2_at)
     assert e6_v2["version"] == 2
-    assert e6_v2["members"] == ["ACT04", "S053-HYPE"]
+    assert e6_v2["members"] == sorted(E6_V2)
+    assert e6_v1["definition_sha256"] != e6_v2["definition_sha256"]
 
-    tape_q3b, tape_e6 = _write_sealed_pair_tapes(tmp_path, db, asof=signed_at)
+    tape_q3b, tape_e6_v2 = _write_sealed_pair_tapes(tmp_path, db, asof=v2_at)
     options = dict(
         paths=32,
         seed=9,
@@ -533,9 +515,9 @@ def test_native_blocked_selection_doctor_exit_2_allows_unaffected_sealed_compari
     )
     accepted = selector.compare_portfolios(
         ["q3/B", "gemini.phase4/E6"],
-        [tape_q3b, tape_e6],
+        [tape_q3b, tape_e6_v2],
         db=db,
-        asof=signed_at,
+        asof=v2_at,
         **options,
     )
     assert accepted["status"] == "SCENARIO_ONLY"
@@ -545,82 +527,67 @@ def test_native_blocked_selection_doctor_exit_2_allows_unaffected_sealed_compari
     assert accepted["trading_authorized"] is False
     assert accepted["purchase_decision"] == "NO_AUTHORIZED_PURCHASE_RECOMMENDATION"
 
-    # Negative: unsealed portfolio and unproved seal stay BLOCKED; partial selection never promoted.
+    # Negative: an account with no committed book stays BLOCKED; partial selection never promoted.
     unsealed_compare = selector.compare_portfolios(
         ["q3/B", "gemini.phase9/UNSEALED"],
-        [tape_q3b, tape_e6],
+        [tape_q3b, tape_e6_v2],
         db=db,
-        asof=signed_at,
+        asof=v2_at,
         **options,
     )
     assert unsealed_compare["status"] == "BLOCKED"
     assert unsealed_compare["best_modeled_portfolio_contract"] is None
-    assert unsealed_compare["comparisons"][1]["error_code"] == "PORTFOLIO_SOURCE_NOT_SEALED"
+    assert unsealed_compare["comparisons"][1]["error_code"] == "PORTFOLIO_NOT_REGISTERED_AT_ASOF"
     assert not unsealed_compare["scientifically_qualified"]
     assert not unsealed_compare["trading_authorized"]
-
-    unproved_compare = selector.compare_portfolios(
-        ["gemini.phase4/E6", "gemini.phase9/UNPROVED_SEAL"],
-        [tape_e6, tape_e6],
-        db=db,
-        asof=signed_at,
-        **options,
-    )
-    assert unproved_compare["status"] == "BLOCKED"
-    assert unproved_compare["best_modeled_portfolio_contract"] is None
-    assert unproved_compare["comparisons"][1]["error_code"] == "PORTFOLIO_SELECTION_PROOF_BLOCKED"
 
     # Namespace & as-of negative checks.
     for bad_ns in ("B", "E6", "q3/", "/B", "a/b/c"):
         with pytest.raises(ValueError, match="NAMESPACE_QUALIFIED_PORTFOLIO_REQUIRED"):
-            selector._registry_identity(bad_ns, db=db, asof=signed_at)
+            selector._roster_identity(bad_ns, db=db, asof=v2_at)
     with pytest.raises(ValueError, match="PORTFOLIO_NOT_REGISTERED_AT_ASOF"):
-        selector._registry_identity("gemini.phase5/B", db=db, asof="2026-11-03T00:00:00+00:00")
+        selector._roster_identity("gemini.phase5/B", db=db, asof=v2_at)
+    with pytest.raises(ValueError, match="PORTFOLIO_NOT_REGISTERED_AT_ASOF"):
+        selector._roster_identity("q3/B", db=db, asof="2026-11-03T00:00:00+00:00")
 
     # True corrupt / missing DB remains blocked.
     corrupt_db = tmp_path / "corrupt.sqlite"
     corrupt_db.write_bytes(b"corrupt")
     for broken in (corrupt_db, tmp_path / "missing.sqlite"):
-        with pytest.raises(ValueError, match="REGISTRY_SQLITE_INTEGRITY_NOT_VERIFIED"):
-            selector._registry_identity("q3/B", db=broken, asof=signed_at)
+        with pytest.raises(ValueError, match="ROSTER_SQLITE_INTEGRITY_NOT_VERIFIED"):
+            selector._roster_identity("q3/B", db=broken, asof=v2_at)
 
     assert db.read_bytes() == before_bytes
 
-    # Tampered stored proof keeps requested portfolio BLOCKED without breaking unaffected sealed lookups.
+    # Any stored-payload drift invalidates the roster pin, so every lookup under it
+    # is blocked instead of returning a silently narrower selection.
     tampered_db = db.parent / "tampered.sqlite"
     shutil.copyfile(db, tampered_db)
     tampered_db.chmod(0o600)
-    with closing(reg.connect(tampered_db, True)) as con, con:
-        # Bypass immutability trigger on the temp copy to exercise runtime signature verification failure.
-        con.execute("DROP TRIGGER guard_research_selection_proof_update")
-        con.execute("UPDATE research_selection_proofs SET signature_hex=?", ("00" * 64,))
+    with closing(sqlite3.connect(tampered_db)) as con, con:
+        # Scorecards carry no append-only trigger, so this is stored-payload drift
+        # rather than a schema/trigger tamper: the pin must still fail closed.
+        con.execute("UPDATE scorecards SET payload = json_set(payload, '$.as_of_ms', as_of_ms + 1)")
     tampered_compare = selector.compare_portfolios(
         ["q3/B", "gemini.phase4/E6"],
-        [tape_q3b, tape_e6],
+        [tape_q3b, tape_e6_v2],
         db=tampered_db,
-        asof=signed_at,
+        asof=v2_at,
         **options,
     )
     assert tampered_compare["status"] == "BLOCKED"
     assert tampered_compare["best_modeled_portfolio_contract"] is None
-    assert tampered_compare["comparisons"][1]["error_code"] == "PORTFOLIO_SELECTION_PROOF_BLOCKED"
-    assert selector._registry_identity("q3/B", db=tampered_db, asof=signed_at)["members"] == [
-        "CA-005",
-        "W031",
-        "W044",
-    ]
+    assert (
+        tampered_compare["comparisons"][0]["error_code"] == "ROSTER_SQLITE_INTEGRITY_NOT_VERIFIED"
+    )
+    with pytest.raises(ValueError, match="ROSTER_SQLITE_INTEGRITY_NOT_VERIFIED"):
+        selector._roster_identity("q3/B", db=tampered_db, asof=v2_at)
 
 
 def test_cli_subprocess_contracts_compare_blocked_doctor_and_preservation(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
-    """Seam 3 (CLI subprocess compare): catches exit codes, JSON schema & zero DB writes; misses dashboard wallets."""
-    from hashlib import sha256
-    from test_wallet_registry_catalog import WHALE
-
-    from copytrade_pm import wallet_registry_catalog as cat
-
-    monkeypatch.setattr(cat, "WHALE_ADDRESS_SHA256", sha256(WHALE.encode()).hexdigest())
+    """Seam 3 (CLI subprocess compare): catches exit codes, JSON schema & zero DB writes."""
     db, signed_at = _blocked_selection_native_db(tmp_path)
     before_bytes = db.read_bytes()
 

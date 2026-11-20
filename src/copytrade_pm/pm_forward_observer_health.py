@@ -9,6 +9,7 @@ a fully consistent heartbeat is DEGRADED_OBSERVER_ONLY, never PAPER_RUNNING.
 from __future__ import annotations
 
 import argparse
+from collections.abc import Sequence
 from contextlib import closing
 from datetime import UTC, datetime
 import json
@@ -886,29 +887,33 @@ def continuous_watchdog(root: Path, *, interval_seconds: float = 15, expected_re
         time.sleep(interval_seconds)
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Independent read-only public observer watchdog")
-    parser.add_argument("--state-root", required=True, type=Path)
-    parser.add_argument("--as-of", default=datetime.now(UTC).isoformat())
-    parser.add_argument("--continuous", action="store_true")
-    parser.add_argument("--watch", action="store_true")
-    parser.add_argument("--expected-revision")
-    parser.add_argument("--require-watchdog", action="store_true")
-    parser.add_argument("--shadow-report", action="store_true")
-    args = parser.parse_args()
+def add_arguments(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    """Mount the independent observer health/watch options onto an existing subparser."""
+    p.add_argument("--state-root", required=True, type=Path)
+    p.add_argument("--as-of", default=datetime.now(UTC).isoformat())
+    p.add_argument("--continuous", action="store_true")
+    p.add_argument("--watch", action="store_true")
+    p.add_argument("--expected-revision")
+    p.add_argument("--require-watchdog", action="store_true")
+    p.add_argument("--shadow-report", action="store_true")
+    return p
+
+
+def run(args: argparse.Namespace) -> int:
+    """Handler shared by `python -m` and `copytrade-pm paper observer-health`."""
     if args.shadow_report:
         print(
             json.dumps(
                 audit_continuous_shadow(args.state_root, as_of=args.as_of), sort_keys=True, indent=2
             )
         )
-        return
+        return 0
     if args.watch and not args.continuous:
-        parser.error("--watch requires --continuous")
+        raise ValueError("--watch requires --continuous")
     if args.continuous:
         if args.watch:
             continuous_watchdog(args.state_root, expected_revision=args.expected_revision)
-            return
+            return 0
         print(
             json.dumps(
                 inspect_continuous_observer(
@@ -921,13 +926,31 @@ def main() -> None:
                 sort_keys=True,
             )
         )
-        return
+        return 0
     result = inspect_public_observer_heartbeat(
         args.state_root,
         journal_db=args.state_root / "paper-events.sqlite3",
         as_of=args.as_of,
     )
     print(json.dumps(result, indent=2, sort_keys=True))
+    return 0
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="copytrade-pm paper observer-health",
+        description="Independent read-only public observer watchdog",
+    )
+    add_arguments(parser)
+    args = parser.parse_args(argv)
+    try:
+        code = run(args)
+    except ValueError as exc:
+        parser.error(str(exc))
+        return 2
+    if code:
+        raise SystemExit(code)
+    return 0
 
 
 def readonly_tape_snapshot(db_path: Path) -> dict:
@@ -939,4 +962,4 @@ def atomic_private_json(root: Path, name: str, body: dict) -> dict:
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

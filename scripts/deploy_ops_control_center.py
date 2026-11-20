@@ -80,7 +80,7 @@ def prepare_owner_runtime(release: Path) -> Path:
         str(python),
         "-m",
         "copytrade_pm.pm_operations",
-        "cwsa",
+        "release",
         "chapter2",
         "site-view",
         "--help",
