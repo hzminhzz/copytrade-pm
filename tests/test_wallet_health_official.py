@@ -650,3 +650,75 @@ def test_default_provider_is_never_reached_in_tests(tmp_path, monkeypatch):
     monkeypatch.setattr(o, "guarded_info", explode)
     result, _, _ = capture(tmp_path)
     assert result["verified_main_perp_equity"] == 4
+
+
+def test_zero_hash_hourly_funding_rows_ingest_without_conflict(tmp_path):
+    from copytrade_pm.facts import FactIngestor, FactStore, FactStoreError
+
+    with FactStore(tmp_path / "facts", create=True) as facts:
+        ingestor = FactIngestor(facts)
+        zero_hash = "0x" + "0" * 64
+        rows = o.funding_rows(
+            WALLETS[0],
+            [
+                {
+                    "time": NOW_MS - 7_200_000,
+                    "hash": zero_hash,
+                    "delta": {
+                        "type": "funding",
+                        "coin": "BTC",
+                        "usdc": "-1.25",
+                        "fundingRate": "0.0001",
+                        "szi": "1.0",
+                    },
+                },
+                {
+                    "time": NOW_MS - 3_600_000,
+                    "hash": zero_hash,
+                    "delta": {
+                        "type": "funding",
+                        "coin": "BTC",
+                        "usdc": "0.75",
+                        "fundingRate": "-0.0001",
+                        "szi": "1.0",
+                    },
+                },
+            ],
+            since=NOW_MS - 10_000_000,
+            until=NOW_MS,
+            first_known_at_ms=NOW_MS,
+        )
+        ingestor.ingest_rows(
+            "funding", rows, source_id="hl-official", source_rank=1, first_known_at_ms=None
+        )
+        stored = facts.scan("funding", as_of_ms=NOW_MS).collect()
+        assert stored.height == 2
+        assert facts.verify()["ok"] is True
+
+        conflict = o.funding_rows(
+            WALLETS[0],
+            [
+                {
+                    "time": NOW_MS - 3_600_000,
+                    "hash": zero_hash,
+                    "delta": {
+                        "type": "funding",
+                        "coin": "BTC",
+                        "usdc": "0.99",
+                        "fundingRate": "-0.0001",
+                        "szi": "1.0",
+                    },
+                }
+            ],
+            since=NOW_MS - 10_000_000,
+            until=NOW_MS,
+            first_known_at_ms=NOW_MS + 1000,
+        )
+        with pytest.raises(FactStoreError, match="INGEST_CONFLICTING_VALUES"):
+            ingestor.ingest_rows(
+                "funding",
+                conflict,
+                source_id="hl-official",
+                source_rank=1,
+                first_known_at_ms=None,
+            )

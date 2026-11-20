@@ -240,8 +240,8 @@ TIMESTAMP_COLUMNS: dict[str, str] = {
 #: their own richer expressions in :mod:`copytrade_pm.facts.migrate`.
 IDENTITY_COLUMNS: dict[str, tuple[str, ...]] = {
     "equity": ("wallet", "account_scope", "event_ts_ms"),
-    "funding": ("wallet", "coin", "hash"),
-    "ledger": ("wallet", "hash"),
+    "funding": ("wallet", "coin", "event_ts_ms", "hash"),
+    "ledger": ("wallet", "event_ts_ms", "hash", "kind"),
     "bars_1m": ("venue", "coin", "event_ts_ms"),
 }
 
