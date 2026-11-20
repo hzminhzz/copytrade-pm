@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -88,6 +89,7 @@ def fake_native(args: list[str]) -> dict:
 
 def reader(*, provider=None, time=T0) -> DashboardReader:
     return DashboardReader(
+        db=Path("/nonexistent/roster.sqlite"),
         clock=lambda: time,
         guardian_provider=provider or (lambda command: capture(command)),
         native_read=fake_native,

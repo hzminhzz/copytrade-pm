@@ -115,6 +115,19 @@ def _book_equity(body: object, mode: object, received_at: datetime) -> Decimal |
     return equity if equity is not None and equity >= 0 else None
 
 
+def _parse_ledger_delta(delta: object) -> tuple[str, dict[str, Any]] | None:
+    if not isinstance(delta, dict):
+        return None
+    kind = delta.get("type")
+    if isinstance(kind, str) and kind:
+        return kind, delta
+    if len(delta) == 1:
+        item_kind, detail = next(iter(delta.items()))
+        if isinstance(item_kind, str) and item_kind and isinstance(detail, dict):
+            return item_kind, detail
+    return None
+
+
 def _ledger_audit(rows: object, *, since: int, until: int) -> dict:
     """Only classify identifiable external cash flows; all other deltas abstain."""
     if not isinstance(rows, list) or len(rows) > MAX_LEDGER_PAGE:
@@ -127,18 +140,13 @@ def _ledger_audit(rows: object, *, since: int, until: int) -> dict:
             raise ValueError("INVALID_HL_LEDGER_ROW")
         if not since <= row["time"] <= until:
             raise ValueError("FUTURE_OR_OUT_OF_WINDOW_LEDGER")
-        delta = row.get("delta")
-        if not isinstance(delta, dict) or len(delta) != 1:
+        parsed = _parse_ledger_delta(row.get("delta"))
+        if parsed is None:
             ambiguity.add("UNRECOGNIZED_LEDGER_DELTA")
             continue
-        kind, detail = next(iter(delta.items()))
-        if not isinstance(kind, str):
-            raise ValueError("INVALID_HL_LEDGER_TYPE")
+        kind, detail = parsed
         kinds[kind] += 1
         if kind in external:
-            if not isinstance(detail, dict):
-                ambiguity.add("UNPARSEABLE_" + kind.upper())
-                continue
             amount = _number(detail.get("usdc"))
             if amount is None or amount < 0:
                 ambiguity.add("UNVERIFIED_" + kind.upper() + "_AMOUNT")
@@ -156,6 +164,7 @@ def _ledger_audit(rows: object, *, since: int, until: int) -> dict:
             "vaultDistribution",
             "vaultLeaderCommission",
             "borrowLend",
+            "cStakingTransfer",
             "rewardsClaim",
         }:
             ambiguity.add("UNRECOGNIZED_LEDGER_DELTA")
@@ -425,21 +434,32 @@ def ledger_rows(
         if not since <= row["time"] <= until:
             raise ValueError("FUTURE_OR_OUT_OF_WINDOW_LEDGER")
         digest = row.get("hash")
-        delta = row.get("delta")
         if not isinstance(digest, str) or not digest:
             raise ValueError("INVALID_HL_LEDGER_HASH")
-        if not isinstance(delta, dict) or len(delta) != 1:
+        parsed = _parse_ledger_delta(row.get("delta"))
+        if parsed is None:
             raise ValueError("INVALID_HL_LEDGER_DELTA")
-        kind, detail = next(iter(delta.items()))
-        if not isinstance(kind, str) or not kind:
-            raise ValueError("INVALID_HL_LEDGER_TYPE")
-        amount = _number(detail.get("usdc")) if isinstance(detail, dict) else None
+        kind, detail = parsed
+        amount = next(
+            (
+                val
+                for key in ("usdc", "usdcValue", "netWithdrawnUsd", "amount")
+                if (val := _number(detail.get(key))) is not None
+            ),
+            None,
+        )
+        raw_token = detail.get("token")
+        token = (
+            raw_token
+            if isinstance(raw_token, str) and raw_token
+            else ("USDC" if amount is not None else None)
+        )
         rows.append(
             {
                 "wallet": wallet,
                 "kind": kind,
                 "amount_usd": amount,
-                "token": "USDC" if amount is not None else None,
+                "token": token,
                 "hash": digest,
                 "event_ts": _event_ms(int(row["time"])),
                 "event_ts_ms": int(row["time"]),

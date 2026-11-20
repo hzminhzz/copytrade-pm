@@ -534,6 +534,40 @@ def test_funding_and_ledger_rows_keep_exact_decimals():
     assert ledger[0]["amount_usd"] == Decimal("250.75")
     assert ledger[0]["token"] == "USDC"
 
+    tagged_ledger = o.ledger_rows(
+        WALLETS[0],
+        [
+            {
+                "time": NOW_MS - 1000,
+                "hash": "0x" + "e" * 64,
+                "delta": {"type": "deposit", "usdc": "125.50"},
+            },
+            {
+                "time": NOW_MS - 500,
+                "hash": "0x" + "f" * 64,
+                "delta": {
+                    "type": "send",
+                    "token": "USDC",
+                    "amount": "50",
+                    "usdcValue": "50.0",
+                },
+            },
+        ],
+        since=since,
+        until=until,
+        first_known_at_ms=NOW_MS,
+    )
+    assert [row["kind"] for row in tagged_ledger] == ["deposit", "send"]
+    assert [row["amount_usd"] for row in tagged_ledger] == [Decimal("125.50"), Decimal("50.0")]
+    assert (
+        o._ledger_audit(
+            [{"time": NOW_MS, "delta": {"type": "deposit", "usdc": "125.50"}}],
+            since=NOW_MS - 100,
+            until=NOW_MS,
+        )["external_deposit_usd_observed"]
+        == "125.50"
+    )
+
     with pytest.raises(ValueError, match="FUTURE_OR_OUT_OF_WINDOW_LEDGER"):
         o.ledger_rows(
             WALLETS[0],

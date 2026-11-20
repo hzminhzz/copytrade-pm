@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -12,6 +13,7 @@ from test_dashboard_adapter import T0, capture, fake_native
 
 def owner(*, provider=None, native=None, root=None):
     return DashboardReader(
+        db=Path("/nonexistent/roster.sqlite"),
         clock=lambda: T0,
         cache=SmallTTLCache(),
         guardian_provider=provider or (lambda cmd: capture(cmd)),
