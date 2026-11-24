@@ -314,7 +314,7 @@ def facts_union(facts_root: Path, *, since: datetime, until: datetime) -> tuple[
     store = FactStore(facts_root)
     try:
         return store.distinct_wallets(
-            ("positions", "equity"),
+            ("fills", "positions", "equity"),
             start_day=since.date().isoformat(),
             end_day=until.date().isoformat(),
         )

@@ -22,5 +22,6 @@ GEN="g${STAMP}-$(openssl rand -hex 6)"
 exec "$CLI" facts capture-health --apply \
     --roster-db "$HOME/.local/share/copytrade/roster.sqlite" \
     --store "$HOME/.local/share/copytrade/facts" \
+    --facts-root "$HOME/.local/share/copytrade/facts" \
     --generation "$DATA/$GEN" \
     --max-wallets 512 --deep-wallets 12 --weight-per-minute 600

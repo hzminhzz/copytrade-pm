@@ -289,6 +289,43 @@ def test_facts_union_adds_wallets_the_store_already_tracks(tmp_path):
     assert result["requested_accounts"] == 5
 
 
+def test_facts_union_includes_fills_only_wallets(tmp_path):
+    from copytrade_pm.facts.migrate import Migration, new_receipt
+    from copytrade_pm.facts.sources import build_catalogue
+
+    roster_db, _ = seeded_roster(tmp_path)
+    day = (NOW - timedelta(days=1)).date().isoformat()
+    archive = tmp_path / "reservoir"
+    path = archive / "hyperliquid" / "fills" / f"day={day}" / "data.parquet"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pl.DataFrame(
+        {
+            "wallet": [OUTSIDER],
+            "exchange_ts": [datetime.fromtimestamp((NOW_MS - DAY_MS) / 1000, UTC)],
+            "coin": ["BTC"],
+            "dex": ["hyperliquid"],
+            "side": ["buy"],
+            "size": [0.5],
+            "price": [10000.0],
+            "start_position": [0.0],
+            "trade_id": [1],
+        }
+    ).with_columns(
+        pl.col("exchange_ts").cast(pl.Datetime("us", "UTC")),
+        pl.col("trade_id").cast(pl.UInt64),
+    ).write_parquet(path)
+
+    facts = store_at(tmp_path, "prior_fills")
+    sources, absent = build_catalogue(reservoir={"full-history": archive})
+    Migration(store=facts, sources=sources, kinds=("fills",)).run(
+        new_receipt(store_root=facts.root, sources=sources, not_supplied=absent, kinds=("fills",))
+    )
+    result, _, _ = capture(tmp_path, roster_db=roster_db, facts_root=tmp_path / "prior_fills")
+    assert result["candidates"]["facts_only"] == 1
+    assert result["candidates"]["total"] == 5
+    assert result["requested_accounts"] == 5
+
+
 # ---------------------------------------------------------------------------
 # Normalisation into the FactStore
 # ---------------------------------------------------------------------------
