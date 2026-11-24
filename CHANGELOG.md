@@ -2,6 +2,13 @@
 
 All notable changes to `copytrade-pm` are documented in this file.
 
+## [Phase D Agent Onboarding Overhaul] - 2026-11-24
+
+### Changed
+- Streamlined `AGENTS.md` using `writing-for-agents` context pointers and checkable startup steps (`FactStore`, `RosterStore`, PM03 kernel decision, `copytrade-pm` CLI).
+- Updated `docs/INDEX.md` top-level routing to `FACTS-STORE.md`, `ROSTER.md`, `CHECKPOINT-KERNEL-DECISION-PM03.md`, and `CHANGELOG.md`, and moved retired `WALLET-REGISTRY-*` guides to the historical evidence table.
+- Updated `CONTEXT.md` with Portfolio/Seat/Style sleeve/`k`/Trailing DD/Paper-vs-Shadow-vs-Live terminology and noted `wallet_registry.sqlite` retirement.
+
 ## [Phase D & E — Unified FactStore, Dynamic Roster & Kernel Cutover] - 2026-11-20
 
 ### Added
