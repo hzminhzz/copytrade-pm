@@ -2,6 +2,21 @@
 
 Canonical domain meanings. This glossary does not specify implementation or storage.
 
+## Portfolio, seat, and sizing vocabulary
+
+- **Pod (portfolio)**: A selected multi-wallet group jointly sized and netted by symbol for one destination account; distinct from a **Seat** (one member inside a pod) and a **Style sleeve**.
+- **Seat**: One member allocation inside a pod, carrying its own activation risk unit (`R_i`, **Seat risk**), containment state, and `k`; distinct from **Slot** (a WS subscription or queue capacity unit). In wire contracts (`copy_mandate_v1.pod_id` and `risk_policy_v1.pod_loss_budget`), a seat maps to `pod_id` and its Guardian stress-loss cap maps to `pod_loss_budget`.
+- **Style sleeve**: A deterministic holding-time classification bucket (`intraday_tactical`, `multi_day_swing`, `positional`, `mixed`, `unlabeled`) used to organize candidates; distinct from a **Seat**.
+- **Copy multiplier (`k`)**: Signed positive ratio (`0 < k <= 10`) multiplying selected leader position notional (`k * source_qty * source_mark`) under `FIXED_K_NATIVE_QUANTITY`; distinct from **Portfolio leverage** (`gross_notional / equity`) and **Portfolio scale** (`1.0x`/`1.5x`).
+- **Trailing drawdown (`trailing_dd_<N>obs` vs `trailing_dd_<N>d`)**: Rolling peak-to-trough drawdown over `N` active-position observations (`dd21_obs`) vs `N` calendar days (`21d`); both are distinct from **Static-floor drawdown** (`max(0, initial_equity - min_equity)`).
+- **Registry-sealed vs Signed-release vs Static-roster**: `registry_sealed` (legacy `portfolio_seals` in `wallet_registry.sqlite`, **retired in Phase D** and replaced by `RosterStore` `roster.sqlite` + daily unsigned `ReleaseProposal` staging) locked membership SHA without granting execution authority; `signed_release` (`portfolio_release_v2` + `CopyMandate`) carries Ed25519 approval; `static_roster` denotes an unrotated backtest control.
+- **Paper vs Shadow vs Unit stream vs Deployable vs Live**:
+  - **Paper**: Isolated virtual PM03/PM04 ledger (`order_route=NONE`; deprecated aliases in `copytrade-pm`: `PROSPECTIVE_SHADOW`, `PM03_PM04_SHADOW_ACCOUNT`).
+  - **Shadow**: Non-authorizing runtime execution (`trading_authorized=false`, including Guardian/Bybit Demo).
+  - **Unit stream**: `k=1` unit-copy stream used for CUSUM monitoring while a seat is frozen (formerly `shadow episode`).
+  - **Deployable**: Present-day wallet eligibility screen (`AV >= $1,000`, venue-mapped; code filter `scope="live"`).
+  - **Live**: Reserved strictly for `TRADING_AUTHORIZED=true` real-account execution.
+
 ## Agent operation and evidence
 
 - **Operation capability**: A supported software operation and its input/effect contract, distinct from provider execution capability and permission to act.

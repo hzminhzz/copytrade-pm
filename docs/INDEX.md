@@ -6,23 +6,25 @@
 
 | Question | Read next | Evidence owner |
 | --- | --- | --- |
-| How does the whole system work? | [Architecture](ARCHITECTURE.md); [domain glossary](../CONTEXT.md) when a term is unclear | Independent source, metadata, paper, Guardian and provider authorities |
+| What changed recently (Phase D & E)? | [Changelog](../CHANGELOG.md), [Fact store](FACTS-STORE.md), [Roster](ROSTER.md), [PM03 kernel decision](CHECKPOINT-KERNEL-DECISION-PM03.md) | Git exact SHA and Phase-D cutover contracts |
+| How does the whole system work? | [Architecture](ARCHITECTURE.md); [domain glossary](../CONTEXT.md) when a term is unclear | Independent source, fact/roster, paper, Guardian and provider authorities |
 | How should agent workflows evolve? | [Agent system design and staged plan](AGENT-SYSTEM-DESIGN.md) | Design target; implementation status is separate |
 | How is authentic ANOS real-world E2E evidence judged? | [Real-world E2E evidence and verdict ADR](decisions/2026-11-14-anos-realworld-e2e-evidence-and-verdicts.md) | Approved Q1–Q21 benchmark design, PARKED under #101; no RW pack/oracle/trace implementation authorized |
-| Which operation already exists? | [Agent-native operations](AGENT-NATIVE-OPERATIONS.md) and the capability catalog | Exact installed/candidate interface and public behavioral tests |
+| Which operation already exists? | [Agent-native operations](AGENT-NATIVE-OPERATIONS.md) and the capability catalog (`copytrade-pm capabilities list`) | Exact installed/candidate interface and public behavioral tests |
 | How is Python test speed measured without weakening isolation? | [Pytest P1 performance evidence](PYTEST-PERFORMANCE-P1-20261114.md) | Exact-worktree core/market and adversarial test receipts; measured serial/xdist comparison |
-| Which wallet, portfolio, version or exclusion? | [Mandatory registry-first workflow](WALLET-REGISTRY-AGENT-WORKFLOW.md) | Native SQLite integrity, inventory identity, qualified version and known-at |
+| Which wallet, seat lease, CUSUM latch or unsigned proposal? | [Roster](ROSTER.md) | `copytrade_pm.roster` (`roster.sqlite` append-only authority, `inventory_sha()`, `health()`) |
+| How do historical facts, `bars_1m` and PIT scanning work? | [Fact store](FACTS-STORE.md), [Fact store ADR](decisions/2026-11-19-unified-bi-temporal-fact-store.md), [Data acquisition](DATA-ACQUISITION.md) | `copytrade_pm.facts` (`Decimal(38,12)` Parquet + `facts.sqlite`, strict `as_of_ms`) |
 | Why is Chapter 2 paper blocked; how is it released? | [CWSA Chapter 2 runbook](CWSA-CHAPTER2-20261112.md) | Source-wave receipts, separately signed mandates, independent quotes and PM03 journals |
 | What did the CWSA program implement? | [Implementation ledger](CANONICAL-5M-IMPLEMENTATION-313.md), [acceptance dossier](evidence/CWSA-313-DOSSIER-v1-20261112.md) | Exact engineering evidence; original prospective gates remain separate |
 | Which source timing policy applies? | [V4 position-first ADR](decisions/2026-11-08-position-first-t300.md), [distinct CWSA ADR](decisions/2026-11-11-canonical-5m-checkpoint-grill.md) | Actual selected release/policy and original source journal |
 | Is Vike a qualified source replacement? | [Transport target ADR](decisions/2026-11-11-vike-first-wallet-source.md), [migration evidence](V4-VIKE-FIRST-MIGRATION-PROGRESS-20261111.md) | Original continuous complete-position proof; transport alone is insufficient |
-| How do I acquire or reuse research data? | [Data acquisition](DATA-ACQUISITION.md), [Vike recovery](VIKE-DATA-RECOVERY-20261106.md), [bounded work design](AGENT-SYSTEM-DESIGN.md#6-resource-aware-research-and-inspection) | Provider-tagged originals, immutable inputs and existing job/storage owners |
-| How do sizing, finance and risk work? | [Fixed-k sizing](RISK-BUDGETED-K-SIZING-20261106.md), [PM03](PM-03-shadow-account.md), [PM04](PM-04-shadow-hardening.md), [Track C recalibration](TRACK-C-K-RECALIBRATION-20261110.md) | Independent source mark/follower quote; each consumer owns finance |
+| How do I acquire or reuse research data? | [Fact store](FACTS-STORE.md), [Data acquisition](DATA-ACQUISITION.md), [Vike recovery](VIKE-DATA-RECOVERY-20261106.md), [bounded work design](AGENT-SYSTEM-DESIGN.md#6-resource-aware-research-and-inspection) | Provider-tagged originals, immutable inputs and existing job/storage owners |
+| How do sizing, kernel decisions, finance and risk work? | [PM03 kernel decision](CHECKPOINT-KERNEL-DECISION-PM03.md), [Fixed-k sizing](RISK-BUDGETED-K-SIZING-20261106.md), [PM03](PM-03-shadow-account.md), [PM04](PM-04-shadow-hardening.md), [Track C recalibration](TRACK-C-K-RECALIBRATION-20261110.md) | `copytrade_kernel.step_checkpoint` + independent source mark/follower quote; each consumer owns finance |
 | What can be claimed or promoted? | [Qualification](QUALIFICATION.md), [governance](GOVERNANCE-GATES.md), [merge versus runtime](decisions/2026-11-10-merge-vs-runtime-promotion.md) | Exact action-specific evidence and authority |
 | How do I execute or recover an operation? | [RUNBOOK](RUNBOOK.md), [blocker recovery](BLOCKER-RECOVERY.md), [recovery integration](RECOVERY-INTEGRATION.md), [PM04 contract](PM-04-shadow-hardening.md); target recovery model in [design §5](AGENT-SYSTEM-DESIGN.md#5-bounded-actions-and-recovery) | Existing owner (Guardian in prop-production for protected dispatches; PM04/source journals locally), bounded action and verified postcondition |
-| How do I hand off or continue a task? | [Registry closeout](WALLET-REGISTRY-AGENT-WORKFLOW.md#mandatory-agent-closeout-and-optmem-discipline), [blocker recovery](BLOCKER-RECOVERY.md); target handoff spec in [design §7](AGENT-SYSTEM-DESIGN.md#7-make-knowledge-accretive) | Exact worktree/revision, changed paths, validated receipts and next unmet dependency |
+| How do I hand off or continue a task? | [Roster](ROSTER.md), [blocker recovery](BLOCKER-RECOVERY.md); target handoff spec in [design §7](AGENT-SYSTEM-DESIGN.md#7-make-knowledge-accretive) | Exact worktree/revision, changed paths, validated receipts and next unmet dependency |
 | How do source facts reach protected finance? | [Production handoff](PRODUCTION-HANDOFF.md), [V4 export](V4-PROP-SOURCE-EXPORT-20261108.md) | prop-production release verification and Guardian; connector supplies native facts |
-| What is actually running and displayed? | [Chapter 2](CWSA-CHAPTER2-20261112.md), [registry release](WALLET-REGISTRY-RELEASE-RUNBOOK.md) and the owning deployment runbook | Configured/installed/running identity and authenticated publisher lineage, separately |
+| What is actually running and displayed? | [Chapter 2](CWSA-CHAPTER2-20261112.md), [Ops Control Center](OPS-CONTROL-CENTER-20261111.md) and the owning deployment runbook | Configured/installed/running identity and authenticated publisher lineage, separately |
 
 Read [AGENTS](../AGENTS.md) before changes. Inspect relevant GitHub issues/PRs and preserve concurrent work. Code/docs tasks do not require blanket financial-journal reads; metadata, runtime and financial questions follow their respective evidence owners.
 
@@ -41,8 +43,9 @@ Software capability, installed release, source health, financial admission, econ
 
 | Task branch | Canonical guide |
 | --- | --- |
-| SQLite writes, legacy writer lock and rollback | [Native SQLite controls](SQLITE-NATIVE-LEGACY-LOCK-20261105.md), [registry release](WALLET-REGISTRY-RELEASE-RUNBOOK.md) |
-| Independent portfolio admission and financial paper | [Registry paper profiles](REGISTRY-PAPER-PORTFOLIOS-20261107.md), [paper boundary](WALLET-REGISTRY-PAPER-CONTRACT-20261104.md), [Chapter 2](CWSA-CHAPTER2-20261112.md) |
+| Canonical fact store (day-partitioned `Decimal(38,12)` + SQLite manifest) | [Fact store](FACTS-STORE.md), [ADR](decisions/2026-11-19-unified-bi-temporal-fact-store.md) |
+| Roster seats, leases, CUSUM latches, vetoes, and daily unsigned release proposals | [Roster](ROSTER.md) |
+| PM03 checkpoint kernel decision (`copytrade_kernel.step_checkpoint`) | [PM03 kernel decision](CHECKPOINT-KERNEL-DECISION-PM03.md) |
 | Retired V4 T0+300 policy and CWSA cutover | [V4 retirement ADR](decisions/2026-11-14-retire-v4-t300-source-policy.md), [Chapter 2](CWSA-CHAPTER2-20261112.md) |
 | Source continuity and observer recovery | [Continuous observer](FORWARD-PAPER-CONTINUOUS-OBSERVER.md) |
 | Protected standby/watchdog staging | [Protected operations](FORWARD-PAPER-PROTECTED-OPS-STAGING-20261105.md) |
@@ -53,8 +56,6 @@ Software capability, installed release, source health, financial admission, econ
 | Independent agent-behavior measurement | [ANOS-02 pinned engineering-only baseline](ANOS-02-AGENT-EVAL-BASELINE-20261113.md), [independent host trace protocol](AGENT-TRACE-EVAL-20261105.md); fixtures and CLI smoke do not establish model behavior |
 | ANOS-15 eight-scenario engineering acceptance | [ANOS-15 acceptance handoff](ANOS-15-ACCEPTANCE-HANDOFF-20261113.md); S1–S8 parity and falsifiers verified, `#101` blocked (`BLOCKED_NO_INDEPENDENT_HOST_TRACE`), `#313` boundaries preserved |
 | Typed domain-contract maintenance | [Pydantic acceptance](PYDANTIC-NATIVE-ACCEPTANCE-RESULTS-20261109.md), [cross-repository compatibility](PYDANTIC-CROSS-REPOSITORY-COMPATIBILITY-20261109.md), [engineering record](PYDANTIC-NATIVE-ENGINEERING-20261109.md) |
-| Canonical fact store (day-partitioned `Decimal(38,12)` + SQLite manifest) | [Fact store](FACTS-STORE.md), [ADR](decisions/2026-11-19-unified-bi-temporal-fact-store.md) |
-| Roster seats, leases and daily unsigned release proposals | [Roster](ROSTER.md) |
 | Legacy wallet store (Hive parquet + catalog; writer retired, reads only) | [Wallet store](WALLET-STORE.md) |
 | External historical data sources | [Reservoir and vike](DATA-SOURCES-RESERVOIR-VIKE-20261112.md), [data-source investigation](DATA-SOURCE-INVESTIGATION-20261112.md) |
 | Wallet-scoped Reservoir DuckDB queries, source budgets and PIT replay | [Reservoir acquisition plan](RESERVOIR-WALLET-DUCKDB-PLAN-20261112.md), [2026-11-12 pilot evidence](RESERVOIR-WALLET-PILOT-20261112.md), [2026-11-12 two-DEX backfill](RESERVOIR-SIX-PORTFOLIO-BACKFILL-20261112.md), [269-wallet completed acquisition and offline verification](RESERVOIR-MONITORED-PLUS-SIX-269-20261112.md) |
@@ -73,6 +74,7 @@ Use these when auditing lineage, reproducing the named study, or checking an ori
 
 | Evidence family | Preserved references |
 | --- | --- |
+| Legacy SQLite registry (Retired in Phase D; superseded by `RosterStore`) | [Registry agent workflow (Retired in Phase D)](WALLET-REGISTRY-AGENT-WORKFLOW.md), [Registry release runbook (Retired in Phase D)](WALLET-REGISTRY-RELEASE-RUNBOOK.md), [Native SQLite controls](SQLITE-NATIVE-LEGACY-LOCK-20261105.md), [Registry paper profiles](REGISTRY-PAPER-PORTFOLIOS-20261107.md), [Paper boundary](WALLET-REGISTRY-PAPER-CONTRACT-20261104.md) |
 | Registry status and negative evidence | [Wallet status](WALLET-STATUS.md), [registry checkpoint](WALLET-REGISTRY-STATUS-20261104.md), [acceptance](WALLET-REGISTRY-ACCEPTANCE-20261104.md), [signed negative evidence](WALLET-REGISTRY-SIGNED-NEGATIVE-EVIDENCE-20261104.md), [review hardening](WALLET-REGISTRY-REVIEW-HARDENING-20261104.md) |
 | Registry selection lineage | [P1 decision](decisions/2026-11-02-gemini-selected-three-pod.md), [alternatives](decisions/2026-11-03-gemini-alternative-portfolios.md), [Phase 3](decisions/2026-11-03-gemini-phase3-adoption-180d.md), [V2 freeze](decisions/2026-11-04-gemini-phase6-portfolio-freeze-v2.md), [V2 JSON roster](decisions/2026-11-04-gemini-phase6-portfolio-freeze-v2.json) |
 | Pydantic original plan and tests | [Roadmap](PYDANTIC-NATIVE-MIGRATION-ROADMAP-20261109.md), [design closure](PYDANTIC-NATIVE-DESIGN-CLOSURE-20261109.md), [individual matrix](PYDANTIC-NATIVE-ACCEPTANCE-MATRIX-20261109.md), [combined-fault matrix](PYDANTIC-NATIVE-COMBINED-FAULT-MATRIX-20261109.md) |
