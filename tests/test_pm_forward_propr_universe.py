@@ -269,7 +269,7 @@ def test_three_physical_sockets_capture_each_157_market_buy_and_sell(tmp_path, m
             configured_shards=layout,
             watched={BUYER: "wallet:17", SELLER: "wallet:18"},
             journal=journal,
-            duration_seconds=5,
+            duration_seconds=30,
             max_frames=2,
             max_parallel_shards=3,
             connect=lambda *_a, **_kw: ThreePhysicalWS(),

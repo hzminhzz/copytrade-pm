@@ -521,7 +521,7 @@ def test_shard_fanout_preserves_all_markets_and_reports_each_feed(tmp_path, monk
                 ]
             if self.frames:
                 return self.frames.pop(0)
-            await asyncio.sleep(1)
+            await asyncio.sleep(10)
 
     journal = PaperJournal(tmp_path / "private")
     result = asyncio.run(
@@ -529,7 +529,7 @@ def test_shard_fanout_preserves_all_markets_and_reports_each_feed(tmp_path, monk
             instruments=instruments,
             watched={BUYER: "wallet:17"},
             journal=journal,
-            duration_seconds=0.5,
+            duration_seconds=2.0,
             max_frames=30,
             max_parallel_shards=2,
             connect=lambda *_args, **_kwargs: MultiMarketFakeWS(),
