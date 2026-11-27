@@ -437,14 +437,50 @@ def test_property_orthogonality_and_cdar_limits_block_promotion():
         current=book,
         scorecard={seated.wallet: seated, same_cluster.wallet: same_cluster, heavy.wallet: heavy},
         bench=[
-            candidate(seated, marginal="0.1"),
-            candidate(same_cluster, marginal="0.05"),
+            candidate(seated, marginal="0.05"),
+            candidate(same_cluster, marginal="0.10"),
             candidate(heavy, marginal="0.9"),
         ],
         as_of=NOW,
     )
     assert plan.next_book.wallets == (seated.wallet,)
     assert plan.next_book.mode is AllocationMode.PARTIAL
+
+
+def test_bench_candidate_rank_key_prefers_lowest_cdar_then_highest_k():
+    low_cdar_low_k = BenchCandidate(
+        wallet(0), digest("a"), Decimal("0.5"), Decimal("0.05"), "c0", Decimal("1")
+    )
+    low_cdar_high_k = BenchCandidate(
+        wallet(1), digest("b"), Decimal("2.0"), Decimal("0.05"), "c1", Decimal("1")
+    )
+    high_cdar = BenchCandidate(
+        wallet(2), digest("c"), Decimal("9.0"), Decimal("0.40"), "c2", Decimal("1")
+    )
+    ordered = sorted([high_cdar, low_cdar_low_k, low_cdar_high_k], key=lambda item: item.rank_key)
+    assert [item.wallet for item in ordered] == [wallet(1), wallet(0), wallet(2)]
+
+
+def test_reconcile_roster_k_overrides_decouples_seat_k_from_scorecard():
+    book = SeatBook.empty("acct", SEATS[:1], as_of=NOW, policy_epoch=EPOCH)
+    candidate_card = card(0, k="1.5")
+    plan = reconcile_roster(
+        current=book,
+        scorecard={candidate_card.wallet: candidate_card},
+        bench=[candidate(candidate_card, marginal="0.1")],
+        as_of=NOW,
+        k_overrides={f"  {candidate_card.wallet.upper()}  ": Decimal("0.25")},
+    )
+    assert plan.next_book.leases[0].k == Decimal("0.25")
+    for bad_k in (Decimal("0"), Decimal("-0.1"), Decimal("11")):
+        with pytest.raises(ValueError, match="INVALID_FIXED_K"):
+            reconcile_roster(
+                current=book,
+                scorecard={candidate_card.wallet: candidate_card},
+                bench=[candidate(candidate_card, marginal="0.1")],
+                as_of=NOW,
+                k_overrides={candidate_card.wallet: bad_k},
+            )
 
 
 def test_property_negative_markout_and_dormancy_evict(tmp_path):

@@ -25,12 +25,12 @@ Two invariants are enforced by construction, not by convention:
 
 ## Reconciliation
 
-`reconcile_roster(current=..., scorecard=..., bench=..., vetoes=..., policy=..., as_of=...)` is a pure function of recorded evidence:
+`reconcile_roster(current=..., scorecard=..., bench=..., vetoes=..., policy=..., as_of=..., k_overrides=...)` is a pure function of recorded evidence:
 
 * **Sticky incumbents.** A healthy incumbent keeps its seat even when the bench ranks a candidate higher.
 * **Missing evidence never evicts.** A seat whose wallet has no scorecard is retained and reported as `SCORECARD_MISSING:<seat>`. Missing evidence is never coerced to zero or to `FLAT`.
 * **Hard eviction.** `CUSUM_KILL`, `LOW_ACCOUNT_VALUE_LT_1K`, `NEGATIVE_5M_MARKOUT`, dormancy (`NO_ACTIVE_FILLS`) and an active `OPERATOR_VETO` retire the owner into `draining` and free the seat in the same plan.
-* **Q14 promotion.** A freed seat immediately accepts the best eligible orthogonal candidate (`PROMOTE`, generation `+1`). With no eligible candidate the seat stays `VACANT`; a fully vacant book is `FLAT`.
+* **Q14 promotion.** A freed seat immediately accepts the best eligible orthogonal candidate (`PROMOTE`, generation `+1`). When `k_overrides` supplies a validated `(0, 10]` multiplier for the promoted wallet, `SeatLease.k` uses that portfolio allocation instead of `BenchCandidate.suggested_k`. With no eligible candidate the seat stays `VACANT`; a fully vacant book is `FLAT`.
 * **Orthogonality and CDaR.** A candidate is refused when its cluster equals a seated cluster, its cluster distance is below the policy floor, its marginal CDaR exceeds that seat's `max_cdar_share`, it is vetoed or latched, its evidence SHA does not match the stored scorecard, or its copyable 5m drift is unproven.
 * **Cooldown.** Wallets evicted for `LOW_ACCOUNT_VALUE_LT_1K` or dormancy are bench-eligible again only after a continuous 14-day cooldown *and* account value at or above the `$5,000` re-admission floor *and* active fills *and* proven copyable drift.
 * **Idempotence.** With unchanged evidence and the same clock, `reconcile_roster` returns the current book unchanged (same SHA, no sequence bump), so committing the same plan twice writes nothing.

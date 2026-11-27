@@ -89,6 +89,14 @@ def as_decimal(value: object, code: str = "INVALID_DECIMAL") -> Decimal:
     return parsed
 
 
+def fixed_k(value: object) -> Decimal:
+    """Validate and parse a positive fixed-k multiplier in ``(0, 10]``."""
+    parsed = as_decimal(value, "INVALID_FIXED_K")
+    if not 0 < parsed <= 10:
+        raise ValueError("INVALID_FIXED_K")
+    return parsed
+
+
 def _ms(value: object, code: str = "INVALID_CLOCK") -> int:
     if type(value) is not int or value < 0:
         raise ValueError(code)
@@ -227,9 +235,9 @@ class WalletScorecard:
             "markout_5m_bps",
             "p95_participation_1m",
             "euler_cdar_share",
-            "suggested_k",
         ):
             object.__setattr__(self, name, as_decimal(getattr(self, name)))
+        object.__setattr__(self, "suggested_k", fixed_k(self.suggested_k))
         if self.account_value_usd < 0:
             raise ValueError("INVALID_ACCOUNT_VALUE")
         if type(self.active_days_14d) is not int or not 0 <= self.active_days_14d <= 14:
@@ -238,8 +246,6 @@ class WalletScorecard:
             raise ValueError("INVALID_PARTICIPATION")
         if not 0 <= self.euler_cdar_share <= 1:
             raise ValueError("INVALID_CDAR_SHARE")
-        if not 0 < self.suggested_k <= 10:
-            raise ValueError("INVALID_FIXED_K")
         _identifier(self.cluster_id, "INVALID_CLUSTER_ID")
         if type(self.copyable_drift) is not bool:
             raise ValueError("INVALID_COPYABLE_DRIFT")
@@ -328,10 +334,7 @@ class BenchCandidate:
     def __post_init__(self) -> None:
         object.__setattr__(self, "wallet", wallet_address(self.wallet))
         _sha(self.scorecard_sha)
-        k = as_decimal(self.suggested_k)
-        if not 0 < k <= 10:
-            raise ValueError("INVALID_FIXED_K")
-        object.__setattr__(self, "suggested_k", k)
+        object.__setattr__(self, "suggested_k", fixed_k(self.suggested_k))
         share = as_decimal(self.marginal_cdar_share)
         if not 0 <= share <= 1:
             raise ValueError("INVALID_CDAR_SHARE")
@@ -360,7 +363,7 @@ class BenchCandidate:
     @property
     def rank_key(self) -> tuple[Decimal, Decimal, str]:
         """Deterministic preference: lowest marginal CDaR, then highest k, then wallet."""
-        return (-self.marginal_cdar_share, -self.suggested_k, self.wallet)
+        return (self.marginal_cdar_share, -self.suggested_k, self.wallet)
 
     @classmethod
     def parse(cls, value: Mapping[str, Any]) -> BenchCandidate:
@@ -392,10 +395,7 @@ class SeatLease:
         object.__setattr__(self, "wallet", wallet_address(self.wallet))
         if type(self.generation) is not int or self.generation < 1:
             raise ValueError("INVALID_GENERATION")
-        k = as_decimal(self.k)
-        if not 0 < k <= 10:
-            raise ValueError("INVALID_FIXED_K")
-        object.__setattr__(self, "k", k)
+        object.__setattr__(self, "k", fixed_k(self.k))
         _ms(self.since_ms)
         _sha(self.scorecard_sha)
 

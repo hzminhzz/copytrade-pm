@@ -30,6 +30,7 @@ Discipline:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Any, Iterable, Literal, Mapping, Sequence
 
 from copytrade_kernel import KnownAtTs
@@ -48,6 +49,7 @@ from .models import (
     SeatSpec,
     WalletScorecard,
     digest,
+    fixed_k,
     wallet_address,
 )
 
@@ -198,6 +200,12 @@ def _vetoes(vetoes: Iterable[OperatorVeto] | None, as_of: KnownAtTs) -> dict[str
     return active
 
 
+def _k_overrides(k_overrides: Mapping[str, Decimal] | None) -> dict[str, Decimal]:
+    if not k_overrides:
+        return {}
+    return {wallet_address(raw_wallet): fixed_k(raw_k) for raw_wallet, raw_k in k_overrides.items()}
+
+
 def _effective_failures(
     wallet: str,
     cards: Mapping[str, WalletScorecard],
@@ -245,6 +253,7 @@ def reconcile_roster(
     latches: Mapping[str, RosterCUSUMState] | Iterable[RosterCUSUMState] | None = None,
     cooldowns: Sequence[CooldownRecord] = (),
     settled_owners: Iterable[str] = (),
+    k_overrides: Mapping[str, Decimal] | None = None,
 ) -> ReconcilePlan:
     """Reconcile one account's :class:`SeatBook` against recorded evidence.
 
@@ -268,6 +277,7 @@ def reconcile_roster(
     active_vetoes = _vetoes(vetoes, now)
     cooling = _cooldowns(cooldowns)
     settled = frozenset(settled_owners)
+    overrides = _k_overrides(k_overrides)
 
     warnings: list[str] = []
     changes: list[SeatChange] = []
@@ -411,7 +421,7 @@ def reconcile_roster(
             seat_id=spec.seat_id,
             wallet=chosen.wallet,
             generation=generation,
-            k=chosen.suggested_k,
+            k=overrides.get(chosen.wallet, chosen.suggested_k),
             since_ms=now.value,
             scorecard_sha=card.sha,
         )
