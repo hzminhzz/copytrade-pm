@@ -8,7 +8,7 @@ dependencies = ["copytrade-kernel", "cryptography>=46.0", "pydantic==2.14.3"]
 
 [tool.uv.sources]
 # Single financial-math authority: prop-production hosts the stdlib kernel wheel.
-copytrade-kernel = { git = "https://github.com/hzminhzz/prop-production.git", subdirectory = "packages/copytrade-kernel", rev = "d0ad4c234f89049d91c88444d31a17286e3e684a" }
+copytrade-kernel = { git = "https://github.com/hzminhzz/prop-production.git", subdirectory = "packages/copytrade-kernel", rev = "b1338984673b2c6225f1a13446bb6c596c67022d" }
 
 [project.optional-dependencies]
 market = ["polars>=2.0,<3", "pandas>=2.3"]

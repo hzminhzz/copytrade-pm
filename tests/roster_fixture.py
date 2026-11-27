@@ -58,7 +58,7 @@ def add_account(
                 wallet,
                 card.sha,
                 coefficient,
-                Decimal("0.30") - Decimal(index) / 100,
+                Decimal("0.20") + Decimal(index) / 100,
                 card.cluster_id,
                 Decimal("1"),
             )
