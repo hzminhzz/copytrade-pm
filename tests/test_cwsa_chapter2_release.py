@@ -14,12 +14,12 @@ import pytest
 from copytrade_pm.pm03_account import digest
 from copytrade_pm.pm03_rules import propr_rulebook
 from copytrade_pm.pm_cwsa_chapter2_release import read_activation_bundle
-from copytrade_pm.pm_cwsa_six_paper import (
-    EPOCH_ID,
-    PORTFOLIO_CONFIGS,
-    Chapter2PaperSupervisor,
-    load_registry_seals,
+from copytrade_pm.pm_cwsa_paper import (
+    PaperConsumer,
+    load_selections,
 )
+from cwsa_fixture_registry import PORTFOLIO_CONFIGS
+
 from copytrade_pm.pm_forward_journal import PaperJournal
 from copytrade_pm.production_manifest import sign
 from cwsa_fixture_registry import make_registry
@@ -30,6 +30,9 @@ from test_pm_forward_ccxt_market import ccxt_market
 from test_copy_mandates import mandate
 
 
+EPOCH_ID = "cwsa_chapter2_20261112"
+
+
 def source_address(alias: str) -> str:
     return "0x" + sha256(alias.encode()).hexdigest()[:40]
 
@@ -38,7 +41,7 @@ def signed_a(tmp_path, *, anchor_ms: int | None = None):
     source = PaperJournal(tmp_path / "source")
     cp = register(source)
     members = PORTFOLIO_CONFIGS["A"]["members"]
-    seals = load_registry_seals(make_registry(tmp_path))
+    seals = load_selections(make_registry(tmp_path), configs=PORTFOLIO_CONFIGS)
     p = policy()
     r = replace(
         propr_rulebook(
@@ -106,7 +109,7 @@ def signed_a(tmp_path, *, anchor_ms: int | None = None):
 
 def test_external_signature_sha_and_complete_membership_required(tmp_path):
     path, sha, pub, source = signed_a(tmp_path)
-    seals = load_registry_seals(make_registry(tmp_path))
+    seals = load_selections(make_registry(tmp_path), configs=PORTFOLIO_CONFIGS)
     approved = read_activation_bundle(
         path=path,
         expected_sha256=sha,
@@ -146,28 +149,34 @@ def test_external_signature_sha_and_complete_membership_required(tmp_path):
 def test_legacy_provisional_cannot_be_promoted_to_approved_finance(tmp_path):
     path, sha, pub, source = signed_a(tmp_path)
     state = tmp_path / "six"
-    initial = Chapter2PaperSupervisor(
+    initial = PaperConsumer(
+        configs=PORTFOLIO_CONFIGS,
+        run_label="cwsa_chapter2_20261112",
         state_root=state,
         source_db=source,
-        registry_db=make_registry(tmp_path),
+        roster_db=make_registry(tmp_path),
         publication_grace_override_ms=180_000,
     )
     assert not initial.approved
     with pytest.raises(ValueError, match="CHAPTER2_FINANCIAL_RELEASE_DRIFT"):
-        Chapter2PaperSupervisor(
+        PaperConsumer(
+            configs=PORTFOLIO_CONFIGS,
+            run_label="cwsa_chapter2_20261112",
             state_root=state,
             source_db=source,
-            registry_db=make_registry(tmp_path),
+            roster_db=make_registry(tmp_path),
             approval_path=path,
             approval_sha256=sha,
             trusted_authority_hex=pub,
             quote_db=source,
             publication_grace_override_ms=180_000,
         )
-    fresh = Chapter2PaperSupervisor(
+    fresh = PaperConsumer(
+        configs=PORTFOLIO_CONFIGS,
+        run_label="cwsa_chapter2_20261112",
         state_root=tmp_path / "approved-new-epoch",
         source_db=source,
-        registry_db=make_registry(tmp_path),
+        roster_db=make_registry(tmp_path),
         approval_path=path,
         approval_sha256=sha,
         trusted_authority_hex=pub,
@@ -185,16 +194,18 @@ def test_signed_three_wallet_portfolio_runs_pm03_entry_and_restart(tmp_path):
     source = PaperJournal(source_db.parent)
     approved_root = tmp_path / "prospective"
     settings = dict(
+        configs=PORTFOLIO_CONFIGS,
+        run_label=EPOCH_ID,
         state_root=approved_root,
         source_db=source_db,
-        registry_db=make_registry(tmp_path),
+        roster_db=make_registry(tmp_path),
         approval_path=path,
         approval_sha256=sha,
         trusted_authority_hex=pub,
         quote_db=source_db,
         publication_grace_override_ms=5000,
     )
-    paper = Chapter2PaperSupervisor(**settings, activation_now_ms=BOUNDARY - 1)
+    paper = PaperConsumer(**settings, activation_now_ms=BOUNDARY - 1)
     members = PORTFOLIO_CONFIGS["A"]["members"]
     assert len(paper.approved["A"].mandates) == 3
 
@@ -240,6 +251,6 @@ def test_signed_three_wallet_portfolio_runs_pm03_entry_and_restart(tmp_path):
     assert Decimal(a["account"]["costs"]) > 0
     assert Decimal(a["account"]["quantities"][BTC.key]) > 0
     assert paper.poll_once(now_ms=BOUNDARY + GRID + 106) == 0
-    reopened = Chapter2PaperSupervisor(**settings, activation_now_ms=BOUNDARY + GRID + 106)
+    reopened = PaperConsumer(**settings, activation_now_ms=BOUNDARY + GRID + 106)
     assert reopened.poll_once(now_ms=BOUNDARY + GRID + 107) == 0
     assert reopened.journals["A"].restore("A") == a

@@ -204,11 +204,19 @@ def test_collection_faults_and_all_dex_timing_are_nonactionable(tmp_path, fault)
 
 
 def test_selected_checkpoint_roster_reuses_verified_sqlite_selection(tmp_path):
-    from test_pm_forward_multi_portfolio import full_registry
-    from test_pm_forward_observed_paper import at
+    from roster_fixture import add_account, AT, WALLETS
+    from copytrade_pm.roster import RosterStore
     from copytrade_pm.pm_checkpoint_source import selected_checkpoint_sources
 
-    registry = full_registry(tmp_path)
+    registry = tmp_path / "roster.sqlite"
+    aliases = ("S035", "S051", "S053", "S064", "Whale_0x5f94")
+    with RosterStore(registry, create=True) as store:
+        for pid, count in (("P1", 3), ("P14", 5), ("P16", 4)):
+            add_account(store, pid, dict(zip(aliases[:count], WALLETS[:count], strict=True)))
+
+    def at(_seconds):
+        return AT
+
     selected = selected_checkpoint_sources(
         registry,
         portfolios=("P1", "P14", "P16"),

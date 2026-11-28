@@ -1,27 +1,27 @@
-# copytrade-pm
+# Copytrade-PM
 
-Owns **market/wallet facts (`FactStore`), dynamic seat roster (`RosterStore`), source observation, PM03 virtual paper, and offline release staging**. Holds zero broker credentials, live orders, Guardian mutations, or trading authority.
+Personal single-owner copytrade appliance. Owns FactStore, RosterStore, canonical CWSA observation, PM03 paper accounting and wallet health. Protected execution remains in independent Prop-Production accounts.
 
-Keep **IMPLEMENTED / ENGINEERING_VERIFIED / MERGED / DEPLOYED / PROSPECTIVE_PAPER_ACTIVE / ECONOMICALLY_QUALIFIED / SCIENTIFICALLY_QUALIFIED / TRADING_AUTHORIZED** strictly separate with exact supporting receipts.
+## Work sequence
 
-## Start-of-task steps
+1. Inspect the actual checkout, dirty files, worktrees, remote, relevant issues and running revision. Preserve concurrent work. Use an isolated worktree for code changes.
+2. Run `copytrade-pm capabilities validate` and inspect the relevant CLI `--help`, owner module and behavioral tests. For runtime work, read [agent operations](docs/AGENT-NATIVE-OPERATIONS.md) and obtain `copytrade-pm appliance status --json`.
+3. Make the smallest change that preserves PIT clocks, source identities, fixed-k, owner journals and risk/authority boundaries. Portfolios are configuration and data. All retained workers use one checkout, frozen environment and systemd target.
+4. Run focused behavioral tests while editing. Before merging software, run `scripts/ci.sh all` on the clean committed candidate and retain its exact-SHA receipt. Review the actual diff against [coding standards](CODING_STANDARDS.md) and the accepted requirements.
+5. For authorized runtime changes, use the appliance CLI. Verify actual worker identity and advancing source/quote receipts after activation. Software rollback never rewinds financial journals.
 
-1. **State scope & check git state:** Inspect `git status`, `git worktree list`, and open GitHub issues (`gh api repos/<owner>/<repo>/issues/<number>` when `gh issue view` fails on `projectCards` in `gh <= 2.46.0`); use an isolated worktree for edits.
-2. **Discover capabilities before building:** Run `copytrade-pm capabilities list`, `copytrade-pm capabilities show <id>`, and `copytrade-pm capabilities validate`, then inspect the owner module and tests ([docs/AGENT-NATIVE-OPERATIONS.md](docs/AGENT-NATIVE-OPERATIONS.md)).
-3. **Check & verify via `uv run --frozen --group dev`:** Run `bash scripts/ci_focused.sh tests/test_module.py` for quick feedback; run `scripts/ci.sh all` (or `.githooks/pre-push`) before merge/push; docs-only edits verify links, contract consistency, and diff.
+## Read by responsibility
 
-## Context pointers
+| Task | Contract |
+| --- | --- |
+| Runtime, configuration, updates, recovery, Phase D adoption | [Agent operations](docs/AGENT-NATIVE-OPERATIONS.md) |
+| Ownership and boundaries | [Architecture](docs/ARCHITECTURE.md), [appliance ADR](docs/decisions/2026-11-28-single-owner-appliance.md) |
+| Facts and PIT research | [FactStore](docs/FACTS-STORE.md) |
+| Observation membership, researched seats, leases, vetoes, proposals | [RosterStore](docs/ROSTER.md) |
+| Checkpoint finance, signed fixed-k and historical replay | [Kernel decisions](docs/CHECKPOINT-KERNEL-DECISION-PM03.md), [PM03](docs/PM-03-shadow-account.md), [sizing](docs/RISK-BUDGETED-K-SIZING-20261106.md) |
+| Qualification and protected execution | [Qualification](docs/QUALIFICATION.md); companion pins belong to `prop-production/src/prop_production/compatibility.json` |
+| Historical studies and unresolved obligations | [Documentation index](docs/INDEX.md); inspect original evidence at its recorded revision |
 
-| Branch | Read first |
-|---|---|
-| Full doc map, recent Phase-D changes, domain terms, system boundaries | [docs/INDEX.md](docs/INDEX.md), [CHANGELOG.md](CHANGELOG.md), [CONTEXT.md](CONTEXT.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
-| Unified facts (`copytrade_pm.facts`, `facts.sqlite`, strict `as_of_ms` PIT; `allow_unknown_known_at=True` for undated Reservoir retrospective runs) | [docs/FACTS-STORE.md](docs/FACTS-STORE.md) |
-| Dynamic seats, leases, CUSUM latches, vetoes, unsigned proposals (`copytrade_pm.roster`, `roster.sqlite`, `copytrade-pm` CLI) | [docs/ROSTER.md](docs/ROSTER.md) |
-| PM03 checkpoint paper over `copytrade_kernel.step_checkpoint` (`FIXED_K_NATIVE_QUANTITY`) | [docs/CHECKPOINT-KERNEL-DECISION-PM03.md](docs/CHECKPOINT-KERNEL-DECISION-PM03.md), [docs/PM-03-shadow-account.md](docs/PM-03-shadow-account.md), [docs/RISK-BUDGETED-K-SIZING-20261106.md](docs/RISK-BUDGETED-K-SIZING-20261106.md) |
-| CWSA 5m observation, Chapter 2 gates (`copytrade-pm release chapter2`), Ops Control Center | [docs/CWSA-CHAPTER2-20261112.md](docs/CWSA-CHAPTER2-20261112.md), [docs/OPS-CONTROL-CENTER-20261111.md](docs/OPS-CONTROL-CENTER-20261111.md) |
-| Contract EV screening (`copytrade-pm research contracts` on matched net follower evidence) | [docs/CONTRACT-PORTFOLIO-EV-TOOL-20261105.md](docs/CONTRACT-PORTFOLIO-EV-TOOL-20261105.md) |
-| Mutations, qualification, governance, blocker recovery, coding standards | [docs/RUNBOOK.md](docs/RUNBOOK.md), [docs/QUALIFICATION.md](docs/QUALIFICATION.md), [docs/GOVERNANCE-GATES.md](docs/GOVERNANCE-GATES.md), [docs/BLOCKER-RECOVERY.md](docs/BLOCKER-RECOVERY.md), [CODING_STANDARDS.md](CODING_STANDARDS.md) |
-| Cross-repo companion & schema pins (sole pin authority) | `prop-production:src/prop_production/compatibility.json` |
-| Agent workflows, issue tracker, triage labels, domain docs | [docs/AGENT-SYSTEM-DESIGN.md](docs/AGENT-SYSTEM-DESIGN.md), [docs/agents/issue-tracker.md](docs/agents/issue-tracker.md), [docs/agents/triage-labels.md](docs/agents/triage-labels.md), [docs/agents/domain.md](docs/agents/domain.md) |
+Report IMPLEMENTED, VERIFIED, MERGED, DEPLOYED, SCIENTIFICALLY QUALIFIED and TRADING AUTHORIZED separately. A healthy source or passing test is not financial evidence. This repository grants no trading authority.
 
-Reserve `~/.optmem/memo recall <regex>` (`zoom <lo>-<hi>`) for cross-repo history only, and verify every fact against its current owner. When changing a contract, update the canonical owner, [docs/INDEX.md](docs/INDEX.md), affected capabilities/tests, and a scoped ADR (`docs/decisions/`).
+Update the canonical owner, relevant tests, [index](docs/INDEX.md) and a scoped ADR when changing a contract. Older rollout documents are historical evidence. Ops Control Center, Site sync, dashboards, Prefect and independent worker releases are permanently retired.

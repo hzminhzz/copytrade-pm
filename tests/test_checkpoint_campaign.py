@@ -4,9 +4,13 @@ from decimal import Decimal as D
 
 from copytrade_pm.pm_forward_journal import PaperJournal
 from copytrade_pm.pm_forward_paper import PaperCampaign
-from copytrade_pm.pm_v4_sixteen_scenarios import IDENTITIES
+from types import SimpleNamespace
+
 from test_checkpoint_paper import BOUNDARY, GRID, BTC, checkpoint, quote, setup_paper, stamp
 from test_checkpoint_source import scope
+
+
+IDENTITIES = tuple(f"E{i}" for i in range(1, 17))
 
 
 def test_sixteen_consumer_wave_isolated_finance_and_restart(tmp_path):
@@ -139,7 +143,6 @@ def test_missing_b_preserves_its_inventory_while_healthy_a_can_proceed(tmp_path)
 
 def test_selected_campaign_rejects_missing_or_changed_mandates(tmp_path):
     from copytrade_pm.pm_forward_observed_paper import PaperPortfolioSpec
-    from copytrade_pm.pm_v4_sixteen_scenarios import V4Campaign
     from test_pm_forward_ccxt_market import ccxt_market
 
     j = PaperJournal(tmp_path / "paper")
@@ -151,13 +154,10 @@ def test_selected_campaign_rejects_missing_or_changed_mandates(tmp_path):
         )
         accounts[name] = {m.source_id: m.source_account_sha}
         requests[name] = {"owner": m.owner, "outcome_id": "", "policy": p}
-    selected = V4Campaign(
-        profiles,
-        {},
-        accounts,
-        {name: {"definition_sha256": "a" * 64} for name in IDENTITIES},
-        {name: () for name in IDENTITIES},
-        "b" * 64,
+    selected = SimpleNamespace(
+        profiles=profiles,
+        account_hashes=accounts,
+        seals={name: {"definition_sha256": "a" * 64} for name in IDENTITIES},
     )
     baseline = checkpoint(j, sp, 0)
     for row in requests.values():

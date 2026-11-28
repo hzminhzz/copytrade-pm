@@ -848,6 +848,9 @@ class PaperJournal:
         funding_events: list[tuple[str, str, str]] = []
         source_links: list[tuple[str, int, str, str]] = []
         source_cursors: dict[str, int] = {}
+        # Verify complete source chains once within this owner-locked replay.
+        # Never retain proofs across calls: the next restore must recheck bytes.
+        source_proofs: dict[str, dict[int, tuple[str, str, int]]] = {}
         rows = db.execute(
             "SELECT seq,event_id,event_at,input,input_sha,prior_sha,post_sha,chain_sha "
             "FROM events WHERE run_id=? ORDER BY seq",
@@ -909,7 +912,7 @@ class PaperJournal:
             if event.get("kind") == "CWSA_PAPER_REVIEW":
                 from .pm_checkpoint_paper import validate_binding
 
-                validate_binding(db, run_id, event)
+                validate_binding(db, run_id, event, source_proofs=source_proofs)
             last_result = PaperJournal.apply(account, event)
             expected_post = digest(account.snapshot())
             if after != expected_post or chain_sha != digest(

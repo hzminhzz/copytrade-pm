@@ -139,13 +139,3 @@ def test_old_selected_portfolio_frozen_documents_unchanged() -> None:
     }
     for name, digest in expected.items():
         assert sha256((DECISIONS / name).read_bytes()).hexdigest() == digest
-
-
-def test_current_index_points_to_new_selection_without_rewriting_old_study() -> None:
-    handbook = (ROOT / "docs" / "INDEX.md").read_text()
-    runbook = (ROOT / "docs" / "RUNBOOK.md").read_text()
-    assert "2026-11-04-gemini-phase6-portfolio-freeze-v2.md" in handbook
-    assert "2026-11-04-gemini-phase6-portfolio-freeze-v2.json" in handbook
-    assert "2026-11-04-gemini-phase6-portfolio-freeze-v2.md" in runbook
-    assert "P1/P14" in runbook
-    assert "no running roster/service changes" in handbook

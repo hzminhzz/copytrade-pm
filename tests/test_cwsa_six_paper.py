@@ -3,18 +3,18 @@
 from decimal import Decimal
 
 
-from copytrade_pm.pm_cwsa_six_paper import (
-    PORTFOLIO_CONFIGS,
-    Chapter2PaperSupervisor,
-    load_registry_seals,
+from copytrade_pm.pm_cwsa_paper import (
+    PaperConsumer,
+    load_selections,
 )
+from cwsa_fixture_registry import PORTFOLIO_CONFIGS
 
 from cwsa_fixture_registry import make_registry
 from test_cwsa_chapter2_ingestion import ALL, BASE, add_source, make_source
 
 
-def test_load_registry_seals(tmp_path):
-    seals = load_registry_seals(make_registry(tmp_path))
+def test_load_selections(tmp_path, configs=PORTFOLIO_CONFIGS):
+    seals = load_selections(make_registry(tmp_path), configs=PORTFOLIO_CONFIGS)
     assert len(seals) == 6
     assert set(seals.keys()) == set(PORTFOLIO_CONFIGS.keys())
     for pid, s in seals.items():
@@ -28,10 +28,12 @@ def test_supervisor_initializes_six_clean_isolated_journals(tmp_path):
     state_root = tmp_path / "paper_root"
     source = tmp_path / "source.sqlite"
     make_source(source)
-    supervisor = Chapter2PaperSupervisor(
+    supervisor = PaperConsumer(
+        configs=PORTFOLIO_CONFIGS,
+        run_label="cwsa_chapter2_20261112",
         state_root=state_root,
         source_db=source,
-        registry_db=make_registry(tmp_path),
+        roster_db=make_registry(tmp_path),
         publication_grace_override_ms=180_000,
     )
     assert len(supervisor.journals) == 6
@@ -55,17 +57,19 @@ def test_supervisor_evaluates_checkpoint_wave(tmp_path):
     make_source(source)
     add_source(source, BASE, ALL)
     registry = make_registry(tmp_path)
-    supervisor = Chapter2PaperSupervisor(
+    supervisor = PaperConsumer(
+        configs=PORTFOLIO_CONFIGS,
+        run_label="cwsa_chapter2_20261112",
         state_root=state_root,
         source_db=source,
-        registry_db=registry,
+        roster_db=registry,
         publication_grace_override_ms=180_000,
     )
     assert supervisor.poll_once(now_ms=BASE + 2_000) == 1
     assert supervisor.last_processed_checkpoint_ms == BASE
 
     # Verify status snapshot
-    status_file = state_root / "cwsa_chapter2_status.json"
+    status_file = state_root / "status.json"
     assert status_file.is_file()
 
     # Verify each journal remained clean at initial cash with 0 positions
@@ -81,10 +85,12 @@ def test_supervisor_evaluates_checkpoint_wave(tmp_path):
         assert port_status.is_file()
 
     # Restart supervisor and verify clean recovery
-    reopened = Chapter2PaperSupervisor(
+    reopened = PaperConsumer(
+        configs=PORTFOLIO_CONFIGS,
+        run_label="cwsa_chapter2_20261112",
         state_root=state_root,
         source_db=source,
-        registry_db=registry,
+        roster_db=registry,
         publication_grace_override_ms=180_000,
     )
     assert reopened.last_processed_checkpoint_ms == supervisor.last_processed_checkpoint_ms

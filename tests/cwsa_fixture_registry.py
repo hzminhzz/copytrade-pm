@@ -8,9 +8,43 @@ wallets are deterministic fictitious addresses.
 from hashlib import sha256
 from pathlib import Path
 
-from copytrade_pm.pm_cwsa_six_paper import PORTFOLIO_CONFIGS, roster_account_id
+from decimal import Decimal
 from copytrade_pm.roster import RosterStore
 from roster_fixture import add_account
+
+
+PORTFOLIO_CONFIGS: dict[str, dict] = {
+    "A": {
+        "folder": "A",
+        "starting_balance": Decimal("10000"),
+        "members": ("W028", "W030", "W042"),
+    },
+    "B": {
+        "folder": "B",
+        "starting_balance": Decimal("10000"),
+        "members": ("CA-005", "W031", "W044"),
+    },
+    "C": {
+        "folder": "C",
+        "starting_balance": Decimal("10000"),
+        "members": ("CO-001", "VS066", "W015"),
+    },
+    "Combo2": {
+        "folder": "Combo2",
+        "starting_balance": Decimal("5000"),
+        "members": ("CA-008", "W015", "W028"),
+    },
+    "regime.macro/TriadA": {
+        "folder": "TriadA",
+        "starting_balance": Decimal("10000"),
+        "members": ("ACT04", "ACT08", "ACT09"),
+    },
+    "regime.macro/TriadChop": {
+        "folder": "TriadChop",
+        "starting_balance": Decimal("10000"),
+        "members": ("ACT04", "ACT09", "ACT10"),
+    },
+}
 
 
 def _wallet(alias: str) -> str:
@@ -26,5 +60,5 @@ def make_registry(tmp_path: Path) -> Path:
     with RosterStore(path, create=True, writable=True) as store:
         for pid, config in PORTFOLIO_CONFIGS.items():
             members = {member: _wallet(f"{pid}{member}") for member in sorted(config["members"])}
-            add_account(store, roster_account_id(pid), members)
+            add_account(store, pid.replace("/", ":"), members)
     return path

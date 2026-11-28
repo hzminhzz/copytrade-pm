@@ -6,6 +6,9 @@ must be explicitly used outside runtime, with a separately pinned public key.
 
 from __future__ import annotations
 
+from typing import Any
+
+from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 import json
@@ -23,9 +26,10 @@ def _sha(value: object) -> bool:
     )
 
 
-def qualification_blockers(payload: dict, seals: dict, *, now_ms: int) -> list[str]:
+def qualification_blockers(
+    payload: dict[str, Any], seals: dict[str, Any], *, now_ms: int
+) -> list[str]:
     """Deterministic validation of six individually scoped original costed OOS receipts."""
-    from .pm_cwsa_six_paper import PORTFOLIO_CONFIGS
 
     problems: set[str] = set()
     if not isinstance(payload, dict) or payload.get("schema") != "cwsa_paper_k_qualification_v1":
@@ -39,9 +43,9 @@ def qualification_blockers(payload: dict, seals: dict, *, now_ms: int) -> list[s
     if type(payload.get("effective_from_ms")) is not int or payload["effective_from_ms"] <= now_ms:
         problems.add("K_RELEASE_NOT_PROSPECTIVE")
     portfolio_records = payload.get("portfolios")
-    if not isinstance(portfolio_records, dict) or set(portfolio_records) != set(PORTFOLIO_CONFIGS):
+    if not isinstance(portfolio_records, dict) or set(portfolio_records) != set(seals):
         return sorted(problems | {"K_SIX_PORTFOLIOS_NOT_COVERED"})
-    for pid, cfg in PORTFOLIO_CONFIGS.items():
+    for pid, cfg in seals.items():
         row = portfolio_records[pid]
         if not isinstance(row, dict):
             problems.add(f"K_INVALID_RECORD:{pid}")
@@ -86,7 +90,9 @@ def qualification_blockers(payload: dict, seals: dict, *, now_ms: int) -> list[s
     return sorted(problems)
 
 
-def read_qualification(path: Path, public_key_hex: str, seals: dict, source_db: Path) -> dict:
+def read_qualification(
+    path: Path, public_key_hex: str, seals: dict[str, Any], source_db: Path
+) -> dict[str, Any]:
     """Verify external research signature, PIT/OOS/risk schema and source availability."""
     if path.is_symlink() or not path.is_file() or path.stat().st_size > 2_000_000:
         raise ValueError("K_QUALIFICATION_PATH_UNSAFE")
@@ -101,7 +107,7 @@ def read_qualification(path: Path, public_key_hex: str, seals: dict, source_db: 
     return payload
 
 
-def mandate_k_blockers(approved: dict, qualified: dict) -> list[str]:
+def mandate_k_blockers(approved: dict[str, Any], qualified: dict[str, Any]) -> list[str]:
     """Bind signed CopyMandate native k and activation to independently approved k."""
     problems = []
     members = qualified["portfolios"]
@@ -123,10 +129,17 @@ def mandate_k_blockers(approved: dict, qualified: dict) -> list[str]:
     return problems
 
 
+@dataclass(frozen=True)
+class GateCheck:
+    name: str
+    state: str
+    detail: str
+    evidence: dict[str, Any] = field(default_factory=dict)
+
+
 def inspect_qualification(
-    path: Path | None, public_key_hex: str | None, seals: dict, source_db: Path
-):
-    from .pm_cwsa_chapter2_gate import GateCheck
+    path: Path | None, public_key_hex: str | None, seals: dict[str, Any], source_db: Path
+) -> GateCheck:
 
     if path is None or public_key_hex is None:
         return GateCheck(
@@ -151,9 +164,8 @@ def inspect_qualification(
         )
 
 
-def paper_candidate(seals: dict, *, now_ms: int | None = None) -> dict:
+def paper_candidate(seals: dict[str, Any], *, now_ms: int | None = None) -> dict[str, Any]:
     """A review template is never a qualified release or signed mandate."""
-    from .pm_cwsa_six_paper import PORTFOLIO_CONFIGS
 
     now_ms = now_ms or int(time.time() * 1000)
     return {
@@ -185,7 +197,7 @@ def paper_candidate(seals: dict, *, now_ms: int | None = None) -> dict:
                     for alias in cfg["members"]
                 },
             }
-            for pid, cfg in PORTFOLIO_CONFIGS.items()
+            for pid, cfg in seals.items()
         },
         "trading_authorized": False,
     }

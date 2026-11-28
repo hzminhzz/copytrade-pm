@@ -12,10 +12,19 @@ import pytest
 from copytrade_pm.pm03_account import digest
 from copytrade_pm.pm_forward_journal import PaperJournal
 from copytrade_pm.pm_forward_paper import PaperCampaign
-from copytrade_pm.pm_forward_portfolios import P1, P14
+from types import SimpleNamespace
+
 from test_pm_forward_admission import _alter
 from test_pm_forward_fill import BTC, _source_book
 from test_pm_forward_journal import T, manifest
+
+
+P1 = SimpleNamespace(name="P1", members=("S035", "S051", "S053"), sha=digest(["fixture", "P1"]))
+P14 = SimpleNamespace(
+    name="P14",
+    members=("S035", "S051", "S053", "S064", "Whale_0x5f94"),
+    sha=digest(["fixture", "P14"]),
+)
 
 
 def at(seconds: int) -> str:

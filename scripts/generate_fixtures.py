@@ -64,7 +64,9 @@ with open(camel_json_path, "w", encoding="utf-8") as f:
 ensure_mode_600(camel_json_path)
 
 # Golden Parquet for Camel
-camel_fills = [from_hyperx_camel(r, wallet=TEST_WALLET, source="hyperx") for r in camel_raw["fills"]]
+camel_fills = [
+    from_hyperx_camel(r, wallet=TEST_WALLET, source="hyperx") for r in camel_raw["fills"]
+]
 camel_df = pl.DataFrame(
     [
         {
@@ -140,7 +142,9 @@ with open(snake_json_path, "w", encoding="utf-8") as f:
     json.dump(snake_raw, f, indent=2)
 ensure_mode_600(snake_json_path)
 
-snake_fills = [from_hyperx_snake(r, wallet=TEST_WALLET, source="hyperx") for r in snake_raw["fills"]]
+snake_fills = [
+    from_hyperx_snake(r, wallet=TEST_WALLET, source="hyperx") for r in snake_raw["fills"]
+]
 snake_df = pl.DataFrame(
     [
         {

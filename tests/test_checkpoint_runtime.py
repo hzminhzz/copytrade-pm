@@ -1,4 +1,4 @@
-"""Existing source entrypoint and outbox must preserve CWSA identity through restart."""
+"""Canonical source journals preserve CWSA identity through restart."""
 
 import asyncio
 from contextlib import closing
@@ -7,15 +7,13 @@ import json
 import sqlite3
 
 import pytest
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from copytrade_pm import pm_cwsa_source_observer as entry
-from copytrade_pm import v4_source_spool as spool
 from copytrade_pm.pm03_account import digest
 from copytrade_pm.pm_checkpoint_journal import CwsaPolicy
 from copytrade_pm.pm_checkpoint_source import CheckpointScope
 from copytrade_pm.pm_forward_journal import PaperJournal
-from copytrade_pm.production_manifest import canonical, verify
+from copytrade_pm.production_manifest import canonical
 from test_checkpoint_source import ADDRESS, BOUNDARY, limits
 
 
@@ -133,25 +131,6 @@ def test_pinned_configuration_requires_complete_limits_and_exact_selected_roster
         entry.CheckpointObserverConfig.model_validate(body)
 
 
-def test_source_entrypoint_rejects_unconfigured_rest_before_any_network(tmp_path, monkeypatch):
-    monkeypatch.setattr(
-        entry, "selected_parents", lambda *a, **k: pytest.fail("read before configuration check")
-    )
-    with pytest.raises(SystemExit) as exc:
-        entry.main(
-            [
-                "--registry-db",
-                str(tmp_path / "registry.sqlite3"),
-                "--state-root",
-                str(tmp_path / "source"),
-                "--source-mode",
-                "CHECKPOINT_REST_V3",
-            ]
-        )
-    assert exc.value.code == 2
-    assert not (tmp_path / "source").exists()
-
-
 def test_single_existing_source_entrypoint_lease_rejects_second_owner(tmp_path):
     root = tmp_path / "source"
     root.mkdir(mode=0o700)
@@ -159,49 +138,3 @@ def test_single_existing_source_entrypoint_lease_rejects_second_owner(tmp_path):
         with pytest.raises(ValueError, match="SOURCE_AUTHORITY_LEASE"):
             with entry.source_lease(root):
                 pytest.fail("second authority")
-
-
-def test_checkpoint_outbox_resumes_from_signed_packets_without_touching_source(tmp_path):
-    parents, scope, policy, body = configuration()
-    config = entry.CheckpointObserverConfig.model_validate_json(canonical(body))
-    clock = Clock()
-    journal = PaperJournal(tmp_path / "source")
-    collect(journal, config, parents, clock)
-    root = tmp_path / "spool"
-    root.mkdir(mode=0o700)
-    key = Ed25519PrivateKey.generate()
-    seed, public = tmp_path / "seed", tmp_path / "public"
-    seed.write_bytes(key.private_bytes_raw())
-    public.write_bytes(key.public_key().public_bytes_raw())
-    seed.chmod(0o600)
-    public.chmod(0o600)
-    args = dict(
-        journal_db=journal.path,
-        config=config,
-        root=root,
-        signing_key=seed,
-        public_key=public,
-        issued_ms=clock.at,
-    )
-    before = journal.path.read_bytes()
-    first = spool.capture_checkpoint_batch(**args)
-    assert first["packets"] == 1
-    assert first["head_cursors"] == {scope.source_id: 2}
-    assert spool.capture_checkpoint_batch(**args)["packets"] == 0
-    assert journal.path.read_bytes() == before
-    assert len(list((root / "outbox").glob("*.json"))) == 1
-    clock.at += 300000
-    clock.quantity = "3"
-    collect(journal, config, parents, clock)
-    args["issued_ms"] = clock.at
-    second = spool.capture_checkpoint_batch(**args)
-    assert second["head_cursors"] == {scope.source_id: 3}
-    packets = sorted((root / "outbox").glob("*.json"))
-    assert len(packets) == 2
-    signed = verify(json.loads(packets[-1].read_bytes()), key.public_key(), "cwsa-checkpoint-v3")
-    assert signed["transitions"][-1]["effect"]["kind"] == "CHANGED"
-    assert len(signed["transitions"]) == 1
-    assert spool.capture_checkpoint_batch(**args)["packets"] == 0
-    packets[-1].write_bytes(packets[-1].read_bytes().replace(b'"CHANGED"', b'"BASELINE"'))
-    with pytest.raises(ValueError):
-        spool.capture_checkpoint_batch(**args)

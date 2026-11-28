@@ -145,10 +145,8 @@ def test_five_domain_groups_are_registered_and_classified():
         "operations.facts.verify",
         "operations.paper.mandates",
         "operations.release.export",
-        "operations.release.metadata",
         "operations.release.propose",
         "operations.release.sign",
-        "operations.release.status",
         "operations.release.verify",
         "operations.research.scorecards",
         "operations.roster.bench",
@@ -184,17 +182,11 @@ def test_capability_interfaces_never_name_a_deleted_console_script(monkeypatch):
         head = str(entry["interface"] or "").split()
         if head and head[0].startswith("copytrade-pm"):
             assert head[0] in declared, entry["id"]
-    # Re-advertising a deleted script blocks validation instead of luring an
-    # agent into a route that no longer exists.
-    module, _interface, family, safety, authority = catalog.NATIVE["runtime.paper_units"]
-    monkeypatch.setitem(
-        catalog.NATIVE,
-        "runtime.paper_units",
-        (module, "copytrade-pm health", family, safety, authority),
-    )
+    # A catalog entry without a real parser route fails closed.
+    monkeypatch.setitem(catalog.COMMANDS, "retired worker", catalog.COMMANDS["appliance status"])
     blocked = capabilities.validate(root)
     assert blocked["status"] == "BLOCKED"
-    assert "UNKNOWN_CLI_INTERFACE:runtime.paper_units" in blocked["errors"]
+    assert "RETIRED_COMMAND_ADVERTISED:retired worker" in blocked["errors"]
 
 
 def test_roster_register_is_dry_run_by_default(tmp_path, capsys):

@@ -1,6 +1,8 @@
 """S1: native checkpoint -> signed mandate -> existing PM03 paper journal."""
 
+from contextlib import closing
 from dataclasses import asdict, replace
+import sqlite3
 from datetime import UTC, datetime
 from decimal import Decimal as D
 
@@ -141,6 +143,34 @@ def test_checkpoint_one_shot_has_independent_marks_costs_and_restart(tmp_path):
     assert consume(reopened, m, changed, p, now + 4) == result
     assert reopened.restore("p1")["account"] == account
     assert reopened.restore("p1")["cursor"] == 3
+
+
+def test_restore_verifies_source_chain_once_and_rechecks_next_replay(tmp_path, monkeypatch):
+    from copytrade_pm import pm_checkpoint_paper as paper
+
+    j, source_policy, m, p = setup_paper(tmp_path)
+    consume(j, m, checkpoint(j, source_policy, 0), p, BOUNDARY + 102)
+    changed = checkpoint(j, source_policy, 1, "3")
+    now = BOUNDARY + GRID + 102
+    consume(j, m, changed, p, now)
+    quote(j, now + 1)
+    consume(j, m, changed, p, now + 3)
+    expected = j.restore("p1")
+    calls = []
+    original = paper.source_history
+
+    def checked(db, selected, epoch):
+        calls.append((selected, epoch))
+        return original(db, selected, epoch)
+
+    monkeypatch.setattr(paper, "source_history", checked)
+    assert j.restore("p1") == expected
+    assert len(calls) == 1
+    with closing(sqlite3.connect(j.path)) as db:
+        db.execute("UPDATE cwsa_transitions SET sha=? WHERE seq=1", ("f" * 64,))
+        db.commit()
+    with pytest.raises(ValueError, match="CWSA_JOURNAL_CHAIN"):
+        j.restore("p1")
 
 
 def test_expired_block_never_retries_on_unchanged_but_new_change_can_enter(tmp_path):

@@ -4,6 +4,14 @@
 
 The roster replaces the static SQLite pod registry as the *decision* layer for who occupies a seat. It does not own research scoring (that is Slice 4 / `trading-ops`) and it does not own broker authority (that is Guardian in `prop-production`).
 
+## Observation membership and Phase D adoption
+
+Schema 2 adds append-only `observation_selections`. Each record preserves a portfolio/version, original definition seal, original selection clock, member aliases and addresses, and the SHA of the pinned legacy snapshot. Its independent `recorded_ms` is the new adoption clock. Reads require both the origin and adoption evidence to be known at the requested cutoff.
+
+These records support existing canonical observation epochs. They are not scorecards, seat leases or signed financial releases. Batch adoption is atomic and idempotent; conflicting identities fail closed. The existing account with empty researched seats remains empty until genuine research evidence and reconciliation populate it.
+
+Use `copytrade-pm appliance adopt` with a pinned quiescent legacy snapshot. Normal workers read RosterStore only. The import is the sole runtime-independent compatibility boundary to the retired registry. See [appliance operations](AGENT-NATIVE-OPERATIONS.md).
+
 ## Model
 
 | Type | Meaning |

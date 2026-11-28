@@ -1,276 +1,135 @@
-"""Reviewed native capability directory; descriptive only, never an authorization engine.
-
-CLI entry points are discovered from installed distribution metadata (with
-pyproject fallback for source-only checkouts). Every entry point must have
-reviewed operation metadata; unknown operations fail closed.
-"""
+"""Discover real argparse routes without importing state writers or providers."""
 
 from __future__ import annotations
 
-import ast
-from collections.abc import Mapping
+import argparse
 import json
 from pathlib import Path
+import tomllib
+from typing import Any
 
-from .pm_capabilities_catalog import (
-    ACCESS_KEYS as ACCESS_KEYS,
-    CLASSES as CLASSES,
-    DOC as DOC,
-    DOCS as DOCS,
-    EXTRA_MODULES as EXTRA_MODULES,
-    GROUP_OPERATIONS as GROUP_OPERATIONS,
-    GROUPS as GROUPS,
-    NATIVE as NATIVE,
-    NATIVE_ACCESS as NATIVE_ACCESS,
-    NATIVE_REQUIRED_ARGUMENTS as NATIVE_REQUIRED_ARGUMENTS,
-    NATIVE_RUNTIME_REQUIRED_ARGUMENTS as NATIVE_RUNTIME_REQUIRED_ARGUMENTS,
-    OPERATIONS_SUBCOMMANDS as OPERATIONS_SUBCOMMANDS,
-    ROOT as ROOT,
-    UNKNOWN_ACCESS as UNKNOWN_ACCESS,
-    _VALIDATE_LIMITATIONS as _VALIDATE_LIMITATIONS,
-    _access_entry as _access_entry,
-    _parse_static_source as _parse_static_source,
-)
-from .pm_capabilities_inspector import (
-    PARSER_CALL_NAMES as PARSER_CALL_NAMES,
-    _copy_access as _copy_access,
-    _declared_scripts as _declared_scripts,
-    _inspect_group_script_parser as _inspect_group_script_parser,
-    _inspect_operations_parser as _inspect_operations_parser,
-    _installed_scripts as _installed_scripts,
-    _module_available as _module_available,
-    _required_cli_args as _required_cli_args,
-    _subcommand_entry as _subcommand_entry,
-    _validate_group_scripts as _validate_group_scripts,
-    _validate_operations_cli as _validate_operations_cli,
-)
+from .pm_capabilities_catalog import COMMANDS, DOC, ROOT_MODULE
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
-def _interface_route_problem(
-    interface: object, declared: Mapping[str, str], leaves: Mapping[str, object]
-) -> str:
-    """Return the script the interface names when that script/route is not current."""
-    words = str(interface or "").split()
-    if not words:
-        return ""
-    head = words[0]
-    if head.startswith("copytrade-pm-"):
-        return "" if head in declared else head
-    if head != "copytrade-pm" or len(words) == 1:
-        return ""
-    # Global options may precede the group; match a real parser leaf anywhere in
-    # the remaining tokens so `copytrade-pm --observer-state-root X release health`
-    # is accepted only because `release health` exists.
-    if "copytrade-pm" not in declared:
-        return head
-    body = f" {' '.join(words[1:])} "
-    return "" if any(f" {leaf} " in body for leaf in leaves) else str(interface)
+def _declared_scripts(root: Path) -> dict[str, str]:
+    scripts: dict[str, str] = tomllib.loads((root / "pyproject.toml").read_text())["project"][
+        "scripts"
+    ]
+    return scripts
 
 
-def inventory(root: Path = ROOT) -> list[dict]:
-    scripts = _declared_scripts(root)
-    installed = _installed_scripts()
-    results = []
-    for name, invocation in sorted(scripts.items()):
-        descriptor = GROUPS.get(name)
-        capability, family, safety = (
-            descriptor if descriptor else (f"unclassified.{name}", "operations", "UNCLASSIFIED")
+def _leaves(
+    parser: argparse.ArgumentParser, prefix: str = ""
+) -> dict[str, argparse.ArgumentParser]:
+    children = [a for a in parser._actions if isinstance(a, argparse._SubParsersAction)]
+    if not children:
+        return {prefix: parser}
+    found = {}
+    for action in children:
+        for name, child in action.choices.items():
+            found.update(_leaves(child, (prefix + " " + name).strip()))
+    return found
+
+
+def inventory(root: Path = ROOT) -> list[dict[str, Any]]:
+    from .pm_operations import parser
+
+    if root.resolve() != ROOT:
+        raise ValueError("CAPABILITY_FOREIGN_CHECKOUT_USE_ITS_CLI")
+    entries = []
+    for route, leaf in sorted(_leaves(parser()).items()):
+        meta = COMMANDS.get(route)
+        owner, authority, classification, network, credentials, reads, writes = meta or (
+            "UNKNOWN",
+            "UNKNOWN",
+            "UNKNOWN",
+            "UNKNOWN",
+            "UNKNOWN",
+            ("UNKNOWN",),
+            ("UNKNOWN",),
         )
-        module = invocation.split(":", 1)[0]
-        req_args = _required_cli_args(module, root)
-        results.append(
+        module = ROOT_MODULE + owner
+        available = (root / "src" / Path(module.replace(".", "/")).with_suffix(".py")).is_file()
+        entries.append(
             {
-                "id": capability,
-                "schema_version": 1,
-                "kind": "CLI",
-                "description": f"Existing {family} command",
+                "schema_version": 2,
+                "id": "operations." + route.replace(" ", "."),
+                "kind": "SUBCOMMAND",
+                "interface": "copytrade-pm " + route,
+                "description": leaf.description or leaf.format_usage().strip(),
                 "owner": module,
-                "interface": name,
-                "entry_point": invocation,
-                "classification": safety,
-                "authority": family.upper(),
-                "access": _copy_access(UNKNOWN_ACCESS),
-                "dependencies": [],
-                "required_arguments": req_args,
-                "runtime_required_arguments": None if req_args is None else [],
-                "preflight": [],
-                "documentation": (
-                    "docs/TRACK-B-PREFECT-ORCHESTRATION-20261110.md"
-                    if capability == "research.track_b_prefect"
-                    else DOCS[family]
-                ),
-                "available": _module_available(module, root)
-                and (name not in installed or installed[name] == invocation),
-                "limitations": [
-                    "Review flags/subcommands before running; discovery is not authorization"
-                ],
-                "evidence_freshness": "VERIFY_ON_USE",
-            }
-        )
-    for subcmd, spec in sorted(OPERATIONS_SUBCOMMANDS.items()):
-        owner = str(spec["owner"])
-        results.append(
-            _subcommand_entry(
-                cap_id=str(spec["id"]),
-                description=f"Operations subcommand copytrade-pm {subcmd}",
-                owner=owner,
-                interface=f"copytrade-pm {subcmd}",
-                classification=str(spec["classification"]),
-                authority=str(spec["authority"]),
-                access=spec["access"],
-                required_arguments=list(spec["required_arguments"]),
-                runtime_required_arguments=list(spec["runtime_required_arguments"]),
-                preflight=[],
-                documentation=str(spec["documentation"]),
-                available=_module_available("copytrade_pm.pm_operations", root)
-                and _module_available(owner, root),
-                limitations=list(spec["limitations"]),
-            )
-        )
-    for cap_id, group_spec in sorted(GROUP_OPERATIONS.items()):
-        owner = str(group_spec["owner"])
-        script_name = str(group_spec["script"])
-        script_invocation = scripts.get(script_name)
-        script_module = script_invocation.split(":", 1)[0] if script_invocation else owner
-        results.append(
-            _subcommand_entry(
-                cap_id=cap_id,
-                description=f"Mode variant for {script_name}",
-                owner=owner,
-                interface=str(group_spec["interface"]),
-                classification=str(group_spec["classification"]),
-                authority=str(group_spec["authority"]),
-                access=group_spec["access"],
-                required_arguments=list(group_spec["required_arguments"]),
-                runtime_required_arguments=list(group_spec["runtime_required_arguments"]),
-                preflight=[],
-                documentation=str(group_spec["documentation"]),
-                available=(
-                    script_name in scripts
-                    and _module_available(script_module, root)
-                    and _module_available(owner, root)
-                    and (
-                        script_name not in installed or installed[script_name] == script_invocation
-                    )
-                ),
-                limitations=list(group_spec["limitations"]),
-            )
-        )
-    for cap, (module, invocation, family, safety, authority) in NATIVE.items():
-        req_args = NATIVE_REQUIRED_ARGUMENTS.get(cap)
-        runtime_args = (
-            list(NATIVE_RUNTIME_REQUIRED_ARGUMENTS[cap])
-            if cap in NATIVE_RUNTIME_REQUIRED_ARGUMENTS
-            else (None if req_args is None else [])
-        )
-        results.append(
-            {
-                "id": cap,
-                "schema_version": 1,
-                "kind": "NATIVE",
-                "description": f"Native {family} interface",
-                "owner": module,
-                "interface": invocation,
-                "classification": safety,
                 "authority": authority,
-                "access": _copy_access(NATIVE_ACCESS.get(cap, UNKNOWN_ACCESS)),
-                "dependencies": [],
-                "required_arguments": req_args,
-                "runtime_required_arguments": runtime_args,
-                "preflight": [],
-                "documentation": (
-                    "docs/P1-P14-PROSPECTIVE-RESEAL-PREFLIGHT-20261106.md"
-                    if cap == "paper.identity_reseal_preview"
-                    else "docs/WALLET-STORE.md"
-                    if cap == "wallet_store"
-                    else DOCS[family]
-                ),
-                "available": _module_available(module, root),
-                "limitations": [
-                    "Consult owner contract; scientific and trading gates are separate"
+                "classification": classification,
+                "available": available,
+                "documentation": DOC,
+                "required_arguments": [
+                    (action.option_strings[0] if action.option_strings else action.dest)
+                    + (" " + action.dest.upper() if action.nargs != 0 else "")
+                    for action in leaf._actions
+                    if action.required
+                    or (not action.option_strings and action.nargs not in ("?", "*"))
                 ],
-                "evidence_freshness": "VERIFY_ON_USE",
+                "runtime_required_arguments": [],
+                "access": {
+                    "network": network,
+                    "credentials": credentials,
+                    "read_targets": list(reads),
+                    "write_targets": list(writes),
+                    "privacy": "OWNER_PRIVATE_REDACTED",
+                },
+                "limitations": (
+                    ["Dry run unless --apply is passed; never grants trading authority"]
+                    if classification in ("LOCAL_MUTATION", "PROTECTED_MUTATION")
+                    else ["Read-only evidence; no financial or scientific authorization"]
+                ),
             }
         )
-    for module, (cap, family, safety) in EXTRA_MODULES.items():
-        results.append(
-            {
-                "id": cap,
-                "schema_version": 1,
-                "kind": "MODULE",
-                "description": f"Native module-only {family} capability",
-                "owner": "copytrade_pm." + module,
-                "interface": "copytrade_pm." + module,
-                "classification": safety,
-                "authority": family.upper(),
-                "access": _copy_access(UNKNOWN_ACCESS),
-                "dependencies": [],
-                "required_arguments": None,
-                "runtime_required_arguments": None,
-                "preflight": [],
-                "documentation": DOCS[family],
-                "available": _module_available("copytrade_pm." + module, root),
-                "limitations": ["Python interface; inspect signature before calling"],
-                "evidence_freshness": "VERIFY_ON_USE",
-            }
-        )
-    return sorted(results, key=lambda item: item["id"])
+    return entries
 
 
-def validate(root: Path = ROOT) -> dict:
-    entries = inventory(root)
-    declared = _declared_scripts(root)
-    installed = _installed_scripts()
-    leaves, _leaf_problems = _inspect_operations_parser(root)
-    problems = []
-    ids = [e["id"] for e in entries]
-    if len(ids) != len(set(ids)):
-        problems.append("DUPLICATE_CAPABILITY_ID")
-    if set(declared) != (set(declared) & set(GROUPS)):
-        problems.append("UNREVIEWED_ENTRY_POINTS")
-    if installed and installed != declared:
-        problems.append("INSTALLED_ENTRY_POINT_DRIFT")
-    for item in entries:
-        if item["classification"] not in CLASSES:
-            problems.append(f"UNCLASSIFIED:{item['id']}")
-        if not item["available"]:
-            problems.append(f"MISSING_OWNER:{item['id']}")
-        if not (root / item["documentation"]).is_file():
-            problems.append(f"MISSING_DOC:{item['id']}")
-        if item["schema_version"] != 1:
-            problems.append(f"INVALID_SCHEMA:{item['id']}")
-        if set(item.get("access", {})) != ACCESS_KEYS:
-            problems.append(f"INVALID_ACCESS_SCHEMA:{item['id']}")
-        # An interface may only name a console script and route this repository
-        # still declares. A deleted script or verb left in the catalogue
-        # advertises a route that no longer exists, so discovery would be a trap.
-        if _interface_route_problem(item.get("interface"), declared, leaves):
-            problems.append(f"UNKNOWN_CLI_INTERFACE:{item['id']}")
-    for name, entry in declared.items():
-        if ":" not in entry or entry.rsplit(":", 1)[1] != "main":
-            problems.append(f"INVALID_ENTRY_POINT:{name}")
-        else:
-            module = root / "src" / Path(*entry.split(":", 1)[0].split("."))
-            file = module.with_suffix(".py")
-            if not file.is_file():
-                problems.append(f"MISSING_ENTRY_MODULE:{name}")
-            else:
-                tree = _parse_static_source(file.read_text())
-                if not any(
-                    isinstance(x, (ast.FunctionDef, ast.AsyncFunctionDef)) and x.name == "main"
-                    for x in tree.body
-                ):
-                    problems.append(f"MISSING_MAIN:{name}")
-    problems.extend(_validate_operations_cli(root))
-    problems.extend(_validate_group_scripts(root, declared))
+def validate(root: Path = ROOT) -> dict[str, Any]:
+    from .pm_operations import parser
+
+    errors = []
+    if root.resolve() != ROOT:
+        errors.append("CAPABILITY_FOREIGN_CHECKOUT_USE_ITS_CLI")
+        entries = []
+    else:
+        entries = inventory(root)
+        routes = set(_leaves(parser()))
+        for route in routes - COMMANDS.keys():
+            errors.append("UNREVIEWED_COMMAND:" + route)
+        for route in COMMANDS.keys() - routes:
+            errors.append("RETIRED_COMMAND_ADVERTISED:" + route)
+        for entry in entries:
+            if not entry["available"]:
+                errors.append("MISSING_OWNER:" + entry["id"])
+            if entry["classification"] == "READ_ONLY" and entry["access"]["write_targets"]:
+                errors.append("READ_ONLY_WRITE_TARGET:" + entry["id"])
+            if entry["classification"] not in {"READ_ONLY", "LOCAL_MUTATION", "PROTECTED_MUTATION"}:
+                errors.append("UNKNOWN_EFFECT:" + entry["id"])
+            route = entry["interface"].removeprefix("copytrade-pm ")
+            if entry["classification"] != "READ_ONLY":
+                flags = {
+                    flag
+                    for action in _leaves(parser())[route]._actions
+                    for flag in action.option_strings
+                }
+                if "--apply" not in flags:
+                    errors.append("MUTATION_WITHOUT_APPLY:" + entry["id"])
+    if _declared_scripts(root) != {"copytrade-pm": "copytrade_pm.pm_operations:main"}:
+        errors.append("UNREVIEWED_ENTRY_POINT")
+    if not (root / DOC).is_file():
+        errors.append("OPERATIONS_DOCUMENTATION_MISSING")
     return {
-        "schema": "copytrade_capability_validation_v1",
-        "status": "VERIFIED" if not problems else "BLOCKED",
-        "cli_count": len(declared),
-        "module_only_count": len(NATIVE) + len(EXTRA_MODULES),
+        "schema": "copytrade_capability_validation_v2",
+        "status": "BLOCKED" if errors else "VERIFIED",
+        "errors": sorted(errors),
         "capability_count": len(entries),
-        "errors": sorted(set(problems)),
-        "limitations": list(_VALIDATE_LIMITATIONS),
+        "cli_count": 1,
+        "limitations": ["Describes the actual local CLI parser; metadata never authorizes effects"],
     }
 
 

@@ -10,10 +10,10 @@ import sqlite3
 import pytest
 
 from copytrade_pm.pm03_account import digest
-from copytrade_pm.pm_cwsa_six_paper import (
-    PORTFOLIO_CONFIGS,
-    Chapter2PaperSupervisor,
+from copytrade_pm.pm_cwsa_paper import (
+    PaperConsumer,
 )
+from cwsa_fixture_registry import PORTFOLIO_CONFIGS
 from copytrade_pm.pm_checkpoint_journal import CheckpointOutcome
 from cwsa_fixture_registry import make_registry
 
@@ -54,11 +54,13 @@ def add_source(path: Path, checkpoint: int, aliases: tuple[str, ...] | list[str]
             )
 
 
-def new_supervisor(tmp_path: Path) -> Chapter2PaperSupervisor:
-    return Chapter2PaperSupervisor(
+def new_supervisor(tmp_path: Path) -> PaperConsumer:
+    return PaperConsumer(
+        configs=PORTFOLIO_CONFIGS,
+        run_label="cwsa_chapter2_20261112",
         state_root=tmp_path / "paper",
         source_db=tmp_path / "source.sqlite",
-        registry_db=make_registry(tmp_path),
+        roster_db=make_registry(tmp_path),
         publication_grace_override_ms=180_000,
     )
 
@@ -91,7 +93,7 @@ def test_crash_after_commit_before_status_publish_recovers_from_journal(tmp_path
     add_source(source, BASE, ALL)
     original = new_supervisor(tmp_path)
     assert original.poll_once(now_ms=BASE + 1000) == 1
-    statuses = [tmp_path / "paper" / "cwsa_chapter2_status.json"]
+    statuses = [tmp_path / "paper" / "status.json"]
     statuses.extend(
         tmp_path / "paper" / cfg["folder"] / "status.json" for cfg in PORTFOLIO_CONFIGS.values()
     )

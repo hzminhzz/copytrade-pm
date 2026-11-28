@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
     from .pm_forward_journal import PaperJournal
@@ -88,7 +88,7 @@ class PaperCampaign:
         self._accounts: set[str] = set()
         self._journal = journal
 
-    def register(self, manifest: PaperManifest) -> dict:
+    def register(self, manifest: PaperManifest) -> dict[str, Any]:
         previous = self._runs.get(manifest.run_id)
         if previous is not None:
             if previous[0].sha != manifest.sha:
@@ -104,7 +104,7 @@ class PaperCampaign:
         self._accounts.add(manifest.account_id)
         return self.status(manifest.run_id)
 
-    def record_event(self, run_id: str, event_id: str, event: dict) -> dict:
+    def record_event(self, run_id: str, event_id: str, event: dict[str, Any]) -> dict[str, Any]:
         if self._journal is None:
             raise ValueError("PAPER_JOURNAL_REQUIRED")
         if run_id not in self._runs:
@@ -112,7 +112,9 @@ class PaperCampaign:
         self._journal.append(run_id, event_id, event)
         return self.status(run_id)
 
-    def record_source_decision(self, run_id: str, event_id: str, event: dict) -> dict:
+    def record_source_decision(
+        self, run_id: str, event_id: str, event: dict[str, Any]
+    ) -> dict[str, Any]:
         """Public causal source-to-account seam with one SQLite transaction."""
         if self._journal is None:
             raise ValueError("PAPER_JOURNAL_REQUIRED")
@@ -122,20 +124,19 @@ class PaperCampaign:
         return self.status(run_id)
 
     def record_selected_checkpoint_wave(
-        self, selected, requests: dict, *, at_ms: int, catalog: dict
-    ) -> dict:
+        self, selected: Any, requests: dict[str, Any], *, at_ms: int, catalog: dict[str, Any]
+    ) -> dict[str, Any]:
         """Bind the existing SQLite-selected campaign to independently approved runs."""
         from contextlib import closing
         import json
         import sqlite3
 
         from .pm_mandate import SignedMandate
-        from .pm_source_campaign_roster import IDENTITIES
 
         if self._journal is None:
             raise ValueError("PAPER_JOURNAL_REQUIRED")
-        identities = getattr(selected, "identities", None) or IDENTITIES
-        if set(selected.profiles) != set(identities) or set(requests) - set(identities):
+        identities = set(selected.profiles)
+        if not identities or set(requests) - identities:
             raise ValueError("CHECKPOINT_SELECTED_CAMPAIGN_ROSTER")
         ready, blocked = {}, {}
         with closing(sqlite3.connect(f"file:{self._journal.path}?mode=ro", uri=True)) as db:
@@ -183,17 +184,20 @@ class PaperCampaign:
         result["portfolios"].update(blocked)
         return result
 
-    def record_checkpoint_wave(self, requests: dict, *, at_ms: int, catalog: dict) -> dict:
+    def record_checkpoint_wave(
+        self, requests: dict[str, Any], *, at_ms: int, catalog: dict[str, Any]
+    ) -> dict[str, Any]:
         """Consume a caller-scheduled canonical wave with independent account commits."""
         if self._journal is None:
             raise ValueError("PAPER_JOURNAL_REQUIRED")
         portfolios = {}
+        consume: Callable[..., dict[str, Any]] = self._journal.consume_checkpoint
         for run_id, request in sorted(requests.items()):
             rows = request if isinstance(request, list) else [request]
             results = []
             for row in rows:
                 try:
-                    result = self._journal.consume_checkpoint(
+                    result = consume(
                         run_id,
                         row["owner"],
                         row["outcome_id"],
@@ -217,7 +221,7 @@ class PaperCampaign:
             "trading_authorized": False,
         }
 
-    def checkpoint_status(self, run_id: str) -> dict:
+    def checkpoint_status(self, run_id: str) -> dict[str, Any]:
         if self._journal is None:
             raise ValueError("PAPER_JOURNAL_REQUIRED")
         saved = self._journal.restore(run_id)
@@ -242,7 +246,7 @@ class PaperCampaign:
             "trading_authorized": False,
         }
 
-    def status(self, run_id: str) -> dict:
+    def status(self, run_id: str) -> dict[str, Any]:
         manifest, account = self._runs[run_id]
         persisted = self._journal.restore(run_id) if self._journal is not None else None
         return {

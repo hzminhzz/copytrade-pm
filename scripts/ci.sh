@@ -18,10 +18,6 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
     GIT_IMPLICIT_WORK_TREE GIT_GRAFT_FILE GIT_SHALLOW_FILE \
     GIT_NO_REPLACE_OBJECTS GIT_REPLACE_REF_BASE GIT_CONFIG \
     GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_NAMESPACE || true
-if ! command -v npm >/dev/null 2>&1; then
-    echo 'CI_BLOCKED: npm unavailable for ops frontend build' >&2
-    exit 2
-fi
 if ! command -v uv >/dev/null 2>&1; then
     echo 'CI_BLOCKED: uv unavailable' >&2
     exit 2
@@ -36,21 +32,6 @@ fi
 LOGS="$(mktemp -d)"
 trap 'rm -rf "$LOGS"' EXIT
 failed=0
-# Frontend installation/build is independent of the Python suites. Stage its
-# output outside ops/control-center/dist so Vite never deletes dist/ while
-# pytest HTTP tests are reading it concurrently.
-(cd ops/control-center && npm ci --no-audit --no-fund && npm run typecheck &&
-    npx vite build --outDir "$LOGS/frontend-dist" &&
-    printf 'CI_TYPES_DONE\nCI_FRONTEND_DONE\n') >"$LOGS/frontend.log" 2>&1 &
-frontend_pid=$!
-if [[ ! -f ops/control-center/dist/index.html ]]; then
-    wait "$frontend_pid" || failed=1
-    if [[ -d "$LOGS/frontend-dist" ]]; then
-        rm -rf ops/control-center/dist
-        mv "$LOGS/frontend-dist" ops/control-center/dist
-    fi
-fi
-
 run_leg() {
     local name="$1"
     shift
@@ -89,6 +70,9 @@ if not actual.is_relative_to(expected):
             [[ -x "$pyright_bin" ]] || { echo 'pyright not executable for newly added Python files' >&2; exit 1; }
             "$pyright_bin" --pythonversion 3.14 --pythonpath "$local_env/bin/python" "${added_py[@]}"
         fi
+        echo 'CI_TYPES_DONE'
+        "$local_env/bin/python" -m copytrade_pm.pm_operations capabilities validate
+        echo 'CI_CAPABILITIES_DONE'
         "$local_env/bin/python" -c '
 import copytrade_pm
 from pathlib import Path
@@ -104,11 +88,6 @@ pids=()
 if [[ "$LEG" == "core" || "$LEG" == "all" ]]; then run_leg core & pids+=("$!"); fi
 if [[ "$LEG" == "market" || "$LEG" == "all" ]]; then run_leg market --extra market & pids+=("$!"); fi
 for pid in "${pids[@]}"; do wait "$pid" || failed=1; done
-wait "$frontend_pid" || failed=1
-if [[ -d "$LOGS/frontend-dist" ]]; then
-    rm -rf ops/control-center/dist
-    mv "$LOGS/frontend-dist" ops/control-center/dist
-fi
 
 if [[ "$LEG" == "all" ]]; then
     # The required test roster has one native owner in pm_ci_receipt. A skipped
@@ -148,7 +127,7 @@ if [[ "$LEG" == "all" ]]; then
         --root "$ROOT" --output "$RECEIPT" --status "$status" \
         --core-log "$LOGS/core.log" --market-log "$LOGS/market.log" \
         --adversarial-log "$LOGS/adversarial.log" \
-        --frontend-log "$LOGS/frontend.log" --build-log "$LOGS/build.log"; then
+        --build-log "$LOGS/build.log"; then
         failed=1
     fi
     if [[ "$failed" == 0 ]]; then

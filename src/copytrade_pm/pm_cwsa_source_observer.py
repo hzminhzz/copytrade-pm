@@ -6,17 +6,15 @@ admissible. This module owns no broker permissions or modeled paper finance.
 
 from __future__ import annotations
 
-import argparse
+from typing import Any, Iterator, Awaitable
+
 import asyncio
 from contextlib import contextmanager
-from datetime import UTC, datetime
 from hashlib import sha256
 import fcntl
-import json
 import os
 from pathlib import Path
-import signal
-from typing import Annotated, Literal
+from typing import Annotated, Callable, Literal
 
 from pydantic import Field
 
@@ -26,7 +24,6 @@ from .pm_checkpoint_source import GRID_MS, CheckpointScope, collect_checkpoint, 
 from .pm_forward_continuous_transport import SerialWriter
 from .pm_forward_journal import PaperJournal
 from .pm_source_contracts import Contract
-from .pm_source_selection import selected_parents
 
 
 class CheckpointObserverConfig(Contract):
@@ -54,7 +51,9 @@ class CheckpointObserverConfig(Contract):
                 raise ValueError("CWSA_CONFIG_ROSTER_OR_SCOPE")
 
 
-def load_checkpoint_configuration(path: Path, expected_sha: str, parents: dict[str, str]):
+def load_checkpoint_configuration(
+    path: Path, expected_sha: str, parents: dict[str, str]
+) -> CheckpointObserverConfig:
     from .pm_private_io import private_input
 
     raw = private_input(path)
@@ -66,7 +65,7 @@ def load_checkpoint_configuration(path: Path, expected_sha: str, parents: dict[s
 
 
 @contextmanager
-def source_lease(root: Path):
+def source_lease(root: Path) -> Iterator[None]:
     """Exclusive mode selection within the existing source process boundary."""
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     if root.is_symlink() or root.stat().st_mode & 0o077:
@@ -90,10 +89,11 @@ async def observe_checkpoints(
     stop: asyncio.Event | None = None,
     duration_seconds: float = 0,
     once: bool = False,
-    info=None,
-    now_ms=utc_milliseconds,
-    wait=None,
-) -> dict:
+    info: Callable[[dict[str, Any]], tuple[Any, bytes, str]] | None = None,
+    now_ms: Callable[[], int] = utc_milliseconds,
+    wait: Callable[[int], Awaitable[None]] | None = None,
+    on_ready: Callable[[], None] | None = None,
+) -> dict[str, Any]:
     """REST transport mode of this observer; the existing journal owns every transition."""
     config.bind(parents)
     stop = stop or asyncio.Event()
@@ -115,8 +115,10 @@ async def observe_checkpoints(
         from .pm_checkpoint_capacity import CaptureTransport
 
         info = CaptureTransport(config.weight_per_second)
+    if on_ready is not None:
+        on_ready()
     semaphore = asyncio.Semaphore(config.workers)
-    outcomes = {}
+    outcomes: dict[str, int] = {}
     waves = 0
     async with SerialWriter(max_pending=max(16, len(parents))) as writer:
         while not stop.is_set():
@@ -138,7 +140,7 @@ async def observe_checkpoints(
                 continue
             boundary = max(due, current // GRID_MS * GRID_MS)
 
-            async def collect(alias):
+            async def collect(alias: str) -> None:
                 async with semaphore:
                     candidate = await asyncio.to_thread(
                         collect_checkpoint,
@@ -169,9 +171,6 @@ async def observe_checkpoints(
                 if isinstance(result, BaseException):
                     raise result
             waves += 1
-            if hasattr(info, "requests"):
-                # Pacing continues across waves; diagnostic request memory remains bounded.
-                info.requests.clear()
             if once:
                 break
     return {
@@ -185,54 +184,3 @@ async def observe_checkpoints(
         "order_route": "NONE",
         "trading_authorized": False,
     }
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--registry-db", type=Path, required=True)
-    parser.add_argument("--state-root", type=Path, required=True)
-    parser.add_argument("--portfolios", required=True)
-    # Accept the existing pinned CWSA unit's explicit REST mode; no WS mode exists.
-    parser.add_argument(
-        "--source-mode", choices=("CHECKPOINT_REST_V3",), default="CHECKPOINT_REST_V3"
-    )
-    parser.add_argument("--checkpoint-config", type=Path, required=True)
-    parser.add_argument("--checkpoint-config-sha256", required=True)
-    parser.add_argument("--checkpoint-once", action="store_true")
-    parser.add_argument("--duration-seconds", type=float, default=0)
-    args = parser.parse_args(argv)
-    if not 0 <= args.duration_seconds <= 86400:
-        parser.error("--duration-seconds must be 0..86400")
-    ids = tuple(args.portfolios.split(","))
-    if not ids or len(ids) != len(set(ids)):
-        parser.error("CWSA_PORTFOLIO_SCOPE_INVALID")
-    os.umask(0o077)
-    now = datetime.now(UTC).isoformat(timespec="microseconds")
-    parents = selected_parents(args.registry_db, portfolios=ids, as_of=now)
-    config = load_checkpoint_configuration(
-        args.checkpoint_config, args.checkpoint_config_sha256, parents
-    )
-    with source_lease(args.state_root):
-        journal = PaperJournal(args.state_root)
-
-        async def session():
-            stop = asyncio.Event()
-            loop = asyncio.get_running_loop()
-            for sig in (signal.SIGINT, signal.SIGTERM):
-                loop.add_signal_handler(sig, stop.set)
-            return await observe_checkpoints(
-                journal,
-                parents,
-                config,
-                stop=stop,
-                duration_seconds=args.duration_seconds,
-                once=args.checkpoint_once,
-            )
-
-        result = asyncio.run(session())
-    print(json.dumps(result, sort_keys=True), flush=True)
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

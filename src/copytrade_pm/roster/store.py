@@ -49,13 +49,25 @@ from .reconciler import ReconcilePlan
 
 __all__ = ["CommitReceipt", "RosterStore", "RosterStoreError"]
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 DDL = """
 CREATE TABLE IF NOT EXISTS meta(
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS observation_selections(
+    portfolio_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    recorded_ms INTEGER NOT NULL,
+    payload_sha TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    PRIMARY KEY(portfolio_id, version)
+);
+CREATE TRIGGER IF NOT EXISTS observation_selections_no_update BEFORE UPDATE ON observation_selections
+BEGIN SELECT RAISE(ABORT, 'IMMUTABLE_OBSERVATION_SELECTION'); END;
+CREATE TRIGGER IF NOT EXISTS observation_selections_no_delete BEFORE DELETE ON observation_selections
+BEGIN SELECT RAISE(ABORT, 'IMMUTABLE_OBSERVATION_SELECTION'); END;
 CREATE TABLE IF NOT EXISTS accounts(
     account_id TEXT PRIMARY KEY,
     policy_epoch TEXT NOT NULL,
@@ -202,6 +214,7 @@ BEGIN SELECT RAISE(ABORT, 'IMMUTABLE_CUSUM_EVENT'); END;
 """
 
 _AUTHORITY_TABLES = (
+    "observation_selections",
     "accounts",
     "books",
     "leases",
@@ -225,6 +238,7 @@ _INVENTORY_TABLES = tuple(
 
 
 _OBSERVER_KEYS = {
+    "observation_selections": ("portfolio_id", "version"),
     "accounts": ("account_id",),
     "books": ("account_id", "sequence"),
     "leases": ("account_id", "seat_id", "generation"),
@@ -234,7 +248,7 @@ _OBSERVER_KEYS = {
     "cusum_events": ("wallet", "policy_epoch", "at_ms", "increment"),
     "policies": ("account_id", "generation"),
 }
-_SEALED_TABLES = ("books", "policies", "leases", "draining")
+_SEALED_TABLES = ("books", "policies", "leases", "draining", "observation_selections")
 DEFAULT_ROSTER_PATH = Path.home() / ".local/share/copytrade/roster.sqlite"
 
 
@@ -249,7 +263,7 @@ def _check_sealed_triggers(con: sqlite3.Connection) -> None:
     actual = dict(
         con.execute(
             "SELECT name, sql FROM sqlite_schema WHERE type='trigger'"
-            " AND tbl_name IN ('books','policies','leases','draining')"
+            " AND tbl_name IN ('books','policies','leases','draining','observation_selections')"
         )
     )
     if actual != expected:
@@ -392,11 +406,34 @@ class RosterStore:
         self._con.execute("PRAGMA recursive_triggers=ON")
         self._con.execute("PRAGMA busy_timeout=30000")
         if create:
-            self._con.executescript(DDL)
-            self._con.execute(
-                "INSERT OR REPLACE INTO meta(key, value) VALUES('schema_version', ?)",
-                (str(SCHEMA_VERSION),),
-            )
+            tables = {
+                row[0]
+                for row in self._con.execute(
+                    "SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+                )
+            }
+            if tables:
+                prior = (
+                    self._con.execute(
+                        "SELECT value FROM meta WHERE key='schema_version'"
+                    ).fetchone()
+                    if "meta" in tables
+                    else None
+                )
+                if prior is None or prior[0] not in ("1", str(SCHEMA_VERSION)):
+                    self._con.close()
+                    raise RosterStoreError("ROSTER_SCHEMA_VERSION")
+            try:
+                self._con.executescript("BEGIN IMMEDIATE;\n" + DDL)
+                self._con.execute(
+                    "INSERT OR REPLACE INTO meta(key, value) VALUES('schema_version', ?)",
+                    (str(SCHEMA_VERSION),),
+                )
+                self._con.commit()
+            except Exception:
+                self._con.rollback()
+                self._con.close()
+                raise
 
     # -- lifecycle ---------------------------------------------------------
     def __enter__(self) -> RosterStore:
@@ -409,7 +446,7 @@ class RosterStore:
         with closing(self._con):
             pass
 
-    def _tx(self):
+    def _tx(self) -> _Transaction:
         return _Transaction(self)
 
     @contextmanager
@@ -433,6 +470,101 @@ class RosterStore:
         if row is None or row["value"] != str(SCHEMA_VERSION):
             raise RosterStoreError("ROSTER_SCHEMA_VERSION")
         return SCHEMA_VERSION
+
+    def record_observation_selection(self, payload: dict[str, Any], *, recorded_ms: int) -> str:
+        """Adopt a pinned selection without inventing researched seats or k.
+
+        Origin clocks/seals remain evidence. The adoption clock controls when
+        this store can expose that evidence; neither clock grants finance.
+        """
+        from .observations import validate_selection
+
+        validate_selection(payload)
+        return self.record_observation_selections([payload], recorded_ms=recorded_ms)[0]
+
+    def record_observation_selections(
+        self, payloads: Sequence[dict[str, Any]], *, recorded_ms: int
+    ) -> list[str]:
+        """Adopt a complete snapshot atomically; a drift rejects the entire batch."""
+        from .observations import validate_selection
+
+        self._require_writable()
+        self._require_schema()
+        for payload in payloads:
+            validate_selection(payload)
+            if type(recorded_ms) is not int or recorded_ms < payload["selection_known_at_ms"]:
+                raise ValueError("OBSERVATION_ADOPTION_CLOCK")
+        pins = [digest(payload) for payload in payloads]
+        with self._tx() as con:
+            for payload, pin in zip(payloads, pins, strict=True):
+                old = con.execute(
+                    "SELECT payload_sha FROM observation_selections WHERE portfolio_id=? AND version=?",
+                    (payload["portfolio_id"], payload["version"]),
+                ).fetchone()
+                if old is not None:
+                    if old[0] != pin:
+                        raise ValueError("OBSERVATION_SELECTION_DRIFT")
+                    continue
+                con.execute(
+                    "INSERT INTO observation_selections VALUES(?,?,?,?,?)",
+                    (
+                        payload["portfolio_id"],
+                        payload["version"],
+                        recorded_ms,
+                        pin,
+                        canonical(payload).decode(),
+                    ),
+                )
+        return pins
+
+    def observation_selection(
+        self, portfolio_id: str, *, as_of: KnownAtTs, version: int | None = None
+    ) -> dict[str, Any] | None:
+        """Read verified original membership at the store's first-known cutoff."""
+        from .observations import validate_selection
+
+        self._require_schema()
+        if not isinstance(as_of, KnownAtTs):
+            raise ValueError("INVALID_CLOCK")
+        if not self._con.execute(
+            "SELECT 1 FROM sqlite_schema WHERE name='observation_selections' AND type='table'"
+        ).fetchone():
+            return None
+        query = "SELECT * FROM observation_selections WHERE portfolio_id=? AND recorded_ms<=?"
+        values: list[Any] = [portfolio_id, as_of.value]
+        if version is not None:
+            query += " AND version=?"
+            values.append(version)
+        row = self._con.execute(query + " ORDER BY version DESC LIMIT 1", values).fetchone()
+        if row is None:
+            return None
+        payload = json.loads(row["payload"])
+        validate_selection(payload)
+        if (
+            digest(payload) != row["payload_sha"]
+            or (payload["portfolio_id"], payload["version"])
+            != (row["portfolio_id"], row["version"])
+            or payload["selection_known_at_ms"] > row["recorded_ms"]
+        ):
+            raise ValueError("OBSERVATION_SELECTION_DRIFT")
+        return {
+            **payload,
+            "adopted_at_ms": row["recorded_ms"],
+            "payload_sha256": row["payload_sha"],
+        }
+
+    def observation_portfolios(self) -> tuple[str, ...]:
+        self._require_schema()
+        if not self._con.execute(
+            "SELECT 1 FROM sqlite_schema WHERE name='observation_selections' AND type='table'"
+        ).fetchone():
+            return ()
+        return tuple(
+            row[0]
+            for row in self._con.execute(
+                "SELECT DISTINCT portfolio_id FROM observation_selections ORDER BY portfolio_id"
+            )
+        )
 
     # -- accounts ----------------------------------------------------------
     def register_account(
@@ -797,7 +929,7 @@ class RosterStore:
                         " last_failure_ms=excluded.last_failure_ms, reason=excluded.reason",
                         (change.wallet, stamp, stamp, change.reason),
                     )
-        proposal_sha: str | None = None
+        proposal_sha = None
         proposal_state = "DISABLED"
         if with_proposal:
             proposal_sha, proposal_state = self._stage_proposal(book, plan, stamp)
@@ -1249,6 +1381,14 @@ class RosterStore:
                 _check_sealed_triggers(con)
                 for row in con.execute("SELECT * FROM books"):
                     _verified_book(con, row)
+                for pid in store.observation_portfolios():
+                    for row in con.execute(
+                        "SELECT version,recorded_ms FROM observation_selections WHERE portfolio_id=?",
+                        (pid,),
+                    ):
+                        store.observation_selection(
+                            pid, as_of=KnownAtTs(row["recorded_ms"]), version=row["version"]
+                        )
                 for row in con.execute("SELECT * FROM scorecards"):
                     body = json.loads(row["payload"])
                     if digest(body) != row["scorecard_sha"] or (

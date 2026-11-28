@@ -25,6 +25,8 @@ signs anything, and never claims trading authorization.
 
 from __future__ import annotations
 
+from typing import Iterator
+
 import argparse
 from collections import Counter, deque
 from contextlib import contextmanager
@@ -128,7 +130,7 @@ def _parse_ledger_delta(delta: object) -> tuple[str, dict[str, Any]] | None:
     return None
 
 
-def _ledger_audit(rows: object, *, since: int, until: int) -> dict:
+def _ledger_audit(rows: object, *, since: int, until: int) -> dict[str, Any]:
     """Only classify identifiable external cash flows; all other deltas abstain."""
     if not isinstance(rows, list) or len(rows) > MAX_LEDGER_PAGE:
         raise ValueError("INVALID_HL_LEDGER_PAGE")
@@ -171,7 +173,7 @@ def _ledger_audit(rows: object, *, since: int, until: int) -> dict:
     if len(rows) == MAX_LEDGER_PAGE:
         ambiguity.add("LEDGER_PAGE_LIMIT_CENSORED")
     return {
-        "event_types": dict(sorted(kinds.items())),
+        "event_types": dict[str, Any](sorted(kinds.items())),
         "external_deposit_usd_observed": str(external["deposit"]) if not ambiguity else None,
         "external_withdraw_usd_observed": str(external["withdraw"]) if not ambiguity else None,
         "complete_for_declared_90d_window": not ambiguity,
@@ -273,6 +275,11 @@ def roster_candidates(
                 if "scored" not in reasons.setdefault(wallet, set()):
                     counts["scored"] += 1
                 reasons[wallet].add("scored")
+        for portfolio_id in roster.observation_portfolios():
+            selected = roster.observation_selection(portfolio_id, as_of=as_of)
+            if selected is not None:
+                for wallet in selected["members"].values():
+                    reasons.setdefault(wallet, set()).add("observation")
         inventory_sha = roster.inventory_sha()
     return RosterSelection(
         candidates=tuple(
@@ -488,13 +495,13 @@ def _save_reply(
     index: int,
     wallet: str,
     kind: str,
-    request: dict,
+    request: dict[str, Any],
     payload: object,
     raw: bytes,
     supplied_sha: str,
     requested_at: datetime,
     received_at: datetime,
-) -> dict:
+) -> dict[str, Any]:
     verify_raw(payload, raw, supplied_sha)
     if received_at < requested_at:
         raise ValueError("PROVIDER_CLOCK_ORDER_INVALID")
@@ -536,9 +543,9 @@ def capture_health(
     raw_archive: bool = True,
     dry_run: bool = False,
     budget: WeightBudget | None = None,
-    info: Callable = guarded_info,
+    info: Callable[[dict[str, Any]], tuple[Any, bytes, str]] = guarded_info,
     clock: Callable[[], datetime] = _now,
-) -> dict:
+) -> dict[str, Any]:
     """Capture official replies, ingest normalised facts, return a summary.
 
     ``store`` is the only fact sink; ``generation`` is the optional immutable raw
@@ -587,13 +594,15 @@ def capture_health(
     equity: list[dict[str, Any]] = []
     funding: list[dict[str, Any]] = []
     ledger: list[dict[str, Any]] = []
-    ledger_audits: list[dict] = []
+    ledger_audits: list[dict[str, Any]] = []
     verified_raw = 0
     equity_abstained = 0
     activity_verified = 0
     queried = 0
 
-    def fetch(index: int, wallet: str, kind: str, extra_args: dict | None = None):
+    def fetch(
+        index: int, wallet: str, kind: str, extra_args: dict[str, Any] | None = None
+    ) -> tuple[Any, dict[str, Any] | None, datetime] | None:
         nonlocal verified_raw
         request = {"type": kind, "user": wallet, **(extra_args or {})}
         for attempt in range(3):
@@ -602,7 +611,7 @@ def capture_health(
             try:
                 payload, raw, signed = info(request)
                 received = clock()
-                receipt: dict | None = None
+                receipt: dict[str, Any] | None = None
                 if archive_root is not None:
                     receipt = _save_reply(
                         archive_root,
@@ -750,7 +759,7 @@ def capture_health(
         "provider_calls_reserved": budget.calls,
         "provider_weight_reserved": budget.total_reserved,
         "provider_weight_per_minute": budget.limit,
-        "provider_errors": dict(sorted(errors.items())),
+        "provider_errors": dict[str, Any](sorted(errors.items())),
         "read_only_source_and_roster": True,
         "trading_authorized": False,
     }
@@ -783,22 +792,22 @@ def _fills_activity(payload: object, *, at: datetime, since: int, until: int) ->
     return False
 
 
-def _ledger_summary(audits: Sequence[dict]) -> dict[str, Any]:
+def _ledger_summary(audits: Sequence[dict[str, Any]]) -> dict[str, Any]:
     """Aggregate ledger diagnostics: counts only, never an amount or identity."""
     reasons: Counter[str] = Counter()
     types: Counter[str] = Counter()
     complete = 0
     for audit in audits:
-        for reason in audit.get("reasons", ()):  # type: ignore[union-attr]
+        for reason in audit.get("reasons", ()):
             reasons[reason] += 1
-        for name in audit.get("event_types", {}):  # type: ignore[union-attr]
+        for name in audit.get("event_types", {}):
             types[name] += 1
         complete += int(bool(audit.get("complete_for_declared_90d_window")))
     return {
         "wallets_audited": len(audits),
         "complete_90d_windows": complete,
-        "event_types": dict(sorted(types.items())),
-        "abstention_reasons": dict(sorted(reasons.items())),
+        "event_types": dict[str, Any](sorted(types.items())),
+        "abstention_reasons": dict[str, Any](sorted(reasons.items())),
         "not_full_account_capital_reconciliation": True,
     }
 
@@ -833,7 +842,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 @contextmanager
-def _capture_lock(directory: Path):
+def _capture_lock(directory: Path) -> Iterator[None]:
     """Only one official capture against the source IP and roster at a time."""
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     if directory.stat().st_mode & 0o077:

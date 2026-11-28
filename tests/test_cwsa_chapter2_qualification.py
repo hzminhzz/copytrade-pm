@@ -11,13 +11,20 @@ from copytrade_pm.pm_cwsa_paper_qualification import (
     paper_candidate,
     mandate_k_blockers,
 )
-from copytrade_pm.pm_cwsa_chapter2_gate import EXPECTED_PORTFOLIOS
+from cwsa_fixture_registry import PORTFOLIO_CONFIGS
+
 from copytrade_pm.pm_ci_receipt import _verify_steps, _pytest_counts
 from copytrade_pm.production_manifest import sign
 
 
+EXPECTED_PORTFOLIOS = tuple(PORTFOLIO_CONFIGS)
+
+
 def seals():
-    return {pid: {"definition_sha256": "a" * 64} for pid in EXPECTED_PORTFOLIOS}
+    return {
+        pid: {"definition_sha256": "a" * 64, "members": cfg["members"]}
+        for pid, cfg in PORTFOLIO_CONFIGS.items()
+    }
 
 
 def qualify(candidate):
@@ -129,7 +136,7 @@ def test_receipt_rejects_skip_and_partial_results():
     assert _pytest_counts("1900 passed, 40 skipped in 12.0s") == {"passed": 1900, "skipped": 40}
     assert _pytest_counts("FAILED 3 tests") == {"passed": 0, "skipped": 0}
     incomplete = {
-        "schema": "copytrade_local_ci_receipt_v1",
+        "schema": "copytrade_local_ci_receipt_v2",
         "stage": "premerge",
         "leg": "all",
         "status": "PASS",
@@ -143,7 +150,7 @@ def test_receipt_requires_local_worktree_project_binding():
     from copytrade_pm.pm_ci_receipt import ALL_HASHES, REQUIRED_LOGS
 
     receipt = {
-        "schema": "copytrade_local_ci_receipt_v1",
+        "schema": "copytrade_local_ci_receipt_v2",
         "stage": "premerge",
         "leg": "all",
         "status": "PASS",
@@ -161,7 +168,7 @@ def test_receipt_requires_local_worktree_project_binding():
                 "core",
                 "market",
                 "adversarial",
-                "frontend",
+                "capabilities",
                 "build",
                 "ruff",
                 "format",

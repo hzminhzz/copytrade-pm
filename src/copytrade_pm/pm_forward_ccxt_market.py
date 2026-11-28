@@ -11,15 +11,11 @@ candles, worker activation or production service mutation exists in this module.
 
 from __future__ import annotations
 
-import argparse
 import asyncio
-from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from importlib import import_module
-import json
-from pathlib import Path
 import re
 from typing import Any, Callable, Mapping
 
@@ -223,7 +219,7 @@ class L2Quote:
     def quote_sha(self) -> str:
         return digest(self.payload())
 
-    def observation(self) -> dict:
+    def observation(self) -> dict[str, Any]:
         """PM03 mark is an observed quote midpoint, NOT the exchange markPx."""
         return {
             "instrument": self.market.instrument.key,
@@ -235,7 +231,7 @@ class L2Quote:
             "supported": self.market.session_eligible,
         }
 
-    def contract(self, *, costs: dict, as_of: str) -> dict:
+    def contract(self, *, costs: dict[str, Any], as_of: str) -> dict[str, Any]:
         """Version modeled cost policy, observable spread and native lot gate.
 
         Does NOT claim HIP-3 session status, traded volume, funding or a
@@ -312,7 +308,7 @@ def parse_ccxt_book(
     if spread_bps > max_spread_bps:
         raise ValueError("CCXT_BOOK_SPREAD_TOO_WIDE")
 
-    def valid_levels(raw: list, *, direction: str) -> tuple[tuple[Decimal, Decimal], ...]:
+    def valid_levels(raw: list[Any], *, direction: str) -> tuple[tuple[Decimal, Decimal], ...]:
         if len(raw) > 64:
             raise ValueError("CCXT_BOOK_DEPTH_LIMIT_EXCEEDED")
         levels = []
@@ -361,9 +357,9 @@ def parse_ccxt_book(
 
 
 def verify_l2_evidence(
-    evidence: dict | None,
-    contract: dict,
-    observation: dict,
+    evidence: dict[str, Any] | None,
+    contract: dict[str, Any],
+    observation: dict[str, Any],
     *,
     decision_at: str,
 ) -> tuple[str, ...]:
@@ -491,7 +487,6 @@ class ReadOnlyCCXTProHyperliquid:
         timeout_seconds: float = 15,
         max_age_seconds: int = 20,
         factory: Callable[..., Any] | None = None,
-        rolling_trades: bool = False,
         now: Callable[[], str] = _now,
     ) -> None:
         if not requested or len(requested) != len(set(requested)):
@@ -517,7 +512,6 @@ class ReadOnlyCCXTProHyperliquid:
         self.timeout_seconds = timeout_seconds
         self.max_age_seconds = max_age_seconds
         self._factory = factory
-        self._rolling_trades = rolling_trades
         self._now = now
         self._exchange: Any = None
         self.catalog: dict[Instrument, NativeMarket] = {}
@@ -526,7 +520,7 @@ class ReadOnlyCCXTProHyperliquid:
         self._last: dict[Instrument, tuple[str, str]] = {}
         self._is_open = False
 
-    async def open(self) -> dict:
+    async def open(self) -> dict[str, Any]:
         if self._is_open or self._exchange is not None:
             raise ValueError("CCXT_FEED_ALREADY_STARTED")
         make = self._factory
@@ -546,9 +540,6 @@ class ReadOnlyCCXTProHyperliquid:
                 }
             },
         }
-        if self._rolling_trades:
-            config["newUpdates"] = False
-            config["options"]["tradesLimit"] = 1000
         exchange = make(config)
         self._exchange = exchange
         try:
@@ -624,28 +615,7 @@ class ReadOnlyCCXTProHyperliquid:
     def is_open(self) -> bool:
         return self._is_open and self._exchange is not None
 
-    @property
-    def supports_trades_ws(self) -> bool:
-        return getattr(self._exchange, "has", {}).get("watchTrades") is True
-
-    def attach_receipt_clock(self, *, receipt_clock_factory=None, now=_now, limiter=None):
-        if not self._is_open or self._exchange is None:
-            raise ValueError("PAPER_CCXT_FEED_NOT_OPEN")
-        if receipt_clock_factory is not None:
-            return receipt_clock_factory(self._exchange)
-        return CCXTLocalReceiptClock(self._exchange, now=now, limiter=limiter)
-
-    async def watch_raw_order_book(self, symbol: str, limit: int = 5):
-        if not self._is_open or self._exchange is None:
-            raise ValueError("PAPER_CCXT_FEED_NOT_OPEN")
-        return await self._exchange.watch_order_book(symbol, limit)
-
-    async def watch_raw_trades(self, symbol: str, since=None, limit: int = 1000):
-        if not self._is_open or self._exchange is None:
-            raise ValueError("PAPER_CCXT_FEED_NOT_OPEN")
-        return await self._exchange.watch_trades(symbol, since, limit)
-
-    def status(self) -> dict:
+    def status(self) -> dict[str, Any]:
         return {
             "schema": "paper_ccxt_public_feed_status_v1",
             "exchange": CCXT_EXCHANGE,
@@ -654,7 +624,7 @@ class ReadOnlyCCXTProHyperliquid:
             "live_quote_verified": sorted(inst.key for inst in self._last),
             "transport_independently_attested": False,
             "catalogued": sorted(inst.key for inst in self.catalog),
-            "blocked": dict(sorted(self.blocked.items())),
+            "blocked": dict[str, Any](sorted(self.blocked.items())),
             "quarantined": sorted(inst.key for inst in self.quarantined),
             "source_account_complete": False,
             "trade_volume_complete": False,
@@ -677,538 +647,3 @@ class ReadOnlyCCXTProHyperliquid:
 
     async def __aexit__(self, _type: object, _exc: object, _tb: object) -> None:
         await self.close()
-
-
-class PersistentMarket:
-    """Long-lived quote/trade projection; validation and receipt owners reused."""
-
-    def __init__(self, journal, market: NativeMarket, *, scope_sha: str, max_cache: int = 1000):
-        from .pm_forward_ccxt_trades import TradeWindow
-        from .pm_forward_stream_journal import StreamProgress
-
-        self.journal, self.market, self.scope_sha = journal, market, scope_sha
-        self.max_cache = max_cache
-        self.progress = {
-            channel: StreamProgress(journal, prefix + market.instrument.key)
-            for channel, prefix in (("quote", "ccxt_l2:"), ("trades", "ccxt_trades:"))
-        }
-        self.epochs = {}
-        self.window = TradeWindow(market.instrument, market.ccxt_symbol, max_cache=max_cache)
-
-    def begin(self, channel: str, known_at: str) -> dict:
-        from uuid import uuid4
-        from .pm_forward_ccxt_trades import TradeWindow
-
-        progress, epoch = self.progress[channel], uuid4().hex
-        state = {
-            **progress.checkpoint,
-            "baseline_valid": False,
-            "transport": "CONNECTING",
-            "scope_sha": self.scope_sha,
-            "gap_reason": "NEW_CONNECTION_OR_CHANNEL_EPOCH",
-        }
-        event = progress.propose(
-            epoch=epoch,
-            kind="GAP",
-            known_at=known_at,
-            checkpoint=state,
-            details={"reason": state["gap_reason"]},
-        )
-        result = progress.commit(event)
-        self.epochs[channel] = epoch
-        if channel == "trades":
-            self.window = TradeWindow(
-                self.market.instrument, self.market.ccxt_symbol, max_cache=self.max_cache
-            )
-            self.window.epoch = epoch
-        return result
-
-    def gap(self, channel: str, known_at: str, reason: str) -> dict:
-        progress = self.progress[channel]
-        state = {
-            **progress.checkpoint,
-            "baseline_valid": False,
-            "transport": "DEGRADED",
-            "gap_reason": reason,
-        }
-        return progress.commit(
-            progress.propose(
-                epoch=self.epochs[channel],
-                kind="GAP",
-                known_at=known_at,
-                checkpoint=state,
-                details={"reason": reason},
-            )
-        )
-
-    def transport(self, channel: str, known_at: str) -> dict:
-        progress = self.progress[channel]
-        state = {**progress.checkpoint, "last_transport_at": known_at, "transport": "CONNECTED"}
-        return progress.commit(
-            progress.propose(
-                epoch=self.epochs[channel],
-                kind="TRANSPORT",
-                known_at=known_at,
-                checkpoint=state,
-            )
-        )
-
-    def quote(self, book: dict, known_at: str) -> dict:
-        quote = parse_ccxt_book(self.market, book, first_known_at=known_at)
-        payload = quote.payload()
-        progress = self.progress["quote"]
-        prior = progress.checkpoint
-        if prior.get("source_event_at"):
-            if clock(quote.source_event_at) < clock(prior["source_event_at"]):
-                raise ValueError("CCXT_BOOK_SOURCE_CLOCK_REGRESSION")
-            if (
-                quote.source_event_at == prior["source_event_at"]
-                and quote.book_sha == prior["book_sha"]
-            ):
-                return {"status": "DUPLICATE_MARKET_QUOTE", "order_route": "NONE"}
-        baseline = not prior.get("baseline_valid", False)
-        state = {
-            **prior,
-            "baseline_valid": True,
-            "transport": "CONNECTED",
-            "last_transport_at": known_at,
-            "last_quote_at": known_at,
-            "source_event_at": quote.source_event_at,
-            "book_sha": quote.book_sha,
-            "quote_sha": digest(payload),
-            "scope_sha": self.scope_sha,
-        }
-        event = progress.propose(
-            epoch=self.epochs["quote"],
-            kind="BASELINE" if baseline else "OBSERVATION",
-            known_at=known_at,
-            checkpoint=state,
-            source_at=quote.source_event_at,
-            raw_sha=quote.book_sha,
-        )
-        return progress.commit(
-            event, lambda e: self.journal.append_market_quote(payload, stream_event=e)
-        )
-
-    def trades(
-        self, cached: list[dict], known_at: str, *, first_known_by_id: dict | None = None
-    ) -> dict:
-        from copy import deepcopy
-
-        # A candidate cache may mutate during validation; published state may not.
-        candidate = deepcopy(self.window)
-        normalized = [
-            {**row, "id": str(row.get("id")) + "@" + str(row.get("timestamp"))} for row in cached
-        ]
-        if any(not isinstance(row.get("id"), str) or not row["id"] for row in cached):
-            raise ValueError("CCXT_TRADE_NATIVE_ID_UNKNOWN")
-        prior = self.progress["trades"].checkpoint
-        if first_known_by_id is not None and prior.get("baseline_valid"):
-            present = {row["id"] for row in normalized}
-            if any(
-                clock(at) > clock(prior["last_cache_at"]) and tid not in present
-                for tid, at in first_known_by_id.items()
-            ):
-                raise ValueError("CCXT_NATIVE_CACHE_DROPPED_OBSERVED_TRADE")
-        batch = candidate.process(normalized, first_known_at=known_at)
-        if first_known_by_id is not None:
-            for row in batch["trades"]:
-                earliest = first_known_by_id.get(row["native_trade_id"])
-                if earliest is None or not (
-                    clock(row["source_event_at"]) <= clock(earliest) <= clock(known_at)
-                ):
-                    raise ValueError("CCXT_EARLIEST_LOCAL_RECEIPT_UNKNOWN")
-                row["first_known_at"] = earliest
-            batch["local_clock_semantics"] = "PER_NATIVE_TRADE_FIRST_RECEIPT"
-        progress = self.progress["trades"]
-        baseline = batch["status"] == "BASELINE_RETROSPECTIVE_NOT_ELIGIBLE"
-        state = {
-            **progress.checkpoint,
-            "baseline_valid": True,
-            "transport": "CONNECTED",
-            "last_transport_at": known_at,
-            "last_cache_at": known_at,
-            "last_trade_event_at": candidate._last_event,
-            "cache_id_count": len(candidate._order),
-            "cache_sha": digest(candidate._seen),
-            "scope_sha": self.scope_sha,
-            "trade_volume_complete": False,
-        }
-        event = progress.propose(
-            epoch=self.epochs["trades"],
-            kind="BASELINE" if baseline else "OBSERVATION",
-            known_at=known_at,
-            checkpoint=state,
-            raw_sha=digest(cached),
-        )
-        progress.commit(
-            event, lambda e: self.journal.append_market_trade_batch(batch, stream_event=e)
-        )
-        self.window = candidate
-        return batch
-
-
-class CCXTLocalReceiptClock:
-    """Instrument pinned CCXT before JSON/provider normalization.
-
-    CCXT 4.5.91 Client.handle_message receives the raw WS message. Retain the
-    local timestamp there, then associate it with native book/trade identity
-    in the exchange dispatch callback. A missing stamp is a coverage failure.
-    """
-
-    def __init__(self, exchange, *, now=_now, max_ids: int = 2000, limiter=None):
-        from collections import OrderedDict
-        from importlib.metadata import version
-        from uuid import uuid4
-
-        if version("ccxt") != "4.5.91":
-            raise ValueError("CCXT_RECEIPT_CLOCK_VERSION_NOT_VERIFIED")
-        self.now, self.max_ids = now, max_ids
-        self.frames = {}
-        self.trade_ids = {}
-        self.clients = {}
-        self._ordered = OrderedDict
-        self._epoch = uuid4
-        original_client = exchange.client
-        original_dispatch = exchange.handle_message
-
-        def client_for(url):
-            client = original_client(url)
-            if not getattr(client, "_observer_instrumented", False):
-                client._observer_instrumented = True
-                client._observer_epoch = uuid4().hex
-                client._observer_wire_at = None
-                original_handle = client.handle_message
-                original_connected = client.on_connected_callback
-                original_dial = client.create_connection
-
-                async def dial(session):
-                    if limiter is not None:
-                        await limiter.acquire()
-                    return await original_dial(session)
-
-                def receive(message):
-                    client._observer_wire_at = now()
-                    return original_handle(message)
-
-                def connected(current):
-                    current._observer_epoch = uuid4().hex
-                    return original_connected(current)
-
-                client.handle_message = receive
-                client.on_connected_callback = connected
-                client.create_connection = dial
-                self.clients[url] = client
-            return client
-
-        def dispatch(client, message):
-            known = getattr(client, "_observer_wire_at", None)
-            epoch = getattr(client, "_observer_epoch", None)
-            if known is not None and epoch is not None:
-                self.record(message, known, epoch)
-            return original_dispatch(client, message)
-
-        exchange.client = client_for
-        exchange.handle_message = dispatch
-
-    def record(self, message: dict, known_at: str, epoch: str):
-        channel, data = message.get("channel"), message.get("data")
-        if channel == "l2Book" and isinstance(data, dict):
-            coin = data.get("coin")
-            if isinstance(coin, str) and type(data.get("time")) is int:
-                prior = self.frames.get(("quote", coin), {})
-                self.frames[("quote", coin)] = {
-                    "known_at": known_at,
-                    "epoch": epoch,
-                    "native_time": data["time"],
-                    "dispatch_count": prior.get("dispatch_count", 0) + 1,
-                }
-        if channel == "trades" and isinstance(data, list):
-            for row in data:
-                if not isinstance(row, dict) or not isinstance(row.get("coin"), str):
-                    continue
-                coin, tid = row["coin"], str(row.get("tid")) + "@" + str(row.get("time"))
-                cache = self.trade_ids.setdefault(coin, self._ordered())
-                old = cache.get(tid)
-                if old is None or old["epoch"] != epoch:
-                    cache[tid] = {"known_at": known_at, "epoch": epoch}
-                while len(cache) > self.max_ids:
-                    cache.popitem(last=False)
-                prior = self.frames.get(("trades", coin), {})
-                self.frames[("trades", coin)] = {
-                    "known_at": known_at,
-                    "epoch": epoch,
-                    "dispatch_count": prior.get("dispatch_count", 0) + 1,
-                }
-
-    def stamp(self, channel: str, coin: str, *, native_time: int | None = None) -> dict:
-        row = self.frames.get((channel, coin))
-        if row is None or (native_time is not None and row.get("native_time") != native_time):
-            raise ValueError("CCXT_EARLIEST_LOCAL_RECEIPT_UNKNOWN")
-        return dict(row)
-
-    def trade_clocks(self, coin: str, epoch: str) -> dict:
-        return {
-            tid: row["known_at"]
-            for tid, row in self.trade_ids.get(coin, {}).items()
-            if row["epoch"] == epoch
-        }
-
-    def transport_at(self) -> str | None:
-        # A connected flag alone is insufficient; require actual inbound frames
-        # on the pinned CCXT client and let the independent watchdog age them.
-        values = [
-            c._observer_wire_at
-            for c in self.clients.values()
-            if getattr(c, "isConnected", False)
-            and c._observer_wire_at is not None
-            and not getattr(c, "error", None)
-        ]
-        return max(values, key=clock) if values else None
-
-
-async def persistent_market_canary(
-    instruments, *, root: Path, seconds: float, shared_ip_budget_checked: bool
-) -> dict:
-    """Bounded real transport probe; it does not resolve or select source wallets."""
-    from .pm_forward_continuous import (
-        SubscriptionBudget,
-        private_candidate_path,
-        run_ccxt_markets,
-        run_native_public,
-        runtime_revision,
-    )
-    from .pm_forward_continuous_transport import SerialWriter, ConnectionBudget, wait_or_stop
-    from .pm_forward_journal import PaperJournal
-    from .pm_forward_observer import exclusive_observer_lease
-    from .pm_forward_observer_health import atomic_private_json
-    from .pm_forward_public_trades import PersistentPublicMarket
-    from .pm_forward_stream_journal import StreamProgress, verify_streams
-    from time import monotonic
-
-    if not shared_ip_budget_checked or not 2 <= seconds <= 300 or not 1 <= len(instruments) <= 5:
-        raise ValueError("CONTINUOUS_CANARY_BUDGET_OR_DURATION_INVALID")
-    private_candidate_path(root, ())
-    if root.exists():
-        raise ValueError("CONTINUOUS_CANARY_REQUIRES_NEW_PRIVATE_ROOT")
-    revision = runtime_revision()
-    plan = SubscriptionBudget().plan(instruments, account_count=0)
-    journal = PaperJournal(root)
-    started, started_at = monotonic(), _now()
-    with exclusive_observer_lease(journal):
-        async with SerialWriter(max_pending=256) as writer:
-            stop, limiter = asyncio.Event(), ConnectionBudget(per_minute=6)
-            public = [
-                PersistentPublicMarket(journal, item, {}, scope_sha=plan["scope_sha"])
-                for item in instruments
-            ]
-            control = StreamProgress(journal, "observer:market_canary")
-            from uuid import uuid4
-
-            epoch = uuid4().hex
-            await writer.submit(
-                lambda: control.commit(
-                    control.propose(
-                        epoch=epoch,
-                        kind="START",
-                        known_at=started_at,
-                        checkpoint={
-                            "revision": revision,
-                            "started_at": started_at,
-                            "plan": plan,
-                            "watched_wallet_count": 0,
-                            "order_route": "NONE",
-                        },
-                    )
-                )
-            )
-            jobs = [
-                asyncio.create_task(
-                    run_ccxt_markets(
-                        instruments,
-                        journal=journal,
-                        writer=writer,
-                        stop=stop,
-                        now=_now,
-                        scope_sha=plan["scope_sha"],
-                        limiter=limiter,
-                    )
-                ),
-                asyncio.create_task(
-                    run_native_public(
-                        public, writer=writer, stop=stop, connect=None, now=_now, limiter=limiter
-                    )
-                ),
-            ]
-            deadline = asyncio.create_task(wait_or_stop(stop, seconds))
-            try:
-                done, _ = await asyncio.wait([*jobs, deadline], return_when=asyncio.FIRST_COMPLETED)
-                for task in done:
-                    await task
-            finally:
-                stop.set()
-                deadline.cancel()
-                for task in jobs:
-                    task.cancel()
-                outcomes = await asyncio.gather(*jobs, return_exceptions=True)
-                await asyncio.gather(deadline, return_exceptions=True)
-                for outcome in outcomes:
-                    if isinstance(outcome, Exception):
-                        raise outcome
-                if writer.failed:
-                    raise writer.failed
-                await writer.submit(
-                    lambda: control.commit(
-                        control.propose(
-                            epoch=epoch,
-                            kind="STOP",
-                            known_at=_now(),
-                            checkpoint={**control.checkpoint, "stopped_at": _now()},
-                        )
-                    )
-                )
-    audit = verify_streams(journal.path)
-    report = {
-        "schema": "paper_persistent_market_canary_v1",
-        "revision": revision,
-        "started_at": started_at,
-        "stopped_at": _now(),
-        "elapsed_seconds": monotonic() - started,
-        "journal_integrity": audit["integrity"],
-        "stream_head_sha": audit["head_sha"],
-        "scope": plan,
-        "streams": {
-            sid: {
-                k: row[k]
-                for k in (
-                    "cursor",
-                    "chain_sha",
-                    "gap_count",
-                    "baseline_count",
-                    "observation_count",
-                    "epoch_count",
-                )
-            }
-            for sid, row in audit["streams"].items()
-        },
-        "watched_wallet_count": 0,
-        "matched_wallet_fills": 0,
-        "source_coverage": "NOT_REQUESTED_MARKET_TRANSPORT_PROBE",
-        "source_nav_attested": False,
-        "paper_observed": False,
-        "order_route": "NONE",
-    }
-    atomic_private_json(root, "persistent-market-canary.json", report)
-    return report
-
-
-async def _probe(
-    insts: tuple[Instrument, ...],
-    *,
-    dexes: tuple[str, ...],
-    timeout: float,
-    record_root: Path | None = None,
-) -> dict:
-    journal = None
-    if record_root is not None:
-        from .pm_forward_journal import PaperJournal
-
-        if not record_root.is_absolute() or any(
-            part in {".devspace", ".git"} for part in record_root.resolve().parts
-        ):
-            raise ValueError("CCXT_PROBE_PERSISTENCE_MUST_BE_CANONICAL_PRIVATE_PATH")
-        journal = PaperJournal(record_root)
-    async with ReadOnlyCCXTProHyperliquid(insts, hip3_dexes=dexes, timeout_seconds=timeout) as feed:
-        result = {"schema": "paper_ccxt_readonly_probe_v1", "status": feed.status(), "quotes": {}}
-        for inst in insts:
-            if inst not in feed.catalog:
-                result["quotes"][inst.key] = {
-                    "status": "BLOCKED",
-                    "reason": feed.blocked.get(inst.key),
-                }
-                continue
-            try:
-                quote = await feed.quote(inst)
-                result["quotes"][inst.key] = {
-                    "status": "L2_ONLY_CAPACITY_UNKNOWN",
-                    "quote": quote.payload(),
-                    "quote_sha": quote.quote_sha,
-                    "pm03_observation": quote.observation(),
-                }
-                if journal is not None:
-                    result["quotes"][inst.key]["market_receipt"] = journal.append_market_quote(
-                        quote.payload()
-                    )
-            except Exception as exc:
-                result["quotes"][inst.key] = {
-                    "status": "BLOCKED",
-                    "reason": type(exc).__name__ + ":" + str(exc)[:120],
-                }
-        result["status"] = feed.status()
-        return result
-
-
-def add_arguments(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
-    """Mount the bounded CCXT Pro probe options onto an existing subparser."""
-    p.add_argument("--instrument", action="append", required=True)
-    p.add_argument("--hip3-dex", action="append", default=[])
-    p.add_argument("--timeout", type=float, default=15)
-    p.add_argument("--record-root", type=Path)
-    p.add_argument("--continuous-canary-seconds", type=float)
-    p.add_argument("--ack-shared-ip-connection-budget", action="store_true")
-    return p
-
-
-def run(args: argparse.Namespace) -> int:
-    """Handler shared by `python -m` and `copytrade-pm research ccxt-probe`."""
-    if args.continuous_canary_seconds is not None:
-        if args.record_root is None:
-            raise ValueError("--continuous-canary-seconds requires --record-root")
-        print(
-            json.dumps(
-                asyncio.run(
-                    persistent_market_canary(
-                        tuple(Instrument.parse(x) for x in args.instrument),
-                        root=args.record_root,
-                        seconds=args.continuous_canary_seconds,
-                        shared_ip_budget_checked=args.ack_shared_ip_connection_budget,
-                    )
-                ),
-                sort_keys=True,
-                indent=2,
-            )
-        )
-        return 0
-    if len(args.instrument) > 5:
-        raise ValueError("one-shot canary limited to five markets")
-    result = asyncio.run(
-        _probe(
-            tuple(Instrument.parse(inst) for inst in args.instrument),
-            dexes=tuple(args.hip3_dex),
-            timeout=args.timeout,
-            record_root=args.record_root,
-        )
-    )
-    print(json.dumps(result, sort_keys=True, indent=2))
-    return 0
-
-
-def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        prog="copytrade-pm research ccxt-probe",
-        description="One-shot CCXT Pro Hyperliquid read-only L2 canary; no broker or paper fills",
-    )
-    add_arguments(parser)
-    args = parser.parse_args(argv)
-    try:
-        code = run(args)
-    except (OSError, ValueError) as exc:
-        parser.error(str(exc))
-        return 2
-    if code:
-        raise SystemExit(code)
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

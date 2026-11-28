@@ -2,6 +2,23 @@
 
 All notable changes to `copytrade-pm` are documented in this file.
 
+## [Single-owner appliance] - 2026-11-28
+
+### Changed
+
+- One configured CWSA workflow, generic paper portfolios, shared quote acquisition and daily wallet health through native systemd.
+- One software checkout, frozen environment, private state root and lifecycle with CLI status, reconcile, update, recover and adoption operations.
+- RosterStore schema 2 adopts immutable observation selections with original provenance and a separate adoption clock; no synthetic seat promotions.
+- Discovery derives real parser leaves without the former AST inspection framework.
+
+### Removed
+
+- Ops Control Center, Site-related publication paths, dashboard infrastructure, frontend dependencies and CI.
+- Prefect, independent worker deployment/release mechanisms and superseded historical experiment engines.
+- Tests and comments for deleted features; retained accounting, PIT, checkpoint, mandate, fault and historical replay contracts remain tested.
+
+Historical evidence and original journals remain authoritative. Runtime activation and verification are recorded separately from this code change. No scientific qualification or trading authority is granted.
+
 ## [Phase D Agent Onboarding Overhaul] - 2026-11-24
 
 ### Changed

@@ -65,7 +65,7 @@ from .pm_checkpoint_decision import (
     memory,
     record_miss,
 )
-from .pm_checkpoint_journal import CheckpointOutcome, history as source_history
+from .pm_checkpoint_journal import CheckpointOutcome, history as source_history, stream_key
 from .pm_checkpoint_opportunity import OpportunityState, advance
 from .pm_checkpoint_source import GRID_MS, source_marks
 from .pm_copy_mandate_journal import baseline, history as mandate_history
@@ -142,8 +142,8 @@ def _policy(value):
     return risk, costs
 
 
-def validate_binding(db, run_id, event):
-    """Replay source/mandate causality against their independently owned histories."""
+def validate_binding(db, run_id, event, *, source_proofs=None):
+    """Replay causality; any supplied proofs belong only to this locked replay."""
     m = SignedMandate.parse(event["mandate"])
     outcome = CheckpointOutcome.model_validate_json(json.dumps(event["outcome"]))
     saved = db.execute("SELECT manifest FROM runs WHERE run_id=?", (run_id,)).fetchone()
@@ -165,13 +165,17 @@ def validate_binding(db, run_id, event):
     if len(rows) != 1 or CheckpointOutcome.model_validate_json(rows[0][0]) != outcome:
         raise ValueError("CHECKPOINT_SOURCE_CAUSAL_BINDING")
     if outcome.sample is not None:
-        chain = source_history(db, outcome.sample.scope, outcome.policy_epoch)
-        if not any(
-            t.sequence == event["source_head_sequence"]
-            and digest(t.model_dump(mode="json")) == event["source_head_sha"]
-            and t.successor.phase == event["source_phase"]
-            and t.at_ms <= event["at_ms"]
-            for t in chain
+        proofs = {} if source_proofs is None else source_proofs
+        key = stream_key(outcome.sample.scope, outcome.policy_epoch)
+        if key not in proofs:
+            chain = source_history(db, outcome.sample.scope, outcome.policy_epoch)
+            proofs[key] = {t.sequence: (t.sha, t.successor.phase, t.at_ms) for t in chain}
+        proof = proofs[key].get(event["source_head_sequence"])
+        if (
+            proof is None
+            or proof[0] != event["source_head_sha"]
+            or proof[1] != event["source_phase"]
+            or proof[2] > event["at_ms"]
         ):
             raise ValueError("CHECKPOINT_SOURCE_HEAD_PROOF")
     if (

@@ -8,7 +8,7 @@ import pytest
 
 from copytrade_pm.pm03_account import digest
 from copytrade_pm.pm_forward_journal import PaperJournal
-from test_pydantic_combined_authorities import BTC, decision_at
+from test_pm_risk_recovery import BTC, decision_at
 
 
 def test_v2_risk_archive_replays_exact_then_new_v3_reduction_is_durable(tmp_path):
