@@ -71,7 +71,7 @@ print(json.dumps(journal.PaperJournal(Path(sys.argv[2])).restore(sys.argv[3]),so
         check=True,
         text=True,
         capture_output=True,
-        timeout=180,
+        timeout=900,
     )
     return json.loads(result.stdout)
 
@@ -149,6 +149,10 @@ def verify(args: argparse.Namespace) -> dict:
         for pid, portfolio in item["portfolios"].items():
             owner = saved / item["state"] / portfolio["folder"]
             before[pid] = financial(legacy[name], owner, portfolio["folder"])
+            print(
+                json.dumps({"legacy_finance_verified": pid, "cursor": before[pid]["cursor"]}),
+                flush=True,
+            )
     adoption = import_registry(
         args.registry_snapshot,
         args.sha256,
@@ -207,10 +211,73 @@ def verify(args: argparse.Namespace) -> dict:
             ),
             flush=True,
         )
-        consumer.poll_once()
+        # The authentic account may have pending historical reviews. Frozen
+        # input is not necessarily duplicate input. Re-poll only the prefix
+        # already acknowledged by every signed owner's durable scan.
+        barriers = [
+            consumer.finance_scans[pid].current(
+                mandate.owner, effective_from_ms=mandate.effective_from_ms
+            )
+            for pid, approved in consumer.approved.items()
+            for mandate, _ in approved.mandates
+        ]
+        consumer.poll_once(
+            now_ms=min(barriers) if barriers else consumer.last_processed_checkpoint_ms
+        )
         for pid, journal in consumer.journals.items():
-            if journal.restore(consumer.configs[pid]["folder"]) != before[pid]:
-                raise ValueError("FROZEN_INPUT_REPOLL_CHANGED_FINANCE:" + pid)
+            run_id = consumer.configs[pid]["folder"]
+            if journal.restore(run_id) != before[pid]:
+                raise ValueError("DUPLICATE_PREFIX_REPOLL_CHANGED_FINANCE:" + pid)
+            if pid not in consumer.approved:
+                continue
+            from copytrade_pm.pm_checkpoint_paper import TERMINAL
+            from copytrade_pm.pm_mandate import SignedMandate
+
+            committed = (
+                before[pid]["account"].get("pm04", {}).get("checkpoint_v3", {}).get("outcomes", {})
+            )
+            duplicate = None
+            with closing(sqlite3.connect(journal.path.as_uri() + "?mode=ro", uri=True)) as db:
+                for (raw,) in db.execute(
+                    "SELECT input FROM events WHERE run_id=? ORDER BY seq DESC", (run_id,)
+                ):
+                    event = json.loads(raw)
+                    if event.get("kind") != "CWSA_PAPER_REVIEW":
+                        continue
+                    mandate = SignedMandate.parse(event["mandate"])
+                    key = digest([run_id, mandate.owner, event["outcome"]["outcome_id"]])
+                    prior = committed.get(key)
+                    if prior and prior["status"] in TERMINAL:
+                        duplicate = (event, mandate, prior)
+                        break
+            if duplicate is None:
+                raise ValueError("AUTHENTIC_TERMINAL_DUPLICATE_REQUIRED:" + pid)
+            event, mandate, prior = duplicate
+            approved = consumer.approved[pid]
+            replayed = journal.consume_checkpoint(
+                run_id,
+                mandate.owner,
+                event["outcome"]["outcome_id"],
+                at_ms=event["at_ms"],
+                policy=approved.policy,
+                catalog=approved.catalog,
+            )
+            if replayed != prior or journal.restore(run_id) != before[pid]:
+                raise ValueError("COMMITTED_FINANCIAL_DUPLICATE_DRIFT:" + pid)
+            results[pid]["duplicate_outcome_id"] = event["outcome"]["outcome_id"]
+            results[pid]["duplicate_status"] = prior["status"]
+            with closing(sqlite3.connect(consumer.source_db.as_uri() + "?mode=ro", uri=True)) as db:
+                pending = {}
+                for owner_mandate, _ in approved.mandates:
+                    cursor = consumer.finance_scans[pid].current(
+                        owner_mandate.owner, effective_from_ms=owner_mandate.effective_from_ms
+                    )
+                    pending[owner_mandate.owner] = db.execute(
+                        "SELECT COUNT(*) FROM cwsa_outcomes WHERE checkpoint_ms>? "
+                        "AND json_extract(outcome,'$.source_id')=?",
+                        (cursor, owner_mandate.source_id),
+                    ).fetchone()[0]
+            results[pid]["pending_source_reviews"] = pending
     # Restart the generic consumer against the same frozen inputs.
     for consumer in paper_consumers(config):
         for pid, journal in consumer.journals.items():
@@ -233,6 +300,8 @@ def verify(args: argparse.Namespace) -> dict:
         "papers": results,
         "limitations": [
             "Owner snapshots have independent cutoffs",
+            "Pending historical reviews are reported separately from committed duplicate replay",
+            "Parity does not claim the historical finance backlog is drained",
             "No economic qualification",
             "No trading authorization",
         ],

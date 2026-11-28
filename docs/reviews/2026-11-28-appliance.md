@@ -24,6 +24,8 @@ Reviewer: the direct executor; no delegated or independent-review claim.
 - Update uses the installed interpreter for reconciliation and preserves journals during software rollback.
 - A verified retirement archive preserves historical installations, unmerged/dirty work and Git objects before deletion. The December 2 frozen assessment remains an explicit unfinished obligation.
 
+- Authentic restore matched historical finance, but the Liquid12 journal has pending source reviews. An initial all-input poll correctly processed pending work in the diagnostic copy, so it cannot be labeled duplicate replay. Acceptance separately checks the acknowledged prefix, an actual committed terminal financial outcome, restart equality and the size of the pending backlog. Diagnostic copies never modify active journals.
+
 ## Activation gate
 
 Targeted appliance/adoption tests and financial/source replay falsifiers passed during review. Full CI and authentic-journal parity must bind to the clean committed candidate before activation. The runtime receipt must then show the same revision, checkout and environment for every retained PID, source and quote progress, and preserved independent account processes. These engineering checks confer no scientific qualification or trading authorization.
