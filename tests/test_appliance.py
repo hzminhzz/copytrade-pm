@@ -261,6 +261,8 @@ def test_software_rollback_never_rewinds_owner_journals(tmp_path, monkeypatch, r
         "revision": "a" * 40,
         "config_sha256": load_config(root).sha256,
         "blockers": [],
+        "order_route": "NONE",
+        "trading_authorized": False,
         "sources": {},
         "quotes": {},
         "papers": {},
@@ -359,11 +361,18 @@ def test_activation_requires_advancing_evidence_and_preserves_existing_gap(tmp_p
         "revision": "a" * 40,
         "config_sha256": config.sha256,
         "blockers": ["SOURCE_COVERAGE_GAP:canonical"],
+        "order_route": "NONE",
+        "trading_authorized": False,
         "workers": {
             role: {"MainPID": "1", "running_revision": "a" * 40, "ready_at": "old"}
             for role in appliance.ROLES
         },
-        "sources": {"canonical": {"scope_checkpoints": {"scope": 100}}},
+        "sources": {
+            "canonical": {
+                "scope_checkpoints": {"scope": 100, "good": 100},
+                "scope_kinds": {"scope": "UNAVAILABLE", "good": "UNCHANGED"},
+            }
+        },
         "quotes": {"BTC": {"cursor": 10}},
         "papers": {
             "owner": {
@@ -373,6 +382,9 @@ def test_activation_requires_advancing_evidence_and_preserves_existing_gap(tmp_p
                     "financial_cursor": 4,
                     "observation_cursor": 100,
                     "finance_scan_cursors": {"owner": 90},
+                    "finance_scan_heads": {"owner": "head"},
+                    "configured_approval": True,
+                    "order_route": "NONE",
                 }
             }
         },
@@ -383,9 +395,24 @@ def test_activation_requires_advancing_evidence_and_preserves_existing_gap(tmp_p
         role: {"MainPID": "2", "running_revision": "b" * 40, "ready_at": "new"}
         for role in appliance.ROLES
     }
-    observed["sources"]["canonical"]["scope_checkpoints"]["scope"] = 200
+    observed["sources"]["canonical"]["scope_checkpoints"] = {"scope": 200, "good": 200}
     observed["quotes"]["BTC"]["cursor"] = 11
     assert not appliance._activation_blockers(config, baseline, observed, "b" * 40)
+    observed["sources"]["canonical"]["scope_kinds"]["good"] = "UNAVAILABLE"
+    assert "ACTIVATION_SOURCE_NEW_GAP:canonical" in appliance._activation_blockers(
+        config, baseline, observed, "b" * 40
+    )
+    observed["sources"]["canonical"]["scope_kinds"]["good"] = "UNCHANGED"
+    observed["papers"]["owner"]["A"]["finance_scan_heads"]["owner"] = "changed"
+    assert "ACTIVATION_PAPER_CONTINUITY:A" in appliance._activation_blockers(
+        config, baseline, observed, "b" * 40
+    )
+    observed["papers"]["owner"]["A"]["finance_scan_heads"]["owner"] = "head"
+    observed["papers"]["owner"]["A"]["configured_approval"] = False
+    assert "ACTIVATION_PAPER_AUTHORITY_DRIFT:A" in appliance._activation_blockers(
+        config, baseline, observed, "b" * 40
+    )
+    observed["papers"]["owner"]["A"]["configured_approval"] = True
     # The existing gap excuses observation advancement only, never rewind,
     # a new gap, process drift or financial progress loss.
     observed["papers"]["owner"]["A"]["financial_cursor"] = 3

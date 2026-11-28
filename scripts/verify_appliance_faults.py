@@ -149,6 +149,8 @@ def main() -> None:
                 "revision": appliance.revision(checkout),
                 "config_sha256": config.sha256,
                 "blockers": [],
+                "order_route": "NONE",
+                "trading_authorized": False,
                 "observed_at": datetime.now(UTC).isoformat(),
                 "workers": {role: dict(observed) for role in appliance.ROLES},
                 "sources": {
@@ -169,6 +171,8 @@ def main() -> None:
                             "observation_cursor": wave[0],
                             "observation_head_sha": wave[1],
                             "finance_scan_cursors": scans,
+                            "configured_approval": True,
+                            "order_route": "NONE",
                         }
                     }
                 },

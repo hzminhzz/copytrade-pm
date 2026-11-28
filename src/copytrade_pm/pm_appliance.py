@@ -271,6 +271,7 @@ def _unit_state(name: str) -> dict[str, str]:
 
 
 def status(config: ApplianceConfig, *, checkout: Path = ROOT) -> dict[str, Any]:
+    from .pm_cwsa_chapter2_release import FinanceScan
     from .roster.store import RosterStore
 
     sha = revision(checkout)
@@ -350,14 +351,17 @@ def status(config: ApplianceConfig, *, checkout: Path = ROOT) -> dict[str, Any]:
                 ).fetchall()
             oldest = min((r[1] or 0 for r in rows), default=0)
             kinds: dict[str, int] = {}
-            for _, _, outcome, _, _ in rows:
+            scope_kinds = {}
+            for stream, _, outcome, _, _ in rows:
                 kind = json.loads(outcome)["kind"] if outcome else "UNKNOWN"
+                scope_kinds[stream] = kind
                 kinds[kind] = kinds.get(kind, 0) + 1
             expected = len(json.loads(config.path(item["checkpoint_config"]).read_text())["scopes"])
             sources[name] = {
                 "scopes": len(rows),
                 "expected_scopes": expected,
                 "latest_kinds": kinds,
+                "scope_kinds": scope_kinds,
                 "oldest_scope_checkpoint_ms": oldest,
                 "scope_checkpoints": {row[0]: row[1] or 0 for row in rows},
                 "scope_heads": {row[0]: [json.loads(row[3])["sequence"], row[4]] for row in rows},
@@ -414,9 +418,7 @@ def status(config: ApplianceConfig, *, checkout: Path = ROOT) -> dict[str, Any]:
                     ).fetchone()
                     scans = {}
                     if item["approval"]:
-                        scans = dict(
-                            db.execute("SELECT owner,checkpoint_ms FROM chapter2_finance_scan")
-                        )
+                        scans = FinanceScan.read_heads(db)
                 if row is None:
                     raise ValueError("RUN_MISSING")
                 owners[pid] = {
@@ -426,7 +428,8 @@ def status(config: ApplianceConfig, *, checkout: Path = ROOT) -> dict[str, Any]:
                     "observation_cursor": wave[0] if wave else 0,
                     "observation_head_sha": wave[1] if wave else None,
                     "financial_head_sha": head[0] if head else None,
-                    "finance_scan_cursors": scans,
+                    "finance_scan_cursors": {key: value[0] for key, value in scans.items()},
+                    "finance_scan_heads": {key: value[1] for key, value in scans.items()},
                     "configured_approval": bool(item["approval"]),
                     "order_route": "NONE",
                 }
@@ -627,7 +630,10 @@ def _activation_blockers(
 ) -> list[str]:
     """Allow existing domain gaps, never identity failures or cursor rewind."""
     tolerated = _existing_domain_blockers(before)
+    persisted = tolerated & set(after["blockers"])
     problems = sorted(set(after["blockers"]) - tolerated)
+    if after.get("order_route") != "NONE" or after.get("trading_authorized") is not False:
+        problems.append("ACTIVATION_AUTHORITY_DRIFT")
     if after["revision"] != expected_sha or after["config_sha256"] != before["config_sha256"]:
         problems.append("ACTIVATION_REVISION_OR_CONFIG_DRIFT")
     for role in ROLES:
@@ -646,6 +652,13 @@ def _activation_blockers(
             problems.append("ACTIVATION_SOURCE_CONTINUITY:" + name)
         elif any(new[key] <= old[key] for key in old):
             problems.append("ACTIVATION_SOURCE_NOT_ADVANCING:" + name)
+        good = {"BASELINE", "RECOVERY_BASELINE", "CHANGED", "UNCHANGED"}
+        new_kinds = after["sources"].get(name, {}).get("scope_kinds", {})
+        if any(
+            kind in good and new_kinds.get(key) not in good
+            for key, kind in source.get("scope_kinds", {}).items()
+        ):
+            problems.append("ACTIVATION_SOURCE_NEW_GAP:" + name)
     for instrument, quote in before["quotes"].items():
         old_cursor = quote.get("cursor", 0)
         new_cursor = after["quotes"].get(instrument, {}).get("cursor", 0)
@@ -666,13 +679,28 @@ def _activation_blockers(
                     new.get("finance_scan_cursors", {}).get(key, -1) < cursor
                     for key, cursor in owner["finance_scan_cursors"].items()
                 )
+                or any(
+                    new.get("finance_scan_cursors", {}).get(key)
+                    == owner["finance_scan_cursors"][key]
+                    and new.get("finance_scan_heads", {}).get(key) != head
+                    for key, head in owner.get("finance_scan_heads", {}).items()
+                )
             ):
                 problems.append("ACTIVATION_PAPER_CONTINUITY:" + pid)
             elif new["observation_cursor"] <= owner["observation_cursor"] and not (
-                "SOURCE_COVERAGE_GAP:" + config.papers[name]["source"] in tolerated
-                or "PAPER_REVIEW_REQUIRED:" + pid in tolerated
+                "SOURCE_COVERAGE_GAP:" + config.papers[name]["source"] in persisted
+                or "PAPER_REVIEW_REQUIRED:" + pid in persisted
             ):
                 problems.append("ACTIVATION_PAPER_NOT_ADVANCING:" + pid)
+            if (
+                new.get("configured_approval") != owner.get("configured_approval")
+                or new.get("order_route") != "NONE"
+                or (
+                    owner.get("configured_approval") is False
+                    and new.get("financial_cursor") != owner["financial_cursor"]
+                )
+            ):
+                problems.append("ACTIVATION_PAPER_AUTHORITY_DRIFT:" + pid)
     return problems
 
 
@@ -771,6 +799,7 @@ def update(
     blocked = sorted(set(baseline["blockers"]) - _existing_domain_blockers(baseline))
     if blocked:
         raise ValueError("APPLIANCE_ROLLBACK_BASELINE_UNVERIFIED:" + ",".join(blocked))
+    _verify_prefixes(config, baseline)
     if not apply:
         return {
             "state": "DRY_RUN",
