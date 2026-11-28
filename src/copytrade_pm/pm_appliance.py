@@ -256,6 +256,8 @@ def _unit_state(name: str) -> dict[str, str]:
             "-p",
             "MainPID",
             "-p",
+            "ControlPID",
+            "-p",
             "Result",
             "-p",
             "WorkingDirectory",
@@ -477,6 +479,21 @@ def status(config: ApplianceConfig, *, checkout: Path = ROOT) -> dict[str, Any]:
         "scientifically_qualified": False,
         "order_route": "NONE",
     }
+
+
+def _stop_units(units: tuple[str, ...]) -> None:
+    """Wait for every explicitly named stop job, not only the target job."""
+    _command(["systemctl", "--user", "stop", *units], timeout=1000)
+    for unit in units:
+        state = _unit_state(unit)
+        if state.get("ActiveState") not in {"inactive", "failed"} or any(
+            state.get(key, "0") not in {"", "0"} for key in ("MainPID", "ControlPID")
+        ):
+            raise RuntimeError("APPLIANCE_WORKER_NOT_QUIESCENT:" + unit)
+
+
+def _stop() -> None:
+    _stop_units((TARGET, *SERVICES, "copytrade-pm-health.timer", "copytrade-pm-health.service"))
 
 
 def _start(config: ApplianceConfig, *, checkout: Path) -> dict[str, Any]:
@@ -817,7 +834,7 @@ def update(
     operation_path = config.root / "runtime" / "update.json"
     _private_json(operation_path, {**operation, "state": "ACTIVATING"})
     try:
-        _command(["systemctl", "--user", "stop", TARGET], timeout=1000)
+        _stop()
         # A worker may have committed after the pre-stop status read. Capture
         # the quiescent owners before replacing any software.
         stopped = status(config, checkout=checkout)
@@ -843,7 +860,7 @@ def update(
             operation_path, {**operation, "state": "RECOVERING", "reason": str(exc)[:1000]}
         )
         try:
-            _command(["systemctl", "--user", "stop", TARGET], timeout=1000)
+            _stop()
             # Recovery must not rewind candidate-era commits either. If their
             # journal evidence is unreadable, still restore software, but do not
             # claim verified recovery.
