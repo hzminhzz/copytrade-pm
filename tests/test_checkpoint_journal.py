@@ -101,6 +101,28 @@ def test_baseline_unchanged_and_one_genuine_change_survive_restart(tmp_path):
     assert history[-1].guard == "COMPLETE_CONTINUOUS"
 
 
+def test_outcome_lookup_index_is_additive_and_replay_still_detects_tamper(tmp_path):
+    journal = PaperJournal(tmp_path / "paper")
+    policy = register(journal)
+    outcome = journal.append_checkpoint_sample(
+        policy.epoch, sample(journal, BOUNDARY), BOUNDARY + 101
+    )
+    before = journal.checkpoint_history(scope(), policy.epoch)
+    with journal.writer() as db:
+        db.execute("DROP INDEX cwsa_outcome_id_idx")
+    restarted = PaperJournal(journal.root)
+    assert restarted.checkpoint_history(scope(), policy.epoch) == before
+    with restarted.writer() as db:
+        plan = db.execute(
+            "EXPLAIN QUERY PLAN SELECT outcome FROM cwsa_outcomes WHERE json_extract(outcome,'$.outcome_id')=?",
+            (outcome.outcome_id,),
+        ).fetchall()
+        assert any("cwsa_outcome_id_idx" in str(row) for row in plan)
+        db.execute("UPDATE cwsa_transitions SET sha=? WHERE seq=2", ("0" * 64,))
+    with pytest.raises(ValueError, match="CWSA_JOURNAL_CHAIN"):
+        restarted.checkpoint_history(scope(), policy.epoch)
+
+
 def test_gap_recovery_and_wallet_local_failure_never_open(tmp_path):
     journal = PaperJournal(tmp_path / "paper")
     policy = register(journal)

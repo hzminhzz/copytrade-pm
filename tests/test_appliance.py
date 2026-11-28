@@ -241,7 +241,8 @@ def test_software_update_rejects_unmerged_candidate_before_stopping_services(tmp
     assert calls == [["git", "merge-base", "--is-ancestor", "a" * 40, "origin/main"]]
 
 
-def test_software_rollback_never_rewinds_owner_journals(tmp_path, monkeypatch):
+@pytest.mark.parametrize("recovery_fails", [False, True])
+def test_software_rollback_never_rewinds_owner_journals(tmp_path, monkeypatch, recovery_fails):
     from copytrade_pm import pm_ci_receipt
 
     root, _ = configured(tmp_path)
@@ -255,24 +256,175 @@ def test_software_rollback_never_rewinds_owner_journals(tmp_path, monkeypatch):
         appliance, "revision", lambda path: ("b" if path == candidate else "a") * 40
     )
     monkeypatch.setattr(pm_ci_receipt, "validate_receipt", lambda *args: [])
-    monkeypatch.setattr(appliance, "_start", lambda *a, **k: {"state": "HEALTHY"})
+    monkeypatch.setattr(appliance, "_preflight", lambda *a, **k: None)
+    baseline = {
+        "revision": "a" * 40,
+        "config_sha256": load_config(root).sha256,
+        "blockers": [],
+        "order_route": "NONE",
+        "trading_authorized": False,
+        "sources": {},
+        "quotes": {},
+        "papers": {},
+        "workers": {
+            role: {"running_revision": "a" * 40, "ready_at": "now", "MainPID": "1"}
+            for role in appliance.ROLES
+        },
+    }
+    monkeypatch.setattr(appliance, "status", lambda *a, **k: baseline)
+    monkeypatch.setattr(appliance, "_start", lambda *a, **k: baseline)
+    monkeypatch.setattr(appliance, "_await_activation", lambda *a, **k: baseline)
     calls = []
+    syncs = []
+
+    def sync(*args):
+        syncs.append(args)
+        if len(syncs) == 1 or recovery_fails:
+            raise RuntimeError("simulated environment failure")
 
     def command(argv, **kwargs):
         calls.append(argv)
-        if argv[:2] == ["uv", "sync"] and sum(c[:2] == ["uv", "sync"] for c in calls) == 1:
-            raise RuntimeError("simulated environment failure")
         return ""
 
+    monkeypatch.setattr(appliance, "_sync_environment", sync)
     monkeypatch.setattr(appliance, "_command", command)
-    with pytest.raises(RuntimeError, match="ROLLED_BACK"):
+    expected = "RECOVERY_FAILED" if recovery_fails else "ROLLED_BACK"
+    with pytest.raises(RuntimeError, match=expected):
         appliance.update(
             load_config(root), candidate, tmp_path / "receipt", checkout=checkout, apply=True
         )
     assert ["git", "switch", "--detach", "a" * 40] in calls
     with closing(sqlite3.connect(journal.path)) as db:
         assert list(db.iterdump()) == evidence
-    assert json.loads((root / "runtime/update.json").read_text())["state"] == "ROLLED_BACK"
+    assert json.loads((root / "runtime/update.json").read_text())["state"] == expected
+    assert len(syncs) == 2
+
+
+def test_environment_sync_uses_direct_binding_and_requires_actual_interpreter(
+    tmp_path, monkeypatch
+):
+    checkout = tmp_path / "checkout"
+    environment = tmp_path / "staged"
+    commands = []
+    monkeypatch.setattr(
+        appliance, "_command", lambda argv, **kwargs: commands.append((argv, kwargs)) or ""
+    )
+    with pytest.raises(RuntimeError, match="APPLIANCE_ENVIRONMENT_MISSING"):
+        appliance._sync_environment(checkout, environment)
+    argv, kwargs = commands[0]
+    assert argv[:2] == ["uv", "sync"]
+    assert kwargs["env_overrides"] == {"UV_PROJECT_ENVIRONMENT": str(environment)}
+    python = environment / "bin/python"
+    python.parent.mkdir(parents=True)
+    python.symlink_to(sys.executable)
+    appliance._sync_environment(checkout, environment, check=True)
+    assert commands[-1][0][-1] == "--check"
+
+
+def test_native_preflight_rejects_wrong_executable_and_invalid_unit(tmp_path, monkeypatch):
+    root, _ = configured(tmp_path)
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: home)
+    checkout = tmp_path / "checkout"
+    python = checkout / ".venv/bin/python"
+    python.parent.mkdir(parents=True)
+    python.symlink_to(sys.executable)
+    config = load_config(root)
+    sha = "a" * 40
+    units = appliance.render_units(config, checkout=checkout, sha=sha)
+    appliance._verify_units(units, config=config, checkout=checkout, sha=sha)
+    bad = dict(units)
+    name = "copytrade-pm-paper.service"
+    bad[name] = bad[name].replace(f'"{python}"', '"/bin/false"')
+    with pytest.raises(ValueError, match="UNIT_BINDING:paper"):
+        appliance._verify_units(bad, config=config, checkout=checkout, sha=sha)
+    bad = dict(units)
+    bad[name] = bad[name].replace("MemoryMax=2G", "MemoryMax=not-a-size")
+    # A malformed timer/service may be reported as a warning by native
+    # systemd, so test an invalid dependency that must fail verification.
+    bad[name] = bad[name].replace(
+        "After=network-online.target",
+        "Requires=missing-ah-test.service\nAfter=network-online.target",
+    )
+    with pytest.raises(RuntimeError, match="systemd-analyze"):
+        appliance._verify_units(bad, config=config, checkout=checkout, sha=sha)
+    assert not (home / ".config").exists()
+
+
+def test_activation_requires_advancing_evidence_and_preserves_existing_gap(tmp_path):
+    from copy import deepcopy
+
+    root, _ = configured(tmp_path)
+    config = load_config(root)
+    baseline = {
+        "revision": "a" * 40,
+        "config_sha256": config.sha256,
+        "blockers": ["SOURCE_COVERAGE_GAP:canonical"],
+        "order_route": "NONE",
+        "trading_authorized": False,
+        "workers": {
+            role: {"MainPID": "1", "running_revision": "a" * 40, "ready_at": "old"}
+            for role in appliance.ROLES
+        },
+        "sources": {
+            "canonical": {
+                "scope_checkpoints": {"scope": 100, "good": 100},
+                "scope_kinds": {"scope": "UNAVAILABLE", "good": "UNCHANGED"},
+            }
+        },
+        "quotes": {"BTC": {"cursor": 10}},
+        "papers": {
+            "owner": {
+                "A": {
+                    "manifest_sha": "manifest",
+                    "account_id": "account",
+                    "financial_cursor": 4,
+                    "observation_cursor": 100,
+                    "finance_scan_cursors": {"owner": 90},
+                    "finance_scan_heads": {"owner": "head"},
+                    "configured_approval": True,
+                    "order_route": "NONE",
+                }
+            }
+        },
+    }
+    observed = deepcopy(baseline)
+    observed["revision"] = "b" * 40
+    observed["workers"] = {
+        role: {"MainPID": "2", "running_revision": "b" * 40, "ready_at": "new"}
+        for role in appliance.ROLES
+    }
+    observed["sources"]["canonical"]["scope_checkpoints"] = {"scope": 200, "good": 200}
+    observed["quotes"]["BTC"]["cursor"] = 11
+    assert not appliance._activation_blockers(config, baseline, observed, "b" * 40)
+    observed["sources"]["canonical"]["scope_kinds"]["good"] = "UNAVAILABLE"
+    assert "ACTIVATION_SOURCE_NEW_GAP:canonical" in appliance._activation_blockers(
+        config, baseline, observed, "b" * 40
+    )
+    observed["sources"]["canonical"]["scope_kinds"]["good"] = "UNCHANGED"
+    observed["papers"]["owner"]["A"]["finance_scan_heads"]["owner"] = "changed"
+    assert "ACTIVATION_PAPER_CONTINUITY:A" in appliance._activation_blockers(
+        config, baseline, observed, "b" * 40
+    )
+    observed["papers"]["owner"]["A"]["finance_scan_heads"]["owner"] = "head"
+    observed["papers"]["owner"]["A"]["configured_approval"] = False
+    assert "ACTIVATION_PAPER_AUTHORITY_DRIFT:A" in appliance._activation_blockers(
+        config, baseline, observed, "b" * 40
+    )
+    observed["papers"]["owner"]["A"]["configured_approval"] = True
+    # The existing gap excuses observation advancement only, never rewind,
+    # a new gap, process drift or financial progress loss.
+    observed["papers"]["owner"]["A"]["financial_cursor"] = 3
+    observed["quotes"]["BTC"]["cursor"] = 10
+    observed["workers"]["paper"]["ready_at"] = ""
+    observed["blockers"].append("SOURCE_COVERAGE_GAP:new")
+    assert set(appliance._activation_blockers(config, baseline, observed, "b" * 40)) == {
+        "ACTIVATION_PAPER_CONTINUITY:A",
+        "ACTIVATION_QUOTE_NOT_ADVANCING:BTC",
+        "ACTIVATION_WORKER_IDENTITY:paper",
+        "SOURCE_COVERAGE_GAP:new",
+    }
 
 
 def test_discovery_imports_no_providers_or_store_writers():

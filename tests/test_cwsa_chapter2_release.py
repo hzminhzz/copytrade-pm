@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from contextlib import closing
 from dataclasses import replace
 from decimal import Decimal
 from hashlib import sha256
 import json
+import sqlite3
 from time import time_ns
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -13,7 +15,7 @@ import pytest
 
 from copytrade_pm.pm03_account import digest
 from copytrade_pm.pm03_rules import propr_rulebook
-from copytrade_pm.pm_cwsa_chapter2_release import read_activation_bundle
+from copytrade_pm.pm_cwsa_chapter2_release import FinanceScan, read_activation_bundle
 from copytrade_pm.pm_cwsa_paper import (
     PaperConsumer,
     load_selections,
@@ -31,6 +33,17 @@ from test_copy_mandates import mandate
 
 
 EPOCH_ID = "cwsa_chapter2_20261112"
+
+
+def test_finance_scan_read_heads_rejects_tampered_receipt(tmp_path):
+    journal = PaperJournal(tmp_path / "journal")
+    scan = FinanceScan(journal)
+    scan.advance("owner", 100, "outcome")
+    with closing(sqlite3.connect(journal.path)) as db:
+        assert FinanceScan.read_heads(db)["owner"][0] == 100
+        db.execute("UPDATE chapter2_finance_scan SET receipt_sha=? WHERE owner=?", ("bad", "owner"))
+        with pytest.raises(ValueError, match="CHAPTER2_FINANCE_SCAN_TAMPERED"):
+            FinanceScan.read_heads(db)
 
 
 def source_address(alias: str) -> str:

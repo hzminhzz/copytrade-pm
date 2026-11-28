@@ -153,10 +153,24 @@ class FinanceScan:
             ).fetchone()
         if row is None:
             return effective_from_ms - 1
+        return self._verified_checkpoint(owner, row)
+
+    @staticmethod
+    def _verified_checkpoint(owner: str, row: tuple[int, str, str]) -> int:
         checkpoint_ms, outcome_id, sha = row
         if sha != digest(["chapter2_finance_scan_v1", owner, checkpoint_ms, outcome_id]):
             raise ValueError("CHAPTER2_FINANCE_SCAN_TAMPERED")
         return checkpoint_ms
+
+    @classmethod
+    def read_heads(cls, db: sqlite3.Connection) -> dict[str, tuple[int, str]]:
+        """Read and verify the durable scan pointers without opening a writer."""
+        return {
+            owner: (cls._verified_checkpoint(owner, (checkpoint, outcome_id, sha)), sha)
+            for owner, checkpoint, outcome_id, sha in db.execute(
+                "SELECT owner,checkpoint_ms,outcome_id,receipt_sha FROM chapter2_finance_scan"
+            )
+        }
 
     def advance(self, owner: str, checkpoint_ms: int, outcome_id: str) -> None:
         sha = digest(["chapter2_finance_scan_v1", owner, checkpoint_ms, outcome_id])
