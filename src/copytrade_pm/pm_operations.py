@@ -269,6 +269,9 @@ def parser() -> argparse.ArgumentParser:
         if name == "update":
             cmd.add_argument("--candidate", type=Path, required=True)
             cmd.add_argument("--receipt", type=Path, required=True)
+            cmd.add_argument(
+                "--checkout", type=Path, help="Explicit active checkout for bootstrap updates"
+            )
     return p
 
 

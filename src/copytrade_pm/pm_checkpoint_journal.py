@@ -36,6 +36,10 @@ CREATE TABLE IF NOT EXISTS cwsa_outcomes (
     candidate_sha TEXT NOT NULL, outcome TEXT NOT NULL,
     PRIMARY KEY(stream, checkpoint_ms)
 );
+-- Replay resolves outcomes by their immutable ID. Keep this non-unique so
+-- existing duplicate-ID detection remains authoritative.
+CREATE INDEX IF NOT EXISTS cwsa_outcome_id_idx
+    ON cwsa_outcomes(json_extract(outcome,'$.outcome_id'));
 """
 
 

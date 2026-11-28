@@ -4,7 +4,7 @@ Current navigation for the single-owner appliance. Live truth comes from the act
 
 | Task | Read |
 | --- | --- |
-| Operate, inspect, reconcile, update or recover | [Appliance operations](AGENT-NATIVE-OPERATIONS.md), [runbook](RUNBOOK.md) |
+| Operate, inspect, reconcile, update, recover or benchmark restoration | [Appliance operations](AGENT-NATIVE-OPERATIONS.md), [hardening decision](decisions/2026-11-28-appliance-hardening.md) |
 | Understand runtime ownership and retirement | [Architecture](ARCHITECTURE.md), [appliance ADR](decisions/2026-11-28-single-owner-appliance.md) |
 | Change code | [AGENTS](../AGENTS.md), [coding standards](../CODING_STANDARDS.md), [changelog](../CHANGELOG.md) |
 | Facts, source provenance and PIT scans | [FactStore](FACTS-STORE.md), [FactStore ADR](decisions/2026-11-19-unified-bi-temporal-fact-store.md) |

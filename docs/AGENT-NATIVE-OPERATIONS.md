@@ -24,7 +24,7 @@ Status reports the checkout revision, lock pin, configured roots, observed worke
 .venv/bin/copytrade-pm appliance status --json
 ```
 
-All mutation leaves default to dry run. Reconcile validates configuration, RosterStore integrity, checkpoint scope pins and existing signed paper bundles. Applied reconciliation updates native units and enables one target. Recovery restarts that target. Inspect `journalctl --user -u copytrade-pm-source -u copytrade-pm-paper -u copytrade-pm-quotes` for a reported worker failure.
+All mutation leaves default to dry run. Reconcile validates configuration, roster integrity, checkpoint pins and signed paper bundles. Applied reconciliation updates native units and enables one target. Recovery restarts the target and verifies new worker identities and advancing evidence; `runtime/recover.json` records RECOVERED or RECOVERY_FAILED. Inspect `journalctl --user -u copytrade-pm-source -u copytrade-pm-paper -u copytrade-pm-quotes` for worker failures.
 
 The four role commands under `appliance run` are the systemd entry points. A process must match its configured revision and acquire each owner lease. Do not start a second process over active journals.
 
@@ -58,9 +58,15 @@ Prepare and review a clean candidate in an isolated worktree. Run `scripts/ci.sh
 .venv/bin/copytrade-pm appliance status --json
 ```
 
-The command checks the candidate's CI receipt and ancestry before stopping the target. It fast-forwards software and runs frozen uv sync. If activation fails, it restores the prior software revision and environment. The rollback leaves the canonical checkout detached at the prior revision for explicit inspection. It never rewinds financial journals. The operation receipt is under `runtime/update.json`.
+Preflight is a real offline build of both candidate and rollback environments in disposable directories. It validates exact-SHA CI, ancestry, clean trees, interpreter/import binding, candidate-native configuration, exact rendered unit bindings and the native systemd parser. It verifies installed rollback units and environment before stopping anything. A cache miss, malformed unit, dirty checkout or unknown rollback baseline blocks the update without changing the active workers. Dry run performs the same preflight without installing units or stopping workers.
 
-Check observed process revisions and new owner receipts after an update. A successful git operation alone is not deployment verification.
+Activation fast-forwards the canonical checkout and synchronizes its frozen environment. It requires new READY worker PIDs, matching revision/configuration/interpreter, advancing per-scope source and quote receipts, nonrewinding financial and review cursors and preserved prior journal heads. Healthy paper owners must advance observation cursors; an existing source coverage/review blocker excuses that owner's observation advancement only. A new blocker never counts as acceptance. Wait for the bounded five-minute evidence window, not just a green systemd target.
+
+The short CLI result identifies the revision, worker PIDs, existing/remaining blockers and private `runtime/update.json` receipt. The receipt contains the quiescent baseline and observed acceptance evidence. If activation fails, automatic rollback restores software only, including the frozen old environment. ROLLED_BACK requires verified recovery; RECOVERY_FAILED is explicit and must be investigated, not treated as restored. The prior revision remains detached. Do not rewind any journal or force a financial reset.
+
+For the initial hardening bootstrap only, run the already exact-SHA-verified candidate's `copytrade-pm appliance update --checkout /home/quant/dev/copytrade-pm --candidate <candidate> --receipt <receipt>` (add `--apply` after preflight). This uses the hardened verifier while the installed predecessor does not yet contain it. Subsequent updates use the canonical installed CLI without `--checkout`.
+
+Reproduce restoration measurements on a frozen, private snapshot with `python scripts/benchmark_appliance_restore.py SNAPSHOT --repeats 2`. It copies owner SQLite databases, measures full replay, compares exact results and rejects tampering on disposable copies. `scripts/verify_appliance_faults.py SNAPSHOT --baseline SHA --receipt RECEIPT` uses an isolated checkout, native transient systemd service and journal copies for activation/recovery faults; it substitutes a fixture replay worker for live provider polling and never touches the live target.
 
 ## Phase D observation adoption
 
@@ -79,4 +85,6 @@ The source must be a pinned quiescent SQLite snapshot. Preserve originals and ba
 
 Facts, researched roster changes and explicit release signing remain under their existing CLI groups. Signing requires the appropriate independently supplied evidence and key. No appliance command touches broker credentials, submits orders, signs mandates automatically or mutates independent Prop-Production accounts.
 
-Ops Control Center, Site sync, dashboard containers, Prefect and independent worker release installations are permanently retired. Old rollout documents and preserved release archives are for forensic reproduction. The frozen forward assessment scheduled for 2026-12-02 remains pending and its original holdout restrictions remain binding; removing its timer is not completion.
+Ops Control Center, Site sync, dashboard containers, Prefect and independent worker release installations are permanently retired. Old rollout documents and preserved release archives are for forensic reproduction.
+
+Safe retirement: inventory dependencies and active PIDs, stop/disable only the obsolete units, archive and verify their private evidence and Git ancestry before deleting executable paths. Never force-remove a dirty or untracked worktree; preserve the full tree and hashes outside active installation paths, then obtain an explicit owner decision. Keep the Chapter 2 source alias and independent Prop-Production accounts unchanged. Remote Site/Cloudflare retirement and the frozen 2026-12-02 assessment remain separate obligations; removing a local unit or timer does not complete them.
