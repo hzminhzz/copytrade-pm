@@ -257,6 +257,11 @@ def test_software_rollback_never_rewinds_owner_journals(tmp_path, monkeypatch, r
     )
     monkeypatch.setattr(pm_ci_receipt, "validate_receipt", lambda *args: [])
     monkeypatch.setattr(appliance, "_preflight", lambda *a, **k: None)
+    monkeypatch.setattr(
+        appliance,
+        "_unit_state",
+        lambda _: {"ActiveState": "inactive", "MainPID": "0", "ControlPID": "0"},
+    )
     baseline = {
         "revision": "a" * 40,
         "config_sha256": load_config(root).sha256,
@@ -425,6 +430,35 @@ def test_activation_requires_advancing_evidence_and_preserves_existing_gap(tmp_p
         "ACTIVATION_WORKER_IDENTITY:paper",
         "SOURCE_COVERAGE_GAP:new",
     }
+
+
+def test_stop_requires_all_member_jobs_and_no_processes(monkeypatch):
+    calls = []
+    monkeypatch.setattr(appliance, "_command", lambda argv, **kwargs: calls.append(argv) or "")
+    units = (
+        appliance.TARGET,
+        *appliance.SERVICES,
+        "copytrade-pm-health.timer",
+        "copytrade-pm-health.service",
+    )
+    monkeypatch.setattr(
+        appliance,
+        "_unit_state",
+        lambda _: {"ActiveState": "inactive", "MainPID": "0", "ControlPID": "0"},
+    )
+    appliance._stop()
+    assert calls == [["systemctl", "--user", "stop", *units]]
+    monkeypatch.setattr(
+        appliance,
+        "_unit_state",
+        lambda unit: (
+            {"ActiveState": "deactivating", "MainPID": "1"}
+            if unit == appliance.SERVICES[1]
+            else {"ActiveState": "inactive"}
+        ),
+    )
+    with pytest.raises(RuntimeError, match="APPLIANCE_WORKER_NOT_QUIESCENT"):
+        appliance._stop()
 
 
 def test_discovery_imports_no_providers_or_store_writers():

@@ -29,7 +29,7 @@ from copytrade_pm.pm_appliance_config import load_config
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKER = """
-import json,os,socket,sys,time
+import json,os,signal,socket,sys,time
 from pathlib import Path
 sys.path.insert(0,sys.argv[1])
 from benchmark_appliance_restore import source_restore
@@ -47,6 +47,10 @@ with socket.socket(socket.AF_UNIX,socket.SOCK_DGRAM) as sock:
     addr=os.environ['NOTIFY_SOCKET']
     sock.connect('\\0'+addr[1:] if addr.startswith('@') else addr)
     sock.sendall(b'READY=1')
+def drain(*_):
+    time.sleep(2)
+    raise SystemExit(0)
+signal.signal(signal.SIGTERM, drain)
 while True:
     time.sleep(1)
 """
@@ -207,6 +211,7 @@ def main() -> None:
                 patch.object(appliance, "_preflight", preflight),
                 patch.object(appliance, "status", status),
                 patch.object(appliance, "_start", start_candidate),
+                patch.object(appliance, "_stop", lambda: appliance._stop_units((active,))),
                 patch.object(appliance, "_await_activation", await_native),
             ):
                 for recovery_fails in (False, True):
