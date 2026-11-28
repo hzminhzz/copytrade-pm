@@ -6,6 +6,7 @@ from hashlib import sha256
 import json
 import os
 from pathlib import Path
+import shutil
 import sqlite3
 import socket
 import subprocess
@@ -162,6 +163,34 @@ def test_reconcile_one_checkout_environment_revision_and_external_source_alias(
         "copytrade-pm-source.service",
     ]
     assert not any("prop-" in part for command in commands for part in command)
+
+
+@pytest.mark.parametrize("folder", ["checkout", "checkout with spaces"])
+def test_rendered_units_are_accepted_by_native_systemd(tmp_path, folder):
+    analyzer = shutil.which("systemd-analyze")
+    if analyzer is None:
+        pytest.skip("native systemd parser is unavailable")
+    root, _ = configured(tmp_path)
+    checkout = tmp_path / folder
+    python = checkout / ".venv/bin/python"
+    python.parent.mkdir(parents=True)
+    python.symlink_to(sys.executable)
+    unit_dir = tmp_path / "units"
+    unit_dir.mkdir()
+    paths = []
+    for name, content in appliance.render_units(
+        load_config(root), checkout=checkout, sha="a" * 40
+    ).items():
+        path = unit_dir / name
+        path.write_text(content)
+        paths.append(str(path))
+    result = subprocess.run(
+        [analyzer, "--user", "verify", *paths],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_status_distinguishes_active_processes_from_missing_source_and_quotes(

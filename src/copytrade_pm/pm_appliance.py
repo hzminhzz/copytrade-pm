@@ -83,7 +83,8 @@ def _unit_path(path: Path) -> str:
 
 def render_units(config: ApplianceConfig, *, checkout: Path, sha: str) -> dict[str, str]:
     python = _unit_path(checkout / ".venv/bin/python")
-    working = _unit_path(checkout)
+    # WorkingDirectory takes a literal path, unlike the quoted ExecStart arguments.
+    working = str(checkout)
     state = _unit_path(config.root)
     units = {}
     for role in (*ROLES, "health"):
