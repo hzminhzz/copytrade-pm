@@ -29,8 +29,15 @@ SERVICES = tuple(f"copytrade-pm-{role}.service" for role in ROLES)
 SOURCE_ALIAS = "copytrade-cwsa-5m-source-chapter2.service"
 
 
-def _command(argv: list[str], *, cwd: Path | None = None, timeout: int = 30) -> str:
+def _command(
+    argv: list[str],
+    *,
+    cwd: Path | None = None,
+    timeout: int = 30,
+    env_overrides: dict[str, str] | None = None,
+) -> str:
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env.update(env_overrides or {})
     result = subprocess.run(argv, cwd=cwd, env=env, text=True, capture_output=True, timeout=timeout)
     if result.returncode:
         # Commands use explicit public operations, never keys or broker arguments.
@@ -513,11 +520,13 @@ SYNC_ARGS = [
 
 def _sync_environment(checkout: Path, environment: Path, *, check: bool = False) -> None:
     _command(
-        ["env", f"UV_PROJECT_ENVIRONMENT={environment}", *SYNC_ARGS, "--project", str(checkout)]
-        + (["--check"] if check else []),
+        [*SYNC_ARGS, "--project", str(checkout)] + (["--check"] if check else []),
         cwd=checkout,
         timeout=240,
+        env_overrides={"UV_PROJECT_ENVIRONMENT": str(environment)},
     )
+    if not (environment / "bin/python").is_file():
+        raise RuntimeError("APPLIANCE_ENVIRONMENT_MISSING:" + str(environment))
 
 
 def _preflight(

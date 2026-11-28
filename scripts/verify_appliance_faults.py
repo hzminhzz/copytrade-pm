@@ -69,7 +69,9 @@ def main() -> None:
     paper = original.papers["liquid12"]
     pid, portfolio = next(iter(paper["portfolios"].items()))
     folder = portfolio["folder"]
-    with TemporaryDirectory(prefix="copytrade-ah-native-") as temp:
+    # The user systemd manager may see a different /tmp mount from the
+    # invoking DevSpace process. Use a private home-backed temporary tree.
+    with TemporaryDirectory(prefix="copytrade-ah-native-", dir=Path.home() / ".cache") as temp:
         root = Path(temp)
         state = root / "state"
         state.mkdir(mode=0o700)

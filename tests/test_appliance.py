@@ -298,6 +298,27 @@ def test_software_rollback_never_rewinds_owner_journals(tmp_path, monkeypatch, r
     assert len(syncs) == 2
 
 
+def test_environment_sync_uses_direct_binding_and_requires_actual_interpreter(
+    tmp_path, monkeypatch
+):
+    checkout = tmp_path / "checkout"
+    environment = tmp_path / "staged"
+    commands = []
+    monkeypatch.setattr(
+        appliance, "_command", lambda argv, **kwargs: commands.append((argv, kwargs)) or ""
+    )
+    with pytest.raises(RuntimeError, match="APPLIANCE_ENVIRONMENT_MISSING"):
+        appliance._sync_environment(checkout, environment)
+    argv, kwargs = commands[0]
+    assert argv[:2] == ["uv", "sync"]
+    assert kwargs["env_overrides"] == {"UV_PROJECT_ENVIRONMENT": str(environment)}
+    python = environment / "bin/python"
+    python.parent.mkdir(parents=True)
+    python.symlink_to(sys.executable)
+    appliance._sync_environment(checkout, environment, check=True)
+    assert commands[-1][0][-1] == "--check"
+
+
 def test_native_preflight_rejects_wrong_executable_and_invalid_unit(tmp_path, monkeypatch):
     root, _ = configured(tmp_path)
     home = tmp_path / "home"
